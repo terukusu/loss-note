@@ -1,4 +1,4 @@
-// R・円の数字（契約 C-1）。色を付けず（本文の文字の色を継ぐ）、等幅で符号と単位を必ず出す
+// R・円の数字（契約 C-1）。色を付けず（本文の文字の色を継ぐ）、本文の書体の桁の揃う数字（tabular-nums）で符号と単位を必ず出す
 import { formatR, formatYen } from '../lib/format';
 
 type Size = 'md' | 'lg' | 'xl';

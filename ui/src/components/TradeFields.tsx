@@ -57,7 +57,7 @@ function fieldHelpers(p: TradeFieldsProps) {
   return { d, e: p.errors, set, mark, onUpdate: p.onUpdate, marks: p.marks };
 }
 
-/** 「取引」「LC」「3 つのタップ」の枠 */
+/** 「取引」「LC」「決済までの振る舞い」（3 つのタップ）の枠 */
 export function TradeMainFields(p: TradeFieldsProps) {
   const { d, e, set, mark, onUpdate } = fieldHelpers(p);
   const side = d.side;
@@ -97,7 +97,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
             { value: 'S', label: 'S ショート' },
           ]}
         />
-        <div class="record__pair">
+        <div class="record__pair record__pair--prices">
           <NumberField
             id="record-entry"
             label="イン"
@@ -179,7 +179,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
 
       <section class="card section" aria-labelledby="record-taps-title">
         <h2 class="section__title" id="record-taps-title">
-          3 つのタップ
+          決済までの振る舞い
         </h2>
         {d.lcNone ? (
           <p class="section__note">

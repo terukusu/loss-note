@@ -10,6 +10,7 @@
   --font:
     system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
     "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+  /* 等幅は ID・コードだけ。R・円・割合の数字は本文の書体の桁の揃う数字（.num の tabular-nums。Issue #33） */
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
   --fs-xs: 12px;
@@ -20,7 +21,7 @@
   --fs-2xl: 28px;
   --fs-3xl: 34px;
   --fs-num-lg: 22px;
-  --fs-num-xl: 44px;
+  --fs-num-xl: 36px;
 
   --fw-regular: 400;
   --fw-medium: 500;
@@ -39,9 +40,10 @@
   --sp-7: 32px;
   --sp-8: 48px;
 
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 20px;
+  /* 角丸は 3 つと丸だけ（部品の CSS に px の角丸を書かない。Issue #33 AC-6） */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-pill: 999px;
 
   --dur-fast: 120ms;
@@ -52,6 +54,8 @@
   --tap: 44px;
   --nav-h: 64px;
   --topbar-h: 60px;
+  /* 記録する画面の貼り付きの帯の高さの上限（1 段。判定の枠を寄せるときの下の空き。Issue #33 AC-1） */
+  --submitbar-h: 64px;
   --content-max: 880px;
   --gutter: 16px;
 }

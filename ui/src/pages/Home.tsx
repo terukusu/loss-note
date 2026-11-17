@@ -20,7 +20,7 @@ export function Home() {
           <EmptyState
             icon="record"
             title="最初の取引を記録しましょう"
-            description="決済したら、その場で 30 秒。決済明細とチャートのスクショを貼り、LC と 3 つのタップで判定が出ます。"
+            description="決済したら、その場で 30 秒。決済明細とチャートのスクショを貼り、LC と、決済までの振る舞いの 3 つのタップで判定が出ます。"
           >
             <Button href="/record" icon="record" size="lg">
               記録する

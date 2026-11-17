@@ -336,7 +336,8 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
 
   it('入力欄とセグメントの枠は --field-line', () => {
     const css = stripComments(files[COMPONENTS] ?? '');
-    for (const sel of ['.numfield', '.seg']) {
+    // セグメントは項目ごとの枠（Issue #33: 入れ子 2 段のため、セグメント全体の枠を項目へ移した）
+    for (const sel of ['.numfield', '.seg__item']) {
       const d = decls(blocks(css).find((x) => x.selector === sel)?.body ?? '');
       expect(d.get('border'), sel).toBe('1px solid var(--field-line)');
     }
@@ -399,11 +400,52 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(found).toBeGreaterThan(0);
   });
 
-  it('数字の部品は等幅（--mono・tabular-nums）', () => {
-    const b = blocks(stripComments(files[COMPONENTS] ?? '')).find((x) => x.selector === '.num');
-    const d = decls(b?.body ?? '');
-    expect(d.get('font-family')).toBe('var(--mono)');
-    expect(d.get('font-variant-numeric')).toContain('tabular-nums');
+  it('AC-7: 数字の部品（.num）と数値の入力欄は本文の書体の桁揃え（tabular-nums）。等幅（--mono）を宣言しない', () => {
+    const css = blocks(stripComments(files[COMPONENTS] ?? ''));
+    for (const sel of ['.num', '.numfield__input']) {
+      const d = decls(css.find((x) => x.selector === sel)?.body ?? '');
+      expect(d.get('font-variant-numeric'), sel).toContain('tabular-nums');
+      const family = d.get('font-family');
+      expect(family === undefined || family === 'var(--font)', `${sel}: ${family}`).toBe(true);
+    }
+    // どの CSS でも .num・.num--<大きさ>・.numfield の規則に --mono を書かない
+    for (const [path, raw] of Object.entries(files)) {
+      for (const b of blocks(stripComments(raw))) {
+        if (!NUM_SELECTOR.test(b.selector) && !/\.numfield(?![\w-])|\.numfield__/.test(b.selector))
+          continue;
+        expect(decls(b.body).get('font-family') ?? '', `${path} ${b.selector}`).not.toContain(
+          '--mono',
+        );
+      }
+    }
+    // 大きな R は 36px
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(root.get('--fs-num-xl')).toBe('36px');
+  });
+
+  it('AC-6: 角丸のトークンは 12 / 8 / 6px（丸は 999px）。部品の CSS の角丸は var(--radius-*) か 0 だけ（px の直書き 0 件）', () => {
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(root.get('--radius-lg')).toBe('12px');
+    expect(root.get('--radius-md')).toBe('8px');
+    expect(root.get('--radius-sm')).toBe('6px');
+    expect(root.get('--radius-pill')).toBe('999px');
+    const bad: string[] = [];
+    let seen = 0;
+    for (const [path, raw] of Object.entries(files)) {
+      if (path === TOKENS) continue;
+      for (const b of blocks(stripComments(raw))) {
+        for (const [name, value] of decls(b.body)) {
+          if (!/^border(-[a-z]+)*-radius$/.test(name)) continue;
+          seen++;
+          const parts = value.replace(/var\(--radius-[a-z]+\)/g, 'TOKEN').split(/[\s/]+/);
+          if (!parts.every((x) => x === 'TOKEN' || x === '0')) {
+            bad.push(`${path} ${b.selector} { ${name}: ${value} }`);
+          }
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(10);
+    expect(bad).toEqual([]);
   });
 
   it('CSS は外のものを読まない（url() も @import も書かない）', () => {

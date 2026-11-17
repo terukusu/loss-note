@@ -12,7 +12,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
-  padding: var(--sp-5);
+  padding: var(--sp-4);
 }
 
 .section__title {
@@ -140,7 +140,7 @@
   min-height: 52px;
   padding: 0 var(--sp-6);
   font-size: var(--fs-lg);
-  border-radius: 14px;
+  border-radius: var(--radius-md);
 }
 
 .btn--block {
@@ -203,13 +203,21 @@
   border: 0;
   background: transparent;
   color: var(--ink);
-  font-family: var(--mono);
+  /* 数字は本文の書体の桁の揃う数字（等幅の書体にしない。Issue #33 AC-7） */
+  font-family: var(--font);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-lg);
 }
 
 .numfield__input::placeholder {
   color: var(--ink-3);
+}
+
+/* 空の数の欄の見本の文字は、入れた値より小さく細く（入力済みに見せない。Phase 4b 指摘 4） */
+.numfield--lg .numfield__input::placeholder {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-regular);
+  letter-spacing: 0;
 }
 
 .numfield__unit {
@@ -220,7 +228,7 @@
 
 /* 主の数字（イン・決済・LC）は大きく。片手で打ちやすく、遠目でも読める */
 .numfield--lg {
-  min-height: 60px;
+  min-height: 52px;
 }
 
 .numfield--lg .numfield__input {
@@ -303,16 +311,13 @@
 }
 
 /* ── セグメント（2〜3 択） ───────────── */
-/* 項目は同じ幅で並べ、どの項目も文字 + 左右の余白（右上のチェックの分）より狭くしない。
-   幅が足りなければ次の行へ折り返す（文字をチェックの記号に重ねない・切らない。#5 のレビュー指摘 2） */
+/* 項目を並べるだけ（セグメント全体の枠・面を持たない。カード → 項目の 2 段。Issue #33 AC-5）。
+   項目は同じ幅で並べ、どの項目も文字 + 記号 + 左右の余白より狭くしない。幅が足りなければ次の行へ折り返す
+   （文字を切らない。#5 のレビュー指摘 2） */
 .seg {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-1);
-  padding: var(--sp-1);
-  background: var(--s2);
-  border: 1px solid var(--field-line);
-  border-radius: var(--radius-md);
 }
 
 .seg__item {
@@ -321,13 +326,13 @@
   align-items: center;
   justify-content: center;
   flex: 1 1 0;
-  gap: var(--sp-2);
+  gap: var(--sp-1);
   min-width: max-content;
   min-height: var(--tap);
-  /* 左右の余白は右上のチェックの分（文字と重ねない） */
-  padding: 0 var(--sp-4);
-  border: 1px solid transparent;
-  border-radius: 9px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-sm);
+  background: var(--s2);
   color: var(--ink-2);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
@@ -361,14 +366,12 @@
   box-shadow: var(--shadow-1);
 }
 
-/* 選んだ項目の印（チェックの記号。色だけに頼らない）。後の `.seg__item .icon`（18px）に負けないよう .icon も付けて
-   詳しく指す（12px + 右 2px = 14px が左右の余白 16px に収まり、文字に重ならない。#5 のレビュー指摘 2） */
+/* 選んだ項目の印（文字の前のチェックの記号。面の濃さ・強調の枠と合わせて 3 つで示す。色だけに頼らない。Issue #33）。
+   後の `.seg__item .icon`（18px）に負けないよう .icon も付けて詳しく指す */
 .seg__item .seg__check.icon {
-  position: absolute;
-  top: 3px;
-  right: 2px;
-  width: 12px;
-  height: 12px;
+  flex: none;
+  width: 14px;
+  height: 14px;
   stroke-width: 3;
   color: var(--accent);
   pointer-events: none;
@@ -450,8 +453,8 @@
 
 /* ── 数字（色を持たない。本文の文字の色を継ぐ。AC-5） ── */
 .num {
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums slashed-zero;
+  /* 本文の書体の桁の揃う数字（等幅の書体にしない。Issue #33 AC-7） */
+  font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -466,7 +469,7 @@
   font-size: var(--fs-num-xl);
   font-weight: var(--fw-bold);
   line-height: 1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.02em;
 }
 
 /* ── 空の状態 ─────────────────────── */
@@ -486,7 +489,7 @@
   width: 56px;
   height: 56px;
   margin-bottom: var(--sp-2);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   color: var(--accent);
   background: var(--s3);
   border: 1px solid var(--line-2);
@@ -524,13 +527,13 @@
 .record {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
 }
 
 .record__fields {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -548,6 +551,11 @@
   .record__pair {
     grid-template-columns: 1fr 1fr;
   }
+}
+
+/* イン・決済は幅 360px でも 2 列（対で読む値。画面の全長を詰める。Issue #33 AC-4） */
+.record__pair--prices {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 /* [記録する] は親指の届く所に。スマホでは下部の行き先の上に貼り付ける */
@@ -577,6 +585,63 @@
   display: none;
 }
 
+/* 記録する画面の帯は 1 段（1 行の状態の文 + [記録する]）。幅 360px で 64px 以下（Issue #33 AC-1）。
+   保存の失敗の知らせ（[ログインし直す] を含む）が出ている間だけ折り返して伸びてよい。
+   幅 720px 未満は幅いっぱい・不透明で下部の行き先に付ける（下の文字を透かさない。浮かせる余白を取らない） */
+.record__submit--bar {
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  margin-inline: calc(var(--gutter) * -1);
+  padding: var(--sp-2) var(--gutter);
+  border-width: 1px 0 0;
+  border-radius: 0;
+  background: var(--s1);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+@media (min-width: 720px) {
+  .record__submit--bar {
+    bottom: var(--sp-4);
+    margin-inline: 0;
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+    border-width: 1px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-2);
+  }
+}
+
+.record__submit--bar .notice {
+  flex: 1 1 100%;
+}
+
+.record__submit--bar .btn:not(.btn--block) {
+  flex: none;
+}
+
+/* 帯・知らせの中のボタンが 3 段目の枠にならないよう、帯の中の知らせは枠と面を持たない（文字の色だけ。Issue #33 AC-5） */
+.record__submit .notice:has(.btn) {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.record__status {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  /* 切れたら外れ（ui:check が scrollWidth で測る）。…は最後の守り */
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .record__missing {
   font-size: var(--fs-sm);
   color: var(--ink-2);
@@ -598,7 +663,7 @@
   justify-content: center;
   gap: var(--sp-1);
   min-width: 72px;
-  min-height: 60px;
+  min-height: 52px;
   /* ラベルの行の高さぶん下げ、数値の欄と上端をそろえる */
   margin-top: calc(var(--fs-sm) * var(--lh-body) + var(--sp-2));
   padding: 0 var(--sp-4);
@@ -633,28 +698,57 @@
   color: var(--accent);
 }
 
-/* 判定・理由・R の枠。色は判定の段（枠・地の淡い色・バッジ）だけ、数字は本文の色（C34） */
+/* 判定・理由・R の枠。色は判定の段（地の淡い色・左の帯・バッジ）だけ、数字は本文の色（C34）。枠の線は他のカードと同じ */
 .verdict {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-4);
-  padding: var(--sp-5);
-  overflow: hidden;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  /* clip（hidden にしない）: スクロールの容器にしない。hidden だと scrollIntoView が枠の中で寄せを終え、scroll-margin が
+     画面のスクロールに効かない（Issue #33 のレビュー後に R11 で見つけた） */
+  overflow: clip;
   color: var(--ink);
-  transition: border-color var(--dur-base) var(--ease);
 }
 
+/* タップの後に判定のバッジと R の行を見える範囲へ寄せるとき、上の帯・貼り付きの帯・下部の行き先に隠れない空き
+   （Issue #33 AC-3。帯は下部の行き先に付いている） */
+.verdict,
+.verdict__stats {
+  scroll-margin-top: calc(var(--topbar-h) + var(--sp-3));
+  scroll-margin-bottom: calc(var(--submitbar-h) + var(--nav-h) + var(--sp-3));
+}
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .verdict,
+  .verdict__stats {
+    scroll-margin-bottom: calc(
+      var(--submitbar-h) +
+      var(--nav-h) +
+      var(--sp-3) +
+      env(safe-area-inset-bottom)
+    );
+  }
+}
+
+@media (min-width: 720px) {
+  .verdict,
+  .verdict__stats {
+    scroll-margin-bottom: calc(var(--submitbar-h) + var(--sp-4) + var(--sp-3));
+  }
+}
+
+/* 左の帯は角丸の曲がりに入らない（上下を空け、端を丸める。Issue #33 例 R6） */
 .verdict::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 0;
+  inset: var(--sp-4) auto var(--sp-4) 0;
   width: 4px;
+  border-radius: 0 var(--radius-pill) var(--radius-pill) 0;
   background: var(--line-2);
 }
 
 .verdict--plan {
-  border-color: var(--tier-plan-line);
   background: linear-gradient(
     160deg,
     color-mix(in srgb, var(--tier-plan-bg) 80%, var(--s1)),
@@ -667,7 +761,6 @@
 }
 
 .verdict--break {
-  border-color: var(--tier-break-line);
   background: linear-gradient(
     160deg,
     color-mix(in srgb, var(--tier-break-bg) 80%, var(--s1)),
@@ -680,7 +773,6 @@
 }
 
 .verdict--worst {
-  border-color: var(--tier-worst-line);
   background: linear-gradient(
     160deg,
     color-mix(in srgb, var(--tier-worst-bg) 80%, var(--s1)),
@@ -692,16 +784,11 @@
   background: var(--tier-worst-line);
 }
 
-/* 保存の後はいちばん目立つ所に大きく出す */
+/* 保存の後はいちばん目立つ所に大きく出す（色の信号は地の淡い色・左の帯・バッジの 3 つまで。枠は太くしない） */
 .verdict--saved {
   gap: var(--sp-5);
   padding: var(--sp-6);
-  border-width: 2px;
   box-shadow: var(--shadow-2);
-}
-
-.verdict--saved::before {
-  width: 6px;
 }
 
 .verdict--saved .badge--lg {
@@ -753,11 +840,12 @@
   color: var(--ink);
 }
 
+/* R・リスク・損益はラベルの上端を揃える（値の大きさが違ってもラベルの行が揃う。Issue #33 AC-7） */
 .verdict__stats {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--sp-4) var(--sp-7);
+  align-items: flex-start;
+  gap: var(--sp-3) var(--sp-6);
 }
 
 .verdict__stat {
@@ -774,11 +862,30 @@
   color: var(--ink-3);
 }
 
-.verdict__note,
 .verdict__hint,
 .verdict__caption {
   font-size: var(--fs-sm);
   color: var(--ink-2);
+}
+
+/* 値が出ない場所の「—」（理由は注記に 1 回だけ） */
+.verdict__none {
+  display: inline-block;
+  font-size: var(--fs-num-lg);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  color: var(--ink-3);
+}
+
+/* 理由の一覧から分けた注記（見ていないもの・「—」の理由）。小さく控えめに 1 行ずつ */
+.verdict__aside {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  text-wrap: pretty;
+}
+
+.reasons + .verdict__aside {
+  margin-top: calc(var(--sp-1) * -1);
 }
 
 .verdict__caption {
@@ -787,11 +894,10 @@
   word-break: auto-phrase;
 }
 
+/* 窓・滑りの問い（枠を持たない。上の区切り線だけ。判定の枠 → セグメントの 2 段。Issue #33 AC-5） */
 .verdict__ask {
-  padding: var(--sp-4);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-md);
-  background: var(--s1);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
 }
 
 .reasons {
@@ -823,7 +929,7 @@
   display: flex;
   align-items: center;
   min-height: var(--tap);
-  padding: var(--sp-2) var(--sp-5);
+  padding: var(--sp-2) var(--sp-4);
   font-weight: var(--fw-bold);
   color: var(--ink-2);
   cursor: pointer;
@@ -850,39 +956,17 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-4);
-  padding: 0 var(--sp-5) var(--sp-5);
+  padding: 0 var(--sp-4) var(--sp-4);
 }
 
 /* ── 決済明細を貼る枠（#15）。注意は常に見える文、状態は控えめな文字。色は本文の色だけ（判定の段の色を使わない） ── */
+/* 送る前の注意は見出しの下の 1 段落（内枠を持たない。常に見える形のまま、幅 360px で 3 行以下。Issue #33 AC-4） */
 .statement__notice {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  margin: 0;
-  padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-md);
-  background: var(--s2);
-  font-size: var(--fs-sm);
+  margin: calc(var(--sp-2) * -1) 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.6;
   color: var(--ink-2);
-  list-style: none;
   text-wrap: pretty;
-}
-
-.statement__notice li {
-  position: relative;
-  padding-left: var(--sp-4);
-}
-
-.statement__notice li::before {
-  content: "";
-  position: absolute;
-  left: var(--sp-1);
-  top: calc(var(--fs-sm) * var(--lh-body) / 2 - 2px);
-  width: 4px;
-  height: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--ink-3);
 }
 
 /* 貼り付けの案内は、ポインタの細かい端末（PC）だけに出す（スマホには貼り付けのキーが無い。#12 のチャートの枠も同じ） */
@@ -891,11 +975,42 @@
   display: none;
 }
 
-@media (pointer: fine) {
+@media (hover: hover) and (pointer: fine) {
   .statement__pastehint,
   .chart__pastehint {
     display: block;
   }
+}
+
+/* 注意の「詳しく」（[スクショを選ぶ] の横。開くと下に補足の文） */
+.statement__more {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.statement__more-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: 0 var(--sp-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.statement__more-summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.statement__more[open] {
+  flex: 1 1 100%;
+}
+
+.statement__more-body {
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  text-wrap: pretty;
 }
 
 .statement__row:focus,
@@ -1011,6 +1126,11 @@
 }
 
 /* ── 根拠の足のチャートの枠（#12）。720px 未満は縦に、以上は横に 2 つ。枠を選ぶ（フォーカス）と輪と「ここに貼れます」 ── */
+/* 外側のカードを持たない（見出し + 2 つの点線の枠。Issue #33 AC-5） */
+.charts.section {
+  padding: var(--sp-1) 0;
+}
+
 .charts__grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1137,7 +1257,7 @@
   width: 48px;
   height: 48px;
   margin-bottom: var(--sp-2);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   color: var(--on-accent);
   background: linear-gradient(
     135deg,
@@ -1318,14 +1438,15 @@
 }
 
 /* 銘柄の一覧（1 行 = 名前 + 要約 + [直す]。開いた行は編集の欄） */
+/* 四辺の枠を持たない（上下の区切り線だけ。カード → 欄の 2 段。Issue #33 AC-5） */
 .instlist {
   display: flex;
   flex-direction: column;
   margin: 0;
   padding: 0;
   list-style: none;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .instlist__item {
@@ -1337,8 +1458,9 @@
   border-bottom: 0;
 }
 
+/* 開いた行は面を変えず、左の線で示す */
 .instlist__item:has(.instedit) {
-  background: var(--s2);
+  border-left: 3px solid var(--accent);
 }
 
 .instlist__row {
@@ -1399,7 +1521,7 @@
 }
 
 .section .tradelist {
-  margin: 0 calc(var(--sp-5) * -1);
+  margin: 0 calc(var(--sp-4) * -1);
 }
 
 .traderow {
@@ -1479,22 +1601,23 @@
   white-space: nowrap;
 }
 
-/* 値が出ない（「—」）。理由は一覧の上に 1 回だけ */
+/* 値が出ない（「—」）。理由は一覧の下の脚注に 1 回だけ */
 .traderow__none {
   color: var(--ink-3);
 }
 
+/* 「—」の理由は一覧の下の脚注（毎回の主役より先に目に入らない。Phase 4b 指摘 3） */
 .tradelist__notes {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  padding: 0 var(--sp-5) var(--sp-2);
-  font-size: var(--fs-sm);
-  color: var(--ink-2);
+  padding: var(--sp-2) var(--sp-5) 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
 }
 
 .section .tradelist__notes {
-  padding: 0;
+  padding: var(--sp-2) 0 0;
 }
 
 /* 列の見出し（幅 720px 以上の 1 行の並びだけ） */
@@ -1549,16 +1672,13 @@
   color: var(--ink-2);
 }
 
+/* 枠を持たない（figure + 添え書き + canvas。カード → canvas の 2 段。Issue #33 例 10） */
 .chartview {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-3);
+  gap: var(--sp-2);
   min-width: 0;
   margin: 0;
-  padding: var(--sp-4);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-md);
-  background: var(--s2);
 }
 
 .chartview__name {

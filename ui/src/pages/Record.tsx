@@ -6,7 +6,9 @@
 // 3 層: 純関数（lib/record-form.ts）→ 通信と状態（lib/record-controller.ts）→ この画面（薄い）。
 // Record は hook を持たない（App のテストが 1 段だけ呼ぶ）。RecordScreen が controller を購読し、
 // 描画は hook を持たない RecordView に任せる（状態と操作の関数を受けて描くだけ。テストで直接呼べる）。
-// 判定・R は core/ の結果だけを出す。色は判定の段（バッジと結果の枠）だけ、数字は無色（C34）
+// 判定・R は core/ の結果だけを出す。色は判定の段（バッジと結果の枠）だけ、数字は無色（C34）。
+// 密度と階層（Issue #33）: 判定の枠は 3 つのタップのすぐ後。貼り付きの帯は 1 段（1 行の状態の文 + [記録する]）で、
+// 欄の名前は判定の枠の案内に出す。タップの後に判定が出ていれば、判定の枠を見える範囲へ寄せる（フォーカスは動かさない）
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Side } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
@@ -39,14 +41,12 @@ import {
   rowLabel,
 } from '../lib/statement-fill';
 import { browserCodec, prepareImage } from '../lib/statement-image';
+import { blockReason, isTapAction, submitStatus } from '../lib/verdict-notes';
 
 export function Record() {
   return (
     <>
-      <PageHeader
-        title="記録する"
-        description="決済の後に 1 回だけ。決済明細のスクショを貼るか手で入れて、LC と 3 つのタップで判定が出ます。"
-      />
+      <PageHeader title="記録する" />
       <RecordScreen />
     </>
   );
@@ -132,10 +132,30 @@ export function RecordScreen() {
     setTimeout(() => document.getElementById(id)?.focus(), 0);
   };
 
+  /**
+   * 3 つのタップ（と LC の「なし」）の後、判定が出ていれば判定のバッジと R の行を見える範囲へ寄せる（AC-3）。見えていれば
+   * 動かさない（nearest）。動きを減らす設定では動きを付けない。フォーカスは押したタップに残す。上の帯・貼り付きの帯・
+   * 下部の行き先の分は .verdict__stats / .verdict__head の scroll-margin で空ける
+   */
+  const onUpdate = (action: DraftAction) => {
+    controller.update(action);
+    if (!isTapAction(action)) return;
+    if (controller.getState().read.preview.judgment === undefined) return;
+    setTimeout(() => {
+      // 寄せるのは判定のバッジと R の行まで（枠全体だと、理由が多いときに押したタップの枠が上へ隠れる）。
+      // R・リスクの段の無い取引（LC なし）は枠ごと（枠が短い）
+      const v = document.getElementById(VERDICT_TITLE_ID)?.closest('section');
+      const target = v?.querySelector('.verdict__stats') ?? v;
+      if (!target) return;
+      const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+      target.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+    }, 0);
+  };
+
   return (
     <RecordView
       state={state}
-      onUpdate={controller.update}
+      onUpdate={onUpdate}
       onSave={() => {
         void controller.save();
       }}
@@ -201,17 +221,25 @@ export interface RecordViewProps {
 const FIRST_FIELD_ID = 'record-instrument';
 const SUBMIT_ID = 'record-submit';
 const STATEMENT_FILE_ID = 'record-statement-file';
+const STATEMENT_NOTICE_ID = 'record-statement-notice';
+const VERDICT_HINT_ID = 'record-verdict-hint';
 const STATEMENT_TITLE_ID = 'record-statement-title';
 const STATEMENT_ROW_ID = 'record-statement-row';
 const CHARTS_TITLE_ID = 'record-charts-title';
 const chartBoxId = (slot: ChartSlot) => `record-chart-${slot}`;
 
-/** 送る前の注意（枠に常に出す。R10・設計書 7.5） */
+/**
+ * 送る前の注意（枠に常に出す。畳まない・ダイアログにしない。R10・設計書 7.5・C38）。3 つの中身（AI の提供元に送る・
+ * 口座番号などを切り取る・画像を保存しない）を 2 文にまとめ、幅 360px で 3 行以下にする（Issue #33 AC-4）
+ */
 export const STATEMENT_NOTICE = [
-  '明細の画像は AI の提供元（Anthropic）に送って読み取ります。',
-  '口座番号・氏名などは、端末で切り取ってから貼ってください。',
-  '明細の画像は保存しません（読み取った値だけを、確かめてから記録します）。',
+  '明細は AI の提供元（Anthropic）に送って読み取り、画像は保存しません。',
+  '口座番号・氏名は切り取って貼ってください。',
 ] as const;
+
+/** 注意の「詳しく」の中（畳んでよい補足。3 つの中身は上の注意に常に出ている） */
+export const STATEMENT_NOTICE_MORE =
+  '明細の画像は AI の提供元（Anthropic）に送り、読み取った値を欄に入れます。値は確かめてから記録してください。画像はこのアプリにも端末にも保存しません。口座番号・氏名などは、端末の写真の編集で切り取ってから貼ってください。';
 
 export function RecordView(p: RecordViewProps) {
   const { state } = p;
@@ -270,11 +298,10 @@ function SavedPanel(p: RecordViewProps) {
         caption={`${saved.instrumentName} · ${r.side === 'L' ? 'L ロング' : 'S ショート'} · イン ${formatPrice(entry.price)} → 決済 ${formatPrice(r.exit.price)} · 数量 ${formatPrice(entry.quantity)}`}
         {...(charts > 0 ? { note: `チャート ${charts} 枚も保存しました` } : {})}
       />
-      <div class="record__submit">
-        <Button size="lg" block icon="record" onClick={p.onNext}>
-          次の取引を記録
-        </Button>
-      </div>
+      {/* 保存の後はボタン 1 つなので帯（カード）に包まず、判定の枠の下に直に置く */}
+      <Button block icon="record" onClick={p.onNext}>
+        次の取引を記録
+      </Button>
     </div>
   );
 }
@@ -297,6 +324,9 @@ function RecordForm(p: RecordViewProps) {
   // 明細の読み取りの印（読み取りの値は「ほかの欄」も開いて見せる。AC-4）
   const marks = state.statement?.marks ?? {};
   const hasReadMarks = Object.keys(marks).length > 0;
+  // 押せない理由（判定の枠の案内。[記録する] の読み上げの説明に結ぶ）と、帯の 1 行の状態の文
+  const reason = blockReason(read, errorLabels);
+  const describe = !read.canSave && reason !== null ? VERDICT_HINT_ID : undefined;
 
   return (
     <form
@@ -320,8 +350,6 @@ function RecordForm(p: RecordViewProps) {
           onUpdate={onUpdate}
         />
 
-        <ChartPanel {...p} />
-
         <Verdict
           summary={read.preview}
           side={side ?? 'L'}
@@ -340,7 +368,11 @@ function RecordForm(p: RecordViewProps) {
           }
           pending={read.preview.judgment === undefined}
           hasErrors={errorFields.length > 0}
+          hint={reason}
+          hintId={VERDICT_HINT_ID}
         />
+
+        <ChartPanel {...p} />
 
         <TradeMoreFields
           draft={d}
@@ -352,7 +384,7 @@ function RecordForm(p: RecordViewProps) {
         />
       </fieldset>
 
-      <div class="record__submit">
+      <div class="record__submit record__submit--bar">
         {state.error ? (
           <div class="notice notice--error" role="alert">
             <p>{state.error}</p>
@@ -363,22 +395,15 @@ function RecordForm(p: RecordViewProps) {
             ) : null}
           </div>
         ) : null}
-        <p class="record__missing" aria-live="polite">
-          {[
-            read.notice ?? '',
-            errorLabels.length > 0 ? `誤りのある欄: ${errorLabels.join('・')}` : '',
-            read.missing.length > 0 ? `足りない欄: ${read.missing.join('・')}` : '',
-          ]
-            .filter(Boolean)
-            .join(' / ')}
+        <p class="record__status" aria-live="polite">
+          {submitStatus(read, errorLabels)}
         </p>
         <Button
           type="submit"
           id={SUBMIT_ID}
-          size="lg"
-          block
           icon="record"
           disabled={!read.canSave || saving}
+          {...(describe ? { describedBy: describe } : {})}
         >
           {saving ? '記録しています…' : '記録する'}
         </Button>
@@ -399,11 +424,9 @@ function StatementPanel(p: RecordViewProps) {
       <h2 class="section__title" id={STATEMENT_TITLE_ID} tabIndex={-1}>
         決済明細のスクショ
       </h2>
-      <ul class="statement__notice" aria-label="送る前の注意">
-        {STATEMENT_NOTICE.map((t) => (
-          <li key={t}>{t}</li>
-        ))}
-      </ul>
+      <p class="statement__notice" id={STATEMENT_NOTICE_ID}>
+        {STATEMENT_NOTICE.join('')}
+      </p>
       <div class="statement__pick">
         <label class="btn btn--secondary statement__file" for={STATEMENT_FILE_ID}>
           <Icon name="image" />
@@ -413,6 +436,7 @@ function StatementPanel(p: RecordViewProps) {
             class="statement__input"
             type="file"
             accept="image/png,image/jpeg,image/*"
+            aria-describedby={STATEMENT_NOTICE_ID}
             onChange={(ev) => {
               const input = ev.currentTarget;
               const file = input.files?.[0];
@@ -422,7 +446,11 @@ function StatementPanel(p: RecordViewProps) {
             }}
           />
         </label>
-        {/* キーの名前に頼らない言い方。指で触る端末（スマホ）では出さない（CSS の pointer: fine だけで出す） */}
+        <details class="statement__more">
+          <summary class="statement__more-summary">詳しく</summary>
+          <p class="statement__more-body">{STATEMENT_NOTICE_MORE}</p>
+        </details>
+        {/* キーの名前に頼らない言い方。指で触る端末（スマホ）では出さない（CSS の hover・pointer: fine だけで出す） */}
         <p class="field__hint statement__pastehint">PC はこの画面に貼り付けもできます。</p>
       </div>
       {p.state.readBlocked ? (
@@ -489,7 +517,8 @@ function StatementPanel(p: RecordViewProps) {
 /** 根拠の足のチャートの枠（エントリー時・決済時。#12 契約 UI-1） */
 function ChartPanel(p: RecordViewProps) {
   return (
-    <section class="card section charts" aria-labelledby={CHARTS_TITLE_ID}>
+    // 外側のカードを持たない（見出し + 2 つの点線の枠。枠 → ボタン・canvas の 2 段。Issue #33 AC-5）
+    <section class="section charts" aria-labelledby={CHARTS_TITLE_ID}>
       <h2 class="section__title" id={CHARTS_TITLE_ID}>
         根拠の足のチャート（任意）
       </h2>

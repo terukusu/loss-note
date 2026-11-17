@@ -69,6 +69,7 @@ import {
   rowLabel,
 } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
+import { CHART_PREPARING } from './verdict-notes';
 
 export type { ApiFn, FailureKind };
 export { AUTH_EXPIRED, REQUEST_TIMEOUT_MS };
@@ -90,7 +91,7 @@ export const rowSkipped = (index: number, total: number) =>
   `${rowLabel(index, total)}を飛ばしました。次の行（${index + 2} / ${total}）です`;
 /** チャートつきの保存の時間の上限（画像 2 枚で約 1 MB を送る） */
 export const CHART_SAVE_TIMEOUT_MS = 30_000;
-export const CHART_PREPARING = 'チャートを準備しています。終わってから記録できます。';
+export { CHART_PREPARING };
 export const CHART_MSG = {
   notImage: '画像を読み込めませんでした。PNG か JPEG のチャートを選んでください。',
   rejected: 'この画像は使えません。別の画像を選んでください。',

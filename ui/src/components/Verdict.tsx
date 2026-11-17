@@ -6,7 +6,9 @@ import type { Side } from '../../../core/trade';
 import { badgeModel } from '../lib/badge';
 import { formatPct } from '../lib/format';
 import { reasonText } from '../lib/reasons';
-import { type Preview, RISK_NOTE, type Summary } from '../lib/record-form';
+import type { Preview, Summary } from '../lib/record-form';
+import { MISSING } from '../lib/trade-view';
+import { verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
 import { JudgeBadge } from './JudgeBadge';
 import { RNum, YenNum } from './Num';
@@ -32,10 +34,27 @@ export interface VerdictProps {
   readonly pending?: boolean;
   /** 入力に誤りがある（案内の文を変える） */
   readonly hasErrors?: boolean;
+  /**
+   * 押せない理由の案内（記録する画面だけ。欄の名前つきの 1 文。null = 押せる）。渡さなければ、判定を待つ間に
+   * 決まった案内を出す（直す画面）
+   */
+  readonly hint?: string | null;
+  /** 案内の要素の id（[記録する] の aria-describedby が指す） */
+  readonly hintId?: string;
   /** 見出しの id（既定は記録する画面の id。詳細の画面は別の id を渡す） */
   readonly titleId?: string;
   /** 直す前の判定（直す画面だけ。直す前 → 直した後が分かるように、判定の行の上に出す） */
   readonly before?: Summary;
+}
+
+/** 値が出ない場所（「—」。読み上げには「出ません」。理由は枠の下の注記に 1 回だけ） */
+function None() {
+  return (
+    <span class="verdict__none">
+      <span aria-hidden="true">{MISSING}</span>
+      <span class="sr-only">出ません</span>
+    </span>
+  );
 }
 
 /** 判定・理由・R・リスクの枠。枠の色は判定の段だけ、数字は無色 */
@@ -44,13 +63,16 @@ export function Verdict(v: VerdictProps) {
   const j = v.summary.judgment;
   const tier = badgeModel(j?.grade ?? null).tier;
   const lead = j ? GRADE_LEAD[j.grade] : undefined;
-  const waiting = v.hasErrors ? '誤りを直すと出ます' : 'イン・決済・LC で出ます';
-  const rNote = v.summary.invalid
-    ? RISK_NOTE.invalid
-    : v.summary.noLc
-      ? 'LC が無いので出ません'
-      : waiting;
-  const riskNote = v.summary.riskNote ?? waiting;
+  const pending = v.pending === true;
+  const n = verdictNotes(v.summary, { pending });
+  const hint =
+    v.hint !== undefined && v.hint !== null
+      ? v.hint
+      : pending
+        ? v.hasErrors
+          ? '誤りのある欄を直すと、判定と理由が出ます。'
+          : '足りない欄をそろえると、判定と理由が出ます。'
+        : null;
   return (
     <section
       class={`card verdict verdict--${tier}${v.status ? ' verdict--saved' : ''}`}
@@ -77,49 +99,61 @@ export function Verdict(v: VerdictProps) {
         </p>
       ) : null}
       {lead ? <p class="verdict__lead">{lead}</p> : null}
-      <dl class="verdict__stats">
-        <div class="verdict__stat">
-          <dt class="verdict__label">R</dt>
-          <dd>
-            {v.summary.r !== undefined ? (
-              <RNum value={v.summary.r} size="xl" />
-            ) : (
-              <span class="verdict__note">{rNote}</span>
-            )}
-          </dd>
-        </div>
-        <div class="verdict__stat">
-          <dt class="verdict__label">リスク</dt>
-          <dd>
-            {v.summary.riskPct !== undefined ? (
-              <span class="num num--lg">{formatPct(v.summary.riskPct)}</span>
-            ) : (
-              <span class="verdict__note">{riskNote}</span>
-            )}
-          </dd>
-        </div>
-        {v.summary.pnlYen !== undefined ? (
-          <div class="verdict__stat">
-            <dt class="verdict__label">損益</dt>
-            <dd>
-              <YenNum value={v.summary.pnlYen} size="lg" />
-            </dd>
-          </div>
-        ) : null}
-      </dl>
-      {j ? (
+      {n.hideRisk && v.summary.pnlYen === undefined ? null : (
+        <dl class="verdict__stats">
+          {n.hideRisk ? null : (
+            <>
+              <div class="verdict__stat">
+                <dt class="verdict__label">R</dt>
+                <dd>
+                  {v.summary.r !== undefined ? <RNum value={v.summary.r} size="xl" /> : <None />}
+                </dd>
+              </div>
+              <div class="verdict__stat">
+                <dt class="verdict__label">リスク</dt>
+                <dd>
+                  {v.summary.riskPct !== undefined ? (
+                    <span class="num num--lg">{formatPct(v.summary.riskPct)}</span>
+                  ) : (
+                    <None />
+                  )}
+                </dd>
+              </div>
+            </>
+          )}
+          {v.summary.pnlYen !== undefined ? (
+            <div class="verdict__stat">
+              <dt class="verdict__label">損益</dt>
+              <dd>
+                <YenNum value={v.summary.pnlYen} size="lg" />
+              </dd>
+            </div>
+          ) : null}
+        </dl>
+      )}
+      {n.notes.map((t) => (
+        <p key={t} class="verdict__aside verdict__why">
+          {t}
+        </p>
+      ))}
+      {/* #34 の部品（LC の物差しと「計画 → 実行」の梯子）はここ（数の後・理由の前）に 1 段で入る */}
+      {n.reasons.length > 0 ? (
         <ul class="reasons" aria-label="理由">
-          {j.reasons.map((r, i) => (
+          {n.reasons.map((r, i) => (
             <li key={`${r.kind}-${i}`} class="reasons__item">
               {reasonText(r, v.side)}
             </li>
           ))}
         </ul>
-      ) : v.pending ? (
-        <p class="verdict__hint">
-          {v.hasErrors
-            ? '誤りのある欄を直すと、判定と理由が出ます。'
-            : '足りない欄をそろえると、判定と理由が出ます。'}
+      ) : null}
+      {n.aside.map((r, i) => (
+        <p key={`${r.kind}-${i}`} class="verdict__aside">
+          {reasonText(r, v.side)}
+        </p>
+      ))}
+      {hint ? (
+        <p class="verdict__hint" id={v.hintId}>
+          {hint}
         </p>
       ) : null}
       {v.gapSlip ? <div class="verdict__ask">{v.gapSlip}</div> : null}

@@ -256,7 +256,7 @@ function CapitalCard(p: SettingsViewProps) {
             class={
               saved?.capitalYen == null
                 ? 'settings__value settings__value--unset'
-                : 'settings__value mono'
+                : 'settings__value'
             }
           >
             {saved?.capitalYen == null ? '未設定' : formatAmountYen(saved.capitalYen)}
@@ -264,9 +264,7 @@ function CapitalCard(p: SettingsViewProps) {
         </div>
         <div class="settings__stat">
           <dt>許容リスク</dt>
-          <dd class="settings__value mono">
-            {saved ? `${formatPlain(saved.riskTolerancePct)}%` : ''}
-          </dd>
+          <dd class="settings__value">{saved ? `${formatPlain(saved.riskTolerancePct)}%` : ''}</dd>
         </div>
       </dl>
       {saved?.capitalYen == null ? <p class="notice">{NO_CAPITAL_NOTE}</p> : null}
@@ -331,9 +329,7 @@ function CapitalCard(p: SettingsViewProps) {
             {state.history.map((h) => (
               <li key={`${h.at}-${h.valueYen}`} class="settings__history-row">
                 <time dateTime={new Date(h.at).toISOString()}>{formatDateTime(h.at)}</time>
-                <span class="mono">
-                  {h.valueYen === null ? '未設定' : formatAmountYen(h.valueYen)}
-                </span>
+                <span>{h.valueYen === null ? '未設定' : formatAmountYen(h.valueYen)}</span>
               </li>
             ))}
           </ol>

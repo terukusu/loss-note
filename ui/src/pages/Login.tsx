@@ -23,6 +23,8 @@ export function Login({ onSignIn, busy, error, emulator }: LoginProps) {
       <p class="login__lead">
         計画（エントリー時に決めたこと）と実行（実際の決済）を並べて、同じ負け方を繰り返さないための損失ノートです。
       </p>
+      {/* 約束の文言。支えは API の ID トークンの検証と uid で絞った読み書き（#4・ADR-0004） */}
+      <p class="login__lead">記録は本人だけが見られます。</p>
       <div class="login__action">
         <Button size="lg" block onClick={onSignIn} disabled={busy}>
           {busy ? 'ログインしています…' : 'Google でログイン'}

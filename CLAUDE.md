@@ -46,9 +46,9 @@
 | パス | 役割 |
 |---|---|
 | `ui/` | 画面（Vite の root）。`index.html`・`src/main.tsx`（起動。テーマを描く前に当て、実物の history・localStorage を渡す）・`src/App.tsx`（アプリの殻）。`src/styles/`（`tokens.css` = 色・文字・余白などのトークン。色の値はテーマの 2 つの定義の中だけ、`base.css`・`layout.css`・`components.css`）、`src/lib/`（整形 `format.ts`・判定のバッジ `badge.ts`・テーマ `theme.ts`・経路 `routes.ts`・`/api` の窓口 `api.ts` の純関数と、履歴の薄い層 `router.tsx`。テストは `tests/ui/`）、`src/components/`（部品）、`src/auth/`（ログイン: 接続先 `config.ts`（開発のときだけの既定値は `devDefaults.ts`。本番のビルドに入らない）・門の純関数 `gate.ts`（見た目の門。守りは #4 の API）・失敗の文言 `errors.ts`・打ち切りの純関数 `race.ts`・Firebase Authentication の薄い層 `session.ts`（`/api` への要求 `api` もここ）。ADR-0003）、`src/layout/`（枠と行き先）、`src/pages/`（画面。`pages/dev/` は開発の時だけの部品の見本 `/dev/parts` とその CSS `parts.css`。本番のビルドに入らない）。画面の原則は `docs/ui-guidelines.md`。ビルド結果は `dist/`（コミットしない） |
-| `core/` | 計算・判定の純関数（TypeScript。設計書 5 章）。入口は `evaluate.ts` の `evaluateTrade`（検査 → 数値 → 判定）。`trade.ts` = 計算の入力の型（保存の形はこれに写す）、`numeric.ts` = 誤差の約束と刻みの切り捨て、`validate.ts` = 入力の検査（LC の向き・有限でない数）、`pnl.ts` = 損益（円）・R 倍数・1R・リスク（%）、`sizing.ts` = 数量の提案、`pre-plan.ts` = 事前の計画あり、`judge.ts` = 判定（A / B / C・危ない勝ち・計画どおりの勝ち）と理由 |
-| `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く。設計書 5.6 の例の表のテスト（`tests/core/design-table.test.ts`）は設計書の表を読んで `#` の列で行を数える（表に行を足したら `tests/core/design-table-cases.ts` に場面を足す） |
-| `api/` | API（Python 3.13・Flask・uv）。`src/loss_note_api/app.py` の `create_app()` が入口、テストは `api/tests/`（pytest） |
+| `core/` | 計算・判定の純関数（TypeScript。設計書 5 章）。入口は `evaluate.ts` の `evaluateTrade`（検査 → 数値 → 判定）。`trade.ts` = 計算の入力の型（保存の形はこれに写す）、`numeric.ts` = 誤差の約束と刻みの切り捨て、`validate.ts` = 入力の検査（LC の向き・有限でない数）、`pnl.ts` = 損益（円）・R 倍数・1R・リスク（%）、`sizing.ts` = 数量の提案、`pre-plan.ts` = 事前の計画あり、`judge.ts` = 判定（A / B / C・危ない勝ち・計画どおりの勝ち）と理由、`record.ts` = 保存の形（記録の API が返す取引・銘柄・設定の型）と計算の入力への写し `toTradeInput`（銘柄の値・資金は取引の `snapshot` だけから取る。C36） |
+| `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く。設計書 5.6 の例の表のテスト（`tests/core/design-table.test.ts`）は設計書の表を読んで `#` の列で行を数える（表に行を足したら `tests/core/design-table-cases.ts` に場面を足し、`UPDATE_FIXTURES=1 npx vitest run tests/core/record.test.ts` で fixture を作り直す）。`tests/fixtures/records/` は TS と API のテストが共有する合成の保存の形（5.6 の全場面の `design-table.json` と、全項目の取引の `full-record.json`） |
+| `api/` | API（Python 3.13・Flask・uv。ADR-0004）。`src/loss_note_api/`: `app.py` = 入口 `create_app(env, store=, clock=)`、`runtime.py` = 起動の判定の純関数 `decide_runtime`（エミュレーターの接続先があってプロジェクト ID が `demo-` で無ければ起動しない）、`auth.py` = ID トークンの検証（firebase-admin）と `check_claims`、`schema.py` = 本文の検査の純関数（C11・入力の上限）、`store.py` = 保存先の約束 `Store` と `FirestoreStore`、`routes.py` = 記録の API（取引・銘柄・設定）、`logs.py` = 構造化ログ（中身・メール・トークンを出さない）。テストは `api/tests/`（pytest。記憶の保存先 `tests/helpers/memory_store.py` とエミュレーターの Firestore の両方で同じテストを回す）、エミュレーターの結合のテストは `api/tests/emulator/` |
 | `tools/statement-eval/` | 決済明細の AI による読み取りを測る道具（Python 3.13・uv の独立したプロジェクト。アプリの依存ではない。#14・ADR-0001）。採点の純関数は `src/statement_eval/score.py`（テストは `tests/test_score.py`）、合成の明細（架空の値の画像・正解）は `synthetic/`（`python -m statement_eval generate` で作り直す）。実物の明細と正解は `data/local/statement-eval/real/` だけに置く。実際の AI を呼ぶのは手元で `eval` を回したときだけ（依存グループ `ai`・資格情報の環境変数） |
 | `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査、`ui-check.mjs` = 画面の検査 `npm run ui:check`（Playwright。手元だけ。Auth のエミュレーターが動いていること）） |
 | `.github/` | CI（`workflows/ci.yml`）とビルド成果物の検査（`scripts/csp-check.sh`・自己テスト `csp-check.test.sh`） |
@@ -57,15 +57,15 @@
 | `data/local/` | 手元だけのデータ（gitignore）。実際の記録の写しと、エミュレーターの書き出し `data/local/emulator/`。開発サーバーからも配らない（`vite.config.ts` の `server.fs.deny`） |
 
 - **計算を置く場所**: 損益・R・判定・集計などの計算は `core/` の副作用の無い純関数に置き、DOM・通信・Firebase を import しない。テストは `tests/core/` で、架空の値の手計算の例と性質テストで固定する。画面の整形のロジックも DOM から切り離した関数にしてテストする
-- **データの読み書きの経路**: 画面 → `/api/...`（同一オリジン。開発時は Vite の proxy が API へ渡す）→ API → Firestore / Storage（手元はエミュレーター、本番は後の Issue）。画面は Firestore / Storage を直接読み書きしない
+- **データの読み書きの経路**: 画面 → `/api/...`（同一オリジン。開発時は Vite の proxy が API へ渡す）→ API → Firestore / Storage（手元はエミュレーター、本番は後の Issue）。画面は Firestore / Storage を直接読み書きしない。API は ID トークンを検証し `users/{uid}/...` だけを読み書きする（ほかの利用者の記録は 404）。取引は記録したときの銘柄の値・資金・許容リスクを `snapshot` に写して持ち、判定・R は保存しない。画面が `core/record.ts` の `toTradeInput` で計算の入力に写す
 - **手元のポート**: 画面の開発サーバー 5173 / API 8000 / Firestore 8080 / Auth 9099 / Storage 9199 / エミュレーターの UI 4000・hub 4400。エミュレーターのプロジェクト ID は架空の `demo-loss-note`（GCP のプロジェクトもログインも要らない）
 
 ## 開発
 
-確認コマンド（CI と同じもの。手元は `mise exec -- bash -c '<この 1 行>'` で Node 24・uv を使う）:
+確認コマンド（CI と同じもの。手元は `mise exec -- bash -c '<この 1 行>'` で Node 24・uv・Java を使う。`npm run test:api:emulator` はエミュレーターを自分で起動して API のテストを流すので、`npm run emulators` を動かしているとポートがぶつかる。止めてから流す）:
 
 ```
-npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)
+npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)
 ```
 
 スキル（`.claude/skills/implement-issue` ほか）はこの確認コマンドを検証の正として使う。画面を触る PR は、あわせて `npm run ui:check`（画面の検査。CI には入れない）を手元で流し、出力の要約を PR に貼る（`docs/ui-guidelines.md` 6 章）。Terraform の検査（fmt・validate・test）は `infra/` を作る Issue で足す。

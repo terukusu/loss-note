@@ -1,0 +1,157 @@
+{
+  "comment": "合成の取引（値はすべて架空）。すべての欄を埋めた 1 件と、Issue #4 の例 E11・E12・E18。既定の欄も書いてあるので、API に送って読み戻した record はこれと同じになる。instrumentId の INSTRUMENT はテストが作った銘柄の ID に置き換える",
+  "trades": [
+    {
+      "name": "full",
+      "instrument": {
+        "name": "FULL-INDEX",
+        "underlying": "架空の指数",
+        "underlyingKind": "index",
+        "productForm": "option",
+        "priceCurrency": "USD",
+        "multiplier": 1,
+        "quantityStep": 1
+      },
+      "settings": { "capitalYen": 1000000, "riskTolerancePct": 1, "performanceUnit": "R" },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "contractMonth": "2026-12",
+        "optionType": "C",
+        "strike": 101.5,
+        "timeframe": "4h",
+        "lc": 99.5,
+        "brokenCondition": "99.50 を割ったら押し目の根拠が崩れる",
+        "lcBasis": "chart",
+        "tp": 101,
+        "thesis": "4 時間足の押し目。\n日足は上向き。\tタブも残る",
+        "entryEmotion": "落ち着いていた",
+        "stopOrderPlaced": "placed",
+        "planFxRate": 150.25,
+        "plannedAt": 1699990000000,
+        "lcDecidedBeforeEntry": true,
+        "lcMove": { "kind": "widened", "after": 99.2 },
+        "timeframeChange": "longer",
+        "entries": [{ "time": 1699999000000, "price": 100, "quantity": 10000, "lc": 99.5 }],
+        "exit": {
+          "time": 1700000000000,
+          "price": 99.2,
+          "fxRate": 150.5,
+          "orderType": "stop",
+          "reason": "lc",
+          "gapSlip": "no",
+          "emotion": "悔しい",
+          "review": "LC を下げたのが余計だった。"
+        },
+        "statementPnlYen": -8200,
+        "fees": [{ "label": "手数料", "amountYen": 150 }, { "label": "金利", "amountYen": 50.5 }],
+        "entryChartTimeframe": "4h",
+        "exitChartTimeframe": "1d"
+      }
+    },
+    {
+      "name": "E11",
+      "instrument": {
+        "name": "E11",
+        "underlyingKind": "index",
+        "productForm": "spotCfd",
+        "priceCurrency": "JPY",
+        "multiplier": 1,
+        "quantityStep": 1
+      },
+      "settings": { "capitalYen": 1000000, "riskTolerancePct": 1, "performanceUnit": "R" },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "S",
+        "lc": 100.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": { "kind": "none" },
+        "timeframeChange": "none",
+        "entries": [{ "price": 100, "quantity": 10000 }],
+        "exit": {
+          "time": 1700000000000,
+          "price": 99.0,
+          "orderType": "limit",
+          "reason": "tp",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    },
+    {
+      "name": "E12",
+      "instrument": {
+        "name": "E12",
+        "underlyingKind": "index",
+        "productForm": "spotCfd",
+        "priceCurrency": "JPY",
+        "multiplier": 1,
+        "quantityStep": 1
+      },
+      "settings": { "capitalYen": 1000000, "riskTolerancePct": 1, "performanceUnit": "R" },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": { "kind": "none" },
+        "timeframeChange": "none",
+        "entries": [
+          { "price": 100, "quantity": 10000, "lc": 99.5 },
+          { "price": 99.8, "quantity": 10000, "lc": 99.5 }
+        ],
+        "exit": {
+          "time": 1700000000000,
+          "price": 99.34,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    },
+    {
+      "name": "E18",
+      "instrument": {
+        "name": "E18",
+        "underlyingKind": "crypto",
+        "productForm": "spotCfd",
+        "priceCurrency": "JPY",
+        "multiplier": 1,
+        "quantityStep": 0.1
+      },
+      "settings": { "capitalYen": 1000000, "riskTolerancePct": 1, "performanceUnit": "R" },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99500,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": { "kind": "none" },
+        "timeframeChange": "none",
+        "entries": [{ "price": 100000, "quantity": 0.3 }],
+        "exit": {
+          "time": 1700000000000,
+          "price": 101000,
+          "orderType": "limit",
+          "reason": "tp",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    }
+  ]
+}

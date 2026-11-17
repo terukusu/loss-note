@@ -16,6 +16,7 @@ export type IconName =
   | 'image'
   | 'lock'
   | 'check'
+  | 'logout'
   | 'mark';
 
 const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
@@ -48,6 +49,12 @@ const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   triangle: () => <path d="M12 4.5 20 19H4z" />,
   cross: () => <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />,
   dash: () => <path d="M5.5 12h13" />,
+  logout: () => (
+    <>
+      <path d="M14 4.5h3.5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H14" />
+      <path d="M10 8l-4 4 4 4M6 12h9.5" />
+    </>
+  ),
   check: () => <path d="M5 12.5l4.5 4.5L19 7.5" />,
   back: () => <path d="M14.5 6l-6 6 6 6" />,
   moon: () => <path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" />,

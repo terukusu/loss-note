@@ -85,9 +85,19 @@ curl -s -H 'Authorization: Bearer owner' \
 mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
 ```
 
+## ログイン（手元）
+
+画面はログインしないと開けません。手元では Firebase Authentication のエミュレーターでログインします（`npm run emulators` を起動しておきます）。
+
+1. <http://localhost:5173/> を開くとログイン画面になります。[Google でログイン] を押します
+2. 開いた小さな画面（エミュレーターのログインの画面）で [Add new account] → [Auto-generate user information] → [Sign in with Google.com] を押します。架空のアカウントが作られ、ログインします（実在のメールは要りません）
+3. 設定の画面の [ログアウト] でログアウトします
+
+ログインの画面は Google の script（apis.google.com）を読み込むので、ネットに出られない環境ではログインできません（ログイン画面に「ログインのサービスにつながりません」と出ます）。エミュレーターが止まっているときも同じ文言が出ます。接続先は環境変数（`VITE_FIREBASE_PROJECT_ID`・`VITE_FIREBASE_API_KEY`・`VITE_FIREBASE_AUTH_EMULATOR_URL` など）で変えられます。開発サーバー（`npm run dev`）では、変数が無ければ架空の `demo-loss-note` と `http://127.0.0.1:9099` のエミュレーターを使います。本番のビルド（`npm run build`）には既定値が入らないので、変数で渡してください（エミュレーターには、変数で明示し、かつプロジェクト ID が `demo-` で始まるときだけ繋ぎます）（[`docs/adr-0003-login-emulator-popup.md`](docs/adr-0003-login-emulator-popup.md)）。
+
 ## 画面の検査
 
-全画面を幅 360 / 390 / 768 / 1440px × ダーク / ライトで開き、横スクロールの量（px）と、幅 360px で押せるものの当たりが 44×44px 未満の件数を数値で出します。画面の行き来（戻る・再読み込み・知らない URL）とテーマの記憶も実際のブラウザで確かめます。1 つでも外れれば終了コードが 0 でなくなります。開発サーバーは検査が自分で立てて閉じます。
+全画面を幅 360 / 390 / 768 / 1440px × ダーク / ライトで開き、横スクロールの量（px）と、幅 360px で押せるものの当たりが 44×44px 未満の件数、ボタン・選択肢などの中の文字のはみ出しの件数を数値で出します。画面の行き来（戻る・再読み込み・知らない URL）・テーマの記憶・ログインの門も実際のブラウザで確かめます。Auth のエミュレーター（`npm run emulators`）を起動してから流してください（架空のアカウントで自動でログインします）。1 つでも外れれば終了コードが 0 でなくなります。開発サーバーは検査が自分で立てて閉じます。
 
 ```sh
 mise exec -- npx playwright install chromium   # 初回だけ（ブラウザは手元のキャッシュに入ります）

@@ -45,12 +45,12 @@
 
 | パス | 役割 |
 |---|---|
-| `ui/` | 画面（Vite の root）。`index.html`・`src/main.tsx`（起動。テーマを描く前に当て、実物の history・localStorage を渡す）・`src/App.tsx`（アプリの殻）。`src/styles/`（`tokens.css` = 色・文字・余白などのトークン。色の値はテーマの 2 つの定義の中だけ、`base.css`・`layout.css`・`components.css`）、`src/lib/`（整形 `format.ts`・判定のバッジ `badge.ts`・テーマ `theme.ts`・経路 `routes.ts` の純関数と、履歴の薄い層 `router.tsx`。テストは `tests/ui/`）、`src/components/`（部品）、`src/layout/`（枠と行き先）、`src/pages/`（画面。`pages/dev/` は開発の時だけの部品の見本 `/dev/parts` とその CSS `parts.css`。本番のビルドに入らない）。画面の原則は `docs/ui-guidelines.md`。ビルド結果は `dist/`（コミットしない） |
+| `ui/` | 画面（Vite の root）。`index.html`・`src/main.tsx`（起動。テーマを描く前に当て、実物の history・localStorage を渡す）・`src/App.tsx`（アプリの殻）。`src/styles/`（`tokens.css` = 色・文字・余白などのトークン。色の値はテーマの 2 つの定義の中だけ、`base.css`・`layout.css`・`components.css`）、`src/lib/`（整形 `format.ts`・判定のバッジ `badge.ts`・テーマ `theme.ts`・経路 `routes.ts`・`/api` の窓口 `api.ts` の純関数と、履歴の薄い層 `router.tsx`。テストは `tests/ui/`）、`src/components/`（部品）、`src/auth/`（ログイン: 接続先 `config.ts`（開発のときだけの既定値は `devDefaults.ts`。本番のビルドに入らない）・門の純関数 `gate.ts`（見た目の門。守りは #4 の API）・失敗の文言 `errors.ts`・打ち切りの純関数 `race.ts`・Firebase Authentication の薄い層 `session.ts`（`/api` への要求 `api` もここ）。ADR-0003）、`src/layout/`（枠と行き先）、`src/pages/`（画面。`pages/dev/` は開発の時だけの部品の見本 `/dev/parts` とその CSS `parts.css`。本番のビルドに入らない）。画面の原則は `docs/ui-guidelines.md`。ビルド結果は `dist/`（コミットしない） |
 | `core/` | 計算・判定の純関数（TypeScript。設計書 5 章）。入口は `evaluate.ts` の `evaluateTrade`（検査 → 数値 → 判定）。`trade.ts` = 計算の入力の型（保存の形はこれに写す）、`numeric.ts` = 誤差の約束と刻みの切り捨て、`validate.ts` = 入力の検査（LC の向き・有限でない数）、`pnl.ts` = 損益（円）・R 倍数・1R・リスク（%）、`sizing.ts` = 数量の提案、`pre-plan.ts` = 事前の計画あり、`judge.ts` = 判定（A / B / C・危ない勝ち・計画どおりの勝ち）と理由 |
 | `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く。設計書 5.6 の例の表のテスト（`tests/core/design-table.test.ts`）は設計書の表を読んで `#` の列で行を数える（表に行を足したら `tests/core/design-table-cases.ts` に場面を足す） |
 | `api/` | API（Python 3.13・Flask・uv）。`src/loss_note_api/app.py` の `create_app()` が入口、テストは `api/tests/`（pytest） |
 | `tools/statement-eval/` | 決済明細の AI による読み取りを測る道具（Python 3.13・uv の独立したプロジェクト。アプリの依存ではない。#14・ADR-0001）。採点の純関数は `src/statement_eval/score.py`（テストは `tests/test_score.py`）、合成の明細（架空の値の画像・正解）は `synthetic/`（`python -m statement_eval generate` で作り直す）。実物の明細と正解は `data/local/statement-eval/real/` だけに置く。実際の AI を呼ぶのは手元で `eval` を回したときだけ（依存グループ `ai`・資格情報の環境変数） |
-| `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査、`ui-check.mjs` = 画面の検査 `npm run ui:check`（Playwright。手元だけ）） |
+| `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査、`ui-check.mjs` = 画面の検査 `npm run ui:check`（Playwright。手元だけ。Auth のエミュレーターが動いていること）） |
 | `.github/` | CI（`workflows/ci.yml`）とビルド成果物の検査（`scripts/csp-check.sh`・自己テスト `csp-check.test.sh`） |
 | `firebase.json`・`firestore.rules`・`storage.rules` | 手元のエミュレーター（Firestore・Auth・Storage）の設定。ルールはすべて拒否（画面から直接読み書きさせない） |
 | `docs/` | 設計書・ADR |

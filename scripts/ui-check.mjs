@@ -5,6 +5,10 @@
 // 戻るでスクロールの位置が戻ること（S1）、ログインの門（例の表 L1〜L7）も見る。1 つでも外れれば終了コード 1。CI には入れない（手元で流し、出力の要約を PR に貼る）。
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
+// 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（時間帯の確かめ）・読み取りの失敗の状態を同じ幅とテーマで
+// 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
+// バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
+// 実際の AI は呼ばない。画像はページの中の canvas で作るか、合成の明細 tools/statement-eval/synthetic/ を使う。
 // ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
 // （Flask と Firestore のエミュレーターを立てなくてよい。本物の API の経路は Issue #13 の手での確かめで見る）。
 //
@@ -210,15 +214,57 @@ function fakeTrade(id, instrumentId, quantity, createdAt) {
   };
 }
 
+// ── 偽の読み取りの応答の行（Issue #15 の例の表。値は架空。形は normalize_row と同じ 12 の鍵） ──
+const pad2 = (n) => String(n).padStart(2, '0');
+function jstTime(y, mo, d, h, mi) {
+  const written = `${y}-${pad2(mo)}-${pad2(d)}T${pad2(h)}:${pad2(mi)}`;
+  return {
+    written,
+    timeZone: 'JST',
+    jst: written,
+    epochMs: Date.UTC(y, mo - 1, d, h, mi) - 9 * 3600000,
+  };
+}
+const READ_E1 = {
+  symbol: '架空指数A',
+  side: 'L',
+  entryPrice: 100,
+  exitPrice: 99,
+  quantity: 2,
+  pnlYen: -2000,
+  entryTime: jstTime(2026, 11, 10, 9, 5),
+  exitTime: jstTime(2026, 11, 10, 10, 30),
+  timeZoneNeedsCheck: false,
+  fees: [100, 50],
+  feesTotalYen: 150,
+  exitOrderType: 'unknown',
+};
+/** 3 行。行 1 は決済の時刻の時間帯が明細に無い（E9 + E10） */
+const READ_E10 = [
+  {
+    ...READ_E1,
+    entryTime: null,
+    exitTime: { written: '2026-11-10T10:30', timeZone: 'unknown', jst: null, epochMs: null },
+    timeZoneNeedsCheck: true,
+  },
+  { ...READ_E1, symbol: '架空指数C', side: 'S', entryPrice: 200, exitPrice: 201.5, quantity: 1 },
+  { ...READ_E1, symbol: '架空指数D', entryPrice: 50, exitPrice: 51, quantity: 3, pnlYen: 3000 },
+];
+const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
+
 /**
  * 文脈の /api/** を偽の記録の API に置き換える。opts.capitalYen（資金）、opts.failTrades（POST /api/trades の状態）、
- * opts.delayMs（POST /api/trades を待たせる）。返す api.posts で保存の要求を数える
+ * opts.delayMs（POST /api/trades を待たせる）。返す api.posts で保存の要求を数える。
+ * POST /api/statement-reads は api.read（{ status, rows, holdMs }。後から書き換えてよい）で答え、要求の
+ * Content-Type と本文のバイト列を api.reads に残す（このスクリプトの記憶の中だけ）
  */
 async function installFakeApi(context, opts = {}) {
   const api = {
     instruments: [FAKE_US30],
     trades: [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000)],
     posts: [],
+    read: { status: 200, rows: [READ_E1], holdMs: 0 },
+    reads: [],
   };
   let seq = 0;
   let clock = 1800000000000;
@@ -234,6 +280,30 @@ async function installFakeApi(context, opts = {}) {
     const req = route.request();
     const path = new URL(req.url()).pathname;
     const key = `${req.method()} ${path}`;
+    if (key === 'POST /api/statement-reads') {
+      api.reads.push({
+        contentType: req.headers()['content-type'] ?? '',
+        body: req.postDataBuffer() ?? Buffer.alloc(0),
+      });
+      const r = api.read;
+      if (r.holdMs) {
+        await new Promise((ok) => {
+          const t = setTimeout(ok, r.holdMs);
+          t.unref?.();
+        });
+      }
+      try {
+        return await json(
+          route,
+          r.status,
+          r.status === 200
+            ? { kind: 'statement', rows: r.rows }
+            : { error: 'read_unavailable', detail: 'SECRET-本文' },
+        );
+      } catch {
+        return undefined; // 待たせている間に画面を離れた
+      }
+    }
     const body = req.postData() ? JSON.parse(req.postData()) : undefined;
     if (key === 'GET /api/trades') return json(route, 200, { items: api.trades });
     if (key === 'GET /api/instruments') return json(route, 200, { items: api.instruments });
@@ -329,7 +399,82 @@ const EX_E3 = {
 };
 const EX_E16 = { side: 'L', entry: '100.00', exit: '99.20', lc: 'none' };
 
-/** 記録する画面の状態（幅 × テーマで測る）。fn は開いた画面をその状態にする */
+/**
+ * ページの中の canvas で架空の明細らしい画像を作る（白地・罫線・数字の行。noise = true なら一部に細かい模様を足して
+ * PNG を大きくする）。to = 'paste' なら画面の document に画像の貼り付けを送り、'bytes' ならバイト列を返す
+ */
+async function makeImage(page, spec, to) {
+  return page.evaluate(
+    async ({ s, to }) => {
+      const c = document.createElement('canvas');
+      c.width = s.w;
+      c.height = s.h;
+      const g = c.getContext('2d');
+      g.fillStyle = 'white';
+      g.fillRect(0, 0, s.w, s.h);
+      g.fillStyle = 'black';
+      g.font = `${Math.round(s.h / 24)}px sans-serif`;
+      let seed = 15;
+      const rnd = () => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed / 0x7fffffff;
+      };
+      for (let i = 1; i < 20; i++) {
+        const y = Math.round((s.h / 20) * i);
+        g.fillRect(0, y, s.w, 1);
+        g.fillText(`架空指数A  L  100.0  99.0  2  -2,000  ${i}`, 10, y - 4);
+      }
+      if (s.noise) {
+        const band = g.getImageData(0, 0, s.w, Math.round(s.h / 6));
+        for (let i = 0; i < band.data.length; i += 4) {
+          const v = Math.round(rnd() * 255);
+          band.data[i] = v;
+          band.data[i + 1] = 255 - v;
+          band.data[i + 2] = (v * 7) & 255;
+        }
+        g.putImageData(band, 0, 0);
+      }
+      const blob = await new Promise((ok) => c.toBlob(ok, s.type, s.quality));
+      if (to === 'paste') {
+        const dt = new DataTransfer();
+        dt.items.add(new File([blob], 'statement', { type: s.type }));
+        document.body.dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+        );
+        return blob.size;
+      }
+      return Array.from(new Uint8Array(await blob.arrayBuffer()));
+    },
+    { s: spec, to },
+  );
+}
+
+const STATEMENT_SPEC = { w: 1200, h: 600, type: 'image/png' };
+
+/** 本文の形式と寸法（PNG の IHDR・JPEG の SOF。読めなければ null。image.py の image_info と同じ規則） */
+function imageInfoOf(b) {
+  if (b.length >= 24 && b[0] === 0x89 && b.subarray(12, 16).toString('latin1') === 'IHDR') {
+    return { type: 'image/png', w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  }
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) {
+    let i = 2;
+    while (i < b.length) {
+      if (b[i] !== 0xff) return null;
+      while (i < b.length && b[i] === 0xff) i++;
+      const m = b[i++];
+      if (m === 0x01 || m === 0xd8 || (m >= 0xd0 && m <= 0xd7)) continue;
+      if (m === 0xd9 || m === 0xda || i + 2 > b.length) return null;
+      const len = b.readUInt16BE(i);
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) {
+        return { type: 'image/jpeg', w: b.readUInt16BE(i + 5), h: b.readUInt16BE(i + 3) };
+      }
+      i += len;
+    }
+  }
+  return null;
+}
+
+/** 記録する画面の状態（幅 × テーマで測る）。fn は開いた画面をその状態にする（api は偽の API。読み取りの応答を決める） */
 const RECORD_STATES = [
   { slug: 'record-1-open', name: '開いた直後', fn: async () => {} },
   { slug: 'record-2-typing', name: '入力の途中', fn: (p) => fillRecord(p, EX_E1, false) },
@@ -364,6 +509,71 @@ const RECORD_STATES = [
       await fillRecord(p, EX_E1);
       await p.locator('button[type="submit"]').click();
       await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-7-reading',
+    name: '明細の読み取り中',
+    anchor: '.statement',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 20000 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.getByRole('status').filter({ hasText: '明細を読み取っています' }).waitFor();
+      await p.locator('canvas.statement__preview').waitFor();
+    },
+  },
+  {
+    slug: 'record-8-read',
+    name: '読み取りの後',
+    // 撮るのは印のついた「取引」の欄（枠のプレビューは record-9 で撮る）
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor();
+    },
+  },
+  {
+    slug: 'record-9-rows',
+    name: '複数行・時間帯',
+    anchor: '.statement',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: READ_E10, holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.statement__row', { hasText: '1 / 3 行目' }).waitFor();
+      await p.getByRole('button', { name: '日本時間で合っている' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-11-tall',
+    name: '縦長のスクショ',
+    anchor: '.statement',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      // スマホの縦長のスクショ（1080 × 2340）。描き直すと 923 × 2000
+      await makeImage(p, { w: 1080, h: 2340, type: 'image/png' }, 'paste');
+      await p.locator('.field__mark').first().waitFor();
+      // プレビューが枠に収まり、縦横比を保つ（縦に潰れない。レビュー指摘 8）
+      const box = await p.evaluate(() => {
+        const c = document.querySelector('canvas.statement__preview');
+        const r = c.getBoundingClientRect();
+        const parent = c.parentElement.getBoundingClientRect();
+        return { w: r.width, h: r.height, aw: c.width, ah: c.height, pw: parent.width };
+      });
+      if (box.w > box.pw + 0.5) throw new Error(`プレビューが枠より広い ${box.w}px`);
+      if (box.h > 320.5) throw new Error(`プレビューが高すぎる ${box.h}px`);
+      if (Math.abs(box.w / box.h - box.aw / box.ah) > 0.02)
+        throw new Error(`プレビューの縦横比 ${box.w}×${box.h}（画像 ${box.aw}×${box.ah}）`);
+    },
+  },
+  {
+    slug: 'record-10-read-failed',
+    name: '読み取りの失敗',
+    anchor: '.statement',
+    fn: async (p, api) => {
+      api.read = { status: 503, rows: [], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.getByRole('alert').filter({ hasText: '今は読み取りを使えません' }).waitFor();
     },
   },
 ];
@@ -562,6 +772,7 @@ async function main() {
         const pageFor = new Map();
         const contexts = [];
         const errors = [];
+        let recApi;
         for (const forLoginPage of [false, true]) {
           const context = await browser.newContext({
             viewport: { width: w, height: hgt },
@@ -571,7 +782,7 @@ async function main() {
           });
           contexts.push(context);
           await setupContext(context, theme);
-          if (!forLoginPage) await installFakeApi(context);
+          if (!forLoginPage) recApi = await installFakeApi(context);
           const page = await context.newPage();
           page.on('pageerror', (e) => errors.push(e.message));
           pageFor.set(forLoginPage, page);
@@ -619,7 +830,7 @@ async function main() {
           const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`/record（${st.name}）`, 22)}`;
           try {
             await openRecord(recPage, base);
-            await st.fn(recPage);
+            await st.fn(recPage, recApi);
             const m = await measure(recPage, w === 360, TAP);
             states++;
             worstH = Math.max(worstH, m.h);
@@ -639,11 +850,12 @@ async function main() {
             }
             for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
             if (opts.shots) {
-              // 判定の枠を上の帯のすぐ下に寄せて、見える範囲を撮る（全体を撮ると貼り付けた帯・ボタンが途中に重なる）
-              await recPage.evaluate(() => {
-                const v = document.querySelector('.verdict');
+              // 判定の枠（明細の状態は明細の枠）を上の帯のすぐ下に寄せて、見える範囲を撮る
+              // （全体を撮ると貼り付けた帯・ボタンが途中に重なる）
+              await recPage.evaluate((sel) => {
+                const v = document.querySelector(sel);
                 if (v) window.scrollTo(0, v.getBoundingClientRect().top + window.scrollY - 76);
-              });
+              }, st.anchor ?? '.verdict');
               await recPage.screenshot({
                 path: join(opts.shots, `${w}x${hgt}-${theme}-${st.slug}.png`),
                 fullPage: st.slug === 'record-1-open',
@@ -663,7 +875,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -686,6 +898,34 @@ async function main() {
     process.exit(1);
   }
   console.log('ok');
+}
+
+/** 読み取りの後に手で入れる 5 つ（打つ: LC・一言 / 選ぶ: 決めていた・そのまま・変えず）。数を返す */
+async function fillStatementTaps(page, lc = '99.0') {
+  await page.locator('#record-lc').fill(lc);
+  await page.locator('#record-broken').fill('押し目の安値を割ったら');
+  await seg(page, 'LC を入る前に決めていたか', '決めていた').click();
+  await seg(page, 'LC を動かしたか', 'そのまま').click();
+  await seg(page, '時間足を変えたか', '変えず').click();
+  return { typed: 2, chosen: 3 };
+}
+
+/** 非同期の条件が成り立つまで待つ（5 秒で外れ） */
+async function expectPollAsync(cond, what) {
+  for (let i = 0; i < 50; i++) {
+    if (await cond()) return;
+    await new Promise((ok) => setTimeout(ok, 100));
+  }
+  throw new Error(`${what}: 待っても成り立たない`);
+}
+
+/** 条件が成り立つまで待つ（10 秒で外れ） */
+async function expectPoll(cond, what) {
+  for (let i = 0; i < 100; i++) {
+    if (cond()) return;
+    await new Promise((ok) => setTimeout(ok, 100));
+  }
+  throw new Error(`${what}: 待っても成り立たない`);
 }
 
 /** 例の表の V1〜V6・S1・T2〜T4・L1〜L7 を実ブラウザで流す。[ID, ok, 詳細] の列を返す */
@@ -1138,6 +1378,281 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return '503 → 決まった文言、入力は残る、応答の本文は出ない';
+  });
+
+  // ── 決済明細の読み取り（R6〜R10。Issue #15）。偽の読み取りの API で流す（実際の AI は呼ばない）
+  const synthetic = readFileSync(join(ROOT, SYNTHETIC_STATEMENT));
+
+  await check('R6', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await c.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base });
+      await openRecord(p, base);
+      // 画像の貼り付け 1 回 → 1 件
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor({ timeout: 10000 });
+      expectEq(fake.reads.length, 1, '貼り付けの後の要求');
+      // ファイル選択 1 回 → 1 件（合成の明細の画像）
+      await p
+        .locator('#record-statement-file')
+        .setInputFiles({ name: 's05.png', mimeType: 'image/png', buffer: synthetic });
+      await expectPoll(() => fake.reads.length === 2, 'ファイル選択の後の要求');
+      // E14: LC の欄にフォーカスして文字「99.0」を貼る → 要求は増えず、LC に入る
+      await p.evaluate(() => navigator.clipboard.writeText('99.0'));
+      await p.locator('#record-lc').fill('');
+      await p.locator('#record-lc').focus();
+      await p.keyboard.press('ControlOrMeta+V');
+      await p.waitForTimeout(300);
+      expectEq(await p.locator('#record-lc').inputValue(), '99.0', 'LC の欄');
+      expectEq(fake.reads.length, 2, '文字の貼り付けの後の要求');
+      // 表計算のコピーのように文字と画像の両方を持つクリップボードを LC の欄に貼る → 横取りせず文字が入る（レビュー指摘 1）
+      await p.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 40;
+        c.height = 20;
+        c.getContext('2d').fillRect(0, 0, 10, 10);
+        const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            'text/plain': new Blob(['98.5'], { type: 'text/plain' }),
+            'image/png': png,
+          }),
+        ]);
+      });
+      await p.locator('#record-lc').fill('');
+      await p.locator('#record-lc').focus();
+      await p.keyboard.press('ControlOrMeta+V');
+      await p.waitForTimeout(300);
+      expectEq(await p.locator('#record-lc').inputValue(), '98.5', '文字と画像を貼った LC の欄');
+      // 合成の貼り付けでも同じ（文字の欄では preventDefault しない）
+      const prevented = await p.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 40;
+        c.height = 20;
+        const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+        const dt = new DataTransfer();
+        dt.setData('text/plain', '98.5');
+        dt.items.add(new File([png], 'cells.png', { type: 'image/png' }));
+        const ev = new ClipboardEvent('paste', {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        });
+        document.getElementById('record-lc').dispatchEvent(ev);
+        return ev.defaultPrevented;
+      });
+      expectEq(prevented, false, '文字の欄の貼り付けを横取りした');
+      await p.waitForTimeout(300);
+      expectEq(fake.reads.length, 2, '文字と画像の貼り付けの後の要求');
+      // 文字の欄でもクリップボードが画像だけなら明細として受ける（再レビューの指摘 1）
+      await p.evaluate(async () => {
+        const c = document.createElement('canvas');
+        c.width = 600;
+        c.height = 300;
+        const g = c.getContext('2d');
+        g.fillStyle = 'white';
+        g.fillRect(0, 0, 600, 300);
+        const png = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+      });
+      await p.locator('#record-instrument').focus();
+      await p.keyboard.press('ControlOrMeta+V');
+      await expectPoll(() => fake.reads.length === 3, '銘柄の欄に画像だけを貼った後の要求');
+      // E12: 画像として読めないファイル → 要求 0 件・決まった文言
+      await p
+        .locator('#record-statement-file')
+        .setInputFiles({ name: 'x.png', mimeType: 'image/png', buffer: Buffer.from('架空の文字') });
+      await p
+        .getByRole('alert')
+        .filter({ hasText: '画像を読み込めませんでした' })
+        .waitFor({ timeout: 10000 });
+      expectEq(fake.reads.length, 3, '読めないファイルの後の要求');
+      for (const r of fake.reads) {
+        if (!['image/png', 'image/jpeg'].includes(r.contentType))
+          throw new Error(`Content-Type ${r.contentType}`);
+      }
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '画像の貼り付け 1 件・ファイル選択 1 件・LC の欄への文字の貼り付け 0 件（LC に 99.0）・文字と画像の貼り付けも 0 件（LC に 98.5）・銘柄の欄に画像だけを貼ると 1 件・読めないファイル 0 件';
+  });
+
+  await check('R7', async () => {
+    const { c, p, fake } = await recordContext();
+    const sizes = [];
+    try {
+      await openRecord(p, base);
+      const cases = [
+        { name: 'E2', spec: { w: 3000, h: 1500, type: 'image/png', noise: true }, ratio: 2 },
+        { name: 'E3', spec: { w: 1200, h: 800, type: 'image/jpeg', quality: 0.9 }, ratio: 1.5 },
+      ];
+      for (const k of cases) {
+        const src = Buffer.from(await makeImage(p, k.spec, 'bytes'));
+        const before = fake.reads.length;
+        await p
+          .locator('#record-statement-file')
+          .setInputFiles({ name: `${k.name}.img`, mimeType: k.spec.type, buffer: src });
+        await expectPoll(() => fake.reads.length === before + 1, `${k.name} の要求`);
+        const sent = fake.reads[before];
+        const info = imageInfoOf(sent.body);
+        if (!info) throw new Error(`${k.name}: 本文の形式が読めない`);
+        if (info.type !== sent.contentType)
+          throw new Error(`${k.name}: 形式と Content-Type が違う`);
+        if (sent.body.length > 500000) throw new Error(`${k.name}: ${sent.body.length} B`);
+        if (Math.max(info.w, info.h) > 2000) throw new Error(`${k.name}: ${info.w}×${info.h}`);
+        if (Math.abs(info.w / info.h - k.ratio) > 0.01)
+          throw new Error(`${k.name}: 縦横比 ${info.w}×${info.h}`);
+        if (src.equals(sent.body)) throw new Error(`${k.name}: 元のバイト列のまま送った`);
+        sizes.push(
+          `${k.name} ${k.spec.w}×${k.spec.h} ${src.length.toLocaleString('en-US')} B → ${info.type.slice(6)} ${info.w}×${info.h} ${sent.body.length.toLocaleString('en-US')} B`,
+        );
+      }
+    } finally {
+      await c.close();
+    }
+    return sizes.join(' / ');
+  });
+
+  await check('R8', async () => {
+    const { c, p, fake } = await recordContext();
+    const snap = () =>
+      p.evaluate(async () => {
+        const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+        return {
+          ls: Object.keys(localStorage).sort(),
+          ss: Object.keys(sessionStorage).sort(),
+          idb: dbs.map((d) => d.name).sort(),
+          caches: (await caches.keys()).sort(),
+          href: location.href,
+          state: JSON.stringify(history.state),
+          values: Object.keys(localStorage)
+            .map((k) => localStorage.getItem(k) ?? '')
+            .concat(Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k) ?? ''))
+            .join('\n'),
+        };
+      });
+    try {
+      await openRecord(p, base);
+      const before = await snap();
+      // E1 を貼って保存 → 次の取引 → E10（3 行）を貼って 2 行を保存・1 行を飛ばす
+      fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor({ timeout: 10000 });
+      await fillStatementTaps(p);
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await p.getByRole('button', { name: '次の取引を記録' }).click();
+      fake.read = { status: 200, rows: READ_E10, holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.statement__row', { hasText: '1 / 3 行目' }).waitFor({ timeout: 10000 });
+      await p.getByRole('button', { name: '日本時間で合っている' }).click();
+      await fillStatementTaps(p);
+      await p.locator('button[type="submit"]').click();
+      await p.locator('.statement__row', { hasText: '2 / 3 行目' }).waitFor({ timeout: 10000 });
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-statement-row',
+        '次の行の番号へのフォーカス（レビュー指摘 3）',
+      );
+      await p.getByRole('button', { name: 'この行を飛ばす' }).click();
+      await p.locator('.statement__row', { hasText: '3 / 3 行目' }).waitFor();
+      await p.getByRole('status').filter({ hasText: '次の行（3 / 3）' }).waitFor({ timeout: 5000 });
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-statement-row',
+        '飛ばした後の行の番号へのフォーカス',
+      );
+      await fillStatementTaps(p, '49');
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      expectEq(fake.posts.length, 3, '保存の要求');
+      const after = await snap();
+      for (const k of ['ls', 'ss', 'idb', 'caches']) {
+        expectEq(JSON.stringify(after[k]), JSON.stringify(before[k]), k);
+      }
+      expectEq(after.href, before.href, 'URL');
+      expectEq(after.state, before.state, '履歴の state');
+      for (const v of ['架空指数A', '架空指数D', '押し目の安値']) {
+        if (after.values.includes(v)) throw new Error(`Web Storage に ${v}`);
+      }
+      if (before.caches.length !== 0) throw new Error('Cache Storage が空でない');
+    } finally {
+      await c.close();
+    }
+    return 'E1・E10 の流れの前後で Web Storage・IndexedDB・Cache Storage・URL・履歴の state が同じ（保存 3 件）';
+  });
+
+  await check('R9', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await openRecord(p, base);
+      await p.locator('#record-lc').fill('99.5');
+      const msgs = [];
+      for (const [status, want] of [
+        [503, '今は読み取りを使えません。手で入れてください。'],
+        [400, 'この画像は読み取れません。別の画像を貼るか、手で入れてください。'],
+        [502, '読み取れませんでした。もう一度貼るか、手で入れてください。'],
+      ]) {
+        fake.read = { status, rows: [], holdMs: 0 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.getByRole('alert').filter({ hasText: want }).waitFor({ timeout: 10000 });
+        msgs.push(status);
+      }
+      fake.read = { status: 200, rows: [], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p
+        .getByRole('alert')
+        .filter({ hasText: '決済明細として読めませんでした' })
+        .waitFor({ timeout: 10000 });
+      expectEq(await p.locator('#record-lc').inputValue(), '99.5', '入力が残る');
+      const body = (await p.locator('main').textContent()) ?? '';
+      if (body.includes('SECRET') || body.includes('read_unavailable'))
+        throw new Error('応答の本文が画面に出た');
+      // やめて手で入れる（E13）: 読み取り中にやめ、後で届いた応答で欄が変わらない
+      fake.read = { status: 200, rows: [READ_E1], holdMs: 1500 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.getByRole('button', { name: 'やめて手で入れる' }).click();
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-instrument',
+        'やめた後のフォーカス（レビュー指摘 2）',
+      );
+      await p.waitForTimeout(2000);
+      expectEq(await p.locator('#record-instrument').inputValue(), 'US30', 'やめた後の銘柄');
+      expectEq(await p.locator('.field__mark').count(), 0, 'やめた後の印');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '503・400・502・0 行 → 決まった文言、入力は残る、本文は出ない。やめた後の応答は捨てる';
+  });
+
+  await check('R10', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await openRecord(p, base);
+      const t0 = Date.now();
+      await p
+        .locator('#record-statement-file')
+        .setInputFiles({ name: 's05.png', mimeType: 'image/png', buffer: synthetic });
+      await p.locator('.field__mark').first().waitFor({ timeout: 10000 });
+      expectEq(await p.locator('#record-instrument').inputValue(), '架空指数A', '銘柄');
+      expectEq(await p.locator('#record-quantity').inputValue(), '2', '数量');
+      expectEq(await p.locator('#record-fee').isVisible(), true, '手数料が開かずに見える');
+      const typed = await fillStatementTaps(p);
+      await p.locator('.verdict .badge', { hasText: 'A' }).waitFor({ timeout: 5000 });
+      await p.locator('.verdict .num--xl', { hasText: '−1.0R' }).waitFor({ timeout: 5000 });
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      const ms = Date.now() - t0;
+      const sent = fake.posts[0];
+      expectEq(sent.source, 'statement', '出どころ');
+      expectEq(JSON.stringify(sent.fees), JSON.stringify([{ amountYen: 150 }]), '手数料');
+      expectEq(sent.exit.orderType, 'unknown', '注文の種類');
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `合成の明細を選ぶ → 打つ ${typed.typed}・選ぶ ${typed.chosen} → A・−1.0R → 保存（自動の操作で ${(ms / 1000).toFixed(1)} 秒）`;
+    } finally {
+      await c.close();
+    }
   });
 
   return out;

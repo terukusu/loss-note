@@ -19,18 +19,40 @@ export interface SegmentProps<V extends string> {
   readonly name?: string;
   /** 見出しを部品の上に見せるか（false なら読み上げの名前だけ） */
   readonly showLabel?: boolean;
+  /** 欄の印（明細の読み取りの「読み取り」「明細から」など。#15）。見出しの横に文字で出し、読み上げの説明に入れる */
+  readonly mark?: string;
+  /** 印の要素の ID の元（印を出すときに渡す。空白を含まない） */
+  readonly id?: string;
 }
 
 export function Segment<V extends string>(p: SegmentProps<V>) {
   const name = p.name ?? `seg-${p.label}`;
+  const markId = `${p.id ?? name.replace(/\s+/g, '_')}-mark`;
+  const label =
+    p.showLabel === false ? null : (
+      <span class="field__label" aria-hidden="true">
+        {p.label}
+      </span>
+    );
   return (
     <div class="field">
-      {p.showLabel === false ? null : (
-        <span class="field__label" aria-hidden="true">
-          {p.label}
-        </span>
+      {p.mark ? (
+        <div class="field__head">
+          {label}
+          <span id={markId} class="field__mark">
+            {p.mark}
+          </span>
+        </div>
+      ) : (
+        label
       )}
-      <div class="seg" role="radiogroup" aria-label={p.label} data-count={p.options.length}>
+      <div
+        class="seg"
+        role="radiogroup"
+        aria-label={p.label}
+        aria-describedby={p.mark ? markId : undefined}
+        data-count={p.options.length}
+      >
         {p.options.map((o) => (
           <label key={o.value} class="seg__item">
             <input

@@ -107,6 +107,10 @@ const RECORD_FILES = [
   '../../ui/src/lib/datetime.ts',
   '../../ui/src/pages/Record.tsx',
   '../../ui/src/components/TextField.tsx',
+  // Issue #15（決済明細の読み取り）
+  '../../ui/src/lib/image-limits.ts',
+  '../../ui/src/lib/statement-image.ts',
+  '../../ui/src/lib/statement-fill.ts',
 ];
 const DEVICE_STORAGE =
   /\b(localStorage|sessionStorage|indexedDB|IDBFactory|caches|document\.cookie)\b/;
@@ -122,5 +126,84 @@ describe('記録の画面のソース（Issue #13 AC-11）', () => {
     expect(DEVICE_STORAGE.test('localStorage.setItem(k, v)')).toBe(true);
     expect(DEVICE_STORAGE.test('indexedDB.open("x")')).toBe(true);
     expect(DEVICE_STORAGE.test('const draft = {}')).toBe(false);
+  });
+});
+
+/** Issue #15 AC-13: object URL・data URL を作らない（CSP の img-src を広げない。プレビューは canvas） */
+const OBJECT_OR_DATA_URL: ReadonlyArray<readonly [string, RegExp]> = [
+  ['createObjectURL', /\bcreateObjectURL\b/],
+  ['toDataURL', /\btoDataURL\b/],
+  ['readAsDataURL', /\breadAsDataURL\b/],
+  ['FileReader', /\bFileReader\b/],
+  ["'blob:'", /['"`]blob:/],
+  ["'data:'", /['"`]data:/],
+];
+
+function urlViolations(src: string): string[] {
+  return OBJECT_OR_DATA_URL.filter(([, re]) => re.test(src)).map(([name]) => name);
+}
+
+/** Issue #15 AC-11: 貼る・読み取る・保存するの流れでダイアログを出さない */
+const DIALOG =
+  /\b(confirm|alert|prompt)\s*\(|<dialog[\s>]|role=["']alertdialog["']|\bshowModal\s*\(/;
+/** Issue #15 AC-12: 履歴・URL に触れない（読み取りの値を URL・履歴の state に置かない） */
+const HISTORY_OR_URL = /\b(history|location)\s*\./;
+const STATEMENT_FILES = [
+  '../../ui/src/lib/image-limits.ts',
+  '../../ui/src/lib/statement-image.ts',
+  '../../ui/src/lib/statement-fill.ts',
+  '../../ui/src/lib/record-controller.ts',
+  '../../ui/src/pages/Record.tsx',
+];
+
+describe('決済明細の読み取り（Issue #15 AC-11・AC-12・AC-13）', () => {
+  it.each(Object.entries(sources))('AC-13: %s は object URL・data URL を作らない', (_path, src) => {
+    expect(urlViolations(src)).toEqual([]);
+  });
+
+  it.each(STATEMENT_FILES)(
+    'AC-11・AC-12: %s はダイアログを出さず、履歴・URL に触れない',
+    (path) => {
+      const src = sources[path];
+      expect(src, path).toBeDefined();
+      expect(DIALOG.test(src ?? '')).toBe(false);
+      expect(HISTORY_OR_URL.test(src ?? '')).toBe(false);
+    },
+  );
+
+  it.each([
+    ['URL.createObjectURL(blob)', 'createObjectURL'],
+    ['canvas.toDataURL()', 'toDataURL'],
+    ['new FileReader().readAsDataURL(f)', 'readAsDataURL'],
+    ['const r = new FileReader()', 'FileReader'],
+    ["img.src = 'blob:' + id", "'blob:'"],
+    ['const u = `data:image/png;base64,` + b', "'data:'"],
+  ])('検査の自己テスト: %s を見つける', (src, name) => {
+    expect(urlViolations(src)).toContain(name);
+  });
+
+  it('検査の自己テスト: ダイアログ・履歴の語を見つけ、似た書き方は見逃す', () => {
+    for (const bad of [
+      'if (confirm("送りますか")) go()',
+      'window.alert(x)',
+      '<dialog open>',
+      '<div role="alertdialog">',
+      'el.showModal()',
+      'history.pushState(s, "", u)',
+      'location.hash = x',
+    ]) {
+      expect(DIALOG.test(bad) || HISTORY_OR_URL.test(bad), bad).toBe(true);
+    }
+    for (const fine of [
+      '<p role="alert">',
+      "const metadata = 'x'",
+      'const blobPart = 1',
+      'notice--error',
+    ]) {
+      expect(
+        DIALOG.test(fine) || HISTORY_OR_URL.test(fine) || urlViolations(fine).length > 0,
+        fine,
+      ).toBe(false);
+    }
   });
 });

@@ -11,12 +11,40 @@ import {
   createRecordController,
   LOAD_FAILED,
   NETWORK_FAILED,
+  READ_BLOCKED,
+  READ_TIMEOUT_MS,
   type RecordController,
+  ROWS_DONE,
   SAVE_FAILED,
 } from '../../ui/src/lib/record-controller';
 import { applyDraft, type Draft, EMPTY_DRAFT, summarize } from '../../ui/src/lib/record-form';
-import { createFakeApi, type FakeApi } from './helpers/fake-api';
+import {
+  READ_FIELDS,
+  READ_MSG,
+  READING_NOTICE,
+  type ReadRow,
+  TZ_MISSING,
+} from '../../ui/src/lib/statement-fill';
+import { type PrepareResult, prepareImage } from '../../ui/src/lib/statement-image';
+import { createFakeApi, type FakeApi, type ReadScript } from './helpers/fake-api';
 import { E1, E2, E6, US30 } from './helpers/record-drafts';
+import {
+  blobOf,
+  E1_ENTRY_MS,
+  E1_EXIT_MS,
+  fakeCodec,
+  fakePreview,
+  jpegBytes,
+  pngBytes,
+  preparedImage,
+  ROW_E1,
+  ROW_E4,
+  ROW_E7,
+  ROW_E8,
+  ROW_E9,
+  ROWS_E10,
+  statementBody,
+} from './helpers/statement-rows';
 
 const NOW = new Date(2026, 3, 5, 14, 37, 21, 500).getTime();
 const MINUS = '−';
@@ -465,5 +493,597 @@ describe('「窓・滑りでしたか」の問いが消えたら答えも消す�
     expect(c.getState().read.preview.showGapSlip).toBe(true);
     expect(c.getState().draft.gapSlip).toBe('unanswered');
     expect(c.getState().read.preview.judgment?.grade).toBe('B');
+  });
+});
+
+// ── 決済明細の読み取り（Issue #15）。偽の記録の API の POST /api/statement-reads と偽の描き直しで流す ──
+
+const B = { ...US30, id: 'inst-b', name: '架空指数B' };
+
+/** 開いたときの既定 = 前回の銘柄「架空指数B」・数量 1（Issue #15 の例の表の前提） */
+async function openedForRead(
+  reads: readonly ReadScript[],
+  over: { prepare?: (f: Blob) => Promise<PrepareResult>; readTimeoutMs?: number } = {},
+) {
+  const fake = createFakeApi({
+    instruments: [B],
+    trades: [storedTrade('t-b', B.id, 1, 1_000, 2_000)],
+    reads,
+  });
+  const previews: ReturnType<typeof fakePreview>[] = [];
+  const c = createRecordController({
+    api: fake.api,
+    now: () => NOW,
+    prepare:
+      over.prepare ??
+      (async () => {
+        const p = fakePreview();
+        previews.push(p);
+        return { ok: true, image: preparedImage(p) };
+      }),
+    ...(over.readTimeoutMs === undefined ? {} : { readTimeoutMs: over.readTimeoutMs }),
+  });
+  await c.load();
+  return { fake, c, previews };
+}
+
+/** この流れで保存した取引（開く前からある t-b を除く） */
+const added = (fake: FakeApi) => fake.trades.filter((t) => t.id !== 't-b');
+const ok = (rows: readonly ReadRow[]): ReadScript => ({ status: 200, body: statementBody(rows) });
+const readCalls = (fake: FakeApi) => fake.calls.filter((x) => x.path === '/api/statement-reads');
+const img = () => blobOf(pngBytes(1200, 800, 2048));
+
+/** 条件が成り立つまで待つ（マイクロタスク・タイマーを回す） */
+async function until(cond: () => boolean) {
+  for (let i = 0; i < 200 && !cond(); i++) await new Promise((r) => setTimeout(r, 0));
+  expect(cond()).toBe(true);
+}
+
+/** 手で打つ欄 2 つ（LC・一言）と選ぶ欄 3 つ */
+function typeFive(c: RecordController, lc = '99.0') {
+  const texts = [
+    { type: 'set', field: 'lc', value: lc },
+    { type: 'set', field: 'brokenCondition', value: '押し目の安値を割ったら' },
+  ] as const;
+  const taps = [
+    { type: 'set', field: 'lcDecided', value: true },
+    { type: 'set', field: 'lcMove', value: 'none' },
+    { type: 'set', field: 'timeframeChange', value: 'none' },
+  ] as const;
+  for (const a of [...texts, ...taps]) c.update(a);
+  return { typed: texts.length, chosen: taps.length };
+}
+
+describe('読み取りの要求（AC-1）', () => {
+  it('画像 1 枚で要求が 1 件（Content-Type は描き直した形式・500,000 B 以下）。もう 1 枚でもう 1 件', async () => {
+    const codec = fakeCodec(() => 280_000);
+    const { fake, c } = await openedForRead([ok([ROW_E1]), ok([ROW_E1])], {
+      prepare: (f) => prepareImage(f, codec),
+    });
+    await c.readImage(blobOf(jpegBytes(1200, 800, 300_000), 'image/jpeg'));
+    expect(readCalls(fake)).toEqual([
+      { method: 'POST', path: '/api/statement-reads', contentType: 'image/png', bytes: 280_000 },
+    ]);
+    await c.readImage(img());
+    expect(readCalls(fake)).toHaveLength(2);
+    // 応答だけでは保存しない（AC-8）
+    expect(posts(fake, '/api/trades')).toHaveLength(0);
+  });
+
+  it('E12: 画像として読めないファイル → 要求 0 件・決まった文言', async () => {
+    const codec = fakeCodec(() => 1000);
+    const { fake, c } = await openedForRead([], { prepare: (f) => prepareImage(f, codec) });
+    await c.readImage(new Blob(['架空の文字のファイル'], { type: 'text/plain' }));
+    expect(readCalls(fake)).toHaveLength(0);
+    expect(c.getState().statement?.phase).toBe('failed');
+    expect(c.getState().statement?.message).toBe(READ_MSG.notImage);
+  });
+
+  it('大きすぎて描き直せない → 要求 0 件・「この画像は読み取れません」', async () => {
+    const codec = fakeCodec(() => 900_000);
+    const { fake, c } = await openedForRead([], { prepare: (f) => prepareImage(f, codec) });
+    await c.readImage(img());
+    expect(readCalls(fake)).toHaveLength(0);
+    expect(c.getState().statement?.message).toBe(READ_MSG.rejected);
+  });
+});
+
+describe('待たずに入れる（AC-3・C23）', () => {
+  it('読み取り中に LC・一言・3 つのタップを入れられ、保存は 0 件・理由「明細を読み取っています」。応答の後も残る', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => readCalls(fake).length === 1);
+    expect(c.getState().statement?.phase).toBe('reading');
+    typeFive(c);
+    const during = c.getState();
+    expect(during.draft).toMatchObject({
+      lc: '99.0',
+      brokenCondition: '押し目の安値を割ったら',
+      lcDecided: true,
+      lcMove: 'none',
+      timeframeChange: 'none',
+    });
+    expect(during.read.canSave).toBe(false);
+    expect(during.read.notice).toBe(READING_NOTICE);
+    await c.save();
+    expect(posts(fake, '/api/trades')).toHaveLength(0);
+    fake.releaseReads();
+    await p;
+    const after = c.getState();
+    expect(after.statement?.phase).toBe('ready');
+    expect(after.draft).toMatchObject({
+      lc: '99.0',
+      brokenCondition: '押し目の安値を割ったら',
+      lcDecided: true,
+      lcMove: 'none',
+      timeframeChange: 'none',
+    });
+    expect(after.read.notice).toBeUndefined();
+  });
+});
+
+describe('E1（AC-4。EPIC #10 の終了条件 10）', () => {
+  it('9 欄に応答の値と「読み取り」の印 → 打つ 2・選ぶ 3 で判定 A・−1.0R → 保存した取引は応答の値・出どころ 明細', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    expect(c.getState().draft.instrumentName).toBe('架空指数B');
+    expect(c.getState().draft.quantity).toBe('1');
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.draft).toMatchObject({
+      instrumentName: '架空指数A',
+      side: 'L',
+      entryPrice: '100',
+      exitPrice: '99',
+      quantity: '2',
+      exitTime: toLocalInput(E1_EXIT_MS),
+      entryTime: toLocalInput(E1_ENTRY_MS),
+      pnlYen: '-2000',
+      feeYen: '150',
+    });
+    for (const f of READ_FIELDS) expect(s.statement?.marks[f], f).toBe('read');
+    const n = typeFive(c);
+    expect(n).toEqual({ typed: 2, chosen: 3 });
+    const read = c.getState().read;
+    expect(read.canSave).toBe(true);
+    expect(read.preview.judgment?.grade).toBe('A');
+    expect(formatR(read.preview.r)).toBe(`${MINUS}1.0R`);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    const saved = added(fake)[0]?.record;
+    expect(saved).toMatchObject({
+      source: 'statement',
+      side: 'L',
+      lc: 99,
+      brokenCondition: '押し目の安値を割ったら',
+      stopOrderPlaced: 'unanswered',
+      entries: [{ price: 100, quantity: 2, time: E1_ENTRY_MS }],
+      exit: { time: E1_EXIT_MS, price: 99, orderType: 'unknown', reason: 'other' },
+      statementPnlYen: -2000,
+      fees: [{ amountYen: 150 }],
+    });
+    // 一覧に無い銘柄は名前だけで足す（C21）
+    expect(posts(fake, '/api/instruments')[0]?.body).toEqual({ name: '架空指数A' });
+    // 保存の後はプレビューも行も捨てる
+    expect(c.getState().statement).toBeUndefined();
+  });
+});
+
+describe('E4（AC-5）', () => {
+  it('銘柄・決済の時刻は空で「読み取れませんでした」。既定を残さず、入れるまで保存できない', async () => {
+    const { c } = await openedForRead([ok([ROW_E4])]);
+    await c.readImage(img());
+    typeFive(c);
+    const s = c.getState();
+    expect(s.draft.instrumentName).toBe('');
+    expect(s.draft.exitTime).toBe('');
+    expect(s.statement?.marks.instrumentName).toBe('unread');
+    expect(s.statement?.marks.exitTime).toBe('unread');
+    expect(s.read.missing).toEqual(['銘柄', '決済の時刻']);
+    expect(s.read.canSave).toBe(false);
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数A' });
+    c.update({ type: 'set', field: 'exitTime', value: '2026-11-10T10:30' });
+    expect(c.getState().statement?.marks.instrumentName).toBe('edited');
+    expect(c.getState().read.canSave).toBe(true);
+  });
+});
+
+describe('E5・E6（AC-6）', () => {
+  it('E5: 決済を 98.5 に直す → 印「直した」・保存の決済は 98.5', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    await c.readImage(img());
+    typeFive(c);
+    c.update({ type: 'set', field: 'exitPrice', value: '98.5' });
+    expect(c.getState().statement?.marks.exitPrice).toBe('edited');
+    await c.save();
+    expect(added(fake)[0]?.record.exit.price).toBe(98.5);
+  });
+
+  it('E6: 貼った後・応答の前に入れたイン 101.0（印なし）と LC 99.0 が残る', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => readCalls(fake).length === 1);
+    c.update({ type: 'set', field: 'entryPrice', value: '101.0' });
+    c.update({ type: 'set', field: 'lc', value: '99.0' });
+    fake.releaseReads();
+    await p;
+    const s = c.getState();
+    expect(s.draft.entryPrice).toBe('101.0');
+    expect(s.statement?.marks.entryPrice).toBeUndefined();
+    expect(s.draft.lc).toBe('99.0');
+    expect(s.draft.exitPrice).toBe('99');
+    expect(s.statement?.marks.exitPrice).toBe('read');
+  });
+});
+
+describe('E7・E8（AC-7）', () => {
+  it('E7: 逆指値 → LC・決めていた が既定（印「明細から」）。選ぶのは残り 2 つ。保存は 逆指値・入れた', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E7])]);
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.draft.lcDecided).toBe(true);
+    expect(s.draft.exitReason).toBe('lc');
+    expect(s.statement?.marks.lcDecided).toBe('statement');
+    c.update({ type: 'set', field: 'lc', value: '99.0' });
+    c.update({ type: 'set', field: 'lcMove', value: 'none' });
+    c.update({ type: 'set', field: 'timeframeChange', value: 'none' });
+    expect(c.getState().read.canSave).toBe(true);
+    await c.save();
+    const r = added(fake)[0]?.record;
+    expect(r?.exit.orderType).toBe('stop');
+    expect(r?.exit.reason).toBe('lc');
+    expect(r?.stopOrderPlaced).toBe('placed');
+    expect(r?.lcDecidedBeforeEntry).toBe(true);
+  });
+
+  it('E8: 成行 → 決めていたかは未選択・決済の理由 = その他。保存は 成行・未回答', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E8])]);
+    await c.readImage(img());
+    expect(c.getState().draft.lcDecided).toBeNull();
+    expect(c.getState().draft.exitReason).toBe('other');
+    typeFive(c);
+    await c.save();
+    const r = added(fake)[0]?.record;
+    expect(r?.exit.orderType).toBe('market');
+    expect(r?.exit.reason).toBe('other');
+    expect(r?.stopOrderPlaced).toBe('unanswered');
+  });
+});
+
+describe('E9（AC-8）', () => {
+  it('時間帯の無い時刻は確かめるまで保存できず、[日本時間で合っている] の後は日本時間の 10:30 で保存', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E9])]);
+    await c.readImage(img());
+    expect(posts(fake, '/api/trades')).toHaveLength(0);
+    typeFive(c);
+    let s = c.getState();
+    expect(s.draft.exitTime).toBe('2026-11-10T10:30');
+    expect(s.statement?.marks.exitTime).toBe('tz');
+    expect(s.read.canSave).toBe(false);
+    expect(s.read.missing).toEqual([TZ_MISSING.exitTime]);
+    await c.save();
+    expect(posts(fake, '/api/trades')).toHaveLength(0);
+    c.confirmTimeZone();
+    s = c.getState();
+    expect(s.statement?.marks.exitTime).toBe('read');
+    expect(s.read.canSave).toBe(true);
+    await c.save();
+    expect(added(fake)[0]?.record.exit.time).toBe(Date.UTC(2026, 10, 10, 1, 30));
+  });
+
+  it('欄を直しても確かめたことになる（印「直した」）', async () => {
+    const { c } = await openedForRead([ok([ROW_E9])]);
+    await c.readImage(img());
+    typeFive(c);
+    c.update({ type: 'set', field: 'exitTime', value: '2026-11-10T11:00' });
+    expect(c.getState().statement?.marks.exitTime).toBe('edited');
+    expect(c.getState().read.canSave).toBe(true);
+  });
+});
+
+describe('複数行（AC-9・C20）', () => {
+  it('E10: 1 / 3 → 保存 → 2 / 3（行 2 の値・5 つは空）→ 飛ばす → 3 / 3 → 保存 → 保存済み。保存は 2 件', async () => {
+    const { fake, c, previews } = await openedForRead([ok(ROWS_E10)]);
+    await c.readImage(img());
+    let s = c.getState();
+    expect(s.statement?.index).toBe(0);
+    expect(s.statement?.rows).toHaveLength(3);
+    typeFive(c);
+    await c.save();
+    s = c.getState();
+    expect(s.phase).toBe('editing');
+    expect(s.statement?.index).toBe(1);
+    expect(s.statement?.notice).toBe('1 / 3 行目を記録しました。次の行（2 / 3）です');
+    expect(s.draft).toMatchObject({
+      instrumentName: '架空指数C',
+      side: 'S',
+      entryPrice: '200',
+      exitPrice: '201.5',
+      quantity: '1',
+      feeYen: '',
+      lc: '',
+      brokenCondition: '',
+      lcDecided: null,
+      lcMove: null,
+      timeframeChange: null,
+      lcAfter: '',
+    });
+    expect(s.statement?.marks.feeYen).toBe('unread');
+    c.skipRow();
+    s = c.getState();
+    expect(s.statement?.index).toBe(2);
+    expect(s.statement?.notice).toBe('2 / 3 行目を飛ばしました。次の行（3 / 3）です');
+    expect(s.draft.instrumentName).toBe('架空指数D');
+    typeFive(c, '49');
+    await c.save();
+    s = c.getState();
+    expect(s.phase).toBe('saved');
+    expect(s.statement).toBeUndefined();
+    expect(posts(fake, '/api/trades')).toHaveLength(2);
+    expect(added(fake).map((t) => t.record.entries[0].price)).toEqual([100, 50]);
+    expect(previews[0]?.closed()).toBe(true);
+  });
+
+  it('最後の行を飛ばす → 読み取りを終え、空の下書き（既定 = 今保存した取引）と「明細の行を最後まで見ました」', async () => {
+    const { c, previews } = await openedForRead([ok(ROWS_E10.slice(0, 2))]);
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    c.skipRow();
+    const s = c.getState();
+    expect(s.statement?.phase).toBe('done');
+    expect(s.statement?.notice).toBe(ROWS_DONE);
+    expect(s.statement?.preview).toBeNull();
+    expect(previews[0]?.closed()).toBe(true);
+    expect(s.draft).toEqual({
+      ...EMPTY_DRAFT,
+      instrumentName: '架空指数A',
+      quantity: '2',
+      exitTime: toLocalInput(floorToMinute(NOW)),
+    });
+  });
+});
+
+describe('失敗（AC-10・E11）', () => {
+  const SECRET = { detail: 'SECRET-本文' };
+  it.each([
+    [
+      '(a) notStatement',
+      { status: 200, body: { kind: 'notStatement', rows: [], ...SECRET } },
+      READ_MSG.notStatement,
+    ],
+    ['(a) 0 行', { status: 200, body: statementBody([], SECRET) }, READ_MSG.notStatement],
+    [
+      '(b) 400',
+      { status: 400, body: { error: 'image_rejected', reason: 'bytes', ...SECRET } },
+      READ_MSG.rejected,
+    ],
+    [
+      '(c) 503',
+      { status: 503, body: { error: 'read_unavailable', ...SECRET } },
+      READ_MSG.unavailable,
+    ],
+    ['(d) 502', { status: 502, body: { error: 'read_failed', ...SECRET } }, READ_MSG.failed],
+    ['(d) 504', { status: 504, body: { error: 'read_timeout', ...SECRET } }, READ_MSG.failed],
+    ['(d) 通信の失敗', 'throw', READ_MSG.failed],
+    [
+      '(d) 形の読めない 200',
+      { status: 200, body: { kind: 'statement', rows: 'SECRET-本文' } },
+      READ_MSG.failed,
+    ],
+  ] as const)(
+    '%s → 決まった文言だけ。入れていた値は残り、手で保存できる',
+    async (_n, script, msg) => {
+      const { fake, c } = await openedForRead([script as ReadScript]);
+      c.update({ type: 'set', field: 'lc', value: '99.5' });
+      await c.readImage(img());
+      const s = c.getState();
+      expect(s.statement?.phase).toBe('failed');
+      expect(s.statement?.message).toBe(msg);
+      expect(s.draft.lc).toBe('99.5');
+      expect(JSON.stringify(s)).not.toContain('SECRET');
+      fillFrom(c, E1);
+      expect(c.getState().read.canSave).toBe(true);
+      await c.save();
+      expect(c.getState().phase).toBe('saved');
+      expect(added(fake)[0]?.record.source).toBe('manual');
+    },
+  );
+
+  it('(d) 画面の待ちの打ち切り → 「読み取れませんでした」', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])], { readTimeoutMs: 20 });
+    fake.holdReads();
+    await c.readImage(img());
+    expect(c.getState().statement?.message).toBe(READ_MSG.failed);
+    fake.releaseReads();
+    await new Promise((r) => setTimeout(r, 0));
+    // 遅れて届いた応答は捨てる
+    expect(c.getState().draft.instrumentName).toBe('架空指数B');
+  });
+
+  it('(e) 401 → 「ログインが切れました」（auth）。入れていた値は残る', async () => {
+    const { c } = await openedForRead([{ status: 401, body: SECRET }]);
+    c.update({ type: 'set', field: 'lc', value: '99.5' });
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.error).toBe(AUTH_EXPIRED);
+    expect(s.errorKind).toBe('auth');
+    expect(s.draft.lc).toBe('99.5');
+    expect(JSON.stringify(s)).not.toContain('SECRET');
+  });
+
+  it('読み取りの待ちは API の締め切り（20 秒）+ 後始末（約 5 秒）より長い', () => {
+    expect(READ_TIMEOUT_MS).toBeGreaterThanOrEqual(25_000);
+  });
+});
+
+describe('やめる・貼り直す・離れる（E13・R9）', () => {
+  it('E13: 読み取り中に [やめて手で入れる] → 後で届いた応答で欄は変わらない。手で保存できる', async () => {
+    const { fake, c, previews } = await openedForRead([ok([ROW_E1])]);
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => readCalls(fake).length === 1);
+    c.cancelRead();
+    expect(c.getState().statement).toBeUndefined();
+    expect(previews[0]?.closed()).toBe(true);
+    const before = c.getState().draft;
+    fake.releaseReads();
+    await p;
+    expect(c.getState().draft).toEqual(before);
+    expect(c.getState().statement).toBeUndefined();
+    fillFrom(c, E1);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+  });
+
+  it('もう一度貼る → 前の読み取りの応答は捨て、新しい応答だけを入れる', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E8]), ok([ROW_E7])]);
+    fake.holdReads();
+    const first = c.readImage(img());
+    await until(() => readCalls(fake).length === 1);
+    const second = c.readImage(img());
+    await until(() => readCalls(fake).length === 2);
+    fake.releaseReads();
+    await Promise.all([first, second]);
+    expect(c.getState().draft.exitOrderType).toBe('stop');
+  });
+
+  it('画面を離れた（dispose）→ プレビューを閉じ、届いた応答は捨てる', async () => {
+    const { fake, c, previews } = await openedForRead([ok([ROW_E1])]);
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => readCalls(fake).length === 1);
+    c.dispose();
+    fake.releaseReads();
+    await p;
+    expect(previews[0]?.closed()).toBe(true);
+    expect(c.getState().statement).toBeUndefined();
+    expect(c.getState().draft.instrumentName).toBe('架空指数B');
+  });
+
+  it('保存の後の画面で貼る → 次の取引として読み取る', async () => {
+    const { c } = await openedForRead([ok([ROW_E1]), ok([ROW_E8])]);
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    await c.readImage(img());
+    expect(c.getState().phase).toBe('editing');
+    expect(c.getState().draft.exitOrderType).toBe('market');
+  });
+});
+
+describe('端末に残さない（AC-12。EPIC #10 の終了条件 6(b)）', () => {
+  const g = globalThis as unknown as Record<string, unknown>;
+  const KEYS = ['localStorage', 'sessionStorage', 'indexedDB', 'caches', 'history', 'location'];
+  const saved = new Map<string, unknown>();
+  afterEach(() => {
+    for (const k of KEYS) {
+      if (saved.has(k)) g[k] = saved.get(k);
+      else delete g[k];
+    }
+    saved.clear();
+  });
+
+  it('E1・E10 の流れ全体で、Web Storage・IndexedDB・Cache Storage・履歴・URL に触れた件数 0', async () => {
+    const touched: string[] = [];
+    const spy = (name: string) =>
+      new Proxy(
+        {},
+        {
+          get(_t, prop) {
+            touched.push(`${name}.${String(prop)}`);
+            return () => undefined;
+          },
+          set(_t, prop) {
+            touched.push(`${name}.${String(prop)}=`);
+            return true;
+          },
+        },
+      );
+    for (const k of KEYS) {
+      if (k in g) saved.set(k, g[k]);
+      g[k] = spy(k);
+    }
+    const { c } = await openedForRead([ok([ROW_E1]), ok(ROWS_E10)]);
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    c.next();
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    c.skipRow();
+    typeFive(c, '49');
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    c.dispose();
+    expect(touched).toEqual([]);
+  });
+});
+
+describe('レビュー指摘の対応（#15 Phase 4）', () => {
+  it('指摘 5: 2 枚目を貼っても、1 枚目の後に直した欄は上書きせず印も残す。1 枚目の逆指値の既定は戻す', async () => {
+    const { c } = await openedForRead([ok([ROW_E7]), ok([ROW_E8])]);
+    await c.readImage(img());
+    expect(c.getState().draft.lcDecided).toBe(true);
+    c.update({ type: 'set', field: 'exitPrice', value: '98.5' });
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.draft.exitPrice).toBe('98.5');
+    expect(s.statement?.marks.exitPrice).toBe('edited');
+    // 2 枚目は成行: 1 枚目が既定で選んだ「決めていた」「LC」は戻り、本人の答えとして残らない
+    expect(s.draft.lcDecided).toBeNull();
+    expect(s.draft.exitReason).toBe('other');
+    expect(s.statement?.marks.lcDecided).toBeUndefined();
+    expect(s.draft.exitOrderType).toBe('market');
+    expect(s.draft.stopOrderPlaced).toBe('unanswered');
+  });
+
+  it('指摘 5: 本人が選び直した「決めていた」は 2 枚目でも戻さない', async () => {
+    const { c } = await openedForRead([ok([ROW_E7]), ok([ROW_E8])]);
+    await c.readImage(img());
+    c.update({ type: 'set', field: 'lcDecided', value: false });
+    await c.readImage(img());
+    expect(c.getState().draft.lcDecided).toBe(false);
+  });
+
+  it('指摘 6: 読み込み中・保存中に貼った画像は捨てずに知らせる（要求 0 件）。入力すると消える', async () => {
+    const fake = createFakeApi({ instruments: [B], reads: [ok([ROW_E1])] });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => ({ ok: true, image: preparedImage() }),
+    });
+    await c.readImage(img());
+    expect(c.getState().readBlocked).toBe(READ_BLOCKED.notReady);
+    await c.load();
+    expect(c.getState().readBlocked).toBeNull();
+    fillFrom(c, E1);
+    fake.hold();
+    const saving = c.save();
+    await c.readImage(img());
+    expect(c.getState().readBlocked).toBe(READ_BLOCKED.saving);
+    fake.release();
+    await saving;
+    expect(readCalls(fake)).toHaveLength(0);
+  });
+
+  it('指摘 3: 1 行を保存した知らせは「次の行（2 / 3）」を含む', async () => {
+    const { c } = await openedForRead([ok(ROWS_E10)]);
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    expect(c.getState().statement?.notice).toBe('1 / 3 行目を記録しました。次の行（2 / 3）です');
+  });
+
+  it('指摘 7: 読めない形式（unsupported）は「この画像は読み取れません」', async () => {
+    const { fake, c } = await openedForRead([], {
+      prepare: async () => ({ ok: false, error: 'unsupported' }),
+    });
+    await c.readImage(img());
+    expect(c.getState().statement?.message).toBe(READ_MSG.rejected);
+    expect(readCalls(fake)).toHaveLength(0);
   });
 });

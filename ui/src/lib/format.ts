@@ -49,13 +49,23 @@ export function formatPct(p: number): string {
 
 /**
  * 数を指数表記にしない文字列（保存した数のまま。末尾の 0 は落ちる）。1e-7 → "0.0000001"。
- * 入力の欄の既定値（数量）にも使う（指数表記は入力の欄で数として受けないため）
+ * 入力の欄の既定値（数量）と、明細の読み取りの値（#15）にも使う（指数表記は入力の欄で数として受けないため）。
+ * 指数表記の桁を小数点の位置だけずらして書く（toFixed(20) は小数 20 桁で切れて、9.8186764633e-10 のような数の
+ * 桁を落とすため。#15 の往復の性質テスト）
  */
 export function formatPlain(n: number): string {
   const s = String(n);
   if (!/e/i.test(s) || !Number.isFinite(n)) return s;
-  const fixed = n.toFixed(20);
-  return fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed;
+  const m = /^(-?)(\d)(?:\.(\d+))?e([+-]\d+)$/.exec(s);
+  if (!m) return s;
+  const sign = m[1] ?? '';
+  const tail = m[3] ?? '';
+  const digits = `${m[2] ?? ''}${tail}`;
+  const exp = Number(m[4]);
+  if (exp < 0) return `${sign}0.${'0'.repeat(-exp - 1)}${digits}`;
+  return exp >= tail.length
+    ? `${sign}${digits}${'0'.repeat(exp - tail.length)}`
+    : `${sign}${digits.slice(0, exp + 1)}.${digits.slice(exp + 1)}`;
 }
 
 /** 価格の表示（理由の「99.5 → 99.2」など）。保存した数のまま（桁をそろえるのは後の Issue） */

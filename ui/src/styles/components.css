@@ -850,6 +850,178 @@
   padding: 0 var(--sp-5) var(--sp-5);
 }
 
+/* ── 決済明細を貼る枠（#15）。注意は常に見える文、状態は控えめな文字。色は本文の色だけ（判定の段の色を使わない） ── */
+.statement__notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  list-style: none;
+  text-wrap: pretty;
+}
+
+.statement__notice li {
+  position: relative;
+  padding-left: var(--sp-4);
+}
+
+.statement__notice li::before {
+  content: "";
+  position: absolute;
+  left: var(--sp-1);
+  top: calc(var(--fs-sm) * var(--lh-body) / 2 - 2px);
+  width: 4px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--ink-3);
+}
+
+/* 貼り付けの案内は、ポインタの細かい端末（PC）だけに出す（スマホには貼り付けのキーが無い） */
+.statement__pastehint {
+  display: none;
+}
+
+@media (pointer: fine) {
+  .statement__pastehint {
+    display: block;
+  }
+}
+
+.statement__row:focus,
+.statement .section__title:focus {
+  outline: none;
+}
+
+.statement__row:focus-visible,
+.statement .section__title:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.statement__pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+/* ファイル選択はボタンの形の label。input は全面に透明で重ねる（当たり = ボタン。キーは input に止まる） */
+.statement__file {
+  position: relative;
+  cursor: pointer;
+}
+
+/* 枠線を含む全面（seg__input と同じ。当たり = ボタンの外形） */
+.statement__input {
+  position: absolute;
+  inset: -1px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.statement__file:has(.statement__input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.statement__file:has(.statement__input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.statement__status,
+.statement__rows,
+.statement__tz {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.statement__reading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* 読み取りの待ち: 小さな点が明滅する（動きを減らす設定では止める） */
+.statement__reading::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  animation: statement-pulse 1.2s var(--ease) infinite;
+}
+
+@keyframes statement-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .statement__reading::before {
+    animation: none;
+  }
+}
+
+.statement__preview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  align-self: flex-start;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  background: var(--s2);
+}
+
+.statement__row {
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.statement__text {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* 欄の印（読み取り・直した など）。ラベルの横に小さな文字で（色だけに頼らない） */
+.field__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+.field__mark {
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
 /* ── ログイン ─────────────────────── */
 .login {
   display: flex;

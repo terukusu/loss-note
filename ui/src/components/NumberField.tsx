@@ -10,6 +10,8 @@ export interface NumberFieldProps {
   readonly unit?: string;
   readonly hint?: string;
   readonly error?: string;
+  /** 欄の印（明細の読み取りの「読み取り」「直した」など。#15）。ラベルの横に文字で出し、読み上げの説明に入れる */
+  readonly mark?: string;
   readonly placeholder?: string;
   readonly size?: 'lg';
   readonly disabled?: boolean;
@@ -19,12 +21,27 @@ export interface NumberFieldProps {
 export function NumberField(p: NumberFieldProps) {
   const hintId = `${p.id}-hint`;
   const errorId = `${p.id}-error`;
-  const describedBy = [p.hint ? hintId : '', p.error ? errorId : ''].filter(Boolean).join(' ');
+  const markId = `${p.id}-mark`;
+  const describedBy = [p.mark ? markId : '', p.hint ? hintId : '', p.error ? errorId : '']
+    .filter(Boolean)
+    .join(' ');
+  const label = (
+    <label class="field__label" for={p.id}>
+      {p.label}
+    </label>
+  );
   return (
     <div class={p.error ? 'field field--error' : 'field'}>
-      <label class="field__label" for={p.id}>
-        {p.label}
-      </label>
+      {p.mark ? (
+        <div class="field__head">
+          {label}
+          <span id={markId} class="field__mark">
+            {p.mark}
+          </span>
+        </div>
+      ) : (
+        label
+      )}
       <div class={p.size === 'lg' ? 'numfield numfield--lg' : 'numfield'}>
         <input
           id={p.id}

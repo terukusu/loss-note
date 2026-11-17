@@ -97,3 +97,30 @@ describe('画面のソース（KEEP-2・KEEP-3）', () => {
     expect(violations(src)).toEqual([]);
   });
 });
+
+/** Issue #13 AC-11: 記録の下書き・取引の値を端末（Web Storage・IndexedDB）に書かない */
+const RECORD_FILES = [
+  '../../ui/src/lib/record-form.ts',
+  '../../ui/src/lib/record-controller.ts',
+  '../../ui/src/lib/reasons.ts',
+  '../../ui/src/lib/instrument-name.ts',
+  '../../ui/src/lib/datetime.ts',
+  '../../ui/src/pages/Record.tsx',
+  '../../ui/src/components/TextField.tsx',
+];
+const DEVICE_STORAGE =
+  /\b(localStorage|sessionStorage|indexedDB|IDBFactory|caches|document\.cookie)\b/;
+
+describe('記録の画面のソース（Issue #13 AC-11）', () => {
+  it.each(RECORD_FILES)('%s は端末の保存先に触れない', (path) => {
+    const src = sources[path];
+    expect(src, path).toBeDefined();
+    expect(DEVICE_STORAGE.test(src ?? '')).toBe(false);
+  });
+
+  it('検査の自己テスト: 端末の保存先の語を見つける', () => {
+    expect(DEVICE_STORAGE.test('localStorage.setItem(k, v)')).toBe(true);
+    expect(DEVICE_STORAGE.test('indexedDB.open("x")')).toBe(true);
+    expect(DEVICE_STORAGE.test('const draft = {}')).toBe(false);
+  });
+});

@@ -34,3 +34,31 @@ export function formatYen(yen: number): string {
   const n = roundAway(Math.abs(yen), 1);
   return `${signOf(yen)}${group(n.toFixed(0))}円`;
 }
+
+/**
+ * リスク（%）の表示（Issue #13 ルール 5・契約 R-2。設計書 5.1）。小数 1 桁へ **切り上げ**（2% を超えた取引が 2.0% と出て、
+ * 過剰リスクの理由と食い違うのを防ぐ。多めに出るのはリスクの側に安全）。2 進の誤差で 1 段上がらないよう、
+ * 先に 1e-9 を引いてから切り上げる（0.5 → 0.5%、2.0 → 2.0%、2.01 → 2.1%）。有限でないときは「リスクなし」
+ */
+export function formatPct(p: number): string {
+  if (!Number.isFinite(p)) return 'リスクなし';
+  const v = Math.ceil((p - 1e-9) * 10) / 10;
+  // −0 を「-0.0」にしない（toFixed は −0 を "0.0" にする）
+  return `${(v === 0 ? 0 : v).toFixed(1)}%`;
+}
+
+/**
+ * 数を指数表記にしない文字列（保存した数のまま。末尾の 0 は落ちる）。1e-7 → "0.0000001"。
+ * 入力の欄の既定値（数量）にも使う（指数表記は入力の欄で数として受けないため）
+ */
+export function formatPlain(n: number): string {
+  const s = String(n);
+  if (!/e/i.test(s) || !Number.isFinite(n)) return s;
+  const fixed = n.toFixed(20);
+  return fixed.includes('.') ? fixed.replace(/0+$/, '').replace(/\.$/, '') : fixed;
+}
+
+/** 価格の表示（理由の「99.5 → 99.2」など）。保存した数のまま（桁をそろえるのは後の Issue） */
+export function formatPrice(n: number): string {
+  return formatPlain(n);
+}

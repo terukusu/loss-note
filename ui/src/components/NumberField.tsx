@@ -1,5 +1,7 @@
-// 数値の入力欄（契約 C-4）。打った文字列をそのまま親へ返す（解釈・検査は #13 の純関数）。
-// 文字 16px 以上（iOS の自動拡大を避ける）・高さ 44px 以上。誤りは枠の色だけでなく文言で示す
+// 数値の入力欄（契約 C-4）。打った文字列をそのまま親へ返す（解釈・検査は ui/src/lib/record-form.ts の純関数）。
+// 文字 16px 以上（iOS の自動拡大を避ける）・高さ 44px 以上。誤りは枠の色だけでなく文言で示す。
+// size="lg" は記録する画面の主の数字（イン・決済・LC）。inputMode="text" は符号つきの数（損益）に使う
+// （iOS の小数のキーボードには − が無い）
 export interface NumberFieldProps {
   readonly id: string;
   readonly label: string;
@@ -9,6 +11,9 @@ export interface NumberFieldProps {
   readonly hint?: string;
   readonly error?: string;
   readonly placeholder?: string;
+  readonly size?: 'lg';
+  readonly disabled?: boolean;
+  readonly inputMode?: 'decimal' | 'text';
 }
 
 export function NumberField(p: NumberFieldProps) {
@@ -20,16 +25,17 @@ export function NumberField(p: NumberFieldProps) {
       <label class="field__label" for={p.id}>
         {p.label}
       </label>
-      <div class="numfield">
+      <div class={p.size === 'lg' ? 'numfield numfield--lg' : 'numfield'}>
         <input
           id={p.id}
           class="numfield__input"
           type="text"
-          inputMode="decimal"
+          inputMode={p.inputMode ?? 'decimal'}
           autoComplete="off"
           spellcheck={false}
           value={p.value}
           placeholder={p.placeholder}
+          disabled={p.disabled}
           aria-invalid={p.error ? 'true' : undefined}
           aria-describedby={describedBy || undefined}
           onInput={(e) => p.onInput(e.currentTarget.value)}

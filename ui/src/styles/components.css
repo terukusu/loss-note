@@ -218,6 +218,90 @@
   font-size: var(--fs-sm);
 }
 
+/* 主の数字（イン・決済・LC）は大きく。片手で打ちやすく、遠目でも読める */
+.numfield--lg {
+  min-height: 60px;
+}
+
+.numfield--lg .numfield__input {
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+}
+
+.numfield:has(.numfield__input:disabled) {
+  background: var(--s1);
+  border-style: dashed;
+}
+
+.numfield__input:disabled {
+  cursor: not-allowed;
+}
+
+/* 文字・日時の欄（見た目は数値の欄と同じ枠。文字は本文のフォント） */
+.textfield__input {
+  font-family: var(--font);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+
+.textfield__input::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
+  cursor: pointer;
+}
+
+/* 4 択以上の選択（決済の理由）。2〜3 択は Segment */
+.select {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 var(--sp-4);
+  background: var(--s2);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-md);
+}
+
+.select:focus-visible {
+  border-color: var(--focus);
+}
+
+/* 読み上げだけに出す */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* 決まった文言の知らせ（失敗は --danger。判定の段の色は使わない） */
+.notice {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.notice--error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.notice:has(.btn) {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
 /* ── セグメント（2〜3 択） ───────────── */
 .seg {
   display: grid;
@@ -433,36 +517,337 @@
   margin-top: var(--sp-3);
 }
 
-/* ── 記録の流れ（記録する画面の骨組み） ── */
-.steps {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--sp-2);
+/* ── 記録する画面（Issue #13） ── */
+.record {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
 }
 
-.steps__item {
+.record__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* イン・決済などの 2 つ並び（幅 480px 未満は縦に 1 列） */
+.record__pair {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-4);
+}
+
+@media (min-width: 480px) {
+  .record__pair {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* [記録する] は親指の届く所に。スマホでは下部の行き先の上に貼り付ける */
+.record__submit {
+  position: sticky;
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--sp-3));
+  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
   padding: var(--sp-3);
   border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--s1);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--s1) 86%, transparent);
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  box-shadow: var(--shadow-2);
+}
+
+@media (min-width: 720px) {
+  .record__submit {
+    bottom: var(--sp-4);
+  }
+}
+
+.record__missing:empty {
+  display: none;
+}
+
+.record__missing {
   font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  line-height: 1.4;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* LC の価格と「なし」のトグル */
+.lcrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--sp-3);
+}
+
+.lcnone {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  min-width: 72px;
+  min-height: 60px;
+  /* ラベルの行の高さぶん下げ、数値の欄と上端をそろえる */
+  margin-top: calc(var(--fs-sm) * var(--lh-body) + var(--sp-2));
+  padding: 0 var(--sp-4);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+  color: var(--ink-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.lcnone:active {
+  transform: scale(0.98);
+}
+
+.lcnone[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 26%, var(--s1));
+  border-color: var(--accent);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+}
+
+.lcnone .icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 3;
+  color: var(--accent);
+}
+
+/* 判定・理由・R の枠。色は判定の段（枠・地の淡い色・バッジ）だけ、数字は本文の色（C34） */
+.verdict {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  overflow: hidden;
+  color: var(--ink);
+  transition: border-color var(--dur-base) var(--ease);
+}
+
+.verdict::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--line-2);
+}
+
+.verdict--plan {
+  border-color: var(--tier-plan-line);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--tier-plan-bg) 80%, var(--s1)),
+    var(--s1) 65%
+  );
+}
+
+.verdict--plan::before {
+  background: var(--tier-plan-line);
+}
+
+.verdict--break {
+  border-color: var(--tier-break-line);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--tier-break-bg) 80%, var(--s1)),
+    var(--s1) 65%
+  );
+}
+
+.verdict--break::before {
+  background: var(--tier-break-line);
+}
+
+.verdict--worst {
+  border-color: var(--tier-worst-line);
+  background: linear-gradient(
+    160deg,
+    color-mix(in srgb, var(--tier-worst-bg) 80%, var(--s1)),
+    var(--s1) 65%
+  );
+}
+
+.verdict--worst::before {
+  background: var(--tier-worst-line);
+}
+
+/* 保存の後はいちばん目立つ所に大きく出す */
+.verdict--saved {
+  gap: var(--sp-5);
+  padding: var(--sp-6);
+  border-width: 2px;
+  box-shadow: var(--shadow-2);
+}
+
+.verdict--saved::before {
+  width: 6px;
+}
+
+.verdict--saved .badge--lg {
+  padding: 8px 18px 8px 14px;
+  font-size: var(--fs-lg);
+}
+
+.verdict--saved .badge--lg .badge__mark {
+  width: 20px;
+  height: 20px;
+}
+
+.verdict__status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink-2);
+}
+
+.verdict__status .icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.6;
+  color: var(--accent);
+}
+
+.verdict__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+
+.verdict__title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+.verdict__title:focus {
+  outline: none;
+}
+
+.verdict__lead {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.verdict__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-4) var(--sp-7);
+}
+
+.verdict__stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.verdict__label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+.verdict__note,
+.verdict__hint,
+.verdict__caption {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.verdict__caption {
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
   word-break: auto-phrase;
 }
 
-.steps__no {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
+.verdict__ask {
+  padding: var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  background: var(--s1);
+}
+
+.reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.reasons__item {
+  position: relative;
+  padding-left: var(--sp-5);
+  font-weight: var(--fw-medium);
+  line-height: 1.5;
+}
+
+.reasons__item::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0.6em;
+  width: 6px;
+  height: 6px;
   border-radius: var(--radius-pill);
-  background: var(--s3);
-  font-size: var(--fs-sm);
+  background: var(--ink-3);
+}
+
+/* 任意の欄の畳み */
+.more__summary {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  padding: var(--sp-2) var(--sp-5);
   font-weight: var(--fw-bold);
+  color: var(--ink-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.more__summary::-webkit-details-marker {
+  display: none;
+}
+
+.more__summary::after {
+  content: "+";
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: var(--fs-lg);
+  color: var(--ink-3);
+}
+
+.more[open] .more__summary::after {
+  content: "−";
+}
+
+.more__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: 0 var(--sp-5) var(--sp-5);
 }
 
 /* ── ログイン ─────────────────────── */

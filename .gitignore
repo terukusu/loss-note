@@ -19,3 +19,6 @@ data/local/
 .claude/settings.local.json
 .claude/handoff/
 .claude/worktrees/
+# Firebase のエミュレーターのログとキャッシュ（記録の断片が出うる。書き出しは data/local/emulator/）
+*-debug.log
+.firebase/

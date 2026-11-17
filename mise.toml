@@ -1,0 +1,5 @@
+# 手元の道具の版（パッチまで固定。Node は .node-version、uv は .github/uv-requirements.txt と揃える。変えるときは両方を直す）
+[tools]
+node = "24.22.3"
+java = "temurin-21.0.13+9.0.LTS"
+uv = "0.13.6"

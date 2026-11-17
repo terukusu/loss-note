@@ -41,13 +41,38 @@
 
 ## 作り
 
-まだコードは無い。設計は `docs/design.md`（第 2 版）。ディレクトリを作ったら、役割、計算を置く場所（純関数に切り出してテストで固定する）、データの読み書きの経路をここに書く。
+設計は `docs/design.md`（第 2 版）。
+
+| パス | 役割 |
+|---|---|
+| `ui/` | 画面（Vite の root）。`index.html`・`src/main.tsx`（起動）・`src/App.tsx`（アプリの殻）。ビルド結果は `dist/`（コミットしない） |
+| `core/` | 計算・判定の純関数（TypeScript）。**まだ無い**（判定の純関数の Issue で作る） |
+| `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く |
+| `api/` | API（Python 3.13・Flask・uv）。`src/loss_note_api/app.py` の `create_app()` が入口、テストは `api/tests/`（pytest） |
+| `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査） |
+| `.github/` | CI（`workflows/ci.yml`）とビルド成果物の検査（`scripts/csp-check.sh`・自己テスト `csp-check.test.sh`） |
+| `firebase.json`・`firestore.rules`・`storage.rules` | 手元のエミュレーター（Firestore・Auth・Storage）の設定。ルールはすべて拒否（画面から直接読み書きさせない） |
+| `docs/` | 設計書・ADR |
+| `data/local/` | 手元だけのデータ（gitignore）。実際の記録の写しと、エミュレーターの書き出し `data/local/emulator/`。開発サーバーからも配らない（`vite.config.ts` の `server.fs.deny`） |
+
+- **計算を置く場所**: 損益・R・判定・集計などの計算は `core/` の副作用の無い純関数に置き、DOM・通信・Firebase を import しない。テストは `tests/core/` で、架空の値の手計算の例と性質テストで固定する。画面の整形のロジックも DOM から切り離した関数にしてテストする
+- **データの読み書きの経路**: 画面 → `/api/...`（同一オリジン。開発時は Vite の proxy が API へ渡す）→ API → Firestore / Storage（手元はエミュレーター、本番は後の Issue）。画面は Firestore / Storage を直接読み書きしない
+- **手元のポート**: 画面の開発サーバー 5173 / API 8000 / Firestore 8080 / Auth 9099 / Storage 9199 / エミュレーターの UI 4000・hub 4400。エミュレーターのプロジェクト ID は架空の `demo-loss-note`（GCP のプロジェクトもログインも要らない）
 
 ## 開発
 
-まだ無い。最初の実装の Issue で、確認コマンド（CI と同じもの。型検査・lint・テスト・ビルド。option-simulator に倣い Node 24・Biome・vitest、API は uv・ruff・pytest、Terraform は fmt・validate・test）をここに 1 行で書く。スキル（`.claude/skills/implement-issue` ほか）はこの節の確認コマンドを検証の正として使う。
+確認コマンド（CI と同じもの。手元は `mise exec -- bash -c '<この 1 行>'` で Node 24・uv を使う）:
 
-- 依存はバージョンを固定する（lock ファイルをコミットする）
+```
+npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)
+```
+
+スキル（`.claude/skills/implement-issue` ほか）はこの確認コマンドを検証の正として使う。Terraform の検査（fmt・validate・test）は `infra/` を作る Issue で足す。
+
+- 手元の道具の版は `mise.toml` でパッチまで固定する（Node 24.22.3・Java 21.0.13（Temurin。エミュレーター用）・uv 0.13.6）。Node の版は `.node-version`（CI が読む）、uv の版とハッシュは `.github/uv-requirements.txt`（CI が pip の `--require-hashes` で入れる）にも書いてあるので、変えるときは両方を直す。Python 3.13 は uv が `api/.python-version` を見て入れる
+- 手元の起動は `README.md`（`npm run emulators`・`npm run dev:api`・`npm run dev`）
+- 依存はバージョンを固定する（lock ファイルをコミットする）。画面の直接の依存は正確な版（`.npmrc` の `save-exact=true`。`npm run check:pinned` で検査）、API は `api/pyproject.toml` の範囲 + `[tool.uv] exclude-newer` + `api/uv.lock`。CI は `npm ci` と `uv sync --locked`（lock と食い違うと失敗）
+- 直接の依存は、公開から 14 日以上たった版を使う（サプライチェーン対策）。npm は `npm view <pkg> time --json` で公開日を調べる。API は `exclude-newer` の日付を進めて `uv lock` する（API は推移的な依存にも同じ日付の上限が掛かる。画面の推移的な依存には日付の上限をまだ掛けていない）
 - 設計判断は必要に応じて `docs/adr-NNNN-<slug>.md`（0001 から連番。状態・日付・背景・決定・選択肢・結果・関連）に残す
 
 ## 作業の進め方

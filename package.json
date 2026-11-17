@@ -15,7 +15,7 @@
     "lint": "biome check --error-on-warnings .",
     "format": "biome check --write .",
     "test": "vitest run",
-    "test:api:emulator": "firebase emulators:exec --project demo-loss-note --only auth,firestore 'cd api && LOSS_NOTE_REQUIRE_EMULATOR=1 uv run --locked pytest -q'",
+    "test:api:emulator": "firebase emulators:exec --project demo-loss-note --only auth,firestore,storage 'cd api && LOSS_NOTE_REQUIRE_EMULATOR=1 uv run --locked pytest -q'",
     "check:pinned": "node scripts/check-pinned.mjs",
     "ui:check": "node scripts/ui-check.mjs"
   },

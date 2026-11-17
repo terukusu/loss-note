@@ -7,14 +7,13 @@ import base64
 import copy
 import json
 import logging
-import struct
 import tempfile
-import zlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from helpers import fake_agent_sdk
+from helpers.charts import jpeg, png
 from helpers.emulator import PROJECT
 from helpers.memory_store import MemoryStore
 from helpers.records import t1
@@ -34,23 +33,7 @@ SYM_MARKER = "SYMMARKERQZ"  # 銘柄の名前に許した文字だけ
 NUM_MARKER = 987654.321
 
 
-# ---- 合成の画像 ----
-
-
-def png(width: int, height: int, size: int | None = None, filler: bytes = b"\x00") -> bytes:
-    ihdr = struct.pack(">II", width, height) + bytes([8, 2, 0, 0, 0])
-    data = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + ihdr + struct.pack(">I", zlib.crc32(b"IHDR" + ihdr))
-    if size is not None:
-        pad = size - len(data)
-        data += (filler * (pad // len(filler) + 1))[:pad]
-    return data
-
-
-def jpeg(width: int, height: int, size: int) -> bytes:
-    sof_body = bytes([8]) + struct.pack(">HH", height, width) + bytes([1, 1, 0x11, 0])
-    data = b"\xff\xd8" + b"\xff\xc0" + struct.pack(">H", len(sof_body) + 2) + sof_body + b"\xff\xda\x00\x02"
-    return data + b"\x00" * (size - len(data))
-
+# ---- 合成の画像（helpers/charts.py。チャートのテストと共有） ----
 
 SMALL_PNG = png(800, 600, size=2_000)
 

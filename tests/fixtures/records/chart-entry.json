@@ -1,0 +1,352 @@
+{
+  "trades": [
+    {
+      "name": "E1",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "charts": ["entry", "exit"],
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 98.6,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "entryChartTimeframe": "4h",
+        "exitChartTimeframe": "1d",
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "B",
+        "reasons": [
+          "時間足を変えた（4 時間足 → 日足・チャートから）",
+          "LC で切らずに持ち続けた（−1.4R）"
+        ]
+      }
+    },
+    {
+      "name": "E2",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "charts": ["entry", "exit"],
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 99,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "entryChartTimeframe": "1d",
+        "exitChartTimeframe": "4h",
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "reasons": ["決めた LC で切れた"]
+      }
+    },
+    {
+      "name": "E3",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "charts": ["entry"],
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 99,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "entryChartTimeframe": "4h",
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "reasons": ["決めた LC で切れた"]
+      }
+    },
+    {
+      "name": "E4",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "charts": ["entry", "exit"],
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "longer",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 98.7,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "entryChartTimeframe": "4h",
+        "exitChartTimeframe": "4h",
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "B",
+        "reasons": ["時間足を変えた", "LC で切らずに持ち続けた（−1.3R）"]
+      }
+    },
+    {
+      "name": "E5",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "charts": ["entry", "exit"],
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 101.2,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "entryChartTimeframe": "1h",
+        "exitChartTimeframe": "4h",
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "riskyWin",
+        "reasons": ["時間足を変えた（1 時間足 → 4 時間足・チャートから）"]
+      }
+    },
+    {
+      "name": "E6",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "charts": ["entry", "exit"],
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 99,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "reasons": ["決めた LC で切れた"]
+      }
+    }
+  ]
+}

@@ -564,3 +564,49 @@ describe('性質（種つき乱数の下書き。契約 R-1）', () => {
     );
   });
 });
+
+// ── 根拠の足のチャートの時間足（Issue #12 契約 P-1・R2・R3・AC-3・AC-4） ──
+
+describe('チャートの時間足（Issue #12）', () => {
+  const ctx = (entry: boolean, exit: boolean): DraftContext => ({
+    ...NO_CAPITAL,
+    charts: { entry, exit },
+  });
+  const tf = (d: Draft, entry: Draft['entryChartTimeframe'], exit: Draft['exitChartTimeframe']) =>
+    applyDraft(d, {
+      type: 'fill',
+      values: { entryChartTimeframe: entry, exitChartTimeframe: exit },
+    });
+
+  it('両方にチャートがあれば、選んだ時間足が本文に入る', () => {
+    const body = readDraft(tf(E2, '4h', '1d'), ctx(true, true)).body;
+    expect(body?.entryChartTimeframe).toBe('4h');
+    expect(body?.exitChartTimeframe).toBe('1d');
+  });
+
+  it('決済時のチャートが無ければ、決済時の時間足は入らない（R4。外したら判定も従う）', () => {
+    const body = readDraft(tf(E2, '4h', '1d'), ctx(true, false)).body;
+    expect(body?.entryChartTimeframe).toBe('4h');
+    expect(body && 'exitChartTimeframe' in body).toBe(false);
+  });
+
+  it('チャートが無ければ本文は今と同じ（文脈を省いても、どちらも false でも）', () => {
+    const plain = readDraft(E2, NO_CAPITAL).body;
+    expect(readDraft(tf(E2, '4h', '1d'), NO_CAPITAL).body).toEqual(plain);
+    expect(readDraft(tf(E2, '4h', '1d'), ctx(false, false)).body).toEqual(plain);
+    expect(EMPTY_DRAFT.entryChartTimeframe).toBeNull();
+    expect(EMPTY_DRAFT.exitChartTimeframe).toBeNull();
+  });
+
+  it('E6: チャートがあっても時間足を選ばなければ本文に入らず、必須の欄も増えない（R6）', () => {
+    const read = readDraft(E2, ctx(true, true));
+    expect(read.canSave).toBe(true);
+    expect(read.missing).toEqual([]);
+    expect(read.body && 'entryChartTimeframe' in read.body).toBe(false);
+  });
+
+  it('時間足は必須の欄にも誤りにも数えない（手で打つ欄・選ぶ欄の数は変わらない）', () => {
+    const empty = readDraft(EMPTY_DRAFT, ctx(true, true));
+    expect(empty.missing).toEqual(readDraft(EMPTY_DRAFT, NO_CAPITAL).missing);
+  });
+});

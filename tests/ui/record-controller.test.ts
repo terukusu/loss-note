@@ -8,6 +8,10 @@ import { formatR } from '../../ui/src/lib/format';
 import { reasonText } from '../../ui/src/lib/reasons';
 import {
   AUTH_EXPIRED,
+  CHART_LOCKED,
+  CHART_MSG,
+  CHART_PREPARING,
+  CHART_SAVE_TIMEOUT_MS,
   createRecordController,
   LOAD_FAILED,
   NETWORK_FAILED,
@@ -1085,5 +1089,331 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
     await c.readImage(img());
     expect(c.getState().statement?.message).toBe(READ_MSG.rejected);
     expect(readCalls(fake)).toHaveLength(0);
+  });
+});
+
+// ── 根拠の足のチャート（Issue #12 AC-1・2・5・6・R1・R4・R6・E12・E14・E15） ──
+
+describe('根拠の足のチャート（Issue #12）', () => {
+  const tradePosts = (fake: FakeApi) => posts(fake, '/api/trades');
+
+  it('E15・AC-1: チャート 2 枚 + 明細 1 枚 → LC・一言・3 つ選ぶだけで判定と R が出て、1 要求で保存できる', async () => {
+    const { fake, c, previews } = await openedForRead([ok([ROW_E1])]);
+    await c.setChart('entry', img());
+    await c.setChart('exit', img());
+    await c.readImage(img());
+    const n = typeFive(c);
+    const s = c.getState();
+    expect(n).toEqual({ typed: 2, chosen: 3 });
+    expect(s.read.missing).toEqual([]);
+    expect(s.read.canSave).toBe(true);
+    expect(s.read.preview.judgment?.grade).toBe('A');
+    expect(s.read.preview.r).toBe(-1);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    const sent = tradePosts(fake);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.parts).toEqual(['record', 'entryChart', 'exitChart']);
+    expect(fake.charts.size).toBe(2);
+    expect(c.getState().saved?.trade.charts).toEqual({
+      entry: { contentType: 'image/png', size: 4096 },
+      exit: { contentType: 'image/png', size: 4096 },
+    });
+    // 明細の読み取りは明細の 1 枚だけ（チャートは送らない）
+    expect(readCalls(fake)).toHaveLength(1);
+    // 保存したら枠は空・プレビューは閉じる（明細のプレビューと 2 枚の枠で 3 つ）
+    expect(c.getState().charts).toBeUndefined();
+    expect(previews.every((p) => p.closed())).toBe(true);
+  });
+
+  it('E14・AC-2: 枠に入れたチャートは明細の読み取りに送らない / 枠の外の画像は明細へ（枠は空のまま）', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    await c.setChart('entry', img());
+    expect(readCalls(fake)).toHaveLength(0);
+    expect(c.getState().charts?.entry?.phase).toBe('ready');
+    expect(c.getState().statement).toBeUndefined();
+    await c.readImage(img());
+    expect(readCalls(fake)).toHaveLength(1);
+    expect(c.getState().charts?.exit).toBeUndefined();
+  });
+
+  it('KEEP-1: 明細だけなら今までどおり JSON で送る（画像の部分なし・チャート 0 枚）', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    const sent = tradePosts(fake);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.parts).toBeUndefined();
+    expect(sent[0]?.body).toBeDefined();
+    expect(fake.charts.size).toBe(0);
+  });
+
+  it('時間足はチャートのある枠でだけ本文に入り、判定に効く（E1: 4 時間足 → 日足・チャートから）', async () => {
+    const { fake, c } = await openedForRead([]);
+    fillFrom(c, { ...E1, timeframeChange: 'none', lcMove: 'none', lcAfter: '' });
+    c.update({ type: 'set', field: 'entryChartTimeframe', value: '4h' });
+    c.update({ type: 'set', field: 'exitChartTimeframe', value: '1d' });
+    // チャートが無いうちは本文に入らない
+    expect(c.getState().read.body?.entryChartTimeframe).toBeUndefined();
+    await c.setChart('entry', img());
+    await c.setChart('exit', img());
+    // 枠に入れると時間足は選び直し（前の値は残さない）
+    expect(c.getState().draft.entryChartTimeframe).toBeNull();
+    c.update({ type: 'set', field: 'entryChartTimeframe', value: '4h' });
+    c.update({ type: 'set', field: 'exitChartTimeframe', value: '1d' });
+    const reasons = c.getState().read.preview.judgment?.reasons.map((r) => reasonText(r, 'L'));
+    expect(reasons).toContain('時間足を変えた（4 時間足 → 日足・チャートから）');
+    await c.save();
+    const body = tradePosts(fake)[0]?.body as {
+      entryChartTimeframe?: string;
+      exitChartTimeframe?: string;
+    };
+    expect([body.entryChartTimeframe, body.exitChartTimeframe]).toEqual(['4h', '1d']);
+  });
+
+  it('E6・AC-3: 2 枚貼って時間足を選ばずに保存できる（本文に時間足なし）', async () => {
+    const { fake, c } = await openedForRead([]);
+    fillFrom(c, E2);
+    await c.setChart('entry', img());
+    await c.setChart('exit', img());
+    expect(c.getState().read.canSave).toBe(true);
+    await c.save();
+    const body = tradePosts(fake)[0]?.body as Record<string, unknown>;
+    expect('entryChartTimeframe' in body || 'exitChartTimeframe' in body).toBe(false);
+    expect(fake.charts.size).toBe(2);
+  });
+
+  it('同じ枠にもう 1 枚 = 置き換え（前のプレビューを閉じ、その枠の時間足は選び直し）', async () => {
+    const { c, previews } = await openedForRead([]);
+    await c.setChart('entry', img());
+    c.update({ type: 'set', field: 'entryChartTimeframe', value: '4h' });
+    await c.setChart('entry', img());
+    expect(previews[0]?.closed()).toBe(true);
+    expect(previews[1]?.closed()).toBe(false);
+    expect(c.getState().draft.entryChartTimeframe).toBeNull();
+    expect(c.getState().charts?.entry?.preview).toBe(previews[1]);
+  });
+
+  it('[外す]: 画像と時間足を消す（プレビューを閉じ、本文から時間足が消える）', async () => {
+    const { c, previews } = await openedForRead([]);
+    fillFrom(c, E2);
+    await c.setChart('exit', img());
+    c.update({ type: 'set', field: 'exitChartTimeframe', value: '1d' });
+    expect(c.getState().read.body?.exitChartTimeframe).toBe('1d');
+    c.removeChart('exit');
+    expect(c.getState().charts?.exit).toBeUndefined();
+    expect(c.getState().draft.exitChartTimeframe).toBeNull();
+    expect(c.getState().read.body?.exitChartTimeframe).toBeUndefined();
+    expect(previews[0]?.closed()).toBe(true);
+  });
+
+  it('E12・AC-5: 2 枚貼って保存せずに離れる → 要求 0・サーバーのチャート 0 枚・プレビューは閉じる', async () => {
+    const { fake, c, previews } = await openedForRead([]);
+    const before = fake.calls.length;
+    await c.setChart('entry', img());
+    await c.setChart('exit', img());
+    c.dispose();
+    expect(fake.calls.length).toBe(before);
+    expect(fake.charts.size).toBe(0);
+    expect(previews.every((p) => p.closed())).toBe(true);
+  });
+
+  it('AC-6: 保存に失敗したら取引もチャートも増えず、下書きと 2 枚の枠は残る（もう一度押せば送れる）', async () => {
+    const fake = createFakeApi({ instruments: [B], failOnce: { 'POST /api/trades': 503 } });
+    const previews: ReturnType<typeof fakePreview>[] = [];
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => {
+        const p = fakePreview();
+        previews.push(p);
+        return { ok: true, image: preparedImage(p) };
+      },
+    });
+    await c.load();
+    fillFrom(c, { ...E2, instrumentName: B.name });
+    await c.setChart('entry', img());
+    await c.setChart('exit', img());
+    c.update({ type: 'set', field: 'entryChartTimeframe', value: '4h' });
+    await c.save();
+    let s = c.getState();
+    expect(s.phase).toBe('editing');
+    expect(s.error).toBe(SAVE_FAILED);
+    expect(fake.trades).toHaveLength(0);
+    expect(fake.charts.size).toBe(0);
+    expect(s.charts?.entry?.phase).toBe('ready');
+    expect(s.charts?.exit?.phase).toBe('ready');
+    expect(s.draft.entryChartTimeframe).toBe('4h');
+    expect(s.draft.lc).toBe(E2.lc);
+    expect(previews.some((p) => p.closed())).toBe(false);
+    await c.save();
+    s = c.getState();
+    expect(s.phase).toBe('saved');
+    expect(fake.charts.size).toBe(2);
+  });
+
+  it('描き直し中は保存しない（理由を出す）。終われば保存できる', async () => {
+    let open: (() => void) | null = null;
+    const { c } = await openedForRead([], {
+      prepare: async () => {
+        await new Promise<void>((ok) => {
+          open = ok;
+        });
+        return { ok: true, image: preparedImage() };
+      },
+    });
+    fillFrom(c, E2);
+    const p = c.setChart('entry', img());
+    expect(c.getState().charts?.entry?.phase).toBe('preparing');
+    expect(c.getState().read.canSave).toBe(false);
+    expect(c.getState().read.notice).toBe(CHART_PREPARING);
+    (open as (() => void) | null)?.();
+    await p;
+    expect(c.getState().read.canSave).toBe(true);
+    expect(c.getState().read.notice).toBeUndefined();
+  });
+
+  it('描き直しの失敗は枠に決まった文言だけ（ファイル名・例外の文言を出さない）。保存は止めない', async () => {
+    const { c } = await openedForRead([], {
+      prepare: async () => {
+        throw new Error('SECRET-例外の文言 chart.png');
+      },
+    });
+    fillFrom(c, E2);
+    await c.setChart('exit', img());
+    expect(c.getState().charts?.exit).toEqual({
+      phase: 'failed',
+      preview: null,
+      message: CHART_MSG.notImage,
+    });
+    expect(c.getState().read.canSave).toBe(true);
+    const { c: c2 } = await openedForRead([], {
+      prepare: async () => ({ ok: false, error: 'too_large' }),
+    });
+    await c2.setChart('entry', img());
+    expect(c2.getState().charts?.entry?.message).toBe(CHART_MSG.rejected);
+  });
+
+  it('外した・置き換えた後に届いた古い描き直しは捨てる（プレビューは閉じる）', async () => {
+    const opens: (() => void)[] = [];
+    const made: ReturnType<typeof fakePreview>[] = [];
+    const { c } = await openedForRead([], {
+      prepare: async () => {
+        await new Promise<void>((ok) => opens.push(ok));
+        const p = fakePreview();
+        made.push(p);
+        return { ok: true, image: preparedImage(p) };
+      },
+    });
+    const first = c.setChart('entry', img());
+    c.removeChart('entry');
+    opens[0]?.();
+    await first;
+    expect(c.getState().charts?.entry).toBeUndefined();
+    expect(made[0]?.closed()).toBe(true);
+  });
+
+  it('明細の複数行: 1 行目をチャートつきで保存したら、次の行の枠は空（1 取引 = その取引のチャート）', async () => {
+    const { fake, c } = await openedForRead([ok(ROWS_E10)]);
+    await c.readImage(img());
+    await c.setChart('entry', img());
+    typeFive(c);
+    await c.save();
+    expect(c.getState().statement?.index).toBe(1);
+    expect(c.getState().charts).toBeUndefined();
+    expect(c.getState().draft.entryChartTimeframe).toBeNull();
+    typeFive(c, '202.0'); // 2 行目は S・イン 200
+    await c.save();
+    const sent = tradePosts(fake);
+    expect(sent.map((x) => x.parts)).toEqual([['record', 'entryChart'], undefined]);
+    expect(fake.charts.size).toBe(1);
+  });
+
+  it('チャートつきの保存だけ時間の上限を 30 秒に延ばす（約 1 MB を送る）', async () => {
+    expect(CHART_SAVE_TIMEOUT_MS).toBe(30_000);
+    const fake = createFakeApi({ instruments: [B] });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      timeoutMs: 20,
+      prepare: async () => ({ ok: true, image: preparedImage() }),
+    });
+    await c.load();
+    fillFrom(c, { ...E2, instrumentName: B.name });
+    await c.setChart('entry', img());
+    fake.hold();
+    const saving = c.save();
+    await new Promise((r) => setTimeout(r, 80));
+    expect(c.getState().phase).toBe('saving');
+    fake.release();
+    await saving;
+    expect(c.getState().phase).toBe('saved');
+  });
+
+  it('読み込み中・保存中に枠へ入れた画像は捨てずに知らせる', async () => {
+    const fake = createFakeApi({ instruments: [B] });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => ({ ok: true, image: preparedImage() }),
+    });
+    await c.setChart('entry', img());
+    expect(c.getState().readBlocked).toBe(READ_BLOCKED.notReady);
+    expect(c.getState().charts).toBeUndefined();
+  });
+
+  it('保存の後にチャートを入れると次の取引に移る', async () => {
+    const { c } = await openedForRead([]);
+    fillFrom(c, E2);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    await c.setChart('exit', img());
+    expect(c.getState().phase).toBe('editing');
+    expect(c.getState().charts?.exit?.phase).toBe('ready');
+  });
+
+  it('レビュー指摘 3: 保存が届いたか分からない間は枠を変えない（知らせる）。もう一度押すと今の枠で送る', async () => {
+    const fake = createFakeApi({ instruments: [B], failOnce: { 'POST /api/trades': 'throw' } });
+    const previews: ReturnType<typeof fakePreview>[] = [];
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => {
+        const p = fakePreview();
+        previews.push(p);
+        return { ok: true, image: preparedImage(p) };
+      },
+    });
+    await c.load();
+    fillFrom(c, { ...E2, instrumentName: B.name });
+    await c.setChart('entry', img());
+    await c.setChart('exit', img());
+    await c.save();
+    expect(c.getState().error).toBe(NETWORK_FAILED);
+    // 外す・足す・置き換えるは止めて知らせる（枠はそのまま）
+    c.removeChart('exit');
+    expect(c.getState().chartBlocked).toBe(CHART_LOCKED);
+    expect(c.getState().charts?.exit?.phase).toBe('ready');
+    await c.setChart('entry', img());
+    expect(c.getState().chartBlocked).toBe(CHART_LOCKED);
+    expect(previews).toHaveLength(2);
+    expect(previews.some((p) => p.closed())).toBe(false);
+    // もう一度押す: 届いていない（偽の API は保存の前に失敗）ので、今の 2 枚で送り直す
+    await c.save();
+    const s = c.getState();
+    expect(s.phase).toBe('saved');
+    expect(s.chartBlocked).toBeNull();
+    const sent = posts(fake, '/api/trades');
+    expect(sent.map((x) => x.parts)).toEqual([
+      ['record', 'entryChart', 'exitChart'],
+      ['record', 'entryChart', 'exitChart'],
+    ]);
+    expect(fake.trades).toHaveLength(1);
+    expect(fake.charts.size).toBe(2);
+    // 保存の後は枠を使える
+    await c.setChart('exit', img());
+    expect(c.getState().chartBlocked).toBeNull();
+    expect(c.getState().charts?.exit?.phase).toBe('ready');
   });
 });

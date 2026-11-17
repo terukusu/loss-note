@@ -13,6 +13,8 @@ export interface ButtonProps {
   readonly id?: string;
   readonly type?: 'button' | 'submit';
   readonly disabled?: boolean;
+  /** 読み上げの名前（見た目の文字だけでは区別できないとき。例: 2 つの枠の [外す]） */
+  readonly label?: string;
   readonly onClick?: () => void;
   readonly children: ComponentChildren;
 }
@@ -47,6 +49,7 @@ export function Button(p: ButtonProps) {
     <button
       type={p.type ?? 'button'}
       id={p.id}
+      aria-label={p.label}
       class={cls}
       disabled={p.disabled}
       onClick={p.onClick}

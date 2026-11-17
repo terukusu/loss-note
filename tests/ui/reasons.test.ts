@@ -53,16 +53,16 @@ describe('reasonText（AC-4）', () => {
     );
   });
 
-  it('時間足: チャートの足が両方あれば「（4 時間足 → 日足）」、片方だけなら括弧なし', () => {
+  it('時間足: チャートの足が両方あれば「（4 時間足 → 日足・チャートから）」、片方だけなら括弧なし（Issue #12 AC-4）', () => {
     expect(
       reasonText({ kind: 'timeframeLonger', source: 'chart', from: '4h', to: '1d' }, 'L'),
-    ).toBe('時間足を変えた（4 時間足 → 日足）');
+    ).toBe('時間足を変えた（4 時間足 → 日足・チャートから）');
     expect(reasonText({ kind: 'timeframeLonger', source: 'tap', from: '1h' }, 'L')).toBe(
       '時間足を変えた',
     );
     expect(
       reasonText({ kind: 'timeframeLonger', source: 'chart', from: '1w', to: '1M' }, 'S'),
-    ).toBe('時間足を変えた（週足 → 月足）');
+    ).toBe('時間足を変えた（週足 → 月足・チャートから）');
   });
 
   it('過剰リスクの % は小数 1 桁へ切り上げ（2.01 → 2.1%）', () => {

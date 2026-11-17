@@ -35,7 +35,7 @@ import {
   E17,
   NO_CAPITAL,
 } from './helpers/record-drafts';
-import { ROW_E1 } from './helpers/statement-rows';
+import { fakePreview, ROW_E1 } from './helpers/statement-rows';
 
 interface El {
   readonly type: string;
@@ -705,5 +705,232 @@ describe('保存に失敗して戻ったときのフォーカスの戻り先（I
     expect(submit(tree).props.id).toBe('record-submit');
     expect(submit(tree).props.disabled).toBe(false);
     expect(text(all(tree, (e) => e.props.role === 'alert'))).toContain(SAVE_FAILED);
+  });
+});
+
+// ── 根拠の足のチャートの枠（Issue #12 契約 UI-1・AC-1・AC-3・R2） ──
+
+describe('チャートの枠（Issue #12）', () => {
+  const frames = (tree: Node[]) => all(tree, (e) => typeof e.props['data-chart-slot'] === 'string');
+  const ready = () => ({ phase: 'ready' as const, preview: fakePreview(1200, 800), message: null });
+
+  it('記録する画面にエントリー時と決済時の枠があり、名前・撮る足の添え書き・[チャートを選ぶ]', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL));
+    const f = frames(tree);
+    expect(f.map((e) => e.props['data-chart-slot'])).toEqual(['entry', 'exit']);
+    expect(text(all(tree, hasClass('section__title')))).toContain('根拠の足のチャート（任意）');
+    expect(f.map((e) => text(all([e], hasClass('chart__name'))))).toEqual([
+      'エントリー時',
+      '決済時',
+    ]);
+    expect(f.map((e) => text(all([e], hasClass('chart__hint'))))).toEqual([
+      'エントリーの根拠にした足',
+      '決済の判断に使った足',
+    ]);
+    for (const e of f) {
+      expect(e.type).toBe('fieldset');
+      expect(e.props.tabIndex).toBe(0);
+      expect(text(e)).toContain('チャートを選ぶ');
+      expect(all([e], (x) => x.type === 'input' && x.props.type === 'file')).toHaveLength(1);
+    }
+    expect(text(all(tree, hasClass('chart__pastehint')))).toContain(
+      'PC は枠を選んでから貼り付けもできます。',
+    );
+  });
+
+  it('AC-3: 時間足の欄はチャートのある枠だけ（「選ばない」+ 9 つ）。チャートが無ければ select 0', () => {
+    const none = view(stateFor(E1, NO_CAPITAL));
+    expect(frames(none).flatMap((f) => all([f], (e) => e.type === 'select'))).toEqual([]);
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
+    const [entry, exit] = frames(tree) as [El, El];
+    const sel = all([entry], (e) => e.type === 'select');
+    expect(sel).toHaveLength(1);
+    expect(all([exit], (e) => e.type === 'select')).toEqual([]);
+    const opts = all(sel, (e) => e.type === 'option');
+    expect(opts.map((o) => o.props.value)).toEqual([
+      '',
+      '1m',
+      '5m',
+      '15m',
+      '30m',
+      '1h',
+      '4h',
+      '1d',
+      '1w',
+      '1M',
+    ]);
+    expect(text(opts[0] as El)).toBe('選ばない');
+    expect(text(opts[6] as El)).toBe('4 時間足');
+    // 欄には label、プレビューには名前、[外す]
+    const label = all(
+      [entry],
+      (e) => e.type === 'label' && e.props.for === (sel[0] as El).props.id,
+    );
+    expect(text(label)).toBe('時間足（任意）');
+    const canvas = all([entry], (e) => e.type === 'canvas')[0] as El;
+    expect(canvas.props['aria-label']).toBe('エントリー時のチャートのプレビュー');
+    expect(canvas.props.role).toBe('img');
+    expect(text(entry)).toContain('外す');
+    expect(all([entry], (e) => e.type === 'input' && e.props.type === 'file')).toEqual([]);
+  });
+
+  it('時間足を選ぶ / 「選ばない」に戻す → onUpdate（空は null）。[外す] → onRemoveChart', () => {
+    const actions: unknown[] = [];
+    const removed: string[] = [];
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { exit: ready() } }), {
+      onUpdate: (a) => {
+        actions.push(a);
+      },
+      onRemoveChart: (slot) => {
+        removed.push(slot);
+      },
+    });
+    const exit = frames(tree)[1] as El;
+    const sel = all([exit], (e) => e.type === 'select')[0] as El;
+    const change = sel.props.onChange as (ev: { currentTarget: { value: string } }) => void;
+    change({ currentTarget: { value: '1d' } });
+    change({ currentTarget: { value: '' } });
+    change({ currentTarget: { value: '2h' } });
+    expect(actions).toEqual([
+      { type: 'set', field: 'exitChartTimeframe', value: '1d' },
+      { type: 'set', field: 'exitChartTimeframe', value: null },
+      { type: 'set', field: 'exitChartTimeframe', value: null },
+    ]);
+    const btn = all([exit], (e) => e.type === 'button' && text(e) === '外す')[0] as El;
+    (btn.props.onClick as () => void)();
+    expect(removed).toEqual(['exit']);
+  });
+
+  it('選んだ時間足を select に出す', () => {
+    const d = applyDraft(E1, { type: 'set', field: 'entryChartTimeframe', value: '4h' });
+    const tree = view(stateFor(d, NO_CAPITAL, { charts: { entry: ready() } }));
+    const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-chart-entry-tf');
+    expect((sel[0] as El).props.value).toBe('4h');
+  });
+
+  it('描き直し中は「準備しています…」、失敗は決まった文言だけ', () => {
+    const tree = view(
+      stateFor(E1, NO_CAPITAL, {
+        charts: {
+          entry: { phase: 'preparing', preview: null, message: null },
+          exit: {
+            phase: 'failed',
+            preview: null,
+            message: 'この画像は使えません。別の画像を選んでください。',
+          },
+        },
+      }),
+    );
+    const [entry, exit] = frames(tree) as [El, El];
+    expect(text(all([entry], (e) => e.props.role === 'status'))).toBe('準備しています…');
+    expect(all([entry], (e) => e.type === 'input')).toEqual([]);
+    expect(text(all([exit], (e) => e.props.role === 'alert'))).toBe(
+      'この画像は使えません。別の画像を選んでください。',
+    );
+    // 失敗の後はもう一度選べる
+    expect(all([exit], (e) => e.type === 'input' && e.props.type === 'file')).toHaveLength(1);
+  });
+
+  it('[チャートを選ぶ] で選んだファイルはその枠へ（onPickChart）', () => {
+    const picked: string[] = [];
+    const tree = view(stateFor(E1, NO_CAPITAL), {
+      onPickChart: (slot) => {
+        picked.push(slot);
+      },
+    });
+    const exit = frames(tree)[1] as El;
+    const input = all([exit], (e) => e.type === 'input')[0] as El;
+    const target = { files: [new File(['x'], 'c.png', { type: 'image/png' })], value: 'c.png' };
+    (input.props.onChange as (ev: { currentTarget: typeof target }) => void)({
+      currentTarget: target,
+    });
+    expect(picked).toEqual(['exit']);
+    expect(target.value).toBe('');
+  });
+
+  it('style 属性を持たず、欄にはすべて label がある（チャートありの状態でも）', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready(), exit: ready() } }));
+    expect(all(tree, (e) => 'style' in e.props)).toEqual([]);
+    const ids = new Set(
+      all(tree, (e) => e.type === 'label' && typeof e.props.for === 'string').map(
+        (e) => e.props.for,
+      ),
+    );
+    for (const input of all(
+      tree,
+      (e) => (e.type === 'input' && e.props.type !== 'radio') || e.type === 'select',
+    )) {
+      expect(ids.has(input.props.id), String(input.props.id)).toBe(true);
+    }
+  });
+
+  it('記録した後の表示に「チャート 2 枚も保存しました」（チャートの無い取引には出さない）', () => {
+    const read = readDraft(E1, NO_CAPITAL);
+    const trade: StoredTrade = {
+      id: 'trade-1',
+      schemaVersion: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      snapshot: {
+        instrument: {
+          multiplier: 1,
+          quantityStep: 1,
+          priceCurrency: null,
+          underlyingKind: 'index',
+          productForm: 'spotCfd',
+        },
+        capitalYen: null,
+        riskTolerancePct: 1,
+      },
+      record: { ...(read.body as NonNullable<typeof read.body>), instrumentId: 'inst-us30' },
+    };
+    const saved = (t: StoredTrade) =>
+      text(
+        view(
+          stateFor(E1, NO_CAPITAL, {
+            phase: 'saved',
+            saved: { trade: t, instrumentName: 'US30', summary: summarize(t) },
+          }),
+        ),
+      );
+    const meta = { contentType: 'image/png' as const, size: 4096 };
+    expect(saved({ ...trade, charts: { entry: meta, exit: meta } })).toContain(
+      'チャート 2 枚も保存しました',
+    );
+    expect(saved({ ...trade, charts: { exit: meta } })).toContain('チャート 1 枚も保存しました');
+    expect(saved(trade)).not.toContain('チャート');
+  });
+
+  it('レビュー指摘 2: 2 つの枠の [外す]・[チャートを選ぶ] の読み上げの名前を区別する', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
+    const removes = all(tree, (e) => e.type === 'button' && text(e) === '外す');
+    expect(removes.map((b) => b.props['aria-label'])).toEqual(['エントリー時のチャートを外す']);
+    const files = all(
+      tree,
+      (e) =>
+        e.type === 'input' &&
+        e.props.type === 'file' &&
+        String(e.props.id).startsWith('record-chart'),
+    );
+    expect(files.map((f) => f.props['aria-label'])).toEqual(['決済時のチャートを選ぶ']);
+    const none = view(stateFor(E1, NO_CAPITAL));
+    const both = all(
+      none,
+      (e) =>
+        e.type === 'input' &&
+        e.props.type === 'file' &&
+        String(e.props.id).startsWith('record-chart'),
+    );
+    expect(both.map((f) => f.props['aria-label'])).toEqual([
+      'エントリー時のチャートを選ぶ',
+      '決済時のチャートを選ぶ',
+    ]);
+  });
+
+  it('レビュー指摘 3: 枠を変えられなかった知らせを枠の見出しの下に出す', () => {
+    const msg = '前の [記録する] が届いたか確かめるまで、チャートは変えられません。';
+    const tree = view(stateFor(E1, NO_CAPITAL, { chartBlocked: msg }));
+    const charts = all(tree, hasClass('charts'))[0] as El;
+    expect(text(all([charts], (e) => e.props.role === 'status'))).toBe(msg);
   });
 });

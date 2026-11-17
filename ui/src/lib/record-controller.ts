@@ -13,12 +13,23 @@
 //   保存の門（gateReading）で読み取り中・時間帯の未確認は保存しない。新しい読み取り・やめた・画面を離れた（dispose）は
 //   世代を進めて要求を止め、古い応答は捨てる。画像のプレビューは保存の後・やめた・離れたで close して参照を捨てる。
 //   画像・読み取りの値も記憶の中だけ（端末の保存先・URL・履歴に書かない）
+// - 根拠の足のチャート（#12）: setChart で枠ごとに画像を描き直してプレビューを出すだけ（送らない）。[記録する] で
+//   取引と一緒に 1 要求（multipart。時間の上限 30 秒）で送る。描き直し中は保存しない。差し替え・外すとその枠の時間足は
+//   空に戻る（選び直し）。保存の後・明細の次の行・画面を離れたらプレビューを close して捨てる。保存の失敗では残す。
+//   チャートの画像も記憶の中だけ
 import type {
   InstrumentRecord,
   SettingsRecord,
   StoredTrade,
   TradeRecord,
 } from '../../../core/record';
+import {
+  CHART_SLOTS,
+  CHART_TIMEFRAME_FIELD,
+  type ChartSlot,
+  type ChartUpload,
+  tradeFormData,
+} from './charts';
 import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import { findInstrument } from './instrument-name';
@@ -77,6 +88,16 @@ export const rowSaved = (index: number, total: number) =>
   `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;
 export const rowSkipped = (index: number, total: number) =>
   `${rowLabel(index, total)}を飛ばしました。次の行（${index + 2} / ${total}）です`;
+/** チャートつきの保存の時間の上限（画像 2 枚で約 1 MB を送る） */
+export const CHART_SAVE_TIMEOUT_MS = 30_000;
+export const CHART_PREPARING = 'チャートを準備しています。終わってから記録できます。';
+export const CHART_MSG = {
+  notImage: '画像を読み込めませんでした。PNG か JPEG のチャートを選んでください。',
+  rejected: 'この画像は使えません。別の画像を選んでください。',
+} as const;
+/** 前の保存が届いたか分からない間は枠を変えない（次の [記録する] は届いた取引を探すので、変えた枠が送られない） */
+export const CHART_LOCKED =
+  '前の [記録する] が届いたか確かめるまで、チャートは変えられません。先に [記録する] をもう一度押してください。';
 export const READ_BLOCKED = {
   notReady: '記録の準備ができてから、もう一度貼ってください。',
   saving: '記録しています。終わってから、もう一度貼ってください。',
@@ -103,6 +124,18 @@ export interface StatementState {
   readonly preview: PreviewHandle | null;
 }
 
+/** チャートの枠の段階: 描き直し中 / 使える（プレビューあり）/ 失敗（決まった文言） */
+export type ChartPhase = 'preparing' | 'ready' | 'failed';
+
+export interface ChartState {
+  readonly phase: ChartPhase;
+  /** 送るものと同じ画像のプレビュー（phase = ready のとき。記憶の中だけ） */
+  readonly preview: PreviewHandle | null;
+  readonly message: string | null;
+}
+
+export type ChartsState = Readonly<Partial<Record<ChartSlot, ChartState>>>;
+
 export interface SavedView {
   readonly trade: StoredTrade;
   readonly instrumentName: string;
@@ -126,6 +159,10 @@ export interface RecordState {
   readonly statement?: StatementState;
   /** 読み込み中・保存中などで画像を受けられなかったときの知らせ（黙って捨てない） */
   readonly readBlocked?: string | null;
+  /** 根拠の足のチャートの枠（貼った・選んだ枠だけ。#12） */
+  readonly charts?: ChartsState;
+  /** 枠を変えられなかった知らせ（前の保存が届いたか分からない間。黙って捨てない） */
+  readonly chartBlocked?: string | null;
 }
 
 export interface RecordController {
@@ -145,7 +182,11 @@ export interface RecordController {
   confirmTimeZone(): void;
   /** [この行を飛ばす] */
   skipRow(): void;
-  /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる */
+  /** チャートを 1 枚、枠に入れる（描き直してプレビューを出すだけ。送るのは [記録する]。同じ枠なら置き換え） */
+  setChart(slot: ChartSlot, file: Blob): Promise<void>;
+  /** [外す]: 枠の画像と時間足を消す */
+  removeChart(slot: ChartSlot): void;
+  /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる（チャートも捨てる） */
   dispose(): void;
 }
 
@@ -226,11 +267,19 @@ export function createRecordController(deps: {
       ...(clearSaved || saved === undefined ? {} : { saved }),
       ...(merged.error === null || errorKind === undefined ? {} : { errorKind }),
     };
-    let read = readDraft(base.draft, { instruments: base.instruments, settings: base.settings });
+    const ctx = {
+      instruments: base.instruments,
+      settings: base.settings,
+      charts: {
+        entry: base.charts?.entry?.phase === 'ready',
+        exit: base.charts?.exit?.phase === 'ready',
+      },
+    };
+    let read = readDraft(base.draft, ctx);
     // 「窓・滑りでしたか」の問いが消えたら答えも消す（後で問いが出直したときに古い答えを選んだまま出さない）
     if (!read.preview.showGapSlip && base.draft.gapSlip !== 'unanswered') {
       base = { ...base, draft: { ...base.draft, gapSlip: 'unanswered' } };
-      read = readDraft(base.draft, { instruments: base.instruments, settings: base.settings });
+      read = readDraft(base.draft, ctx);
     }
     const st = base.statement;
     if (st) {
@@ -239,8 +288,37 @@ export function createRecordController(deps: {
         marks: st.marks,
       });
     }
+    // チャートの描き直し中は保存しない（送るものが決まっていない）
+    if (CHART_SLOTS.some((slot) => base.charts?.[slot]?.phase === 'preparing')) {
+      read = { ...read, canSave: false, notice: read.notice ?? CHART_PREPARING };
+    }
     state = { ...base, read };
     for (const fn of listeners) fn(state);
+  };
+
+  /** 枠ごとの送る画像（記憶の中だけ）と世代（差し替え・外す・離れたで進め、古い描き直しの結果を捨てる） */
+  const chartBytes: Partial<Record<ChartSlot, ChartUpload>> = {};
+  const chartGen: Record<ChartSlot, number> = { entry: 0, exit: 0 };
+
+  /** 枠の画像とプレビューを捨てる（状態は呼び出し側が直す） */
+  const dropChart = (slot: ChartSlot) => {
+    chartGen[slot]++;
+    state.charts?.[slot]?.preview?.close();
+    delete chartBytes[slot];
+  };
+
+  /** すべての枠を空に戻す（知らせは次の set で出す） */
+  const clearCharts = () => {
+    for (const slot of CHART_SLOTS) dropChart(slot);
+    if (state.charts) {
+      const { charts: _gone, ...rest } = state;
+      state = rest;
+    }
+  };
+
+  const withoutSlot = (slot: ChartSlot): ChartsState => {
+    const { [slot]: _gone, ...rest } = state.charts ?? {};
+    return rest;
   };
 
   /** 時間の上限つきの要求。時間切れ・通信の失敗は network、ログインしていなければ auth（request.ts） */
@@ -324,11 +402,13 @@ export function createRecordController(deps: {
     const row = st.rows[index];
     if (!row) return;
     touched = new Set();
+    clearCharts();
     const filled = fillFromRow(EMPTY_DRAFT, row, touched);
     set(
       {
         phase: 'editing',
         error: null,
+        chartBlocked: null,
         draft: filled.draft,
         statement: { ...st, phase: 'ready', index, marks: filled.marks, notice, message: null },
       },
@@ -458,6 +538,69 @@ export function createRecordController(deps: {
     }
   };
 
+  const setChart = async (slot: ChartSlot, file: Blob) => {
+    if (state.phase === 'saved') next();
+    if (!deps.prepare) return;
+    if (state.phase !== 'editing') {
+      set({ readBlocked: state.phase === 'saving' ? READ_BLOCKED.saving : READ_BLOCKED.notReady });
+      return;
+    }
+    if (uncertain !== null) {
+      set({ chartBlocked: CHART_LOCKED });
+      return;
+    }
+    dropChart(slot);
+    const gen = chartGen[slot];
+    // 差し替えたらその枠の時間足は選び直し（前のチャートの足が残って、誤って「時間足を変えた」にしない）
+    set({
+      error: null,
+      readBlocked: null,
+      chartBlocked: null,
+      draft: { ...state.draft, [CHART_TIMEFRAME_FIELD[slot]]: null },
+      charts: { ...state.charts, [slot]: { phase: 'preparing', preview: null, message: null } },
+    });
+    let prepared: PrepareResult;
+    try {
+      prepared = await deps.prepare(file);
+    } catch {
+      prepared = { ok: false, error: 'not_image' };
+    }
+    if (gen !== chartGen[slot] || state.charts?.[slot]?.phase !== 'preparing') {
+      if (prepared.ok) prepared.image.preview.close();
+      return;
+    }
+    if (!prepared.ok) {
+      set({
+        charts: {
+          ...state.charts,
+          [slot]: {
+            phase: 'failed',
+            preview: null,
+            message: prepared.error === 'not_image' ? CHART_MSG.notImage : CHART_MSG.rejected,
+          },
+        },
+      });
+      return;
+    }
+    const { bytes, contentType, preview } = prepared.image;
+    chartBytes[slot] = { bytes, contentType };
+    set({ charts: { ...state.charts, [slot]: { phase: 'ready', preview, message: null } } });
+  };
+
+  const removeChart = (slot: ChartSlot) => {
+    if (state.phase !== 'editing' || !state.charts?.[slot]) return;
+    if (uncertain !== null) {
+      set({ chartBlocked: CHART_LOCKED });
+      return;
+    }
+    dropChart(slot);
+    set({
+      error: null,
+      draft: { ...state.draft, [CHART_TIMEFRAME_FIELD[slot]]: null },
+      charts: withoutSlot(slot),
+    });
+  };
+
   const next = () => {
     const saved = state.saved;
     if (state.phase !== 'saved' || !saved) return;
@@ -489,12 +632,21 @@ export function createRecordController(deps: {
         trade = await findDelivered(record);
       }
       if (trade === undefined) {
+        // チャートがあれば取引と一緒に 1 要求（multipart）。無ければ今の JSON
+        const uploads: Partial<Record<ChartSlot, ChartUpload>> = {};
+        for (const slot of CHART_SLOTS) {
+          const c = chartBytes[slot];
+          if (c && state.charts?.[slot]?.phase === 'ready') uploads[slot] = c;
+        }
+        const withCharts = Object.keys(uploads).length > 0;
         try {
-          const res = await request('/api/trades', {
-            method: 'POST',
-            headers: JSON_HEADERS,
-            body: JSON.stringify(record),
-          });
+          const res = await request(
+            '/api/trades',
+            withCharts
+              ? { method: 'POST', body: tradeFormData(record, uploads) }
+              : { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(record) },
+            withCharts ? { ms: CHART_SAVE_TIMEOUT_MS } : {},
+          );
           uncertain = null;
           trade = await getJson<StoredTrade>(res, 201);
         } catch (e) {
@@ -509,6 +661,8 @@ export function createRecordController(deps: {
         instrumentName: name,
         quantity: formatPlain(found.record.entries[0].quantity),
       };
+      // 保存したチャートは捨てる（次の取引・次の行の枠は空。1 取引 = その取引のチャート）
+      clearCharts();
       // 明細の残りの行があれば、次の行で下書きを作り直す（C20。R7）
       const st = state.statement;
       if (st && st.phase === 'ready' && st.index + 1 < st.rows.length) {
@@ -521,6 +675,7 @@ export function createRecordController(deps: {
         phase: 'saved',
         saved: { trade: found, instrumentName: name, summary: summarize(found) },
         error: null,
+        chartBlocked: null,
       });
     } catch (e) {
       const kind = kindOf(e);
@@ -548,11 +703,17 @@ export function createRecordController(deps: {
           draft: applyDraft(state.draft, action),
           error: null,
           readBlocked: null,
+          chartBlocked: null,
           ...(marks === st.marks ? {} : { statement: { ...st, marks } }),
         });
         return;
       }
-      set({ draft: applyDraft(state.draft, action), error: null, readBlocked: null });
+      set({
+        draft: applyDraft(state.draft, action),
+        error: null,
+        readBlocked: null,
+        chartBlocked: null,
+      });
     },
     save() {
       if (inflight) return inflight;
@@ -564,6 +725,8 @@ export function createRecordController(deps: {
     },
     next,
     readImage,
+    setChart,
+    removeChart,
     cancelRead() {
       const st = state.statement;
       if (!st || (st.phase !== 'preparing' && st.phase !== 'reading')) return;
@@ -587,6 +750,7 @@ export function createRecordController(deps: {
       }
       // 最後の行を飛ばした: 読み取りを終えて、空の下書き（既定 = 今保存した取引か開いたとき）に戻す
       endStatement();
+      clearCharts();
       set({
         error: null,
         draft: applyDraft(EMPTY_DRAFT, {
@@ -606,6 +770,7 @@ export function createRecordController(deps: {
     },
     dispose() {
       endStatement();
+      clearCharts();
     },
   };
 }

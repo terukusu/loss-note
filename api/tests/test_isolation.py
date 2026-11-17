@@ -96,3 +96,80 @@ def test_uid_with_slash_cannot_reach_other_user(api):
     for uid in ("userA/trades", "../userA", "userA/../userA"):
         res = api.get("/api/trades", uid)
         assert res.status_code == 401, uid
+
+
+# ---- チャート画像（Issue #12 AC-7・E9・EPIC #10 終了条件 5） ----
+
+CHART_SLOTS_CRAFTED = ["entry", "exit", "Entry", "entry%2F..", "..", "%2E%2E", "exit%00", "x"]
+
+
+def test_b_cannot_read_replace_delete_a_charts(api):
+    """AC-7: B が A のチャートを読む・差し替える・消す（細工した ID・枠を含む）→ すべて 404・本文は not_found だけ。
+    トークンなしは 401。最後に A の 2 枚のバイト列は前と同じ"""
+    from helpers.charts import CHART_MARKER, chart_count, chart_jpeg, chart_png, post_with_charts
+
+    inst = api.instrument(A, "US30")
+    entry, exit_ = chart_png(), chart_jpeg()
+    created = post_with_charts(api, A, t1(inst["id"], entryChartTimeframe="4h", exitChartTimeframe="1d"),
+                               {"entry": (entry, "image/png"), "exit": (exit_, "image/jpeg")}).get_json()  # fmt: skip
+    tid = created["id"]
+    ids = [tid] + [c.format(id=tid) for c in CRAFTED_IDS]
+    paths = [f"/api/trades/{i}/charts/{s}" for i in ids for s in CHART_SLOTS_CRAFTED]
+    for path in paths:
+        for res in (
+            api.get(path, B),
+            api.put(path, B, raw=chart_png(filler=b"B-wrote"), content_type="image/png"),
+            api.delete(path, B),
+        ):
+            assert res.status_code == 404, (path, res.status_code)
+            assert res.get_json() == {"error": "not_found"}
+            assert CHART_MARKER.decode() not in res.get_data(as_text=True)
+            assert_no_a_values(res)
+    for res in (
+        api.get(f"/api/trades/{tid}/charts/entry"),
+        api.put(f"/api/trades/{tid}/charts/entry", raw=chart_png(), content_type="image/png"),
+        api.delete(f"/api/trades/{tid}/charts/exit"),
+    ):
+        assert res.status_code == 401
+    # A のチャートは前と同じ
+    assert api.get(f"/api/trades/{tid}/charts/entry", A).data == entry
+    assert api.get(f"/api/trades/{tid}/charts/exit", A).data == exit_
+    assert api.get(f"/api/trades/{tid}", A).get_json() == created
+    assert chart_count(api, A) == 2
+    assert chart_count(api, B) == 0
+
+
+def test_b_cannot_attach_a_chart_to_own_trade(api):
+    """AC-7「付け替え」: B が自分の取引に A の取引・チャートを指す手段は無い（知らない項目・部分 → 400、パス → 404）"""
+    from helpers.charts import chart_count, chart_parts, chart_png, post_multipart, post_with_charts
+
+    a_inst = api.instrument(A, "US30")
+    a_trade = post_with_charts(api, A, t1(a_inst["id"]), {"entry": (chart_png(), "image/png")}).get_json()
+    a_tid = a_trade["id"]
+    b_inst = api.instrument(B, "US30")
+    b_trade = api.post("/api/trades", B, t1(b_inst["id"])).get_json()
+
+    # 作成: 記録に A のチャートを指す項目 / A のチャートを指す部分
+    pointers = [
+        {"charts": {"entry": {"contentType": "image/png", "size": 1}}},
+        {"entryChart": f"users/{A}/charts/{a_tid}-entry"},
+        {"chartRef": f"{a_tid}-entry"},
+    ]
+    for extra in pointers:
+        res = api.post("/api/trades", B, {**t1(b_inst["id"]), **extra})
+        assert res.status_code == 400, extra
+        res = post_multipart(api, B, chart_parts({**t1(b_inst["id"]), **extra}))
+        assert res.status_code == 400, extra
+        res = api.put(f"/api/trades/{b_trade['id']}", B, {**t1(b_inst["id"]), **extra})
+        assert res.status_code == 400, extra
+    for name in ("entryChartId", "chartPath", "fromTrade"):
+        res = post_multipart(api, B, chart_parts(t1(b_inst["id"])) + [(name, f"{a_tid}-entry", None, None)])
+        assert res.status_code == 400 and res.get_json()["issues"] == [{"field": "", "kind": "unknownPart"}]
+    # B の取引の枠の名前に A の取引を混ぜる
+    for slot in (f"..%2F{a_tid}-entry", f"{a_tid}-entry"):
+        res = api.put(f"/api/trades/{b_trade['id']}/charts/{slot}", B, raw=chart_png(), content_type="image/png")
+        assert res.status_code == 404
+    assert api.get(f"/api/trades/{b_trade['id']}", B).get_json() == b_trade
+    assert chart_count(api, B) == 0
+    assert api.get(f"/api/trades/{a_tid}", A).get_json() == a_trade
+    assert chart_count(api, A) == 1

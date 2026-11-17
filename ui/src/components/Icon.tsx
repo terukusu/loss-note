@@ -17,7 +17,10 @@ export type IconName =
   | 'lock'
   | 'check'
   | 'logout'
-  | 'mark';
+  | 'mark'
+  | 'edit'
+  | 'trash'
+  | 'undo';
 
 const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   home: () => (
@@ -57,6 +60,9 @@ const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   ),
   check: () => <path d="M5 12.5l4.5 4.5L19 7.5" />,
   back: () => <path d="M14.5 6l-6 6 6 6" />,
+  edit: () => <path d="M4.5 19.5h4l10-10a2.8 2.8 0 0 0-4-4l-10 10v4zM13 7l4 4" />,
+  trash: () => <path d="M5 7h14M10 7V4.5h4V7M7 7l1 12.5h8L17 7" />,
+  undo: () => <path d="M9 7.5 4.5 12 9 16.5M5 12h9.5a5 5 0 0 1 0 10H12" />,
   moon: () => <path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" />,
   sun: () => (
     <>

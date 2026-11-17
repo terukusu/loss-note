@@ -7,6 +7,7 @@ export type Route =
   | { readonly name: 'record' }
   | { readonly name: 'trades' }
   | { readonly name: 'trade'; readonly id: string }
+  | { readonly name: 'tradeEdit'; readonly id: string }
   | { readonly name: 'settings' }
   | { readonly name: 'parts' };
 
@@ -38,6 +39,9 @@ export function parseRoute(pathname: string, opts: RouteOptions): Route | null {
   if (path === '/dev/parts') return opts.dev ? { name: 'parts' } : null;
   const m = /^\/trades\/([^/]+)$/.exec(path);
   if (m && TRADE_ID.test(m[1] ?? '')) return { name: 'trade', id: m[1] ?? '' };
+  // 直す（Issue #9。URL を持つ = 再読み込みで同じ取引の直しが開く。P6）
+  const e = /^\/trades\/([^/]+)\/edit$/.exec(path);
+  if (e && TRADE_ID.test(e[1] ?? '')) return { name: 'tradeEdit', id: e[1] ?? '' };
   return null;
 }
 
@@ -53,6 +57,8 @@ export function hrefOf(route: Route): string {
       return '/trades';
     case 'trade':
       return `/trades/${route.id}`;
+    case 'tradeEdit':
+      return `/trades/${route.id}/edit`;
     case 'settings':
       return '/settings';
     case 'parts':
@@ -66,6 +72,7 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   record: '記録する',
   trades: '取引の一覧',
   trade: '取引の詳細',
+  tradeEdit: '取引を直す',
   settings: '設定',
   // 開発の時だけの画面。名前の文字列を本番のビルドに残さないため、見出しは画面の側に持つ
   parts: '開発用',
@@ -80,7 +87,7 @@ export interface NavItem {
   readonly route: Route;
   readonly label: string;
   readonly icon: IconName;
-  /** 今いる画面の印を付ける画面（詳細は一覧の印） */
+  /** 今いる画面の印を付ける画面（詳細・直すは一覧の印） */
   readonly current: readonly RouteName[];
 }
 
@@ -88,7 +95,12 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { route: { name: 'home' }, label: 'ホーム', icon: 'home', current: ['home'] },
   { route: { name: 'record' }, label: '記録する', icon: 'record', current: ['record'] },
-  { route: { name: 'trades' }, label: '一覧', icon: 'list', current: ['trades', 'trade'] },
+  {
+    route: { name: 'trades' },
+    label: '一覧',
+    icon: 'list',
+    current: ['trades', 'trade', 'tradeEdit'],
+  },
   { route: { name: 'settings' }, label: '設定', icon: 'settings', current: ['settings'] },
 ];
 

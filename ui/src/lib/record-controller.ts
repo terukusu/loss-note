@@ -32,7 +32,7 @@ import {
 } from './charts';
 import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
-import { findInstrument } from './instrument-name';
+import { resolveInstrument as resolveInstrumentId } from './instrument-resolve';
 import {
   applyDraft,
   type Draft,
@@ -351,29 +351,9 @@ export function createRecordController(deps: {
     }
   };
 
-  /** 銘柄の ID を決める（一覧に同じ名前があればそれ、無ければ足す。409 なら取り直して照合） */
-  const resolveInstrument = async (
-    name: string,
-    matchedId: string | undefined,
-  ): Promise<{ id: string; instruments: readonly InstrumentRecord[] }> => {
-    if (matchedId !== undefined) return { id: matchedId, instruments: state.instruments };
-    const res = await request('/api/instruments', {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ name }),
-    });
-    if (res.status === 409) {
-      const again = await getJson<{ items: InstrumentRecord[] }>(
-        await request('/api/instruments'),
-        200,
-      );
-      const found = Array.isArray(again.items) ? findInstrument(name, again.items) : undefined;
-      if (!found) throw new Failed('other');
-      return { id: found.id, instruments: again.items };
-    }
-    const created = await getJson<InstrumentRecord>(res, 201);
-    return { id: created.id, instruments: [...state.instruments, created] };
-  };
+  /** 銘柄の ID を決める（一覧に同じ名前があればそれ、無ければ足す。409 なら取り直して照合。instrument-resolve.ts） */
+  const resolveInstrument = (name: string, matchedId: string | undefined) =>
+    resolveInstrumentId(request, name, matchedId, state.instruments);
 
   /** 前の保存が届いていたか（同じ本文の取引が一覧にあるか） */
   const findDelivered = async (record: TradeRecord): Promise<StoredTrade | undefined> => {

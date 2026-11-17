@@ -126,6 +126,11 @@ export interface DraftContext {
   readonly settings: { readonly capitalYen: number | null; readonly riskTolerancePct: number };
   /** チャートのある枠（#12。省けばどちらも無い） */
   readonly charts?: { readonly entry: boolean; readonly exit: boolean };
+  /**
+   * 直す取引の元の銘柄と、取引に写した値（#9。直す画面だけが渡す）。あれば資金・許容リスクはこの値で計算し、
+   * 銘柄が元と同じなら銘柄の値も写した値のまま（今の設定・銘柄を引かない。C36。API の update_trade と同じ）
+   */
+  readonly base?: { readonly instrumentId: string; readonly snapshot: TradeSnapshot };
 }
 
 /** API に送る取引の本文（銘柄の ID は保存のときに決める） */
@@ -142,6 +147,8 @@ export interface Summary {
   readonly noLc: boolean;
   /** リスク（%）が出ないときの場所の文言 */
   readonly riskNote?: string;
+  /** 保存した記録から計算できない（検査を通らない形。取り込みなど）。R・リスクの場所に RISK_NOTE.invalid を出す */
+  readonly invalid?: true;
 }
 
 export interface Preview extends Summary {
@@ -246,6 +253,7 @@ export const RISK_NOTE = {
   noLc: 'LC が無いので出ません',
   noCapital: '資金を設定すると出ます',
   noOneR: '損益（円）を入れると出ます',
+  invalid: 'この記録からは計算できません',
 } as const;
 
 type Parsed = { readonly ok: true; readonly value: number } | { readonly ok: false };
@@ -286,7 +294,7 @@ export function lengthOf(s: string): number {
 export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Summary {
   const noLc = stored.record.lc === undefined;
   const ev = evaluateTrade(toTradeInput(stored));
-  if (!ev.ok) return { noLc };
+  if (!ev.ok) return { noLc, invalid: true, riskNote: RISK_NOTE.invalid };
   const riskNote =
     ev.riskPct !== undefined
       ? undefined
@@ -306,8 +314,31 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
   };
 }
 
-function snapshotOf(ctx: DraftContext, instrument: InstrumentRecord | undefined): TradeSnapshot {
+/**
+ * 計算に使う銘柄の値・資金・許容リスク。base が無ければ（記録する画面）一覧の銘柄（無い名前は既定）と今の設定。
+ * base があれば（直す画面）: 同じ銘柄 → 取引に写した値のまま / 別の銘柄 → その銘柄の今の値 + 写した資金・許容リスク /
+ * 一覧に無い名前 → 既定の銘柄 + 写した資金・許容リスク（API が付け替えのときだけ銘柄の値を写し直すのと同じ。C36）
+ */
+export function snapshotOf(
+  ctx: DraftContext,
+  instrument: InstrumentRecord | undefined,
+): TradeSnapshot {
+  const base = ctx.base;
+  if (base && instrument?.id === base.instrumentId) return base.snapshot;
   const i = instrument ?? DEFAULT_INSTRUMENT;
+  if (base) {
+    return {
+      instrument: {
+        multiplier: i.multiplier,
+        quantityStep: i.quantityStep,
+        priceCurrency: i.priceCurrency,
+        underlyingKind: i.underlyingKind,
+        productForm: i.productForm,
+      },
+      capitalYen: base.snapshot.capitalYen,
+      riskTolerancePct: base.snapshot.riskTolerancePct,
+    };
+  }
   return {
     instrument: {
       multiplier: i.multiplier,

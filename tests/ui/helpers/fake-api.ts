@@ -13,6 +13,10 @@
 //   Content-Type とバイト数だけを残す（画像のバイト列そのものは持たない）。holdReads / releaseReads で応答を止める
 // - POST /api/trades の multipart（#12）: 部分 record（JSON の文字）+ entryChart / exitChart（画像）。チャートは charts に
 //   形式と大きさだけを残す（バイト列は持たない）。チャートの無い枠に時間足 → 400 noChart（本物と同じ）。応答に charts の要約
+// - GET /api/trades/<id>・PUT /api/trades/<id>・DELETE /api/trades/<id>・GET /api/trades/<id>/charts/<slot>（#9）: 無い ID は 404。
+//   PUT は本文で record を置き換え、銘柄を別の銘柄に変えたときだけ snapshot の銘柄の値をその銘柄の今の値で写し直す
+//   （資金・許容リスクは変えない。C36）。チャートの無い枠に時間足 → 400 noChart。DELETE は取引と 2 枠のチャートを消して 204。
+//   チャートの GET は opts.chartData（鍵 = 取引 ID-枠）のバイト列を返す（無ければ 404）
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 import type {
   InstrumentBody,
@@ -60,6 +64,8 @@ export interface FakeOptions {
   readonly conflictOnce?: InstrumentRecord;
   /** POST /api/statement-reads の応答（順に使う） */
   readonly reads?: readonly ReadScript[];
+  /** チャートの GET が返すバイト列（鍵 = 取引 ID-枠。#9） */
+  readonly chartData?: Readonly<Record<string, Uint8Array>>;
 }
 
 export interface FakeApi {
@@ -154,9 +160,78 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
 
     if (key === 'GET /api/trades') {
       const items = [...trades].sort(
-        (a, b) => b.record.exit.time - a.record.exit.time || b.createdAt - a.createdAt,
+        (a, b) =>
+          b.record.exit.time - a.record.exit.time ||
+          b.createdAt - a.createdAt ||
+          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
       return json(200, { items });
+    }
+    const chartPath = /^\/api\/trades\/([^/]+)\/charts\/([^/]+)$/.exec(path);
+    if (chartPath && method === 'GET') {
+      const id = decodeURIComponent(chartPath[1] ?? '');
+      const slot = chartPath[2] ?? '';
+      const t = trades.find((x) => x.id === id);
+      const data = opts.chartData?.[`${id}-${slot}`];
+      const meta = t?.charts?.[slot as 'entry' | 'exit'];
+      if (!t || !meta || !data) return json(404, { error: 'not_found' });
+      return new Response(data as BodyInit, {
+        status: 200,
+        headers: { 'Content-Type': meta.contentType },
+      });
+    }
+    const tradePath = /^\/api\/trades\/([^/]+)$/.exec(path);
+    if (tradePath) {
+      const id = decodeURIComponent(tradePath[1] ?? '');
+      const idx = trades.findIndex((x) => x.id === id);
+      if (idx < 0) return json(404, { error: 'not_found' });
+      const prev = trades[idx] as StoredTrade;
+      if (method === 'GET') return json(200, prev);
+      if (method === 'DELETE') {
+        trades.splice(idx, 1);
+        charts.delete(`${id}-entry`);
+        charts.delete(`${id}-exit`);
+        return new Response(null, { status: 204 });
+      }
+      if (method === 'PUT') {
+        const record = body as TradeRecord;
+        const inst = instruments.find((i) => i.id === record.instrumentId);
+        if (!inst) return json(400, { error: 'invalid', issues: [{ field: 'instrumentId' }] });
+        for (const slot of ['entry', 'exit'] as const) {
+          if (record[`${slot}ChartTimeframe`] !== undefined && !prev.charts?.[slot]) {
+            return json(400, {
+              error: 'invalid',
+              issues: [{ field: `${slot}ChartTimeframe`, kind: 'noChart' }],
+            });
+          }
+        }
+        clock += 1;
+        const changed = inst.id !== prev.record.instrumentId;
+        const next: StoredTrade = {
+          ...prev,
+          updatedAt: Math.max(clock, prev.updatedAt + 1),
+          snapshot: changed
+            ? {
+                ...prev.snapshot,
+                instrument: {
+                  multiplier: inst.multiplier,
+                  quantityStep: inst.quantityStep,
+                  priceCurrency: inst.priceCurrency,
+                  underlyingKind: inst.underlyingKind,
+                  productForm: inst.productForm,
+                },
+              }
+            : prev.snapshot,
+          record: {
+            ...record,
+            lcBasis: record.lcBasis ?? 'chart',
+            stopOrderPlaced: record.stopOrderPlaced ?? 'unanswered',
+            fees: record.fees ?? [],
+          },
+        };
+        trades[idx] = next;
+        return json(200, next);
+      }
     }
     if (key === 'GET /api/instruments') return json(200, { items: instruments });
     if (key === 'GET /api/settings') return json(200, settings());

@@ -1,0 +1,185 @@
+// 取引の詳細の通信と状態（Issue #9 契約 U-2。設計書 7.5・9.2、ADR-0006 決定 4）。DOM を持たない。
+// - 開いたら取引（GET /api/trades/{id}）と銘柄を並行に読む。404（無い ID・ほかの利用者の取引）は notFound
+// - チャートのある枠だけ GET /api/trades/{id}/charts/{slot} を読み、形式と寸法を imageInfo で確かめてから、差し込まれた
+//   preview（画面は statement-image.ts の browserCodec.preview）で canvas に描ける handle にする。object URL・data URL を
+//   作らない。読めなかった枠は failed（その枠だけ [もう一度読み込む]）。画面を離れたら（dispose）handle を close する
+// - 画像・取引は記憶の中だけ（端末の保存先・URL・履歴に書かない）。失敗は決まった文言だけ
+import type { InstrumentRecord, StoredTrade } from '../../../core/record';
+import { CHART_SLOTS, type ChartSlot } from './charts';
+import { type ImageType, imageInfo } from './image-limits';
+import { type Summary, summarize } from './record-form';
+import {
+  type ApiFn,
+  AUTH_EXPIRED,
+  createRequest,
+  Failed,
+  type FailureKind,
+  getJson,
+  kindOf,
+  REQUEST_TIMEOUT_MS,
+} from './request';
+import type { PreviewHandle } from './statement-image';
+import { instrumentNameOf } from './trade-view';
+
+export const DETAIL_LOAD_FAILED =
+  '取引を読み込めませんでした。通信を確かめて、もう一度読み込んでください。';
+export const CHART_LOAD_FAILED = 'チャートを読み込めませんでした';
+/** チャートの読みの時間の上限（1 枚 最大 500 KB） */
+export const CHART_READ_TIMEOUT_MS = 30_000;
+
+export type ChartView =
+  | { readonly phase: 'none' }
+  | { readonly phase: 'loading' }
+  | { readonly phase: 'ready'; readonly preview: PreviewHandle }
+  | { readonly phase: 'failed' };
+
+export type DetailState =
+  | { readonly phase: 'loading' }
+  | { readonly phase: 'notFound' }
+  | { readonly phase: 'loadFailed'; readonly error: string; readonly errorKind: FailureKind }
+  | {
+      readonly phase: 'ready';
+      readonly trade: StoredTrade;
+      readonly instruments: readonly InstrumentRecord[];
+      readonly instrumentName: string;
+      readonly summary: Summary;
+      readonly charts: Readonly<Record<ChartSlot, ChartView>>;
+    };
+
+export interface DetailController {
+  getState(): DetailState;
+  subscribe(fn: (s: DetailState) => void): () => void;
+  load(): Promise<void>;
+  /** 読めなかった枠を読み直す */
+  reloadChart(slot: ChartSlot): Promise<void>;
+  /** 画面を離れた: チャートの handle を close し、後で届いた応答を捨てる */
+  dispose(): void;
+}
+
+export function tradePath(id: string): string {
+  return `/api/trades/${encodeURIComponent(id)}`;
+}
+
+export function createTradeDetailController(deps: {
+  readonly api: ApiFn;
+  readonly id: string;
+  readonly preview: (bytes: Uint8Array, type: ImageType) => Promise<PreviewHandle>;
+  readonly timeoutMs?: number;
+}): DetailController {
+  const { id } = deps;
+  const request = createRequest(deps.api, deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
+  const listeners = new Set<(s: DetailState) => void>();
+  let state: DetailState = { phase: 'loading' };
+  let gen = 0;
+  const chartGen: Record<ChartSlot, number> = { entry: 0, exit: 0 };
+  let disposed = false;
+
+  const set = (s: DetailState) => {
+    state = s;
+    for (const fn of listeners) fn(state);
+  };
+  const closeCharts = () => {
+    if (state.phase !== 'ready') return;
+    for (const slot of CHART_SLOTS) {
+      const c = state.charts[slot];
+      if (c.phase === 'ready') c.preview.close();
+    }
+  };
+  const setChart = (slot: ChartSlot, view: ChartView) => {
+    if (state.phase !== 'ready') return;
+    set({ ...state, charts: { ...state.charts, [slot]: view } });
+  };
+
+  const readChart = async (slot: ChartSlot): Promise<void> => {
+    const my = ++chartGen[slot];
+    const current = () => !disposed && my === chartGen[slot] && state.phase === 'ready';
+    setChart(slot, { phase: 'loading' });
+    try {
+      const res = await request(
+        `${tradePath(id)}/charts/${slot}`,
+        {},
+        { ms: CHART_READ_TIMEOUT_MS },
+      );
+      if (res.status !== 200) throw new Failed('other');
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      // 壊れた応答・画像でない応答を復号に回さない
+      const info = imageInfo(bytes);
+      if (!info || info.width <= 0 || info.height <= 0) throw new Failed('other');
+      const handle = await deps.preview(bytes, info.type);
+      if (!current()) {
+        handle.close();
+        return;
+      }
+      setChart(slot, { phase: 'ready', preview: handle });
+    } catch {
+      if (current()) setChart(slot, { phase: 'failed' });
+    }
+  };
+
+  return {
+    getState: () => state,
+    subscribe(fn) {
+      listeners.add(fn);
+      fn(state);
+      return () => {
+        listeners.delete(fn);
+      };
+    },
+    async load() {
+      const my = ++gen;
+      closeCharts();
+      set({ phase: 'loading' });
+      try {
+        const [res, inst] = await Promise.all([
+          request(tradePath(id)),
+          request('/api/instruments').then((r) => getJson<{ items: InstrumentRecord[] }>(r, 200)),
+        ]);
+        if (my !== gen || disposed) return;
+        if (res.status === 404) {
+          set({ phase: 'notFound' });
+          return;
+        }
+        const trade = await getJson<StoredTrade>(res, 200);
+        if (!trade || typeof trade !== 'object' || !Array.isArray(inst?.items)) {
+          throw new Failed('other');
+        }
+        if (my !== gen || disposed) return;
+        const has = (slot: ChartSlot) => trade.charts?.[slot] !== undefined;
+        set({
+          phase: 'ready',
+          trade,
+          instruments: inst.items,
+          instrumentName: instrumentNameOf(trade, inst.items),
+          summary: summarize(trade),
+          charts: {
+            entry: has('entry') ? { phase: 'loading' } : { phase: 'none' },
+            exit: has('exit') ? { phase: 'loading' } : { phase: 'none' },
+          },
+        });
+        await Promise.all(CHART_SLOTS.filter(has).map((slot) => readChart(slot)));
+      } catch (e) {
+        if (my !== gen || disposed) return;
+        const kind = kindOf(e);
+        set({
+          phase: 'loadFailed',
+          error: kind === 'auth' ? AUTH_EXPIRED : DETAIL_LOAD_FAILED,
+          errorKind: kind,
+        });
+      }
+    },
+    async reloadChart(slot) {
+      if (state.phase !== 'ready' || state.trade.charts?.[slot] === undefined) return;
+      const c = state.charts[slot];
+      if (c.phase === 'ready' || c.phase === 'loading') return;
+      await readChart(slot);
+    },
+    dispose() {
+      disposed = true;
+      gen++;
+      chartGen.entry++;
+      chartGen.exit++;
+      closeCharts();
+      listeners.clear();
+    },
+  };
+}

@@ -41,3 +41,9 @@ export function formatDateTime(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
+
+/** 日付の表示（取引の一覧の決済の日付。端末の時間帯。例: 2026/11/10。Issue #9） */
+export function formatDate(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+}

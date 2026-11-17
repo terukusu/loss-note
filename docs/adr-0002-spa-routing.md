@@ -10,7 +10,7 @@
 
 ## 決定
 
-1. **History API の URL**（`/`・`/record`・`/trades`・`/trades/<id>`・`/settings`・`/login`。開発の時だけ `/dev/parts`）。取引の ID は `[A-Za-z0-9_-]{1,64}` で、外れは知らない URL
+1. **History API の URL**（`/`・`/record`・`/trades`・`/trades/<id>`・`/trades/<id>/edit`（直す。#9）・`/settings`・`/login`。開発の時だけ `/dev/parts`）。取引の ID は `[A-Za-z0-9_-]{1,64}` で、外れは知らない URL
 2. **依存を足さず、自前の小さな仕組み**にする。純関数（`ui/src/lib/routes.ts`: `parseRoute`・`hrefOf`・`resolveNavigation`・`safeNext`・`shouldInterceptClick`）と、履歴を差し替えられる薄い層（`ui/src/lib/router.tsx`: `createNavigator(env)`・`Link`）に分ける。テストは偽の履歴を差して window を使わない
 3. **知らない URL は履歴を置き換えて**ホームへ（`replaceState`）。戻るで知らない URL に戻らない。画面の中のリンクから知らない URL へ押しても、積まずに置き換える
 4. **ログイン後の戻り先（`next`）は自分の画面だけ**（`safeNext`）。`/` で始まり、`//`・`\` を含まず、`parseRoute` を通り、ログイン画面そのものでないもの。ほかはホーム（オープンリダイレクトを作らない）

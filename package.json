@@ -1,0 +1,30 @@
+{
+  "name": "loss-note",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.11.0 <25"
+  },
+  "scripts": {
+    "dev": "vite",
+    "dev:api": "cd api && uv run --locked flask --app loss_note_api.app:create_app run -p 8000",
+    "emulators": "scripts/emulators.sh",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check --error-on-warnings .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "check:pinned": "node scripts/check-pinned.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "firebase-tools": "15.34.2",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "5.1.0"
+  },
+  "dependencies": {
+    "preact": "10.29.8"
+  }
+}

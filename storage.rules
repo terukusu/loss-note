@@ -1,0 +1,10 @@
+rules_version = '2';
+// 画面（クライアント）から Storage を直接読み書きさせない。読み書きは API（サーバー）だけが行う（docs/design.md 10 章）。
+// 中身のテストは画像を扱う Issue で足す
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

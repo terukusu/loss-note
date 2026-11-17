@@ -18,9 +18,15 @@ import {
   summarize,
 } from '../../ui/src/lib/record-form';
 import { fillFromRow, gateReading, READ_MSG } from '../../ui/src/lib/statement-fill';
-import { RecordView, type RecordViewProps, STATEMENT_NOTICE } from '../../ui/src/pages/Record';
+import {
+  Record as RecordPage,
+  RecordView,
+  type RecordViewProps,
+  STATEMENT_NOTICE,
+} from '../../ui/src/pages/Record';
 import {
   CAPITAL_1M,
+  draft,
   E1,
   E3,
   E4,
@@ -121,6 +127,22 @@ function submit(tree: Node[]): El {
   return b[0] as El;
 }
 
+/** 貼り付きの帯の 1 行の状態の文（Issue #33） */
+function statusOf(tree: Node[]): El {
+  const s = all(tree, hasClass('record__status'));
+  expect(s).toHaveLength(1);
+  return s[0] as El;
+}
+
+/** 判定の枠の中の、押せない理由の案内（Issue #33 AC-2） */
+function hintOf(tree: Node[]): El {
+  const h = all([verdictOf(tree)], (e) => e.props.id === 'record-verdict-hint');
+  expect(h).toHaveLength(1);
+  return h[0] as El;
+}
+
+const count = (t: string, w: string) => t.split(w).length - 1;
+
 describe('判定の段と数字の色（AC-5・C34）', () => {
   it('E1（B）・E3・E4（危ない勝ち）・E17（LC なしの勝ち）のバッジは同じ段の色・記号。文字は「B 悪い損失」/「危ない勝ち」', () => {
     const b1 = badge(view(stateFor(E1, NO_CAPITAL)));
@@ -168,24 +190,55 @@ describe('判定の段と数字の色（AC-5・C34）', () => {
 });
 
 describe('結果の枠（判定・理由・R・リスク）', () => {
-  it('E1: 理由と R、リスクの場所は「資金を設定すると出ます」', () => {
+  it('E1（資金なし・例 12）: 理由の一覧は崩れだけ。「見ていない」は脇の 1 行、資金の説明は枠の中に 1 回、リスクの場所は「—」', () => {
     const tree = view(stateFor(E1, NO_CAPITAL));
     const reasons = all(tree, hasClass('reasons__item')).map(text);
-    expect(reasons).toEqual([
-      'LC を下げた（99.5 → 99.2）',
-      '資金が未設定なので過剰リスクは見ていない',
-    ]);
-    expect(text(tree)).toContain('−1.6R');
-    expect(text(tree)).toContain('資金を設定すると出ます');
+    expect(reasons).toEqual(['LC を下げた（99.5 → 99.2）']);
+    const lists = all(tree, (e) => e.type === 'ul' && hasClass('reasons')(e));
+    expect(lists).toHaveLength(1);
+    expect(text(lists)).not.toContain('過剰リスクは見ていない');
+    const aside = all(tree, hasClass('verdict__aside'));
+    expect(aside).toHaveLength(1);
+    expect(aside[0]?.type).toBe('p');
+    expect(text(aside)).toBe('資金が未設定なので過剰リスクは見ていない');
+    const v = text(verdictOf(tree));
+    expect(v).toContain('−1.6R');
+    expect(count(v, '資金')).toBe(1);
+    expect(v).not.toContain('資金を設定すると出ます');
+    expect(text(all(tree, hasClass('verdict__none')))).toContain('—');
   });
 
-  it('E11: リスクの場所は「損益（円）を入れると出ます」', () => {
-    expect(text(view(stateFor(E11, CAPITAL_1M)))).toContain('損益（円）を入れると出ます');
+  it('E11: リスクの場所は「—」、理由は注記に 1 回「損益（円）を入れると出ます」', () => {
+    const v = text(verdictOf(view(stateFor(E11, CAPITAL_1M))));
+    expect(count(v, '損益（円）を入れると出ます')).toBe(1);
   });
 
-  it('E16: R とリスクの場所は「LC が無いので出ません」', () => {
-    const t = text(verdictOf(view(stateFor(E16, NO_CAPITAL))));
-    expect(t.match(/LC が無いので出ません/g)).toHaveLength(2);
+  it('E16（例 7）: R は出ず、R・リスクの段の代わりに出ない理由を枠の中に 1 回だけ。C の添え書きと同じ理由を箇条に重ねない', () => {
+    const tree = view(stateFor(E16, NO_CAPITAL));
+    const t = text(verdictOf(tree));
+    expect(count(t, 'LC が無いので')).toBe(1);
+    expect(t).toContain('LC が無いので R・リスクは出ません');
+    expect(all(tree, hasClass('num--xl'))).toEqual([]);
+    expect(all(tree, hasClass('verdict__none'))).toEqual([]);
+    expect(all(tree, hasClass('verdict__stats'))).toEqual([]);
+    // 添え書き「LC を決めずに入った取引です。」と同じ「LC を決めずに入った」を理由の一覧に出さない
+    expect(count(t, 'LC を決めずに入った')).toBe(1);
+    expect(all(tree, hasClass('reasons__item')).map(text)).not.toContain('LC を決めずに入った');
+  });
+
+  it('E17（LC なしの危ない勝ち）: 理由の一覧に「LC を決めずに入った」は残る（添え書きが別のことを言う）', () => {
+    const tree = view(stateFor(E17, NO_CAPITAL));
+    expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を決めずに入った');
+  });
+
+  it('値が出ない場所の「—」は読み上げから隠し、読み上げには「出ません」（E1・資金なしのリスク）', () => {
+    const none = all(view(stateFor(E1, NO_CAPITAL)), hasClass('verdict__none'));
+    expect(none).toHaveLength(1);
+    for (const n of none) {
+      const dash = all([n], (e) => e.props['aria-hidden'] === 'true');
+      expect(text(dash)).toBe('—');
+      expect(text(all([n], hasClass('sr-only')))).toBe('出ません');
+    }
   });
 
   it('E5（S）: 理由と LC を動かしたかの選択肢は「上げた」', () => {
@@ -199,15 +252,62 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
 });
 
 describe('足りない欄と [記録する]（AC-2）', () => {
-  it('E10: 判定なし（中立）・R は出る・[記録する] は押せず「時間足を変えたか」が足りない', () => {
+  it('E10: 判定なし（中立）・R は出る・[記録する] は押せず、帯は「あと 1 欄」、名前は判定の枠の案内に', () => {
     const tree = view(stateFor(E10, NO_CAPITAL));
     expect(cls(badge(tree))).toBe('badge badge--neutral badge--lg');
     expect(all(tree, hasClass('reasons__item'))).toEqual([]);
     expect(text(tree)).toContain('−1.6R');
     expect(submit(tree).props.disabled).toBe(true);
-    const missing = all(tree, hasClass('record__missing'));
-    expect(text(missing)).toBe('足りない欄: 時間足を変えたか');
-    expect(missing[0]?.props['aria-live']).toBe('polite');
+    const status = statusOf(tree);
+    expect(text(status)).toBe('あと 1 欄');
+    expect(status.props['aria-live']).toBe('polite');
+    expect(text(hintOf(tree))).toContain('時間足を変えたか');
+    expect(submit(tree).props['aria-describedby']).toBe('record-verdict-hint');
+    // 待ちの間の案内は 1 回だけ（R・リスクの場所に「出ます」の文を重ねない。AC-8）
+    const v = text(verdictOf(tree));
+    expect(count(v, '判定と理由が出ます')).toBe(1);
+    expect(v).not.toContain('資金を設定すると出ます');
+    expect(v).not.toContain('イン・決済・LC で出ます');
+  });
+
+  it('開いた直後（例 1・AC-2）: 帯は「あと 7 欄」だけ。7 つの欄の名前は判定の枠の案内にあり、[記録する] の説明に結ぶ', () => {
+    const tree = view(stateFor(draft({}), NO_CAPITAL));
+    expect(text(statusOf(tree))).toBe('あと 7 欄');
+    const hint = text(hintOf(tree));
+    for (const name of [
+      'L / S',
+      'イン',
+      '決済の価格',
+      'LC（価格か「なし」）',
+      'LC を入る前に決めていたか',
+      'LC を動かしたか',
+      '時間足を変えたか',
+    ]) {
+      expect(hint).toContain(name);
+      // 帯には名前を出さない
+      expect(text(statusOf(tree))).not.toContain(name);
+    }
+    expect(submit(tree).props.disabled).toBe(true);
+    expect(submit(tree).props['aria-describedby']).toBe('record-verdict-hint');
+    expect(count(text(verdictOf(tree)), '判定と理由が出ます')).toBe(1);
+  });
+
+  it('決済に誤り 1 つ（例 3）: 帯は「誤り 1 欄・あと 6 欄」、案内に「決済」', () => {
+    const tree = view(
+      stateFor(applyDraft(draft({}), { type: 'set', field: 'exitPrice', value: 'x' }), NO_CAPITAL),
+    );
+    expect(text(statusOf(tree))).toBe('誤り 1 欄・あと 6 欄');
+    expect(text(hintOf(tree))).toContain('誤りのある欄（決済）');
+    expect(submit(tree).props['aria-describedby']).toBe('record-verdict-hint');
+  });
+
+  it('押せるときは帯に判定の要約（文字だけ・バッジにしない）、[記録する] に案内を結ばない', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL));
+    const status = statusOf(tree);
+    expect(text(status)).toBe('B 悪い損失 · −1.6R');
+    expect(all([status], hasClass('badge'))).toEqual([]);
+    expect(all(tree, (e) => e.props.id === 'record-verdict-hint')).toEqual([]);
+    expect(submit(tree).props['aria-describedby']).toBeUndefined();
   });
 
   it('そろえば [記録する] を押せて、押すと onSave', () => {
@@ -366,30 +466,36 @@ describe('保存の後', () => {
     expect(all(tree, (e) => e.type === 'input')).toEqual([]);
     const btn = all(tree, (e) => e.type === 'button')[0] as El;
     expect(text(btn)).toBe('次の取引を記録');
+    // ボタン 1 つのための帯（カード）に包まない（Phase 4b 指摘 6）
+    expect(all(tree, hasClass('record__submit'))).toEqual([]);
     (btn.props.onClick as () => void)();
     expect(next).toBe(1);
   });
 });
 
 describe('畳んだ欄の誤り（レビュー指摘 1）', () => {
-  it('手数料に誤り → 「ほかの欄」を開き、ボタンの上に「誤りのある欄: 手数料（円）」、結果の枠は誤りを直す案内', () => {
+  it('手数料に誤り → 「ほかの欄」を開き、帯は「誤り 1 欄」、判定の枠は誤りの欄の名前つきで直す案内を 1 回', () => {
     const d = applyDraft(E1, { type: 'set', field: 'feeYen', value: 'x' });
     const tree = view(stateFor(d, NO_CAPITAL));
-    const details = all(tree, (e) => e.type === 'details')[0] as El;
+    const details = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
     expect(details.props.open).toBe(true);
-    expect(text(all(tree, hasClass('record__missing')))).toBe('誤りのある欄: 手数料（円）');
-    expect(text(verdictOf(tree))).toContain('誤りのある欄を直すと、判定と理由が出ます。');
-    expect(text(verdictOf(tree))).toContain('誤りを直すと出ます');
+    expect(text(statusOf(tree))).toBe('誤り 1 欄');
+    expect(text(hintOf(tree))).toBe('誤りのある欄（手数料（円））を直すと、判定と理由が出ます。');
+    expect(count(text(verdictOf(tree)), '直すと')).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
   });
 
-  it('誤りが無ければ「ほかの欄」は閉じたまま。誤りと足りない欄は両方並べる', () => {
-    const closed = all(view(stateFor(E1, NO_CAPITAL)), (e) => e.type === 'details')[0] as El;
+  it('誤りが無ければ「ほかの欄」は閉じたまま。誤りと足りない欄は両方数え、案内に両方の名前', () => {
+    const closed = all(
+      view(stateFor(E1, NO_CAPITAL)),
+      (e) => e.type === 'details' && hasClass('more')(e),
+    )[0] as El;
     expect(closed.props.open).toBeUndefined();
     const both = applyDraft(E10, { type: 'set', field: 'entryTime', value: '2026-03-04T11:00' });
-    expect(text(all(view(stateFor(both, NO_CAPITAL)), hasClass('record__missing')))).toBe(
-      '誤りのある欄: 建てた時刻 / 足りない欄: 時間足を変えたか',
-    );
+    const tree = view(stateFor(both, NO_CAPITAL));
+    expect(text(statusOf(tree))).toBe('誤り 1 欄・あと 1 欄');
+    expect(text(hintOf(tree))).toContain('誤りのある欄（建てた時刻）');
+    expect(text(hintOf(tree))).toContain('足りない欄（時間足を変えたか）');
   });
 });
 
@@ -468,17 +574,33 @@ const filledE1 = () => {
 };
 
 describe('送る前の注意（AC-11・R10）', () => {
-  it('貼る前の画面に 3 文（AI の提供元に送る・切り取る・保存しない）が常に出ている。ダイアログは無い', () => {
-    const tree = view(stateFor(E1, NO_CAPITAL));
-    const notice = all(tree, hasClass('statement__notice'));
-    expect(notice).toHaveLength(1);
-    const items = all(notice, (e) => e.type === 'li').map(text);
-    expect(items).toEqual([...STATEMENT_NOTICE]);
-    expect(items[0]).toContain('AI の提供元（Anthropic）に送って');
-    expect(items[1]).toContain('切り取ってから');
-    expect(items[2]).toContain('保存しません');
-    for (const t of [tree, view(withStatement(E1, { phase: 'reading' }, true))]) {
+  it('貼る前・読み取り中・読み取りの後に 3 つの中身（AI の提供元に送る・切り取る・保存しない）が常に出ている。畳まない・ダイアログは無い（KEEP-5）', () => {
+    const f = filledE1();
+    for (const t of [
+      view(stateFor(E1, NO_CAPITAL)),
+      view(withStatement(E1, { phase: 'reading' }, true)),
+      view(withStatement(f.draft, { marks: f.marks })),
+    ]) {
+      const notice = all(t, hasClass('statement__notice'));
+      expect(notice).toHaveLength(1);
+      expect(notice[0]?.type).toBe('p');
+      const body = text(notice);
+      expect(body).toBe(STATEMENT_NOTICE.join(''));
+      expect(body).toContain('AI の提供元（Anthropic）に送');
+      expect(body).toContain('切り取って');
+      expect(body).toContain('保存しません');
       expect(all(t, (e) => e.type === 'dialog' || e.props.role === 'alertdialog')).toEqual([]);
+      for (const d of all(t, (e) => e.type === 'details')) {
+        expect(all([d], hasClass('statement__notice'))).toEqual([]);
+      }
+      // 補足は「詳しく」に畳む（3 つの中身は畳まない注意の側にある）
+      const more = all(t, hasClass('statement__more'));
+      expect(more).toHaveLength(1);
+      expect(more[0]?.type).toBe('details');
+      expect(text(all(more, (e) => e.type === 'summary'))).toBe('詳しく');
+      // [スクショを選ぶ] の読み上げの説明に注意を結ぶ
+      const input = all(t, (e) => e.props.id === 'record-statement-file')[0] as El;
+      expect(input.props['aria-describedby']).toBe(notice[0]?.props.id);
     }
   });
 
@@ -511,7 +633,8 @@ describe('読み取り中（AC-3）', () => {
     (btn.props.onClick as () => void)();
     expect(cancel).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
-    expect(text(all(tree, hasClass('record__missing')))).toBe('明細を読み取っています');
+    expect(text(statusOf(tree))).toBe('明細を読み取っています');
+    expect(text(hintOf(tree))).toContain('明細を読み取っています。');
     expect(all(tree, (e) => e.type === 'fieldset')[0]?.props.disabled).toBe(false);
   });
 });
@@ -541,7 +664,7 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
       (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'L / S',
     )[0] as El;
     expect(side.props['aria-describedby']).toBe('record-side-mark');
-    const details = all(tree, (e) => e.type === 'details')[0] as El;
+    const details = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
     expect(details.props.open).toBe(true);
   });
 
@@ -577,7 +700,8 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     )[0] as El;
     (btn.props.onClick as () => void)();
     expect(confirmed).toBe(1);
-    expect(text(all(tree, hasClass('record__missing')))).toContain('決済の時刻（時間帯の確かめ）');
+    expect(text(statusOf(tree))).toBe('あと 1 欄');
+    expect(text(hintOf(tree))).toContain('決済の時刻（時間帯の確かめ）');
     expect(submit(tree).props.disabled).toBe(true);
   });
 
@@ -932,5 +1056,62 @@ describe('チャートの枠（Issue #12）', () => {
     const tree = view(stateFor(E1, NO_CAPITAL, { chartBlocked: msg }));
     const charts = all(tree, hasClass('charts'))[0] as El;
     expect(text(all([charts], (e) => e.props.role === 'status'))).toBe(msg);
+  });
+});
+
+describe('密度と階層（Issue #33）', () => {
+  it('AC-3: 判定の枠は 3 つのタップの枠のすぐ後（間に別の入力の枠が無い）', () => {
+    for (const d of [draft({}), E1, E16]) {
+      const tree = view(stateFor(d, NO_CAPITAL));
+      const fieldset = all(tree, (e) => e.type === 'fieldset' && hasClass('record__fields')(e))[0];
+      const kids = (fieldset?.children ?? []).filter((n): n is El => typeof n !== 'string');
+      const taps = kids.findIndex((k) => k.props['aria-labelledby'] === 'record-taps-title');
+      expect(taps).toBeGreaterThanOrEqual(0);
+      expect(hasClass('verdict')(kids[taps + 1] as El)).toBe(true);
+    }
+  });
+
+  it('例 13・AC-8: セグメントの選んだ項目はチェックの記号が文字の前（項目の子の並び: 記号 → 文字）', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL));
+    const picked = all(
+      tree,
+      (e) =>
+        hasClass('seg__item')(e) &&
+        all([e], (x) => x.type === 'input' && x.props.checked === true).length === 1,
+    );
+    expect(picked.length).toBeGreaterThanOrEqual(4);
+    for (const item of picked) {
+      const kids = item.children.filter((n): n is El => typeof n !== 'string');
+      const mark = kids.findIndex((k) => cls(k).split(' ').includes('seg__check'));
+      const label = kids.findIndex((k) => k.type === 'span');
+      expect(mark, text(item)).toBeGreaterThanOrEqual(0);
+      expect(mark, text(item)).toBeLessThan(label);
+      expect(kids[mark]?.props['aria-hidden']).toBe('true');
+    }
+    // 選んでいない項目には記号を出さない
+    const others = all(
+      tree,
+      (e) =>
+        hasClass('seg__item')(e) &&
+        all([e], (x) => x.type === 'input' && x.props.checked === true).length === 0,
+    );
+    for (const item of others) expect(all([item], hasClass('seg__check'))).toEqual([]);
+  });
+
+  it('AC-4: 画面の見出しに説明文を付けない（見出しだけ）', () => {
+    const page = RecordPage() as VNode<{ children: VNode<Record<string, unknown>>[] }>;
+    const head = (page.props.children as VNode<Record<string, unknown>>[])[0];
+    expect(head?.props.title).toBe('記録する');
+    expect(head?.props.description).toBeUndefined();
+  });
+
+  it('AC-1: 帯は 1 段（状態の文 1 つ + [記録する]）。保存の後の帯は [次の取引を記録] だけで大きいボタンにしない', () => {
+    const tree = view(stateFor(draft({}), NO_CAPITAL));
+    const bar = all(tree, hasClass('record__submit'))[0] as El;
+    expect(cls(bar)).toContain('record__submit--bar');
+    const kids = bar.children.filter((n): n is El => typeof n !== 'string');
+    expect(kids.map((k) => k.type)).toEqual(['p', 'button']);
+    expect(String(kids[1]?.props.class)).not.toContain('btn--lg');
+    expect(String(kids[1]?.props.class)).not.toContain('btn--block');
   });
 });

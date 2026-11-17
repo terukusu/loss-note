@@ -63,15 +63,15 @@ export function instrumentNameOf(
   return instruments.find((i) => i.id === t.record.instrumentId)?.name ?? UNKNOWN_INSTRUMENT;
 }
 
-/** R が出ない理由（記録する画面の判定の枠と同じ文言） */
-function rNoteOf(s: Summary): string | null {
+/** R が出ない理由（記録する画面の判定の枠と同じ文言。判定の枠の注記 verdict-notes.ts も使う） */
+export function rNoteOf(s: Summary): string | null {
   if (s.r !== undefined) return null;
   if (s.invalid) return RISK_NOTE.invalid;
   return s.noLc ? RISK_NOTE.noLc : RISK_NOTE.invalid;
 }
 
 /** リスク（%）が出ない理由（記録する画面と同じ文言） */
-function riskNoteOf(s: Summary): string | null {
+export function riskNoteOf(s: Summary): string | null {
   if (s.riskPct !== undefined) return null;
   return s.riskNote ?? RISK_NOTE.invalid;
 }

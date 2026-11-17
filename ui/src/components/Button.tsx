@@ -15,6 +15,8 @@ export interface ButtonProps {
   readonly disabled?: boolean;
   /** 読み上げの名前（見た目の文字だけでは区別できないとき。例: 2 つの枠の [外す]） */
   readonly label?: string;
+  /** 読み上げの説明の要素の id（押せない理由など。aria-describedby） */
+  readonly describedBy?: string;
   readonly onClick?: () => void;
   readonly children: ComponentChildren;
 }
@@ -50,6 +52,7 @@ export function Button(p: ButtonProps) {
       type={p.type ?? 'button'}
       id={p.id}
       aria-label={p.label}
+      aria-describedby={p.describedBy}
       class={cls}
       disabled={p.disabled}
       onClick={p.onClick}

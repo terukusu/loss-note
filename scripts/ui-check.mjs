@@ -18,7 +18,12 @@
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
-// 文字に重なっていないかも、部品のはみ出しと一緒に数える。
+// 文字の前にあって項目の中に収まるかも、部品のはみ出しと一緒に数える。
+// 記録する画面の密度と階層（Issue #33）: 全状態で枠の入れ子（線か、最も近い面と違う面の色を持つ箱の祖先）が 3 段以上の要素を
+// 数え、幅 360 の記録する画面の全状態で貼り付きの帯の高さ（64px まで）と状態の文の行数（1 行まで）・切れ（scrollWidth）、直す画面の帯の高さ
+// （変える前の 161.1px まで）を測る。手順 R11（最後のタップの直後に判定のバッジと R が見える）・R12（開いた直後の 1 画面・
+// 注意 3 行以下・全長 2,550px 以下）・R13（大きな R は 36px・本文の書体、ラベルの上端が揃う）を流す。R11 は判定が見える範囲の
+// 外にある状態で最後のタップを座標で押し、アプリが寄せることを確かめる。幅 720 未満の画面は指で触る端末（hasTouch）として開く。
 // ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
 // （Flask と Firestore のエミュレーターを立てなくてよい。本物の API の経路は Issue #13 の手での確かめで見る）。
 //
@@ -30,8 +35,10 @@
 //
 //   npm run ui:check                       既定の検査
 //   npm run ui:check -- --inject-wide 400  幅 400px に固定した要素を全画面に足して流す（検査が崩れを見逃さないことの確かめ。AC-9）
-//   npm run ui:check -- --inject-clip      部品が切れる・はみ出す見本（親で切れるバッジ・親より広いボタン・縦に切れるボタン）を
-//                                          全画面に足して流す（部品のはみ出しの検査が見逃さないことの確かめ。1 画面 3 件）
+//   npm run ui:check -- --inject-clip      部品が切れる・はみ出す見本（親で切れるバッジ・親より広いボタン・縦に切れるボタン）と
+//                                          カード → 枠 → ボタンの入れ子の見本を全画面に足して流す（部品のはみ出しの検査・入れ子の
+//                                          検査が見逃さないことの確かめ。1 画面 はみ出し 3 件・入れ子 1 件）。幅 360 の記録する画面には
+//                                          帯の見本（長い文・改行・背の高い要素）も足す（帯の外れ 1 状態 3 件）
 //   npm run ui:check -- --shots <dir>      各状態を <dir> に撮る（目で見る補助。画像はコミットしない）
 //
 // 終了コード: 0 = すべて ok / 1 = 外れあり / 2 = 引数の誤り・起動できない
@@ -102,6 +109,12 @@ const SIZES = [
 ];
 const THEMES = ['dark', 'light'];
 const TAP = 44;
+/** 記録する画面の貼り付きの帯の高さの上限（幅 360。Issue #33 AC-1） */
+const BAR_MAX = 64;
+/** 記録する画面の全長の上限（360×780 の開いた直後。Issue #33 AC-4） */
+const TOTAL_MAX = 2550;
+/** 直す画面の貼り付きの帯の高さの上限（幅 360。Issue #33 KEEP-7: 変える前に測った値 161.1px） */
+const EDIT_BAR_MAX = 161.1;
 const THEME_KEY = 'loss-note.theme';
 const NAV_HREFS = ['/', '/record', '/trades', '/settings'];
 const AUTH_EMULATOR = 'http://127.0.0.1:9099';
@@ -154,7 +167,18 @@ async function setupContext(context, theme) {
         tall.style.cssText =
           'height:20px;min-height:0;overflow:hidden;white-space:normal;width:44px';
         tall.textContent = '縦に長い文字の見本';
-        box.append(a, b, tall);
+        // (4) カード → 枠 → ボタンの 3 段の入れ子（入れ子の検査の見本。Issue #33 AC-5。1 画面 1 件）
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.cssText = 'padding:8px';
+        const frame = document.createElement('div');
+        frame.style.cssText = 'padding:8px;border:1px solid currentColor';
+        const inner = document.createElement('button');
+        inner.className = 'btn btn--secondary';
+        inner.textContent = '入れ子';
+        frame.append(inner);
+        card.append(frame);
+        box.append(a, b, tall, card);
         document.body.appendChild(box);
       };
       if (document.body) add();
@@ -716,7 +740,7 @@ const seg = (page, group, text) =>
   page.locator(`[role="radiogroup"][aria-label="${group}"] label.seg__item`, { hasText: text });
 
 /** 記録する画面の例（Issue #13 の例の表。値は架空）。taps = false なら 3 つのタップの前で止める */
-async function fillRecord(page, ex, taps = true) {
+async function fillRecord(page, ex, taps = true, lastTap = true) {
   await page.locator('#record-instrument').fill('US30');
   await seg(page, 'L / S', ex.side === 'S' ? 'S ショート' : 'L ロング').click();
   await page.locator('#record-entry').fill(ex.entry);
@@ -734,7 +758,7 @@ async function fillRecord(page, ex, taps = true) {
     await seg(page, 'LC を動かしたか', ex.move).click();
     if (ex.after) await page.locator('#record-lc-after').fill(ex.after);
   }
-  await seg(page, '時間足を変えたか', '変えず').click();
+  if (lastTap) await seg(page, '時間足を変えたか', '変えず').click();
 }
 
 const EX_E1 = {
@@ -755,6 +779,87 @@ const EX_E3 = {
   move: 'そのまま',
 };
 const EX_E16 = { side: 'L', entry: '100.00', exit: '99.20', lc: 'none' };
+/** 計画どおりの勝ち（決めていた・そのまま・変えず。+2.0R）。値は架空 */
+const EX_SAFE = {
+  side: 'L',
+  entry: '100.00',
+  exit: '101.00',
+  lc: '99.50',
+  decided: true,
+  move: 'そのまま',
+};
+/** Issue #33 例 8: S ショートで LC を上げた（上げた後の LC の欄が出る）。値は架空 */
+const EX_S8 = {
+  side: 'S',
+  entry: '150.00',
+  exit: '151.00',
+  lc: '150.50',
+  decided: true,
+  move: '上げた',
+  after: '151.00',
+};
+
+/**
+ * 判定の枠のバッジと R が、上の帯の下端 〜 min(下部の行き先の上端, 貼り付きの帯の上端) と画面の左右の中にあるか
+ * （Issue #33 AC-3）。withR = false なら R を見ない（LC なしの C）。外れの文の配列を返す
+ */
+async function verdictInView(page, withR) {
+  return page.evaluate((withR) => {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+    const nav = document.querySelector('.appnav');
+    const navTop =
+      nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : vh;
+    const bar = document.querySelector('.record__submit')?.getBoundingClientRect();
+    const bottom = Math.min(navTop, bar ? bar.top : vh, vh);
+    const out = [];
+    const parts = [['バッジ', '.verdict .badge']];
+    if (withR) parts.push(['R', '.verdict .num--xl']);
+    for (const [name, sel] of parts) {
+      const el = document.querySelector(sel);
+      if (!el) {
+        out.push(`${name} が無い`);
+        continue;
+      }
+      const r = el.getBoundingClientRect();
+      if (r.top < top - 0.5 || r.bottom > bottom + 0.5 || r.left < -0.5 || r.right > vw + 0.5)
+        out.push(
+          `${name} ${Math.round(r.top)}〜${Math.round(r.bottom)}px が見える範囲 ${Math.round(top)}〜${Math.round(bottom)}px の外`,
+        );
+    }
+    const taps = document.querySelector('section[aria-labelledby="record-taps-title"]');
+    if (!taps?.nextElementSibling?.classList.contains('verdict'))
+      out.push('判定の枠が 3 つのタップの枠のすぐ後に無い');
+    return out;
+  }, withR);
+}
+
+/** --inject-clip の帯の見本: 状態の文を長くして改行を入れ、帯に背の高い要素を足す（高さ・行数・切れが 1 件ずつ外れる） */
+async function injectBarSample(page) {
+  await page.evaluate(() => {
+    const bar = document.querySelector('.record__submit');
+    const status = bar?.querySelector('.record__status');
+    if (!bar || !status) return;
+    status.textContent = '帯の見本: とても長い状態の文が帯の幅に入らずに切れる';
+    status.append(document.createElement('br'), '2 行目');
+    const tall = document.createElement('div');
+    tall.setAttribute('data-ui-check-clip', '');
+    tall.style.cssText = 'flex:1 1 100%;height:40px';
+    bar.append(tall);
+  });
+}
+
+/** スクロールが止まるまで待つ（なめらかなスクロールの途中で測らない。最大 3 秒） */
+async function scrollSettled(page) {
+  let last = -1;
+  for (let i = 0; i < 30; i++) {
+    const y = await page.evaluate(() => window.scrollY);
+    if (y === last) return;
+    last = y;
+    await page.waitForTimeout(100);
+  }
+}
 
 /**
  * ページの中の canvas で架空の明細らしい画像を作る（白地・罫線・数字の行。noise = true なら一部に細かい模様を足して
@@ -922,6 +1027,7 @@ const RECORD_STATES = [
   {
     slug: 'record-6-saved',
     name: '保存の後',
+    noBar: true,
     fn: async (p) => {
       await fillRecord(p, EX_E1);
       await p.locator('button[type="submit"]').click();
@@ -998,6 +1104,24 @@ const RECORD_STATES = [
         .waitFor();
       // 枠を選んだ状態（輪と「ここに貼れます」）を撮る
       await p.locator('#record-chart-exit .chart__hint').click();
+    },
+  },
+  {
+    slug: 'record-13-error',
+    name: '誤り 1 欄',
+    fn: async (p) => {
+      // 帯の長い文の例 3（「誤り 1 欄・あと N 欄」）
+      await p.locator('#record-exit').fill('x');
+      await p.locator('.record__status', { hasText: '誤り 1 欄' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-14-safe-win',
+    name: '計画どおりの勝ち',
+    fn: async (p) => {
+      // 帯の判定の要約でいちばん長い「計画どおりの勝ち · +2.0R」
+      await fillRecord(p, EX_SAFE);
+      await p.locator('.record__status', { hasText: '計画どおりの勝ち · +2.0R' }).waitFor();
     },
   },
   {
@@ -1200,7 +1324,7 @@ async function measure(page, withTargets, tap) {
           );
         }
       }
-      // 重なり: セグメントの選んだ項目のチェックの記号が、項目の文字に重なる（#5 のレビュー指摘 2）
+      // セグメントの選んだ項目のチェックの記号は文字の前で、項目の中に収まる（#5 のレビュー指摘 2・Issue #33 例 13）
       for (const mark of document.querySelectorAll('.seg__item .seg__check')) {
         const item = mark.closest('.seg__item');
         if (!item || item.closest('[data-ui-check-wide]')) continue;
@@ -1213,12 +1337,99 @@ async function measure(page, withTargets, tap) {
         const t = range.getBoundingClientRect();
         const m = mark.getBoundingClientRect();
         if (t.width === 0 || m.width === 0) continue;
-        const overlap =
-          Math.min(t.right, m.right) - Math.max(t.left, m.left) > 0.5 &&
-          Math.min(t.bottom, m.bottom) - Math.max(t.top, m.top) > 0.5;
-        if (overlap) clipped.push(`seg__check「${(label.textContent || '').trim()}」 文字に重なる`);
+        const name = `seg__check「${(label.textContent || '').trim()}」`;
+        if (m.right > t.left + 0.5) clipped.push(`${name} 記号が文字の前に無い（重なる・後ろ）`);
+        if (outside(m, item.getBoundingClientRect())) clipped.push(`${name} 項目の外`);
       }
-      return { h, small, clipped };
+      // 枠の入れ子（Issue #33 AC-5）。枠 = 四辺の線がある / 最も近い面を持つ祖先と違う面の色・背景の画像がある /
+      // img・canvas・video。段 = 自分を含めた枠の祖先の数。段 3 以上の枠を数える（擬似要素・影・輪郭は数えない）
+      const alpha = (c) => {
+        if (!c || c === 'transparent') return 0;
+        const slash = c.match(/\/\s*([\d.]+)(%?)\s*\)$/);
+        if (slash) return Number(slash[1]) / (slash[2] ? 100 : 1);
+        const rgba = c.match(/^rgba\(([^)]*)\)$/);
+        if (rgba) return Number(rgba[1].split(',')[3]);
+        return 1;
+      };
+      const surfaceOf = (el) => {
+        for (let a = el; a; a = a.parentElement) {
+          const bg = getComputedStyle(a).backgroundColor;
+          if (alpha(bg) > 0) return bg;
+        }
+        return getComputedStyle(document.body).backgroundColor;
+      };
+      const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
+      const frameMemo = new Map();
+      const isFrame = (el) => {
+        if (frameMemo.has(el)) return frameMemo.get(el);
+        let f = false;
+        if (el !== document.body && el !== document.documentElement) {
+          const cs = getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          const drawn =
+            (typeof el.checkVisibility !== 'function' ||
+              el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) &&
+            r.width >= 2 &&
+            r.height >= 2 &&
+            !el.classList.contains('sr-only') &&
+            !el.closest('[data-ui-check-wide]');
+          if (drawn) {
+            if (['IMG', 'CANVAS', 'VIDEO'].includes(el.tagName)) f = true;
+            else if (
+              SIDES.every(
+                (s) =>
+                  Number.parseFloat(cs[`border${s}Width`]) > 0 &&
+                  !['none', 'hidden'].includes(cs[`border${s}Style`]) &&
+                  alpha(cs[`border${s}Color`]) > 0,
+              )
+            )
+              f = true;
+            else if (cs.backgroundImage !== 'none') f = true;
+            else if (alpha(cs.backgroundColor) > 0) {
+              f = el.parentElement ? cs.backgroundColor !== surfaceOf(el.parentElement) : true;
+            }
+          }
+        }
+        frameMemo.set(el, f);
+        return f;
+      };
+      const nest = [];
+      const nameOf = (el) => {
+        const c = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+        return c || el.tagName.toLowerCase();
+      };
+      for (const el of document.body.querySelectorAll('*')) {
+        if (!isFrame(el)) continue;
+        const chain = [];
+        for (let a = el; a && a !== document.body; a = a.parentElement) {
+          if (isFrame(a)) chain.unshift(nameOf(a));
+        }
+        if (chain.length >= 3)
+          nest.push(`${nameOf(el)}（祖先: ${chain.slice(0, -1).join(' > ')}）`);
+      }
+      // 貼り付きの帯（記録する画面・直す画面）の高さと、状態の文の行数（Issue #33 AC-1・KEEP-7）
+      let bar = null;
+      const barEl = document.querySelector('.record__submit');
+      if (barEl) {
+        const statusEl = barEl.querySelector('.record__status, .record__missing');
+        let lines = 0;
+        if (statusEl && statusEl.textContent.trim() !== '') {
+          const range = document.createRange();
+          range.selectNodeContents(statusEl);
+          const tops = new Set();
+          for (const rr of range.getClientRects()) if (rr.width > 0) tops.add(Math.round(rr.top));
+          lines = tops.size;
+        }
+        bar = {
+          h: Math.round(barEl.getBoundingClientRect().height * 10) / 10,
+          lines,
+          // 状態の文が切れている（「…」で省かれる。コードレビュー指摘 1）
+          cut: !!statusEl && statusEl.scrollWidth > statusEl.clientWidth + 0.5,
+          text: statusEl?.textContent?.trim() ?? '',
+          error: !!barEl.querySelector('.notice--error'),
+        };
+      }
+      return { h, small, clipped, nest, bar, scrollH: d.scrollHeight };
     },
     { withTargets, tap },
   );
@@ -1301,6 +1512,18 @@ async function main() {
   let worstH = 0;
   let smallTotal = 0;
   let clippedTotal = 0;
+  let nestTotal = 0;
+  let barTotal = 0;
+  /** 枠の入れ子 3 段以上（Issue #33 AC-5。部品の見本 /dev/parts は見本を並べる画面なので数えない） */
+  const checkNest = (label, m) => {
+    if (label.includes('/dev/parts')) return;
+    nestTotal += m.nest.length;
+    for (const x of m.nest.slice(0, 5)) {
+      console.log(`    入れ子 3 段: ${x}`);
+    }
+    if (m.nest.length > 0)
+      problems.push(`${label}: 入れ子 3 段以上 ${m.nest.length} 件（${m.nest[0]}）`);
+  };
 
   try {
     // ── 画面 × 幅 × テーマ（C1〜C3）
@@ -1317,6 +1540,8 @@ async function main() {
           const context = await browser.newContext({
             viewport: { width: w, height: hgt },
             reducedMotion: 'reduce',
+            // 幅 720 未満は指で触る端末として開く（pointer: coarse・hover: none。PC だけの案内を出さない）
+            hasTouch: w < 720,
             // ログイン画面だけはログインしていない文脈で開く（ログイン済みは戻り先へ置き換わる）
             ...(forLoginPage ? {} : { storageState: signedIn }),
           });
@@ -1336,6 +1561,12 @@ async function main() {
             if (p.wait) await page.locator(p.wait).first().waitFor({ timeout: 15000 });
             const m = await measure(page, w === 360, TAP);
             states++;
+            // 直す画面の帯の高さ（Issue #33 KEEP-7。変える前の値以下）
+            if (w === 360 && p.path.endsWith('/edit')) {
+              console.log(`    直す画面の帯 ${m.bar ? `${m.bar.h}px` : '無し'}`);
+              if (!m.bar || m.bar.h > EDIT_BAR_MAX + 0.5)
+                problems.push(`${label}: 直す画面の帯 ${m.bar?.h ?? '無し'}px > ${EDIT_BAR_MAX}px`);
+            }
             worstH = Math.max(worstH, m.h);
             smallTotal += m.small.length;
             const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
@@ -1351,6 +1582,7 @@ async function main() {
               console.log(`    当たり<44: ${s}`);
               problems.push(`${label}: 当たり<44 ${s}`);
             }
+            checkNest(label, m);
             for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
             if (opts.shots) {
               const slug = p.path === '/' ? 'home' : p.path.slice(1).replace(/\//g, '-');
@@ -1400,6 +1632,7 @@ async function main() {
               console.log(`    当たり<44: ${x}`);
               problems.push(`${label}: 当たり<44 ${x}`);
             }
+            checkNest(label, m);
             for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
             if (opts.shots) {
               await tp.screenshot({
@@ -1421,6 +1654,8 @@ async function main() {
           try {
             await openRecord(recPage, base);
             await st.fn(recPage, recApi);
+            // --inject-clip: 帯の見本（長い文・改行・背の高い要素）を足し、帯の測りが見逃さないことを確かめる
+            if (opts.injectClip && w === 360) await injectBarSample(recPage);
             const m = await measure(recPage, w === 360, TAP);
             states++;
             worstH = Math.max(worstH, m.h);
@@ -1430,6 +1665,26 @@ async function main() {
             const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
             console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
             if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            // 貼り付きの帯は 1 段（Issue #33 AC-1: 360 で 64px 以下・状態の文は 1 行で切れない。保存の失敗の知らせの間は
+            // 例外。保存の後は帯を持たない）
+            if (w === 360) {
+              const bar = m.bar;
+              console.log(
+                `    帯 ${bar ? `${bar.h}px・文 ${bar.lines} 行${bar.cut ? '・切れ' : ''}「${bar.text}」` : '無し'}・全長 ${m.scrollH}px`,
+              );
+              if (!bar) {
+                if (!st.noBar) problems.push(`${label}: 貼り付きの帯が無い`);
+              } else if (!bar.error) {
+                const why = [
+                  bar.h > BAR_MAX + 0.5 ? `高さ ${bar.h}px > ${BAR_MAX}px` : '',
+                  bar.lines > 1 ? `文 ${bar.lines} 行` : '',
+                  bar.cut ? `文が切れる「${bar.text}」` : '',
+                ].filter(Boolean);
+                barTotal += why.length;
+                for (const x of why) console.log(`    帯: ${x}`);
+                if (why.length > 0) problems.push(`${label}: 帯 ${why.join('・')}`);
+              }
+            }
             for (const x of m.clipped) {
               console.log(`    はみ出し: ${x}`);
               problems.push(`${label}: はみ出し ${x}`);
@@ -1438,6 +1693,7 @@ async function main() {
               console.log(`    当たり<44: ${x}`);
               problems.push(`${label}: 当たり<44 ${x}`);
             }
+            checkNest(label, m);
             for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
             if (opts.shots) {
               // 判定の枠（明細の状態は明細の枠）を上の帯のすぐ下に寄せて、見える範囲を撮る
@@ -1488,6 +1744,7 @@ async function main() {
               console.log(`    当たり<44: ${x}`);
               problems.push(`${label}: 当たり<44 ${x}`);
             }
+            checkNest(label, m);
             for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
             if (opts.shots) {
               await recPage.screenshot({
@@ -1509,7 +1766,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -1524,7 +1781,7 @@ async function main() {
 
   console.log('');
   console.log(
-    `要約: ${states} 状態、横スクロールの最大 ${worstH}px、幅 360 の当たり<44 ${smallTotal} 件、部品のはみ出し ${clippedTotal} 件、外れ ${problems.length} 件`,
+    `要約: ${states} 状態、横スクロールの最大 ${worstH}px、幅 360 の当たり<44 ${smallTotal} 件、部品のはみ出し ${clippedTotal} 件、入れ子 3 段以上 ${nestTotal} 件、帯の外れ ${barTotal} 件、外れ ${problems.length} 件`,
   );
   if (opts.shots) console.log(`撮影: ${opts.shots}（コミットしない）`);
   if (problems.length > 0) {
@@ -1936,13 +2193,16 @@ async function runFlows(browser, base, signedIn) {
       const reasons = await p.locator('.reasons__item').allInnerTexts();
       if (!reasons.includes('LC を下げた（99.5 → 99.2）'))
         throw new Error(`理由 ${reasons.join(' / ')}`);
-      await p.getByText('資金を設定すると出ます').waitFor();
+      // 資金が未設定の説明は、理由の一覧から分けた注記の 1 行（Issue #33 AC-8）
+      await p
+        .locator('.verdict__aside', { hasText: '資金が未設定なので過剰リスクは見ていない' })
+        .waitFor();
       expectEq(await p.locator('button[type="submit"]').isDisabled(), false, '[記録する] が押せる');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return 'E1 → B・「LC を下げた（99.5 → 99.2）」・−1.6R・「資金を設定すると出ます」';
+    return 'E1 → B・「LC を下げた（99.5 → 99.2）」・−1.6R・注記「資金が未設定なので過剰リスクは見ていない」';
   });
 
   await check('R3', async () => {
@@ -2288,6 +2548,182 @@ async function runFlows(browser, base, signedIn) {
       expectEq(sent.exit.orderType, 'unknown', '注文の種類');
       expectEq(errors.length, 0, 'ページのエラー');
       return `合成の明細を選ぶ → 打つ ${typed.typed}・選ぶ ${typed.chosen} → A・−1.0R → 保存（自動の操作で ${(ms / 1000).toFixed(1)} 秒）`;
+    } finally {
+      await c.close();
+    }
+  });
+
+  // ── 密度と階層（Issue #33）。R11 = タップの直後に判定が見える / R12 = 開いた直後の 1 画面 / R13 = 数字の書体と並び
+  await check('R11', async () => {
+    const scenes = [
+      ['場面 B', EX_E1, 'B 悪い損失', true],
+      ['場面 危', EX_E3, '危ない勝ち', true],
+      ['場面 C', EX_E16, 'C 極悪な損失', false],
+      ['例 8（S・上げた）', EX_S8, 'B 悪い損失', true],
+    ];
+    const runs = [
+      [360, 780, 'dark'],
+      [360, 780, 'light'],
+      [1440, 900, 'dark'],
+      [1440, 900, 'light'],
+      // KEEP-8（iPhone の Safari）の代わりに自動で見る幅。動きを減らす設定（寄せる動きは即時）もここで見る
+      [390, 844, 'dark', 'reduce'],
+    ];
+    let n = 0;
+    for (const [w, h, theme, motion] of runs) {
+      const c = await browser.newContext({
+        viewport: { width: w, height: h },
+        storageState: signedIn,
+        ...(motion ? { reducedMotion: motion } : {}),
+      });
+      try {
+        await setupContext(c, theme);
+        await installFakeApi(c);
+        const p = await c.newPage();
+        for (const [name, ex, label, withR] of scenes) {
+          await openRecord(p, base);
+          await fillRecord(p, ex, true, false);
+          // 最後のタップ（時間足「変えず」）を貼り付きの帯のすぐ上に置き、判定のバッジが見える範囲の外にあることを確かめて
+          // から、座標で押す（Playwright の click の自動の寄せに頼らない。寄せるのはアプリだけ。コードレビュー指摘 4）
+          const last = seg(p, '時間足を変えたか', '変えず');
+          await last.evaluate((el) => {
+            const vh = window.innerHeight;
+            const bar =
+              document.querySelector('.record__submit')?.getBoundingClientRect().top ?? vh;
+            window.scrollBy(0, el.getBoundingClientRect().bottom - (Math.min(bar, vh) - 12));
+          });
+          await scrollSettled(p);
+          const before = await verdictInView(p, false);
+          if (!before.some((x) => x.startsWith('バッジ ')))
+            throw new Error(
+              `${w}x${h} ${theme} ${name}: 押す前から判定のバッジが見えている（確かめにならない）`,
+            );
+          const y0 = await p.evaluate(() => window.scrollY);
+          const box = await last.boundingBox();
+          if (!box) throw new Error(`${name}: 最後のタップが描かれていない`);
+          await p.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+          // 押した後は、スクロールの操作をしない
+          await p.locator('.verdict .badge', { hasText: label }).waitFor({ timeout: 5000 });
+          await p.waitForTimeout(150);
+          await scrollSettled(p);
+          const ng = await verdictInView(p, withR);
+          if ((await p.evaluate(() => window.scrollY)) <= y0)
+            ng.push('押した後にアプリが判定を寄せていない');
+          // 押したタップは見える範囲に残る（フォーカスも押した radio のまま）
+          const kept = await last.evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+            return {
+              seen: r.bottom > top + 0.5,
+              focus: el.contains(document.activeElement),
+            };
+          });
+          if (!kept.seen) ng.push('押したタップが上の帯の下に隠れた');
+          if (!kept.focus) ng.push('フォーカスが押したタップから動いた');
+          // タップの直後の見える範囲を撮る（目で見る補助。スクロールしない）
+          if (opts.shots) {
+            await p.screenshot({
+              path: join(
+                opts.shots,
+                `${w}x${h}-${theme}-r11-${ex === EX_E1 ? 'b' : ex === EX_E3 ? 'risky' : ex === EX_E16 ? 'c' : 's8'}.png`,
+              ),
+            });
+          }
+          if (ng.length > 0) throw new Error(`${w}x${h} ${theme} ${name}: ${ng.join(' / ')}`);
+          n++;
+        }
+      } finally {
+        await c.close();
+      }
+    }
+    return `判定が見える範囲の外にある状態で最後のタップを座標で押す → アプリが寄せて、バッジと R が見える範囲の中・押したタップも残る・フォーカスは動かない（${n} 件 = 4 場面 × 360 / 1440 × 両テーマ + 390（動きを減らす設定））、判定の枠はタップの枠のすぐ後`;
+  });
+
+  await check('R12', async () => {
+    const out = [];
+    for (const theme of THEMES) {
+      const c = await browser.newContext({
+        viewport: { width: 360, height: 780 },
+        storageState: signedIn,
+      });
+      try {
+        await setupContext(c, theme);
+        await installFakeApi(c);
+        const p = await c.newPage();
+        await openRecord(p, base);
+        const m = await p.evaluate(() => {
+          const vh = window.innerHeight;
+          const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+          const nav = document.querySelector('.appnav')?.getBoundingClientRect().top ?? vh;
+          const bar = document.querySelector('.record__submit')?.getBoundingClientRect().top ?? vh;
+          const bottom = Math.min(nav, bar, vh);
+          const seen = (sel) => {
+            const r = document.querySelector(sel)?.getBoundingClientRect();
+            return !!r && r.height > 0 && r.top >= top - 0.5 && r.bottom <= bottom + 0.5;
+          };
+          const notice = document.querySelector('.statement__notice');
+          const cs = notice ? getComputedStyle(notice) : null;
+          const lines = notice
+            ? Math.round(notice.getBoundingClientRect().height / Number.parseFloat(cs.lineHeight))
+            : 0;
+          return {
+            scrollY: window.scrollY,
+            pick: seen('label[for="record-statement-file"]'),
+            instrument: seen('#record-instrument'),
+            noticeText: notice?.textContent ?? '',
+            lines,
+            hidden: !!notice?.closest('details, dialog'),
+            total: document.documentElement.scrollHeight,
+          };
+        });
+        if (m.scrollY !== 0) throw new Error(`開いた直後のスクロール ${m.scrollY}px`);
+        if (!m.pick) throw new Error(`${theme}: [スクショを選ぶ] が見える範囲に無い`);
+        if (!m.instrument) throw new Error(`${theme}: 銘柄の欄が見える範囲に無い`);
+        for (const t of ['AI の提供元（Anthropic）に送', '切り取って', '保存しません'])
+          if (!m.noticeText.includes(t)) throw new Error(`${theme}: 注意に「${t}」が無い`);
+        if (m.lines > 3) throw new Error(`${theme}: 注意が ${m.lines} 行（3 行まで）`);
+        if (m.hidden) throw new Error(`${theme}: 注意が畳まれている`);
+        if (m.total > TOTAL_MAX)
+          throw new Error(`${theme}: 全長 ${m.total}px（${TOTAL_MAX}px まで）`);
+        out.push(`${theme} 注意 ${m.lines} 行・全長 ${m.total}px`);
+      } finally {
+        await c.close();
+      }
+    }
+    return `360×780 の開いた直後に [スクショを選ぶ] と銘柄の欄が見える、${out.join(' / ')}`;
+  });
+
+  await check('R13', async () => {
+    const c = await browser.newContext({
+      viewport: { width: 360, height: 780 },
+      storageState: signedIn,
+    });
+    try {
+      await setupContext(c, 'dark');
+      await installFakeApi(c);
+      const p = await c.newPage();
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1);
+      // 損益（円）を入れて R・リスク・損益の 3 つのラベルを並べる（架空の値）
+      await p.locator('.more__summary').click();
+      await p.locator('#record-pnl').fill('-8,000');
+      await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor({ timeout: 5000 });
+      await p.locator('.verdict__stat dt', { hasText: '損益' }).waitFor({ timeout: 5000 });
+      const m = await p.evaluate(() => {
+        const r = document.querySelector('.verdict .num--xl');
+        const cs = getComputedStyle(r);
+        const tops = [...document.querySelectorAll('.verdict__stat dt')].map(
+          (dt) => dt.getBoundingClientRect().top,
+        );
+        return { size: cs.fontSize, family: cs.fontFamily, text: r.textContent, tops };
+      });
+      expectEq(m.size, '36px', '大きな R の文字の大きさ');
+      if (/mono/i.test(m.family)) throw new Error(`大きな R の書体が等幅 ${m.family}`);
+      expectEq(m.text, '−1.6R', 'R の文字（負の符号は U+2212）');
+      expectEq(m.tops.length, 3, 'ラベルの数');
+      const spread = Math.max(...m.tops) - Math.min(...m.tops);
+      if (spread > 1) throw new Error(`ラベルの上端の差 ${spread.toFixed(1)}px`);
+      return `判定 B の R は 36px・本文の書体（${m.family.split(',')[0]}）、R・リスク・損益のラベルの上端の差 ${spread.toFixed(1)}px`;
     } finally {
       await c.close();
     }
@@ -2695,7 +3131,7 @@ async function runFlows(browser, base, signedIn) {
       const rows = await rowsOf(p);
       expectEq(rows.map((r) => r.href).join(' '), '/trades/x-l2 /trades/x-l3 /trades/x-l1', '並び');
       expectEq(rows[0].badge, '計画どおりの勝ち', 'L2 の判定');
-      // 出ない値は行では「—」だけ、理由は一覧の上に 1 回だけ（Issue #9 のデザインレビュー 2）
+      // 出ない値は行では「—」だけ、理由は一覧の下の脚注に 1 回だけ（Issue #9 のデザインレビュー 2・#33 の 4b 指摘 3）
       if (!rows[0].text.includes('+2.0R') || !rows[0].text.endsWith('—'))
         throw new Error(`L2 の行: ${rows[0].text}`);
       expectEq(rows[1].badge, '危ない勝ち', 'L3 の判定');
@@ -2707,7 +3143,7 @@ async function runFlows(browser, base, signedIn) {
         'リスクの「—」: 資金を設定すると出ます（1 件）',
         'R・リスクの「—」: LC が無いので出ません（1 件）',
       ]) {
-        if (!notes.includes(want)) throw new Error(`一覧の上の理由に「${want}」が無い`);
+        if (!notes.includes(want)) throw new Error(`一覧の下の理由に「${want}」が無い`);
       }
       expectEq(rows[2].badge, 'A いい損失', 'L1 の判定');
       if (!rows[2].text.includes('−1.0R') || !rows[2].text.includes('0.5%'))
@@ -2716,7 +3152,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」、理由は一覧の上に 1 回）が例どおり';
+    return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」、理由は一覧の下に 1 回）が例どおり';
   });
 
   await check('T-H1', async () => {

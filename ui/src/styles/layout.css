@@ -58,7 +58,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--on-accent);
   background: linear-gradient(
     135deg,

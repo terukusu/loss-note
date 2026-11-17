@@ -78,7 +78,7 @@ allowed-tools: [Read, Edit, Write, Bash, Glob, Grep, Agent, TaskCreate, TaskUpda
 - 元データ (Google スプレッドシート等) に書き込まない (main が承認済みと明示したものを除く)
 - 実際の売買の記録 (損益・気づきの中身、実際の価格・数量・損益額、口座残高、チャートのスクリーンショット) をコミット・fixture・Issue / PR 本文・handoff に書かない。実データの写しは data/local/ (gitignore) にだけ置き、件数・割合などの要約だけを記録する。テストは合成のデータ、価格・損益の例は架空の値
 - OAuth クライアントのシークレット、アクセストークン、サービスアカウント鍵、署名付き URL、メールアドレス、環境変数の実値を表示・記録しない (名前のみ参照可)
-- CLAUDE.md「リポジトリに置くもの / 置かないもの」に反するファイル・記述 (利用者の記録・個人情報、スプレッドシートの ID・URL、GCP のプロジェクト ID・番号、Cloud Run の URL、ホームディレクトリのパス) を成果物に含めない
+- リポジトリは汎用 (誰でも clone して使う)。CLAUDE.md「リポジトリに置くもの / 置かないもの」に反するファイル・記述 (利用者の記録・個人情報、スプレッドシートの ID・URL、GCP のプロジェクト ID・番号、Cloud Run の URL、オーナー名・リポジトリ名、メール、ホームディレクトリのパス) を成果物に含めない
 - 設計と違う実装をするなら、その旨を handoff に書く (黙って逸脱しない)。オーナー判断が要るものを自分で決めない
 - git commit / push / gh pr / gh issue edit は main の指示が無い限り行わない
 - 依存パッケージを追加・更新しない (計画で合意したものだけ。バージョン固定・lock ファイルをコミット)
@@ -227,7 +227,7 @@ block とするのは次の 4 類型のみ。改善提案・好みは block に�
 ## Phase 5: PR（main 直実行）
 
 1. `$HANDOFF_DIR/phase-3.md` と `phase-4.md` を読む
-2. `git status --porcelain` を確認し、**`CLAUDE.md`「置かないもの」（実際の売買の記録・`data/local/`・`.env*`・`.claude/settings.local.json`・handoff・一時ファイル等）と依存・ビルド成果物のディレクトリが含まれないこと**を確認する（含まれていたら中断）。diff と PR 本文に環境の値・個人情報（スプレッドシートの ID・URL、プロジェクト ID、Cloud Run の URL、メール、ホームディレクトリのパス）や実際の価格・損益が無いことも見直す
+2. `git status --porcelain` を確認し、**`CLAUDE.md`「置かないもの」（実際の売買の記録・`data/local/`・`.env*`・`.claude/settings.local.json`・handoff・一時ファイル等）と依存・ビルド成果物のディレクトリが含まれないこと**を確認する（含まれていたら中断）。diff と PR 本文に個人の値・個人情報（スプレッドシートの ID・URL、プロジェクト ID、Cloud Run の URL、オーナー名・リポジトリ名、メール、ホームディレクトリのパス）や実際の価格・損益が無いことも見直す
 3. 変更ファイルを個別に `git add` する（**`git add -A` / `git add .` は使わない**）
 4. commit（HEREDOC でメッセージを渡す。1 行目は `<種別>: <要約> (#<ISSUE_NUM>)`、日本語可）。末尾の署名行は Claude Code の通常ルールに従う
 5. `git push -u origin feature/issue-<ISSUE_NUM>`

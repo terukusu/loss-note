@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.pyc
+.env
+.env.*
+# 実際の売買の記録の写し（手元でだけ使う。コミットしない）
+data/local/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+.claude/settings.local.json
+.claude/handoff/
+.claude/worktrees/

@@ -46,8 +46,8 @@
 | パス | 役割 |
 |---|---|
 | `ui/` | 画面（Vite の root）。`index.html`・`src/main.tsx`（起動）・`src/App.tsx`（アプリの殻）。ビルド結果は `dist/`（コミットしない） |
-| `core/` | 計算・判定の純関数（TypeScript）。**まだ無い**（判定の純関数の Issue で作る） |
-| `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く |
+| `core/` | 計算・判定の純関数（TypeScript。設計書 5 章）。入口は `evaluate.ts` の `evaluateTrade`（検査 → 数値 → 判定）。`trade.ts` = 計算の入力の型（保存の形はこれに写す）、`numeric.ts` = 誤差の約束と刻みの切り捨て、`validate.ts` = 入力の検査（LC の向き・有限でない数）、`pnl.ts` = 損益（円）・R 倍数・1R・リスク（%）、`sizing.ts` = 数量の提案、`pre-plan.ts` = 事前の計画あり、`judge.ts` = 判定（A / B / C・危ない勝ち・計画どおりの勝ち）と理由 |
+| `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く。設計書 5.6 の例の表のテスト（`tests/core/design-table.test.ts`）は設計書の表を読んで `#` の列で行を数える（表に行を足したら `tests/core/design-table-cases.ts` に場面を足す） |
 | `api/` | API（Python 3.13・Flask・uv）。`src/loss_note_api/app.py` の `create_app()` が入口、テストは `api/tests/`（pytest） |
 | `tools/statement-eval/` | 決済明細の AI による読み取りを測る道具（Python 3.13・uv の独立したプロジェクト。アプリの依存ではない。#14・ADR-0001）。採点の純関数は `src/statement_eval/score.py`（テストは `tests/test_score.py`）、合成の明細（架空の値の画像・正解）は `synthetic/`（`python -m statement_eval generate` で作り直す）。実物の明細と正解は `data/local/statement-eval/real/` だけに置く。実際の AI を呼ぶのは手元で `eval` を回したときだけ（依存グループ `ai`・資格情報の環境変数） |
 | `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査） |

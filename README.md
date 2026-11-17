@@ -2,7 +2,7 @@
 
 トレードの **損失ノート** です。売買を記録し、エントリーの時点で決めたこと（根拠・LC・TP・数量）と実際の決済を比べて、「同じ負け方を繰り返さない」ための振り返りを助けます。
 
-いまは開発の土台（画面と API の骨組み、確認コマンド、手元で動かす手順）だけがあります。設計は [`docs/design.md`](docs/design.md) にあります。
+いまは開発の土台（画面のデザインの土台と各画面の骨組み、API の骨組み、確認コマンド、手元で動かす手順）だけがあります。設計は [`docs/design.md`](docs/design.md) にあります。
 
 ## 前提の道具
 
@@ -84,6 +84,18 @@ curl -s -H 'Authorization: Bearer owner' \
 ```sh
 mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
 ```
+
+## 画面の検査
+
+全画面を幅 360 / 390 / 768 / 1440px × ダーク / ライトで開き、横スクロールの量（px）と、幅 360px で押せるものの当たりが 44×44px 未満の件数を数値で出します。画面の行き来（戻る・再読み込み・知らない URL）とテーマの記憶も実際のブラウザで確かめます。1 つでも外れれば終了コードが 0 でなくなります。開発サーバーは検査が自分で立てて閉じます。
+
+```sh
+mise exec -- npx playwright install chromium   # 初回だけ（ブラウザは手元のキャッシュに入ります）
+mise exec -- npm run ui:check
+mise exec -- npm run ui:check -- --shots <出力先のディレクトリ>   # 各状態の画像を撮る（画像はコミットしないでください）
+```
+
+開発の時だけ <http://localhost:5173/dev/parts> で部品の見本（ボタン・3 つのタップ・判定のバッジ・R と円の数字・色のトークン）が開けます。本番のビルドには入りません。画面の原則は [`docs/ui-guidelines.md`](docs/ui-guidelines.md) にあります。
 
 ## ディレクトリ
 

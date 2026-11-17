@@ -1,0 +1,12 @@
+"""決済明細の画像の読み取りの部品（Issue #11・ADR-0005）。
+
+API（``api/``）と評価の道具（``tools/statement-eval/``）が同じものを使う（二重に持たない）。
+
+- ``prompt``: 読み取りの指示（system）と画像に添える決まった文
+- ``result``: 結果を返すツールの名前・説明・入力の形と、結果の検査（``check_result``）
+- ``values``: 数・日時・向き・手数料の純関数（採点と直しが共有する）
+- ``image``: 画像の上限と、PNG / JPEG の寸法を読む純関数（Pillow なし）
+- ``normalize``: 読み取りの結果 → API の応答の形（向き・日本時間・手数料の合計・範囲の外の欄を空に）
+- ``agent_reader``: Claude Agent SDK で画像 1 枚を読む送り口（SDK は依存グループ ``ai``。読むときだけ import）
+- ``app_settings``: アプリの読み取りのモデル・effort・締め切り
+"""

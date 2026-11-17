@@ -2,7 +2,7 @@
 
 証券会社・FX / CFD 会社の **決済明細（約定明細）のスクリーンショットを AI で読み取ったとき、どの欄をどれだけ正しく読めるか・何秒かかるか・いくらかかるか** を測る手元の道具です。loss-note の「事後に 1 回・30 秒で記録する」入力（設計書 1.1）が、明細の読み取りに寄りかかっているかどうかを、数字で確かめるために作りました（Issue #14、[ADR-0001](../../docs/adr-0001-statement-read-eval.md)）。
 
-アプリ（`ui/`・`api/`）の一部ではありません。アプリの読み取りの入口は別の Issue（#11）で作り、そのときもここの採点の規則と合成の明細を使って精度を確かめます。
+アプリ（`ui/`・`api/`）の一部ではありません。アプリの読み取りの入口（`POST /api/statement-reads`。#11・[ADR-0005](../../docs/adr-0005-statement-read-api.md)）と、読み取りの部品（指示・結果の形と検査・送り口・向きなどの純関数）を共有のパッケージ [`packages/statement-read/`](../../packages/statement-read/README.md) で共有しています。アプリの設定での精度は、下の `--preset app` で測ります。
 
 ## 測るもの
 
@@ -78,6 +78,12 @@ mise exec -- uv run --locked python -m statement_eval eval --set synthetic --cre
 mise exec -- uv sync --locked
 ```
 
+アプリ（API）の読み取りの設定（`statement_read.app_settings` のモデル claude-sonnet-5-5・effort low・締め切り 20 秒）で測るときは `--preset app` を付けます（`--model`・`--effort` とは一緒に使えません）。画像は縮めずに API と同じ上限（PNG / JPEG・500,000 B 以下・長辺 2,000 px 以下）で検査し、外れていれば AI を呼ばずに止まります。EPIC #10 の終了条件 8（#11 の AC-14）はこれで測ります。
+
+```sh
+mise exec -- uv run --locked --group ai python -m statement_eval eval --set synthetic --preset app --credential oauth_token
+```
+
 主な引数: `--effort`（low / medium / high / xhigh / max。既定 low）、`--repeat`（同じ画像を読む回数。既定は合成 1・実物 3）、`--usd-jpy <レート>`（渡したときだけ費用を円でも出す）、`--json-out <パス>`（同じ要約の JSON。`data/local/` の下か一時ディレクトリだけ）。
 
 資格情報が無いときは、AI を呼ばずに `資格情報がありません` と出して終わります（exit 2）。
@@ -141,14 +147,14 @@ mise exec -- uv sync --locked
 
 | ファイル | 役割 |
 |---|---|
-| `src/statement_eval/score.py` | 採点の純関数（正規化・欄の比較・行の対応づけ・作り話・割合・中央値と最大・費用） |
-| `src/statement_eval/schema.py` | 読み取りの結果の形（ツールの JSON Schema）と検査、正解のファイルの検査 |
-| `src/statement_eval/prompt.py` | 読み取りの指示 |
+| `src/statement_eval/score.py` | 採点の純関数（欄の比較・行の対応づけ・作り話・割合・中央値と最大・費用）。数の正規化・日時・向き（`opened_side`）・手数料の合計は共有の `statement_read.values` |
+| `src/statement_eval/schema.py` | 正解のファイルの検査。読み取りの結果の形（ツールの JSON Schema）と検査は共有の `statement_read.result` の名前を写すだけ |
+| `src/statement_eval/prompt.py` | 読み取りの指示（共有の `statement_read.prompt` の名前を写すだけ） |
 | `src/statement_eval/synthetic.py` | 架空の値の表 → 明細の配置と正解 |
 | `src/statement_eval/render.py` | 配置を PNG に描く |
-| `src/statement_eval/images.py` | 送る前の画像の確認と縮小（メモリ上だけ） |
-| `src/statement_eval/reader.py` | Claude Agent SDK で 1 枚を読む |
+| `src/statement_eval/images.py` | 送る前の画像の確認と縮小（メモリ上だけ）。上限は共有の `statement_read.image` |
+| `src/statement_eval/reader.py` | Claude Agent SDK で 1 枚を読む（共有の `statement_read.agent_reader` の名前を写すだけ。API と同じ送り口） |
 | `src/statement_eval/report.py` | 要約（件数・割合・秒数・費用・モデル名だけ）→ Markdown / JSON |
 | `src/statement_eval/cli.py` | `generate` / `eval` の入口 |
 
-依存: Pillow 13.0（描画・画像の確認）、claude-agent-sdk 0.2.176（依存グループ `ai`。MIT。同梱の Claude Code CLI 2.1.316 は Anthropic の利用規約に従います）。
+依存: 共有のパッケージ `statement-read`（path 依存。anyio 4.16）、Pillow 13.0（描画・画像の確認）、claude-agent-sdk 0.2.176（依存グループ `ai`。MIT。同梱の Claude Code CLI 2.1.316 は Anthropic の利用規約に従います）。

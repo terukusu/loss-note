@@ -1,4 +1,5 @@
-"""記録の API（取引・銘柄・設定。Issue #4・設計書 4 章・ADR-0004）。
+"""記録の API（取引・銘柄・設定。Issue #4・設計書 4 章・ADR-0004）と、決済明細の読み取りの入口（#11・ADR-0005。
+``statement_read.py``。同じ認証を通す）。
 
 入口で ID トークンを検証してから処理する（認証の前に ID の形も存在も見ない → 未認証は常に 401）。
 読み書きは検証できた uid の場所だけ。ほかの利用者の資源は、あるか無いかも分からない 404 にする。
@@ -9,7 +10,7 @@ from collections.abc import Callable
 
 from flask import Blueprint, Response, g, jsonify, request
 
-from loss_note_api import schema
+from loss_note_api import schema, statement_read
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.store import Conflict, MissingInstrument, Store, StoreUnavailable
@@ -83,7 +84,12 @@ def next_updated_at(now: int, prev: int | None) -> int:
     return now if prev is None else max(now, prev + 1)
 
 
-def make_blueprint(store: Store, verifier: TokenVerifier, clock: Callable[[], int]) -> Blueprint:
+def make_blueprint(
+    store: Store,
+    verifier: TokenVerifier,
+    clock: Callable[[], int],
+    read_config: statement_read.ReadConfig | None = None,
+) -> Blueprint:
     bp = Blueprint("records", __name__, url_prefix="/api")
 
     @bp.before_request
@@ -281,6 +287,9 @@ def make_blueprint(store: Store, verifier: TokenVerifier, clock: Callable[[], in
 
         return settings_response(store.update_settings(g.uid, mutate))
 
+    # ── 決済明細の読み取り（#11）──
+    statement_read.register(bp, read_config or statement_read.ReadConfig(None))
+
     @bp.errorhandler(StoreUnavailable)
     def store_unavailable(e: StoreUnavailable):
         log_event(event="store_unavailable", route=request.url_rule.rule if request.url_rule else None, exc=str(e))
@@ -298,6 +307,7 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/instruments", methods=["GET", "POST"])
     @bp.route("/instruments/<path:_id>", methods=["GET", "PUT", "DELETE"])
     @bp.route("/settings", methods=["GET", "PUT"])
+    @bp.route(statement_read.PATH, methods=["POST"])
     def unavailable(_id: str | None = None):
         return error(503, "unavailable")
 

@@ -1,0 +1,399 @@
+{
+  "schema_version": 1,
+  "images": [
+    {
+      "file": "s01.png",
+      "rows": [
+        {
+          "symbol": "JP225",
+          "side": "L",
+          "entry_price": "38250",
+          "entry_time": "2026-03-04T01:15",
+          "exit_price": "38610",
+          "exit_time": "2026-03-04T06:40",
+          "qty": "10",
+          "fees": null,
+          "pnl_jpy": "3600",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s02.png",
+      "rows": [
+        {
+          "symbol": "US30",
+          "side": "S",
+          "entry_price": "42180.5",
+          "entry_time": "2026-02-17T14:30",
+          "exit_price": "42305.5",
+          "exit_time": "2026-02-17T15:05",
+          "qty": "2",
+          "fees": null,
+          "pnl_jpy": "-37500",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s03.png",
+      "rows": [
+        {
+          "symbol": "JP225",
+          "side": "S",
+          "entry_price": "39120",
+          "entry_time": "2026-01-20T00:45",
+          "exit_price": "38870",
+          "exit_time": "2026-01-20T02:10",
+          "qty": "5",
+          "fees": null,
+          "pnl_jpy": "1250",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "USD/JPY",
+          "side": "L",
+          "entry_price": "151.234",
+          "entry_time": "2026-01-21T08:00",
+          "exit_price": "151.534",
+          "exit_time": "2026-01-21T12:30",
+          "qty": "100000",
+          "fees": null,
+          "pnl_jpy": "30000",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "GOLD",
+          "side": "L",
+          "entry_price": "2345.6",
+          "entry_time": "2026-01-22T13:20",
+          "exit_price": "2345.6",
+          "exit_time": "2026-01-22T16:55",
+          "qty": "10",
+          "fees": null,
+          "pnl_jpy": "0",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s04.png",
+      "rows": [
+        {
+          "symbol": "JP225",
+          "side": "L",
+          "entry_price": "38840",
+          "entry_time": "2026-01-09T02:00",
+          "exit_price": "38715",
+          "exit_time": "2026-01-09T03:35",
+          "qty": "4",
+          "fees": null,
+          "pnl_jpy": "-500",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "JP225",
+          "side": "S",
+          "entry_price": "38700",
+          "entry_time": "2026-01-11T05:10",
+          "exit_price": "38455",
+          "exit_time": "2026-01-11T07:45",
+          "qty": "4",
+          "fees": null,
+          "pnl_jpy": "980",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s05.png",
+      "rows": [
+        {
+          "symbol": "日経225mini 26/03",
+          "side": "L",
+          "entry_price": "38250",
+          "entry_time": "2026-03-04T09:12",
+          "exit_price": "38610",
+          "exit_time": "2026-03-04T10:15",
+          "qty": "1",
+          "fees": [
+            "38",
+            "3",
+            "38",
+            "3"
+          ],
+          "pnl_jpy": "35918",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s06.png",
+      "rows": [
+        {
+          "symbol": "日経225mini 26/03",
+          "side": "S",
+          "entry_price": "38900",
+          "entry_time": "2026-02-18T13:40",
+          "exit_price": "39025",
+          "exit_time": "2026-02-18T14:25",
+          "qty": "2",
+          "fees": [
+            "76",
+            "7",
+            "76",
+            "7"
+          ],
+          "pnl_jpy": "-25166",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s07.png",
+      "rows": [
+        {
+          "symbol": "日経225OP 26/03 P 37500",
+          "side": "S",
+          "entry_price": "120",
+          "entry_time": "2026-02-24T10:05",
+          "exit_price": "85",
+          "exit_time": "2026-02-26T13:50",
+          "qty": "1",
+          "fees": [
+            "275",
+            "27",
+            "275",
+            "27"
+          ],
+          "pnl_jpy": "34396",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s08.png",
+      "rows": [
+        {
+          "symbol": "日経225OP 26/04 C 39500",
+          "side": "L",
+          "entry_price": "210",
+          "entry_time": "2026-03-23T09:30",
+          "exit_price": "150",
+          "exit_time": "2026-03-25T14:10",
+          "qty": "2",
+          "fees": [
+            "550",
+            "55",
+            "550",
+            "55"
+          ],
+          "pnl_jpy": "-121210",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "日経225OP 26/04 C 40000",
+          "side": "L",
+          "entry_price": "95",
+          "entry_time": "2026-03-24T11:20",
+          "exit_price": "140",
+          "exit_time": "2026-03-27T10:45",
+          "qty": "1",
+          "fees": [
+            "275",
+            "27",
+            "275",
+            "27"
+          ],
+          "pnl_jpy": "44396",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s09.png",
+      "rows": [
+        {
+          "symbol": "日経225 26/06",
+          "side": "L",
+          "entry_price": "38000",
+          "entry_time": "2026-05-13T09:00",
+          "exit_price": "38250",
+          "exit_time": "2026-05-14T14:30",
+          "qty": "5",
+          "fees": [
+            "1100",
+            "110",
+            "1100",
+            "110"
+          ],
+          "pnl_jpy": "1247580",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "日経225mini 26/06",
+          "side": "S",
+          "entry_price": "38480",
+          "entry_time": "2026-05-15T10:10",
+          "exit_price": "38480",
+          "exit_time": "2026-05-15T11:40",
+          "qty": "3",
+          "fees": [
+            "114",
+            "11",
+            "114",
+            "11"
+          ],
+          "pnl_jpy": "-250",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "日経225mini 26/06",
+          "side": "L",
+          "entry_price": "38320",
+          "entry_time": "2026-05-18T13:05",
+          "exit_price": "38155",
+          "exit_time": "2026-05-18T14:50",
+          "qty": "2",
+          "fees": [
+            "76",
+            "7",
+            "76",
+            "7"
+          ],
+          "pnl_jpy": "-33166",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s10.png",
+      "rows": [
+        {
+          "symbol": "US500",
+          "side": "L",
+          "entry_price": "5612.5",
+          "entry_time": "2026-04-03T13:35",
+          "exit_price": "5598",
+          "exit_time": "2026-04-03T14:02",
+          "qty": "10",
+          "fees": null,
+          "pnl_jpy": "-21750",
+          "exit_order_type": "stop"
+        },
+        {
+          "symbol": "JP225",
+          "side": "S",
+          "entry_price": "37950",
+          "entry_time": "2026-04-07T01:20",
+          "exit_price": "37780",
+          "exit_time": "2026-04-07T04:05",
+          "qty": "3",
+          "fees": null,
+          "pnl_jpy": "510",
+          "exit_order_type": "market"
+        }
+      ]
+    },
+    {
+      "file": "s11.png",
+      "rows": [
+        {
+          "symbol": "日経225mini 26/06",
+          "side": "L",
+          "entry_price": "37850",
+          "entry_time": "2026-04-08T09:45",
+          "exit_price": "37760",
+          "exit_time": "2026-04-08T10:20",
+          "qty": "1",
+          "fees": [
+            "38",
+            "3",
+            "38",
+            "3"
+          ],
+          "pnl_jpy": "-9082",
+          "exit_order_type": "stop"
+        }
+      ]
+    },
+    {
+      "file": "s12.png",
+      "rows": [
+        {
+          "symbol": "日経225OP 26/05 P 36000",
+          "side": "S",
+          "entry_price": "180",
+          "entry_time": "2026-04-14T13:10",
+          "exit_price": "95",
+          "exit_time": "2026-04-16T10:30",
+          "qty": "2",
+          "fees": [
+            "550",
+            "55",
+            "550",
+            "55"
+          ],
+          "pnl_jpy": "168790",
+          "exit_order_type": "market"
+        }
+      ]
+    },
+    {
+      "file": "s13.png",
+      "rows": [
+        {
+          "symbol": "USD/JPY",
+          "side": "S",
+          "entry_price": "152.018",
+          "entry_time": "2026-06-05T07:30",
+          "exit_price": "151.703",
+          "exit_time": "2026-06-05T11:15",
+          "qty": "50000",
+          "fees": null,
+          "pnl_jpy": "15750",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s14.png",
+      "rows": [
+        {
+          "symbol": "日経225mini 26/06",
+          "side": "L",
+          "entry_price": "38410",
+          "entry_time": "2026-06-05T09:20",
+          "exit_price": "38575",
+          "exit_time": "2026-06-05T09:55",
+          "qty": "1",
+          "fees": [
+            "38",
+            "3",
+            "38",
+            "3"
+          ],
+          "pnl_jpy": "16418",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "日経225mini 26/06",
+          "side": "S",
+          "entry_price": "38590",
+          "entry_time": "2026-06-05T10:40",
+          "exit_price": "38665",
+          "exit_time": "2026-06-05T11:30",
+          "qty": "1",
+          "fees": [
+            "38",
+            "3",
+            "38",
+            "3"
+          ],
+          "pnl_jpy": "-7582",
+          "exit_order_type": "unknown"
+        }
+      ]
+    }
+  ]
+}

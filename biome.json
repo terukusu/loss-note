@@ -6,7 +6,16 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!coverage", "!node_modules", "!data/local", "!api/.venv"]
+    "includes": [
+      "**",
+      "!dist",
+      "!coverage",
+      "!node_modules",
+      "!data/local",
+      "!api/.venv",
+      "!tools/statement-eval/.venv",
+      "!tools/statement-eval/synthetic"
+    ]
   },
   "formatter": {
     "enabled": true,

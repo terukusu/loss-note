@@ -1,4 +1,6 @@
 // 記録する（Issue #13。手で入れて記録する。設計書 7.5 の流れ 3〜7・9.2、契約 R-4）。
+// 決済明細のスクショを貼る枠（Issue #15）: 貼った・選んだ画像をすぐ読み取りへ送り、読み取りの値を同じ欄に印つきで入れる。
+// 送る前の注意は枠に常に出す（ダイアログにしない）。プレビューは送るものと同じ画像を canvas に描く（object URL を作らない）。
 // 3 層: 純関数（lib/record-form.ts）→ 通信と状態（lib/record-controller.ts）→ この画面（薄い）。
 // Record は hook を持たない（App のテストが 1 段だけ呼ぶ）。RecordScreen が controller を購読し、
 // 描画は hook を持たない RecordView に任せる（状態と操作の関数を受けて描くだけ。テストで直接呼べる）。
@@ -26,6 +28,7 @@ import {
 } from '../lib/record-controller';
 import {
   type DraftAction,
+  type DraftField,
   FIELD_LABEL,
   type LcMoveKind,
   lcMoveLabel,
@@ -33,13 +36,21 @@ import {
   type Preview,
   type Summary,
 } from '../lib/record-form';
+import {
+  imageFileFromClipboard,
+  MARK_LABEL,
+  needsTzCheck,
+  type PasteTarget,
+  rowLabel,
+} from '../lib/statement-fill';
+import { browserCodec, prepareImage } from '../lib/statement-image';
 
 export function Record() {
   return (
     <>
       <PageHeader
         title="記録する"
-        description="決済の後に 1 回だけ。打つ数字はイン・決済・LC、あとは 3 つのタップで判定が出ます。"
+        description="決済の後に 1 回だけ。決済明細のスクショを貼るか手で入れて、LC と 3 つのタップで判定が出ます。"
       />
       <RecordScreen />
     </>
@@ -49,7 +60,12 @@ export function Record() {
 /** controller を作って購読する（画面を開くたびに作り直す。下書きは画面を離れると消える） */
 export function RecordScreen() {
   const controller = useMemo<RecordController>(
-    () => createRecordController({ api, now: () => Date.now() }),
+    () =>
+      createRecordController({
+        api,
+        now: () => Date.now(),
+        prepare: (file) => prepareImage(file, browserCodec),
+      }),
     [],
   );
   const [state, setState] = useState<RecordState>(controller.getState());
@@ -59,6 +75,23 @@ export function RecordScreen() {
     const off = controller.subscribe(setState);
     void controller.load();
     return off;
+  }, [controller]);
+
+  // 画像の貼り付けは文字の欄の外ならどこでも受ける（画像があるときだけ横取りする）。文字の欄に貼ったときは、
+  // 画像を含んでいても横取りせず普通の貼り付けに任せる（表計算のコピーは文字と画像の両方を持つ。R1）。
+  // 画面を離れたら読み取りを止め、画像と残りの行を捨てる
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const file = imageFileFromClipboard(e.clipboardData?.items, e.target as PasteTarget | null);
+      if (!file) return;
+      e.preventDefault();
+      void controller.readImage(file);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => {
+      document.removeEventListener('paste', onPaste);
+      controller.dispose();
+    };
   }, [controller]);
 
   // 保存した直後は結果の見出しへ、次の取引へ戻ったら最初の欄へフォーカスを移す（読み上げ・キーで迷わない）
@@ -75,6 +108,27 @@ export function RecordScreen() {
     }
   }, [state.phase]);
 
+  // 明細の 1 行を保存して次の行へ移ったら、枠の行の番号へスクロールしてフォーカスを移す
+  // （知らせ「i / N 行目を記録しました。次の行（…）です」は role="status" で読み上げる）
+  const rowKey =
+    state.phase === 'editing' && state.statement?.phase === 'ready' && state.statement.notice
+      ? `${state.statement.index}:${state.statement.notice}`
+      : '';
+  const prevRowKey = useRef('');
+  useEffect(() => {
+    if (rowKey === prevRowKey.current) return;
+    prevRowKey.current = rowKey;
+    if (!rowKey) return;
+    const el = document.getElementById(STATEMENT_ROW_ID);
+    el?.scrollIntoView({ block: 'center' });
+    el?.focus({ preventScroll: true });
+  }, [rowKey]);
+
+  /** 押すと消えるボタンの後に、次に触る所へフォーカスを移す（描き直しの後） */
+  const focusSoon = (id: string) => {
+    setTimeout(() => document.getElementById(id)?.focus(), 0);
+  };
+
   return (
     <RecordView
       state={state}
@@ -90,6 +144,23 @@ export function RecordScreen() {
         // ログアウトすると門がログイン画面へ置き換える（戻り先はこの画面）
         void signOutActive();
       }}
+      onPickFile={(file) => {
+        void controller.readImage(file);
+      }}
+      onCancelRead={() => {
+        controller.cancelRead();
+        focusSoon(FIRST_FIELD_ID);
+      }}
+      onConfirmTz={() => {
+        controller.confirmTimeZone();
+        focusSoon('record-exit-time');
+      }}
+      onSkipRow={() => {
+        controller.skipRow();
+        // 最後の行を飛ばすとボタンは消える（読み取りを終えて空の下書き）。枠の見出しへ
+        const st = controller.getState().statement;
+        focusSoon(st?.phase === 'ready' ? STATEMENT_ROW_ID : STATEMENT_TITLE_ID);
+      }}
     />
   );
 }
@@ -102,11 +173,29 @@ export interface RecordViewProps {
   readonly onReload: () => void;
   /** ログインが切れたとき: ログインし直す */
   readonly onRelogin: () => void;
+  /** 明細の画像を選んだ（#15） */
+  readonly onPickFile?: (file: File) => void;
+  /** [やめて手で入れる] */
+  readonly onCancelRead?: () => void;
+  /** [日本時間で合っている] */
+  readonly onConfirmTz?: () => void;
+  /** [この行を飛ばす] */
+  readonly onSkipRow?: () => void;
 }
 
 const FIRST_FIELD_ID = 'record-instrument';
 const VERDICT_TITLE_ID = 'record-verdict-title';
 const INSTRUMENT_LIST_ID = 'record-instruments';
+const STATEMENT_FILE_ID = 'record-statement-file';
+const STATEMENT_TITLE_ID = 'record-statement-title';
+const STATEMENT_ROW_ID = 'record-statement-row';
+
+/** 送る前の注意（枠に常に出す。R10・設計書 7.5） */
+export const STATEMENT_NOTICE = [
+  '明細の画像は AI の提供元（Anthropic）に送って読み取ります。',
+  '口座番号・氏名などは、端末で切り取ってから貼ってください。',
+  '明細の画像は保存しません（読み取った値だけを、確かめてから記録します）。',
+] as const;
 
 const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
   { value: 'lc', label: 'LC（崩れの条件に当たった）' },
@@ -132,11 +221,19 @@ const GRADE_LEAD: Partial<Record<Grade, string>> = {
 
 export function RecordView(p: RecordViewProps) {
   const { state } = p;
+  const blocked = state.readBlocked ? (
+    <p class="statement__text" role="status">
+      {state.readBlocked}
+    </p>
+  ) : null;
   if (state.phase === 'loading') {
     return (
-      <p class="loading" role="status">
-        読み込み中…
-      </p>
+      <>
+        <p class="loading" role="status">
+          読み込み中…
+        </p>
+        {blocked}
+      </>
     );
   }
   if (state.phase === 'loadFailed') {
@@ -145,6 +242,7 @@ export function RecordView(p: RecordViewProps) {
         <p class="notice notice--error" role="alert">
           {state.error}
         </p>
+        {blocked}
         <div>
           {state.errorKind === 'auth' ? (
             <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
@@ -204,6 +302,13 @@ function RecordForm(p: RecordViewProps) {
   const errorLabels = [...new Set(errorFields.map((k) => FIELD_LABEL[k]))];
   // 畳んだ「ほかの欄」に誤りがあれば開いて見せる
   const optionalError = errorFields.some((k) => OPTIONAL_FIELDS.includes(k));
+  // 明細の読み取りの印（読み取りの値は「ほかの欄」も開いて見せる。AC-4）
+  const marks = state.statement?.marks ?? {};
+  const hasReadMarks = Object.keys(marks).length > 0;
+  const mark = (f: DraftField): { mark?: string } => {
+    const m = marks[f];
+    return m ? { mark: MARK_LABEL[m] } : {};
+  };
 
   return (
     <form
@@ -217,6 +322,8 @@ function RecordForm(p: RecordViewProps) {
       <fieldset class="record__fields" disabled={saving}>
         <legend class="sr-only">取引の記録</legend>
 
+        <StatementPanel {...p} />
+
         <section class="card section" aria-labelledby="record-trade-title">
           <h2 class="section__title" id="record-trade-title">
             取引
@@ -228,6 +335,7 @@ function RecordForm(p: RecordViewProps) {
             onInput={set('instrumentName')}
             list={INSTRUMENT_LIST_ID}
             placeholder="例: 架空指数A"
+            {...mark('instrumentName')}
             {...(e.instrumentName ? { error: e.instrumentName } : {})}
           />
           <datalist id={INSTRUMENT_LIST_ID}>
@@ -237,6 +345,8 @@ function RecordForm(p: RecordViewProps) {
           </datalist>
           <Segment
             label="L / S"
+            id="record-side"
+            {...mark('side')}
             value={d.side}
             onChange={set('side')}
             options={[
@@ -252,6 +362,7 @@ function RecordForm(p: RecordViewProps) {
               value={d.entryPrice}
               onInput={set('entryPrice')}
               placeholder="0.00"
+              {...mark('entryPrice')}
               {...(e.entryPrice ? { error: e.entryPrice } : {})}
             />
             <NumberField
@@ -261,6 +372,7 @@ function RecordForm(p: RecordViewProps) {
               value={d.exitPrice}
               onInput={set('exitPrice')}
               placeholder="0.00"
+              {...mark('exitPrice')}
               {...(e.exitPrice ? { error: e.exitPrice } : {})}
             />
           </div>
@@ -270,6 +382,7 @@ function RecordForm(p: RecordViewProps) {
               label="数量"
               value={d.quantity}
               onInput={set('quantity')}
+              {...mark('quantity')}
               {...(e.quantity ? { error: e.quantity } : {})}
             />
             <TextField
@@ -278,6 +391,7 @@ function RecordForm(p: RecordViewProps) {
               type="datetime-local"
               value={d.exitTime}
               onInput={set('exitTime')}
+              {...mark('exitTime')}
               {...(e.exitTime ? { error: e.exitTime } : {})}
             />
           </div>
@@ -332,6 +446,8 @@ function RecordForm(p: RecordViewProps) {
             <>
               <Segment
                 label="LC を入る前に決めていたか"
+                id="record-lc-decided"
+                {...mark('lcDecided')}
                 value={d.lcDecided === null ? null : d.lcDecided ? 'yes' : 'no'}
                 onChange={(v) => onUpdate({ type: 'set', field: 'lcDecided', value: v === 'yes' })}
                 options={[
@@ -384,7 +500,7 @@ function RecordForm(p: RecordViewProps) {
           hasErrors={errorFields.length > 0}
         />
 
-        <details class="card more" {...(optionalError ? { open: true } : {})}>
+        <details class="card more" {...(optionalError || hasReadMarks ? { open: true } : {})}>
           <summary class="more__summary">ほかの欄（任意）</summary>
           <div class="more__body">
             <div class="record__pair">
@@ -395,6 +511,7 @@ function RecordForm(p: RecordViewProps) {
                 value={d.pnlYen}
                 onInput={set('pnlYen')}
                 unit="円"
+                {...mark('pnlYen')}
                 {...(e.pnlYen ? { error: e.pnlYen } : {})}
               />
               <NumberField
@@ -403,6 +520,7 @@ function RecordForm(p: RecordViewProps) {
                 value={d.feeYen}
                 onInput={set('feeYen')}
                 unit="円"
+                {...mark('feeYen')}
                 {...(e.feeYen ? { error: e.feeYen } : {})}
               />
             </div>
@@ -412,6 +530,7 @@ function RecordForm(p: RecordViewProps) {
               type="datetime-local"
               value={d.entryTime}
               onInput={set('entryTime')}
+              {...mark('entryTime')}
               {...(e.entryTime ? { error: e.entryTime } : {})}
             />
             <Segment
@@ -424,12 +543,24 @@ function RecordForm(p: RecordViewProps) {
               ]}
             />
             <div class="field">
-              <label class="field__label" for="record-exit-reason">
-                決済の理由
-              </label>
+              {marks.exitReason ? (
+                <div class="field__head">
+                  <label class="field__label" for="record-exit-reason">
+                    決済の理由
+                  </label>
+                  <span id="record-exit-reason-mark" class="field__mark">
+                    {MARK_LABEL[marks.exitReason]}
+                  </span>
+                </div>
+              ) : (
+                <label class="field__label" for="record-exit-reason">
+                  決済の理由
+                </label>
+              )}
               <select
                 id="record-exit-reason"
                 class="select"
+                aria-describedby={marks.exitReason ? 'record-exit-reason-mark' : undefined}
                 value={d.exitReason}
                 onChange={(ev) =>
                   onUpdate({
@@ -463,6 +594,7 @@ function RecordForm(p: RecordViewProps) {
         ) : null}
         <p class="record__missing" aria-live="polite">
           {[
+            read.notice ?? '',
             errorLabels.length > 0 ? `誤りのある欄: ${errorLabels.join('・')}` : '',
             read.missing.length > 0 ? `足りない欄: ${read.missing.join('・')}` : '',
           ]
@@ -474,6 +606,105 @@ function RecordForm(p: RecordViewProps) {
         </Button>
       </div>
     </form>
+  );
+}
+
+/** 明細を貼る枠（注意・選ぶボタン・読み取りの状態・プレビュー・行の番号・時間帯の確かめ・失敗の文言） */
+function StatementPanel(p: RecordViewProps) {
+  const st = p.state.statement;
+  const busy = st?.phase === 'preparing' || st?.phase === 'reading';
+  const rows = st?.phase === 'ready' ? st.rows.length : 0;
+  const tz = st?.phase === 'ready' && needsTzCheck(st.marks);
+  const preview = st?.preview ?? null;
+  return (
+    <section class="card section statement" aria-labelledby={STATEMENT_TITLE_ID}>
+      <h2 class="section__title" id={STATEMENT_TITLE_ID} tabIndex={-1}>
+        決済明細のスクショ
+      </h2>
+      <ul class="statement__notice" aria-label="送る前の注意">
+        {STATEMENT_NOTICE.map((t) => (
+          <li key={t}>{t}</li>
+        ))}
+      </ul>
+      <div class="statement__pick">
+        <label class="btn btn--secondary statement__file" for={STATEMENT_FILE_ID}>
+          <Icon name="image" />
+          <span>スクショを選ぶ</span>
+          <input
+            id={STATEMENT_FILE_ID}
+            class="statement__input"
+            type="file"
+            accept="image/png,image/jpeg,image/*"
+            onChange={(ev) => {
+              const input = ev.currentTarget;
+              const file = input.files?.[0];
+              // 同じファイルを選び直しても届くように空に戻す
+              input.value = '';
+              if (file) p.onPickFile?.(file);
+            }}
+          />
+        </label>
+        {/* キーの名前に頼らない言い方。指で触る端末（スマホ）では出さない（CSS の pointer: fine だけで出す） */}
+        <p class="field__hint statement__pastehint">PC はこの画面に貼り付けもできます。</p>
+      </div>
+      {p.state.readBlocked ? (
+        <p class="statement__text" role="status">
+          {p.state.readBlocked}
+        </p>
+      ) : null}
+      {busy ? (
+        <div class="statement__status">
+          <p class="statement__reading" role="status">
+            明細を読み取っています…
+          </p>
+          <Button variant="ghost" onClick={() => p.onCancelRead?.()}>
+            やめて手で入れる
+          </Button>
+        </div>
+      ) : null}
+      {preview ? (
+        <canvas
+          class="statement__preview"
+          width={preview.width}
+          height={preview.height}
+          role="img"
+          aria-label="貼った明細のプレビュー"
+          ref={(el: HTMLCanvasElement | null) => {
+            if (el) preview.draw(el);
+          }}
+        />
+      ) : null}
+      {st && rows >= 2 ? (
+        <div class="statement__rows">
+          <p class="statement__row" id={STATEMENT_ROW_ID} tabIndex={-1}>
+            {rowLabel(st.index, rows)}
+          </p>
+          <Button variant="secondary" onClick={() => p.onSkipRow?.()}>
+            この行を飛ばす
+          </Button>
+        </div>
+      ) : null}
+      {tz ? (
+        <div class="statement__tz">
+          <p class="statement__text">
+            明細に時間帯が書かれていない時刻があります。書かれた時刻が日本時間なら押してください（違えば欄を直します）。
+          </p>
+          <Button variant="secondary" onClick={() => p.onConfirmTz?.()}>
+            日本時間で合っている
+          </Button>
+        </div>
+      ) : null}
+      {st?.phase === 'failed' && st.message ? (
+        <p class="notice notice--error" role="alert">
+          {st.message}
+        </p>
+      ) : null}
+      {st?.notice ? (
+        <p class="statement__text" role="status">
+          {st.notice}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

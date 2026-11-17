@@ -1,0 +1,187 @@
+{
+  "trades": [
+    {
+      "name": "E1",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "statement",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 2,
+            "time": 1794269100000
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 99,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -2000,
+        "fees": [
+          {
+            "amountYen": 150
+          }
+        ],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1
+      }
+    },
+    {
+      "name": "E7",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "statement",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "placed",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 2,
+            "time": 1794269100000
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 99,
+          "orderType": "stop",
+          "reason": "lc",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -2000,
+        "fees": [
+          {
+            "amountYen": 150
+          }
+        ],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1
+      }
+    },
+    {
+      "name": "E8",
+      "instrument": {
+        "name": "架空指数A"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "statement",
+        "side": "L",
+        "lc": 99,
+        "brokenCondition": "押し目の安値を割ったら",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 2,
+            "time": 1794269100000
+          }
+        ],
+        "exit": {
+          "time": 1794274200000,
+          "price": 99,
+          "orderType": "market",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -2000,
+        "fees": [
+          {
+            "amountYen": 150
+          }
+        ],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1
+      }
+    }
+  ]
+}

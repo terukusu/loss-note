@@ -8,6 +8,11 @@
 //   API に冪等のための ID は無いので、次に押したときはまず取引の一覧を読み、同じ本文の取引があれば
 //   それを保存した取引として扱い、送り直さない（二重に保存しない）
 // - 下書き・取引の値は記憶の中だけ。Web Storage・IndexedDB に触れない（AC-11。画面を離れると入力は消える）
+// - 決済明細の読み取り（#15）: readImage で画像を描き直して（差し込まれた prepare。DOM はここに来ない）
+//   POST /api/statement-reads に送り、応答の行を下書きに流し込む（statement-fill.ts）。読み取り中も入力でき、
+//   保存の門（gateReading）で読み取り中・時間帯の未確認は保存しない。新しい読み取り・やめた・画面を離れた（dispose）は
+//   世代を進めて要求を止め、古い応答は捨てる。画像のプレビューは保存の後・やめた・離れたで close して参照を捨てる。
+//   画像・読み取りの値も記憶の中だけ（端末の保存先・URL・履歴に書かない）
 import type {
   InstrumentRecord,
   SettingsRecord,
@@ -23,12 +28,26 @@ import {
   type Draft,
   type DraftAction,
   type DraftContext,
+  type DraftField,
   type DraftReading,
   EMPTY_DRAFT,
   readDraft,
   type Summary,
   summarize,
 } from './record-form';
+import {
+  confirmTimeZone,
+  fillFromRow,
+  gateReading,
+  type Marks,
+  markEdited,
+  parseReadResponse,
+  READ_MSG,
+  type ReadRow,
+  readFailureOf,
+  rowLabel,
+} from './statement-fill';
+import type { PrepareResult, PreviewHandle } from './statement-image';
 
 /** /api への要求（ui/src/auth/session.ts の api と同じ形） */
 export type ApiFn = (path: string, init?: RequestInit) => Promise<Response>;
@@ -43,9 +62,40 @@ export const NETWORK_FAILED =
 
 /** 要求の時間の上限（ミリ秒） */
 export const REQUEST_TIMEOUT_MS = 15_000;
+/** 読み取りの要求の時間の上限（API の締め切り 20 秒 + 後始末 約 5 秒 + 余裕。R3） */
+export const READ_TIMEOUT_MS = 30_000;
+export const READ_PATH = '/api/statement-reads';
+export const ROWS_DONE = '明細の行を最後まで見ました';
+export const rowSaved = (index: number, total: number) =>
+  `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;
+export const rowSkipped = (index: number, total: number) =>
+  `${rowLabel(index, total)}を飛ばしました。次の行（${index + 2} / ${total}）です`;
+export const READ_BLOCKED = {
+  notReady: '記録の準備ができてから、もう一度貼ってください。',
+  saving: '記録しています。終わってから、もう一度貼ってください。',
+} as const;
 
 export type RecordPhase = 'loading' | 'loadFailed' | 'editing' | 'saving' | 'saved';
 export type FailureKind = 'auth' | 'network' | 'other';
+
+/** 明細の読み取りの段階: 描き直し中 / 読み取り中 / 行を確かめている / 失敗 / 行を最後まで見た */
+export type StatementPhase = 'preparing' | 'reading' | 'ready' | 'failed' | 'done';
+
+export interface StatementState {
+  readonly phase: StatementPhase;
+  /** 読み取った行（phase = ready のとき 1 行以上） */
+  readonly rows: readonly ReadRow[];
+  /** 今の行の番号（0 から） */
+  readonly index: number;
+  /** 欄の印 */
+  readonly marks: Marks;
+  /** 失敗の決まった文言（phase = failed のとき。ログインが切れたときは null で、error に出す） */
+  readonly message: string | null;
+  /** 知らせ（「1 / 3 行目を記録しました」など） */
+  readonly notice: string | null;
+  /** 送るものと同じ画像のプレビュー（記憶の中だけ） */
+  readonly preview: PreviewHandle | null;
+}
 
 export interface SavedView {
   readonly trade: StoredTrade;
@@ -66,6 +116,10 @@ export interface RecordState {
   readonly errorKind?: FailureKind;
   /** 保存した取引とその判定（phase = saved のとき） */
   readonly saved?: SavedView;
+  /** 決済明細の読み取り（貼った・選んだとき。#15） */
+  readonly statement?: StatementState;
+  /** 読み込み中・保存中などで画像を受けられなかったときの知らせ（黙って捨てない） */
+  readonly readBlocked?: string | null;
 }
 
 export interface RecordController {
@@ -77,6 +131,16 @@ export interface RecordController {
   save(): Promise<void>;
   /** [次の取引を記録]: 空の入力に戻す（既定は今保存した取引から。API は読み直さない） */
   next(): void;
+  /** 明細の画像を 1 枚受けて、描き直して読み取りに送る（追加の操作なし。前の読み取りは捨てる） */
+  readImage(file: Blob): Promise<void>;
+  /** [やめて手で入れる]: 読み取りをやめる（後で届いた応答は捨てる。欄はそのまま） */
+  cancelRead(): void;
+  /** [日本時間で合っている] */
+  confirmTimeZone(): void;
+  /** [この行を飛ばす] */
+  skipRow(): void;
+  /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる */
+  dispose(): void;
 }
 
 class Failed extends Error {
@@ -128,9 +192,13 @@ export function createRecordController(deps: {
   readonly api: ApiFn;
   readonly now: () => number;
   readonly timeoutMs?: number;
+  /** 画像を送る形に描き直す（画面が statement-image.ts の prepareImage を渡す。テストは偽物） */
+  readonly prepare?: (file: Blob) => Promise<PrepareResult>;
+  readonly readTimeoutMs?: number;
 }): RecordController {
   const { now } = deps;
   const timeoutMs = deps.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const readTimeoutMs = deps.readTimeoutMs ?? READ_TIMEOUT_MS;
   const listeners = new Set<(s: RecordState) => void>();
   const initialSettings = { capitalYen: null, riskTolerancePct: 1 };
   let state: RecordState = {
@@ -144,6 +212,13 @@ export function createRecordController(deps: {
   let inflight: Promise<void> | null = null;
   /** 届いたか分からない保存の本文（時間切れ・通信の失敗の後） */
   let uncertain: TradeRecord | null = null;
+  /** 読み取りの世代（新しい読み取り・やめた・離れたで進め、古い応答を捨てる） */
+  let readGen = 0;
+  let readAbort: AbortController | null = null;
+  /** 貼った後に利用者が触った欄（応答で上書きしない） */
+  let touched = new Set<DraftField>();
+  /** 空の下書きに戻すときの既定（開いたとき、保存の後は今保存した取引から） */
+  let defaults: Partial<Draft> = {};
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -159,19 +234,32 @@ export function createRecordController(deps: {
       base = { ...base, draft: { ...base.draft, gapSlip: 'unanswered' } };
       read = readDraft(base.draft, { instruments: base.instruments, settings: base.settings });
     }
+    const st = base.statement;
+    if (st) {
+      read = gateReading(read, {
+        reading: st.phase === 'preparing' || st.phase === 'reading',
+        marks: st.marks,
+      });
+    }
     state = { ...base, read };
     for (const fn of listeners) fn(state);
   };
 
   /** 時間の上限つきの要求。時間切れ・通信の失敗は network、ログインしていなければ auth */
-  const request = async (path: string, init: RequestInit = {}): Promise<Response> => {
-    const ctl = new AbortController();
+  const request = async (
+    path: string,
+    init: RequestInit = {},
+    limit: { readonly ms?: number; readonly ctl?: AbortController } = {},
+  ): Promise<Response> => {
+    const ctl = limit.ctl ?? new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, ng) => {
       timer = setTimeout(() => {
         ctl.abort();
         ng(new Failed('network'));
-      }, timeoutMs);
+      }, limit.ms ?? timeoutMs);
+      // 外から止めた（やめた・新しい読み取り）ときは待たずに終える
+      limit.ctl?.signal.addEventListener('abort', () => ng(new Failed('network')), { once: true });
     });
     try {
       const res = await Promise.race([deps.api(path, { ...init, signal: ctl.signal }), timeout]);
@@ -199,7 +287,7 @@ export function createRecordController(deps: {
   const kindOf = (e: unknown): FailureKind => (e instanceof Failed ? e.kind : 'other');
 
   const load = async () => {
-    set({ phase: 'loading', error: null }, true);
+    set({ phase: 'loading', error: null, readBlocked: null }, true);
     try {
       const [t, i, s] = await Promise.all([
         request('/api/trades').then((r) => getJson<{ items: StoredTrade[] }>(r, 200)),
@@ -207,14 +295,12 @@ export function createRecordController(deps: {
         request('/api/settings').then((r) => getJson<SettingsRecord>(r, 200)),
       ]);
       if (!Array.isArray(t.items) || !Array.isArray(i.items)) throw new Failed('other');
+      defaults = defaultsFrom(t.items, i.items, now());
       set({
         phase: 'editing',
         instruments: i.items,
         settings: { capitalYen: s.capitalYen ?? null, riskTolerancePct: s.riskTolerancePct },
-        draft: applyDraft(EMPTY_DRAFT, {
-          type: 'reset',
-          values: defaultsFrom(t.items, i.items, now()),
-        }),
+        draft: applyDraft(EMPTY_DRAFT, { type: 'reset', values: defaults }),
         error: null,
       });
     } catch (e) {
@@ -259,6 +345,175 @@ export function createRecordController(deps: {
     return list.items.find((t) => canonical(t.record) === want);
   };
 
+  /** 読み取りを止めて、画像（プレビュー）と残りの行を捨てる */
+  /** keepTouched: 貼り直し（前の読み取りの後に利用者が直した欄は、次の応答でも上書きしない） */
+  const endStatement = (keepTouched = false) => {
+    readGen++;
+    readAbort?.abort();
+    readAbort = null;
+    if (!keepTouched) touched = new Set();
+    const prev = state.statement;
+    if (!prev) return;
+    prev.preview?.close();
+    const { statement: _gone, ...rest } = state;
+    state = rest;
+  };
+
+  /** 行 index の下書き（読み取りの欄 = 行、LC・一言・3 つのタップ・下げた後の LC は空） */
+  const showRow = (st: StatementState, index: number, notice: string | null) => {
+    const row = st.rows[index];
+    if (!row) return;
+    touched = new Set();
+    const filled = fillFromRow(EMPTY_DRAFT, row, touched);
+    set(
+      {
+        phase: 'editing',
+        error: null,
+        draft: filled.draft,
+        statement: { ...st, phase: 'ready', index, marks: filled.marks, notice, message: null },
+      },
+      true,
+    );
+  };
+
+  const statementFailed = (gen: number, message: string | null) => {
+    if (gen !== readGen) return;
+    const st = state.statement;
+    if (!st) return;
+    set({ statement: { ...st, phase: 'failed', message, rows: [], index: 0, marks: {} } });
+  };
+
+  const readImage = async (file: Blob) => {
+    if (state.phase === 'saved') next();
+    if (!deps.prepare) return;
+    if (state.phase !== 'editing') {
+      set({ readBlocked: state.phase === 'saving' ? READ_BLOCKED.saving : READ_BLOCKED.notReady });
+      return;
+    }
+    // 前の読み取りが「明細から」の既定で入れた値は戻す（出どころを失って本人の答えに見えないように）。
+    // 前の読み取りの後に利用者が直した欄（touched）は値も印も残し、次の応答で上書きしない
+    const prev = state.statement;
+    const carried: Partial<Record<DraftField, Marks[DraftField]>> = {};
+    let draft = state.draft;
+    if (prev) {
+      for (const f of touched) if (prev.marks[f] !== undefined) carried[f] = prev.marks[f];
+      if (prev.marks.lcDecided === 'statement') draft = { ...draft, lcDecided: null };
+      if (prev.marks.exitReason === 'statement') draft = { ...draft, exitReason: 'other' };
+      draft = { ...draft, exitOrderType: 'unknown', stopOrderPlaced: 'unanswered' };
+    }
+    endStatement(true);
+    const gen = readGen;
+    const ctl = new AbortController();
+    readAbort = ctl;
+    set({
+      error: null,
+      readBlocked: null,
+      draft,
+      statement: {
+        phase: 'preparing',
+        rows: [],
+        index: 0,
+        marks: carried as Marks,
+        message: null,
+        notice: null,
+        preview: null,
+      },
+    });
+    let prepared: PrepareResult;
+    try {
+      prepared = await deps.prepare(file);
+    } catch {
+      prepared = { ok: false, error: 'not_image' };
+    }
+    if (gen !== readGen) {
+      if (prepared.ok) prepared.image.preview.close();
+      return;
+    }
+    if (!prepared.ok) {
+      statementFailed(gen, prepared.error === 'not_image' ? READ_MSG.notImage : READ_MSG.rejected);
+      return;
+    }
+    const { bytes, contentType, preview } = prepared.image;
+    const st0 = state.statement;
+    if (!st0) {
+      preview.close();
+      return;
+    }
+    set({ statement: { ...st0, phase: 'reading', preview } });
+    try {
+      const res = await request(
+        READ_PATH,
+        { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes as BodyInit },
+        { ms: readTimeoutMs, ctl },
+      );
+      if (gen !== readGen) return;
+      if (res.status !== 200) {
+        const kind = readFailureOf(res.status);
+        if (kind === 'auth') throw new Failed('auth');
+        statementFailed(gen, READ_MSG[kind]);
+        return;
+      }
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (gen !== readGen) return;
+      const result = parseReadResponse(json);
+      if (result === null) {
+        statementFailed(gen, READ_MSG.failed);
+        return;
+      }
+      if (result.kind !== 'statement' || result.rows.length === 0) {
+        statementFailed(gen, READ_MSG.notStatement);
+        return;
+      }
+      const st = state.statement;
+      const row = result.rows[0];
+      if (!st || !row || state.phase !== 'editing') return;
+      const filled = fillFromRow(state.draft, row, touched);
+      set({
+        draft: filled.draft,
+        statement: {
+          ...st,
+          phase: 'ready',
+          rows: result.rows,
+          index: 0,
+          marks: { ...st.marks, ...filled.marks },
+          message: null,
+          notice: null,
+        },
+      });
+    } catch (e) {
+      if (gen !== readGen) return;
+      if (kindOf(e) === 'auth') {
+        statementFailed(gen, null);
+        set({ error: AUTH_EXPIRED, errorKind: 'auth' });
+        return;
+      }
+      statementFailed(gen, READ_MSG.failed);
+    } finally {
+      if (readAbort === ctl) readAbort = null;
+    }
+  };
+
+  const next = () => {
+    const saved = state.saved;
+    if (state.phase !== 'saved' || !saved) return;
+    set(
+      {
+        phase: 'editing',
+        error: null,
+        draft: applyDraft(EMPTY_DRAFT, {
+          type: 'reset',
+          values: { ...defaults, exitTime: toLocalInput(floorToMinute(now())) },
+        }),
+      },
+      true,
+    );
+  };
+
   const doSave = async () => {
     const read = state.read;
     const body = read.body;
@@ -290,6 +545,18 @@ export function createRecordController(deps: {
       uncertain = null;
       const found = trade;
       const name = inst.instruments.find((i) => i.id === found.record.instrumentId)?.name ?? '';
+      defaults = {
+        instrumentName: name,
+        quantity: formatPlain(found.record.entries[0].quantity),
+      };
+      // 明細の残りの行があれば、次の行で下書きを作り直す（C20。R7）
+      const st = state.statement;
+      if (st && st.phase === 'ready' && st.index + 1 < st.rows.length) {
+        const saved = st.index;
+        showRow(st, saved + 1, rowSaved(saved, st.rows.length));
+        return;
+      }
+      endStatement();
       set({
         phase: 'saved',
         saved: { trade: found, instrumentName: name, summary: summarize(found) },
@@ -313,7 +580,19 @@ export function createRecordController(deps: {
     load,
     update(action) {
       if (state.phase !== 'editing') return;
-      set({ draft: applyDraft(state.draft, action), error: null });
+      const st = state.statement;
+      if (st && action.type === 'set') {
+        touched.add(action.field);
+        const marks = markEdited(st.marks, action.field);
+        set({
+          draft: applyDraft(state.draft, action),
+          error: null,
+          readBlocked: null,
+          ...(marks === st.marks ? {} : { statement: { ...st, marks } }),
+        });
+        return;
+      }
+      set({ draft: applyDraft(state.draft, action), error: null, readBlocked: null });
     },
     save() {
       if (inflight) return inflight;
@@ -323,24 +602,50 @@ export function createRecordController(deps: {
       inflight = p;
       return p;
     },
-    next() {
-      const saved = state.saved;
-      if (state.phase !== 'saved' || !saved) return;
-      set(
-        {
-          phase: 'editing',
-          error: null,
-          draft: applyDraft(EMPTY_DRAFT, {
-            type: 'reset',
-            values: {
-              instrumentName: saved.instrumentName,
-              quantity: formatPlain(saved.trade.record.entries[0].quantity),
-              exitTime: toLocalInput(floorToMinute(now())),
-            },
-          }),
+    next,
+    readImage,
+    cancelRead() {
+      const st = state.statement;
+      if (!st || (st.phase !== 'preparing' && st.phase !== 'reading')) return;
+      endStatement();
+      set({});
+    },
+    confirmTimeZone() {
+      const st = state.statement;
+      if (st?.phase !== 'ready' || state.phase !== 'editing') return;
+      const row = st.rows[st.index];
+      if (!row) return;
+      const c = confirmTimeZone(state.draft, st.marks, row);
+      set({ draft: c.draft, statement: { ...st, marks: c.marks } });
+    },
+    skipRow() {
+      const st = state.statement;
+      if (st?.phase !== 'ready' || state.phase !== 'editing') return;
+      if (st.index + 1 < st.rows.length) {
+        showRow(st, st.index + 1, rowSkipped(st.index, st.rows.length));
+        return;
+      }
+      // 最後の行を飛ばした: 読み取りを終えて、空の下書き（既定 = 今保存した取引か開いたとき）に戻す
+      endStatement();
+      set({
+        error: null,
+        draft: applyDraft(EMPTY_DRAFT, {
+          type: 'reset',
+          values: { ...defaults, exitTime: toLocalInput(floorToMinute(now())) },
+        }),
+        statement: {
+          phase: 'done',
+          rows: [],
+          index: 0,
+          marks: {},
+          message: null,
+          notice: ROWS_DONE,
+          preview: null,
         },
-        true,
-      );
+      });
+    },
+    dispose() {
+      endStatement();
     },
   };
 }

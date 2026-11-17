@@ -8,6 +8,7 @@ import {
   LOAD_FAILED,
   type RecordState,
   SAVE_FAILED,
+  type StatementState,
 } from '../../ui/src/lib/record-controller';
 import {
   applyDraft,
@@ -16,7 +17,8 @@ import {
   readDraft,
   summarize,
 } from '../../ui/src/lib/record-form';
-import { RecordView, type RecordViewProps } from '../../ui/src/pages/Record';
+import { fillFromRow, gateReading, READ_MSG } from '../../ui/src/lib/statement-fill';
+import { RecordView, type RecordViewProps, STATEMENT_NOTICE } from '../../ui/src/pages/Record';
 import {
   CAPITAL_1M,
   E1,
@@ -33,6 +35,7 @@ import {
   E17,
   NO_CAPITAL,
 } from './helpers/record-drafts';
+import { ROW_E1 } from './helpers/statement-rows';
 
 interface El {
   readonly type: string;
@@ -431,5 +434,267 @@ describe('作りの約束（P8・P11）', () => {
         expect(ids.has(input.props.id), String(input.props.id)).toBe(true);
       }
     }
+  });
+});
+
+// ── 決済明細を貼る枠（Issue #15） ──
+
+function withStatement(draft: Draft, st: Partial<StatementState>, reading = false): RecordState {
+  const statement: StatementState = {
+    phase: 'ready',
+    rows: [ROW_E1],
+    index: 0,
+    marks: {},
+    message: null,
+    notice: null,
+    preview: null,
+    ...st,
+  };
+  const base = stateFor(draft, NO_CAPITAL);
+  return {
+    ...base,
+    statement,
+    read: gateReading(base.read, { reading, marks: statement.marks }),
+  };
+}
+
+const filledE1 = () => {
+  const f = fillFromRow(
+    applyDraft(E1, { type: 'set', field: 'feeYen', value: '' }),
+    ROW_E1,
+    new Set(),
+  );
+  return { draft: f.draft, marks: f.marks };
+};
+
+describe('送る前の注意（AC-11・R10）', () => {
+  it('貼る前の画面に 3 文（AI の提供元に送る・切り取る・保存しない）が常に出ている。ダイアログは無い', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL));
+    const notice = all(tree, hasClass('statement__notice'));
+    expect(notice).toHaveLength(1);
+    const items = all(notice, (e) => e.type === 'li').map(text);
+    expect(items).toEqual([...STATEMENT_NOTICE]);
+    expect(items[0]).toContain('AI の提供元（Anthropic）に送って');
+    expect(items[1]).toContain('切り取ってから');
+    expect(items[2]).toContain('保存しません');
+    for (const t of [tree, view(withStatement(E1, { phase: 'reading' }, true))]) {
+      expect(all(t, (e) => e.type === 'dialog' || e.props.role === 'alertdialog')).toEqual([]);
+    }
+  });
+
+  it('[スクショを選ぶ] は label + ファイルの input（画像だけ）。選ぶと onPickFile、同じファイルを選び直せるよう空に戻す', () => {
+    const got: unknown[] = [];
+    const tree = view(stateFor(E1, NO_CAPITAL), { onPickFile: (f) => got.push(f) });
+    const input = all(tree, (e) => e.type === 'input' && e.props.type === 'file')[0] as El;
+    expect(input.props.id).toBe('record-statement-file');
+    expect(String(input.props.accept)).toContain('image/png');
+    const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-statement-file');
+    expect(text(label)).toBe('スクショを選ぶ');
+    const target = { files: ['架空の画像'], value: 'x' };
+    (input.props.onChange as (e: unknown) => void)({ currentTarget: target });
+    expect(got).toEqual(['架空の画像']);
+    expect(target.value).toBe('');
+  });
+});
+
+describe('読み取り中（AC-3）', () => {
+  it('控えめな状態の文と [やめて手で入れる]。[記録する] は押せず理由「明細を読み取っています」。欄は入れられる', () => {
+    let cancel = 0;
+    const tree = view(withStatement(E1, { phase: 'reading', rows: [] }, true), {
+      onCancelRead: () => {
+        cancel++;
+      },
+    });
+    const status = all(tree, (e) => e.props.role === 'status').map(text);
+    expect(status).toContain('明細を読み取っています…');
+    const btn = all(tree, (e) => e.type === 'button' && text(e) === 'やめて手で入れる')[0] as El;
+    (btn.props.onClick as () => void)();
+    expect(cancel).toBe(1);
+    expect(submit(tree).props.disabled).toBe(true);
+    expect(text(all(tree, hasClass('record__missing')))).toBe('明細を読み取っています');
+    expect(all(tree, (e) => e.type === 'fieldset')[0]?.props.disabled).toBe(false);
+  });
+});
+
+describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
+  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る。「ほかの欄」は開いて損益・手数料・建てた時刻が見える', () => {
+    const { draft, marks } = filledE1();
+    const tree = view(withStatement(draft, { marks }));
+    const texts = all(tree, hasClass('field__mark')).map(text);
+    expect(texts).toHaveLength(9);
+    expect(new Set(texts)).toEqual(new Set(['読み取り']));
+    for (const id of [
+      'record-instrument',
+      'record-entry',
+      'record-exit',
+      'record-quantity',
+      'record-exit-time',
+      'record-pnl',
+      'record-fee',
+      'record-entry-time',
+    ]) {
+      const input = all(tree, (e) => e.type === 'input' && e.props.id === id)[0] as El;
+      expect(String(input.props['aria-describedby']), id).toContain(`${id}-mark`);
+    }
+    const side = all(
+      tree,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'L / S',
+    )[0] as El;
+    expect(side.props['aria-describedby']).toBe('record-side-mark');
+    const details = all(tree, (e) => e.type === 'details')[0] as El;
+    expect(details.props.open).toBe(true);
+  });
+
+  it('直した欄は「直した」、逆指値の既定は「明細から」、時間帯の無い時刻は「時間帯が明細にありません」', () => {
+    const tree = view(
+      withStatement(E1, {
+        marks: {
+          exitPrice: 'edited',
+          lcDecided: 'statement',
+          exitReason: 'statement',
+          exitTime: 'tz',
+        },
+      }),
+    );
+    const marks = all(tree, hasClass('field__mark')).map(text);
+    expect(marks).toEqual(
+      expect.arrayContaining(['直した', '明細から', '明細から', '時間帯が明細にありません']),
+    );
+    const reason = all(tree, (e) => e.type === 'select')[0] as El;
+    expect(reason.props['aria-describedby']).toBe('record-exit-reason-mark');
+  });
+
+  it('時間帯の確かめ: [日本時間で合っている] で onConfirmTz。足りない欄に「決済の時刻（時間帯の確かめ）」', () => {
+    let confirmed = 0;
+    const tree = view(withStatement(E1, { marks: { exitTime: 'tz' } }), {
+      onConfirmTz: () => {
+        confirmed++;
+      },
+    });
+    const btn = all(
+      tree,
+      (e) => e.type === 'button' && text(e) === '日本時間で合っている',
+    )[0] as El;
+    (btn.props.onClick as () => void)();
+    expect(confirmed).toBe(1);
+    expect(text(all(tree, hasClass('record__missing')))).toContain('決済の時刻（時間帯の確かめ）');
+    expect(submit(tree).props.disabled).toBe(true);
+  });
+
+  it('プレビューは canvas（width・height の属性、style なし、読み上げの名前）', () => {
+    const preview = { width: 640, height: 320, draw: noop, close: noop };
+    const tree = view(withStatement(E1, { preview }));
+    const canvas = all(tree, (e) => e.type === 'canvas');
+    expect(canvas).toHaveLength(1);
+    expect(canvas[0]?.props).toMatchObject({
+      width: 640,
+      height: 320,
+      role: 'img',
+      'aria-label': '貼った明細のプレビュー',
+    });
+    expect('style' in (canvas[0]?.props ?? {})).toBe(false);
+    expect(all(tree, (e) => e.type === 'img')).toEqual([]);
+  });
+});
+
+describe('複数行（AC-9）', () => {
+  it('「2 / 3 行目」と [この行を飛ばす]（onSkipRow）、保存した行の知らせ', () => {
+    let skipped = 0;
+    const tree = view(
+      withStatement(E1, {
+        rows: [ROW_E1, ROW_E1, ROW_E1],
+        index: 1,
+        notice: '1 / 3 行目を記録しました',
+      }),
+      {
+        onSkipRow: () => {
+          skipped++;
+        },
+      },
+    );
+    expect(text(all(tree, hasClass('statement__row')))).toBe('2 / 3 行目');
+    const btn = all(tree, (e) => e.type === 'button' && text(e) === 'この行を飛ばす')[0] as El;
+    (btn.props.onClick as () => void)();
+    expect(skipped).toBe(1);
+    expect(all(tree, (e) => e.props.role === 'status').map(text)).toContain(
+      '1 / 3 行目を記録しました',
+    );
+  });
+
+  it('1 行なら行の番号もボタンも出さない', () => {
+    const tree = view(withStatement(E1, {}));
+    expect(all(tree, hasClass('statement__row'))).toEqual([]);
+  });
+});
+
+describe('読み取りの失敗（AC-10）', () => {
+  it.each(Object.values(READ_MSG))(
+    '「%s」は role="alert" の決まった文言。入力の欄は残る',
+    (msg) => {
+      const tree = view(withStatement(E1, { phase: 'failed', rows: [], message: msg }));
+      expect(all(tree, (e) => e.props.role === 'alert').map(text)).toEqual([msg]);
+      expect(all(tree, (e) => e.type === 'input' && e.props.id === 'record-entry')).toHaveLength(1);
+      expect(submit(tree).props.disabled).toBe(false);
+    },
+  );
+});
+
+describe('作りの約束（#15 の枠）', () => {
+  it('枠を含めて style 属性が無く、欄にはすべて label がある', () => {
+    const { draft, marks } = filledE1();
+    for (const st of [
+      withStatement(draft, {
+        marks,
+        rows: [ROW_E1, ROW_E1],
+        preview: { width: 1, height: 1, draw: noop, close: noop },
+      }),
+      withStatement(E1, { phase: 'reading' }, true),
+    ]) {
+      const tree = view(st);
+      expect(all(tree, (e) => 'style' in e.props)).toEqual([]);
+      const ids = new Set(
+        all(tree, (e) => e.type === 'label' && typeof e.props.for === 'string').map(
+          (e) => e.props.for,
+        ),
+      );
+      for (const input of all(
+        tree,
+        (e) => (e.type === 'input' && e.props.type !== 'radio') || e.type === 'select',
+      )) {
+        expect(ids.has(input.props.id), String(input.props.id)).toBe(true);
+      }
+    }
+  });
+});
+
+describe('レビュー指摘の対応（#15 Phase 4）', () => {
+  it('指摘 6: 画像を受けられなかった知らせを、読み込み中・読み込みの失敗・保存中の画面に出す', () => {
+    const msg = '記録の準備ができてから、もう一度貼ってください。';
+    for (const over of [
+      { phase: 'loading', readBlocked: msg },
+      { phase: 'loadFailed', error: LOAD_FAILED, readBlocked: msg },
+      { phase: 'saving', readBlocked: msg },
+    ] as const) {
+      const tree = view(stateFor(E1, NO_CAPITAL, over));
+      expect(all(tree, (e) => e.props.role === 'status').map(text)).toContain(msg);
+    }
+    expect(text(view(stateFor(E1, NO_CAPITAL, { phase: 'loading', readBlocked: null })))).toBe(
+      '読み込み中…',
+    );
+  });
+
+  it('指摘 4: 貼り付けの案内はキーの名前に頼らない（PC だけに出すクラス）', () => {
+    const hint = all(view(stateFor(E1, NO_CAPITAL)), hasClass('statement__pastehint'));
+    expect(hint.map(text)).toEqual(['PC はこの画面に貼り付けもできます。']);
+    expect(text(view(stateFor(E1, NO_CAPITAL)))).not.toContain('Ctrl');
+  });
+
+  it('指摘 2・3: 枠の見出しと行の番号はフォーカスを受けられる（tabIndex -1）', () => {
+    const tree = view(withStatement(E1, { rows: [ROW_E1, ROW_E1] }));
+    const title = all(tree, (e) => e.props.id === 'record-statement-title')[0] as El;
+    expect(title.props.tabIndex).toBe(-1);
+    const row = all(tree, (e) => e.props.id === 'record-statement-row')[0] as El;
+    expect(row.props.tabIndex).toBe(-1);
+    expect(text(row)).toBe('1 / 2 行目');
   });
 });

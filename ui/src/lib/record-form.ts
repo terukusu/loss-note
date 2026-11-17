@@ -3,19 +3,22 @@
 // 純関数 readDraft と、下書きの更新 applyDraft。DOM・通信・現在時刻に触れない（同じ入力に同じ出力）。
 // 判定・R は core/ の evaluateTrade の結果だけを使う（規則を作り直さない）。本文を保存の形に写し、
 // core/record.ts の toTradeInput を通して計算するので、保存の前の表示と保存の後に読み直した表示が同じ道を通る。
-// #15（スクショの読み取り）は、読み取った値を applyDraft の fill で同じ欄に流し込む
+// #15（スクショの読み取り）は、読み取った値を applyDraft の fill で同じ欄に流し込み（statement-fill.ts）、
+// 出どころ・注文の種類・逆指値を入れたかも下書きに持って、同じ readDraft の道で本文を作る
 import { evaluateTrade } from '../../../core/evaluate';
 import type { Judgment } from '../../../core/judge';
 import type {
   GapSlip,
   InstrumentRecord,
   InstrumentSnapshot,
+  RecordSource,
+  StopOrderPlaced,
   StoredTrade,
   TradeRecord,
   TradeSnapshot,
 } from '../../../core/record';
 import { toTradeInput } from '../../../core/record';
-import type { ExitReason, LcMove, Side, TimeframeChange } from '../../../core/trade';
+import type { ExitOrderType, ExitReason, LcMove, Side, TimeframeChange } from '../../../core/trade';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
 import { widenVerb } from './reasons';
@@ -44,6 +47,12 @@ export interface Draft {
   readonly lcBasis: 'chart' | 'amount';
   readonly exitReason: ExitReason;
   readonly gapSlip: GapSlip;
+  /** 出どころ（明細の読み取りから入れた = statement。画面に欄は出さない。#15） */
+  readonly source: Extract<RecordSource, 'manual' | 'statement'>;
+  /** 決済の注文の種類（明細の証拠だけ。手では選ばない。C26） */
+  readonly exitOrderType: ExitOrderType;
+  /** 逆指値を入れたか（明細で逆指値と読めたときだけ placed） */
+  readonly stopOrderPlaced: StopOrderPlaced;
 }
 
 export type DraftField = keyof Draft;
@@ -69,6 +78,9 @@ export const EMPTY_DRAFT: Draft = {
   lcBasis: 'chart',
   exitReason: 'other',
   gapSlip: 'unanswered',
+  source: 'manual',
+  exitOrderType: 'unknown',
+  stopOrderPlaced: 'unanswered',
 };
 
 export type DraftAction =
@@ -126,6 +138,8 @@ export interface DraftReading {
   /** 足りない欄の名前（画面の並びの順） */
   readonly missing: readonly string[];
   readonly canSave: boolean;
+  /** 保存できない理由の文（足りない欄・誤りのほか。明細の読み取り中など。#15） */
+  readonly notice?: string;
   readonly body?: TradeBody;
   readonly instrument: { readonly name: string; readonly matchedId?: string };
   readonly preview: Preview;
@@ -179,6 +193,9 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   lcBasis: 'LC の根拠',
   exitReason: '決済の理由',
   gapSlip: '窓・滑りでしたか',
+  source: '出どころ',
+  exitOrderType: '注文の種類',
+  stopOrderPlaced: '逆指値を入れたか',
 };
 
 /** 「ほかの欄（任意）」に畳んだ欄 */
@@ -421,23 +438,23 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
         : { kind: taps.lcMove };
     return {
       status: 'closed',
-      source: 'manual',
+      source: draft.source,
       side: s,
       ...(lc === undefined ? {} : { lc }),
       ...(brokenCondition === '' ? {} : { brokenCondition }),
       lcBasis: draft.lcBasis,
-      stopOrderPlaced: 'unanswered',
+      stopOrderPlaced: draft.stopOrderPlaced,
       lcDecidedBeforeEntry: lcNone ? false : taps.lcDecided,
       lcMove: move,
       timeframeChange: taps.timeframeChange,
       entries: [
         { price: en, quantity: q, ...(entryTime === undefined ? {} : { time: entryTime }) },
       ],
-      // 手で選んだ「逆指値」は証拠にならないので、注文の種類は「不明」のまま送る（C26）
+      // 注文の種類は明細の証拠だけ（手の記録は「不明」のまま。手で選んだ「逆指値」は証拠にならない。C26）
       exit: {
         time: xt,
         price: ex,
-        orderType: 'unknown',
+        orderType: draft.exitOrderType,
         reason: draft.exitReason,
         gapSlip: taps.gapSlip,
       },

@@ -59,7 +59,7 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 - する: 主の動作（[記録する]）は幅 720px 未満で下部の行き先の上に貼り付け（sticky）、押せない理由（足りない欄の名前）をボタンのすぐ上に文で出す（色だけに頼らない）
 - する: 行き先（ホーム・記録する・一覧・設定）は幅 720px 未満で画面の下に固定し、どの画面からも 1 タップ
 - しない: 記録の途中に確認・説明のダイアログを挟む。任意の欄を必須にする
-- 検査: `ui:check` の V6（幅 360 の全画面から 4 つの行き先へ 1 タップ）、記録する画面の R1〜R5。30 秒の実測は #15
+- 検査: `ui:check` の V6（幅 360 の全画面から 4 つの行き先へ 1 タップ）、記録する画面の R1〜R10（R10 = 明細を貼って打つ 2・選ぶ 3 で判定まで）。30 秒の人の実測は [`record-timing-check.md`](record-timing-check.md)
 
 ### P2 色は規律を表す
 
@@ -134,8 +134,9 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 - する: スタイルはクラスと `data-*` / ARIA 属性だけで切り替える。テーマは `<html data-theme>`（`applyTheme`）。ビルドの `index.html` はインラインの script / style・style 属性・外部 URL を持たない
 - する: 画面から API へは `/api/...`（同一オリジン）だけで、`ui/src/auth/session.ts` の `api` を通す（ログイン中の ID トークンを付け、ログインしていなければ送らない）。Firestore・Storage の SDK を画面で読み込まない（firebase は `firebase/app`・`firebase/auth` だけ）
 - する: ログインできないときは決まった文言だけを出し（「ログインのサービスにつながりません」など）、コード・例外の本文を出さない。白い画面にしない（ADR-0003）
-- しない: `innerHTML` などの HTML の文字列を DOM に入れる API、JSX の `style`、`.style` の書き換え。外部のフォント・CDN・画像を読む
-- 検査: `csp-check.sh`、`source-rules.test.ts`（自己テスト付き）、`cssTokens.test.ts`「url() も @import も書かない」
+- する: 画像のプレビューは canvas に描く（決済明細の読み取り。#15）。object URL・data URL を作らない（CSP の img-src に `blob:`・`data:` を足さない）
+- しない: `innerHTML` などの HTML の文字列を DOM に入れる API、JSX の `style`、`.style` の書き換え。外部のフォント・CDN・画像を読む。`createObjectURL`・`toDataURL`・`FileReader`
+- 検査: `csp-check.sh`、`source-rules.test.ts`（自己テスト付き。object URL・data URL の規則は #15 の AC-13）、`cssTokens.test.ts`「url() も @import も書かない」
 
 ### P12 見た目はトークンで
 

@@ -24,7 +24,7 @@ allowed-tools: [Read, Edit, Write, Bash, Glob, Grep]
 | # | 条件 | 判定 |
 |---|---|---|
 | L1 | **ユーザーの明示指示**（この skill の起動そのもの）。AI が単独で簡易フローへ縮退してはならない | 起動形態 |
-| L2 | Issue に why / what / 観察可能な AC が既に書かれている（本文が空・タイトルのみは不可） | `gh issue view` の body |
+| L2 | Issue 本文がリファインメント済み: `.claude/skills/implement-issue/check-refinement.sh` に通り、背景が「深掘りした why（確認済み）」で、「未決・仮定」に戻しにくさ「高」の問いが無い | `gh issue view` の body を一時ファイルに取り、検査を実行 |
 | L3 | 見込みの変更が **非テストのコードファイル 2 つ以内**（`.ts` / `.tsx` / `.js` / `.html` / `.css` / `.py` / `.gs` / `.tf` / `.yml` / `.yaml` / `.json` / `.toml`。`tests/` 配下と `.md` は数えない） | 本文と調査 |
 | L4 | 計算とデータの経路に触れない: 損益・集計の計算、元データの読み書き（`CLAUDE.md`「作り」でそれに当たると書いたディレクトリ。下記の正規表現の `CALC_DATA_DIRS`） | 下記エスカレーション節の正規表現と同一集合 |
 | L5 | セキュリティ・ビルド・デプロイ構成・設計に触れない: `infra/`、`.github/workflows/`、`.claude/skills/`、`docs/design.md`・`docs/adr-*.md`、依存の定義と lock ファイル、ランタイムのバージョン指定、ビルド・型・lint の設定、`Dockerfile`、および DOM への HTML 挿入に関わる記述（`innerHTML` / `outerHTML` / `insertAdjacentHTML` / `document.write` / `eval(` / `new Function(` / 外部 URL） | 同上 |
@@ -106,7 +106,7 @@ if [ "$N" -le 2 ] && [ "$G" -eq 0 ] && [ "$A" -eq 0 ]; then echo lite-ok; else e
 
 ### 6. AC 検証
 
-Issue の AC を 1 件ずつ実行可能な確認に対応づけ、`pass` / `fail` / `not-observable`（画面での手動確認。手順を併記）/ `after-deploy`（デプロイ後でないと判定できないもの。確認手順を併記）を判定して PR 本文に載せる。
+Issue の AC・KEEP を ID で 1 件ずつ実行可能な確認に対応づけ、`pass` / `fail` / `not-observable`（画面での手動確認。手順を併記）/ `after-deploy`（デプロイ後でないと判定できないもの。確認手順を併記）を判定して PR 本文に載せる。
 
 ### 7. 3 視点（画面を触るなら 4 視点）の順次セルフレビュー（main インライン）
 

@@ -3,6 +3,10 @@
 // 幅 360px の押せるものの当たりが 44×44px 未満の件数、折り返さない部品（ボタン・セグメント・バッジなど）の中の
 // はみ出しの件数を数値で出す。行き来（例の表 V1〜V6）とテーマ（T2〜T4）も実ブラウザで流す。
 // 戻るでスクロールの位置が戻ること（S1）、ログインの門（例の表 L1〜L7）も見る。1 つでも外れれば終了コード 1。CI には入れない（手元で流し、出力の要約を PR に貼る）。
+// 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
+// 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
+// ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
+// （Flask と Firestore のエミュレーターを立てなくてよい。本物の API の経路は Issue #13 の手での確かめで見る）。
 //
 // 前提: `npm ci` の後に一度 `npx playwright install chromium`（ブラウザは手元のキャッシュに入る。リポジトリには入らない）。
 // Auth のエミュレーター（127.0.0.1:9099。`npm run emulators`）が動いていること（無ければ終了コード 2）。
@@ -151,6 +155,219 @@ async function setupContext(context, theme) {
   }
 }
 
+// ── 偽の記録の API（記憶の中だけ。値はすべて架空。形は api/src/loss_note_api/routes.py に合わせる） ──
+const FAKE_US30 = {
+  id: 'inst-us30',
+  name: 'US30',
+  underlyingKind: 'index',
+  productForm: 'spotCfd',
+  priceCurrency: null,
+  multiplier: 1,
+  quantityStep: 1,
+  createdAt: 1700000000000,
+  updatedAt: 1700000000000,
+};
+
+/** 前に記録した架空の取引（開いたときの既定 R1 の確かめ: 銘柄 US30・数量 2） */
+function fakeTrade(id, instrumentId, quantity, createdAt) {
+  return {
+    id,
+    schemaVersion: 1,
+    createdAt,
+    updatedAt: createdAt,
+    snapshot: {
+      instrument: {
+        multiplier: 1,
+        quantityStep: 1,
+        priceCurrency: null,
+        underlyingKind: 'index',
+        productForm: 'spotCfd',
+      },
+      capitalYen: null,
+      riskTolerancePct: 1,
+    },
+    record: {
+      status: 'closed',
+      source: 'manual',
+      instrumentId,
+      side: 'L',
+      lc: 99.5,
+      lcBasis: 'chart',
+      stopOrderPlaced: 'unanswered',
+      lcDecidedBeforeEntry: true,
+      lcMove: { kind: 'none' },
+      timeframeChange: 'none',
+      entries: [{ price: 100, quantity }],
+      exit: {
+        time: createdAt,
+        price: 99.5,
+        orderType: 'unknown',
+        reason: 'other',
+        gapSlip: 'unanswered',
+      },
+      fees: [],
+    },
+  };
+}
+
+/**
+ * 文脈の /api/** を偽の記録の API に置き換える。opts.capitalYen（資金）、opts.failTrades（POST /api/trades の状態）、
+ * opts.delayMs（POST /api/trades を待たせる）。返す api.posts で保存の要求を数える
+ */
+async function installFakeApi(context, opts = {}) {
+  const api = {
+    instruments: [FAKE_US30],
+    trades: [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000)],
+    posts: [],
+  };
+  let seq = 0;
+  let clock = 1800000000000;
+  const settings = () => ({
+    capitalYen: opts.capitalYen ?? null,
+    riskTolerancePct: 1,
+    performanceUnit: 'R',
+    capitalHistory: [],
+  });
+  const json = (route, status, body) =>
+    route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  await context.route('**/api/**', async (route) => {
+    const req = route.request();
+    const path = new URL(req.url()).pathname;
+    const key = `${req.method()} ${path}`;
+    const body = req.postData() ? JSON.parse(req.postData()) : undefined;
+    if (key === 'GET /api/trades') return json(route, 200, { items: api.trades });
+    if (key === 'GET /api/instruments') return json(route, 200, { items: api.instruments });
+    if (key === 'GET /api/settings') return json(route, 200, settings());
+    if (key === 'POST /api/instruments') {
+      const inst = { ...FAKE_US30, id: `inst-${++seq}`, name: body.name, underlyingKind: 'other' };
+      api.instruments.push(inst);
+      return json(route, 201, inst);
+    }
+    if (key === 'POST /api/trades') {
+      api.posts.push(body);
+      if (opts.delayMs) await new Promise((ok) => setTimeout(ok, opts.delayMs));
+      if (opts.failTrades) return json(route, opts.failTrades, { error: 'unavailable' });
+      const inst = api.instruments.find((i) => i.id === body.instrumentId);
+      if (!inst) return json(route, 400, { error: 'invalid' });
+      clock += 1;
+      const s = settings();
+      const stored = {
+        id: `trade-${++seq}`,
+        schemaVersion: 1,
+        createdAt: clock,
+        updatedAt: clock,
+        snapshot: {
+          instrument: {
+            multiplier: inst.multiplier,
+            quantityStep: inst.quantityStep,
+            priceCurrency: inst.priceCurrency,
+            underlyingKind: inst.underlyingKind,
+            productForm: inst.productForm,
+          },
+          capitalYen: s.capitalYen,
+          riskTolerancePct: s.riskTolerancePct,
+        },
+        record: body,
+      };
+      api.trades.push(stored);
+      return json(route, 201, stored);
+    }
+    if (key === 'GET /api/health') return json(route, 200, { status: 'ok' });
+    return json(route, 404, { error: 'not_found' });
+  });
+  return api;
+}
+
+/** 記録する画面を開き、入力の欄が出るまで待つ */
+async function openRecord(page, base) {
+  await page.goto(`${base}/record`);
+  await waitReady(page, '記録する');
+  await page.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+}
+
+const seg = (page, group, text) =>
+  page.locator(`[role="radiogroup"][aria-label="${group}"] label.seg__item`, { hasText: text });
+
+/** 記録する画面の例（Issue #13 の例の表。値は架空）。taps = false なら 3 つのタップの前で止める */
+async function fillRecord(page, ex, taps = true) {
+  await page.locator('#record-instrument').fill('US30');
+  await seg(page, 'L / S', ex.side === 'S' ? 'S ショート' : 'L ロング').click();
+  await page.locator('#record-entry').fill(ex.entry);
+  await page.locator('#record-exit').fill(ex.exit);
+  await page.locator('#record-quantity').fill('10000');
+  if (ex.lc === 'none') await page.locator('button.lcnone').click();
+  else await page.locator('#record-lc').fill(ex.lc);
+  if (!taps) return;
+  if (ex.lc !== 'none') {
+    await seg(
+      page,
+      'LC を入る前に決めていたか',
+      ex.decided ? '決めていた' : '決めていない',
+    ).click();
+    await seg(page, 'LC を動かしたか', ex.move).click();
+    if (ex.after) await page.locator('#record-lc-after').fill(ex.after);
+  }
+  await seg(page, '時間足を変えたか', '変えず').click();
+}
+
+const EX_E1 = {
+  side: 'L',
+  entry: '100.00',
+  exit: '99.20',
+  lc: '99.50',
+  decided: true,
+  move: '下げた',
+  after: '99.20',
+};
+const EX_E3 = {
+  side: 'L',
+  entry: '100.00',
+  exit: '100.75',
+  lc: '99.50',
+  decided: false,
+  move: 'そのまま',
+};
+const EX_E16 = { side: 'L', entry: '100.00', exit: '99.20', lc: 'none' };
+
+/** 記録する画面の状態（幅 × テーマで測る）。fn は開いた画面をその状態にする */
+const RECORD_STATES = [
+  { slug: 'record-1-open', name: '開いた直後', fn: async () => {} },
+  { slug: 'record-2-typing', name: '入力の途中', fn: (p) => fillRecord(p, EX_E1, false) },
+  {
+    slug: 'record-3-judged-b',
+    name: '判定 B',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-4-risky-win',
+    name: '危ない勝ち',
+    fn: async (p) => {
+      await fillRecord(p, EX_E3);
+      await p.locator('.verdict .badge', { hasText: '危ない勝ち' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-5-no-lc-c',
+    name: 'LC なしの C',
+    fn: async (p) => {
+      await fillRecord(p, EX_E16);
+      await p.locator('.verdict .badge', { hasText: 'C 極悪な損失' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-6-saved',
+    name: '保存の後',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor();
+    },
+  },
+];
+
 async function emulatorUp() {
   try {
     const r = await fetch(`${AUTH_EMULATOR}/`);
@@ -224,7 +441,7 @@ async function measure(page, withTargets, tap) {
         r.top < b.top - 1 ||
         r.bottom > b.bottom + 1;
       for (const el of document.querySelectorAll(
-        '.seg__item, .btn, .badge, .appnav__link, .envchip, .steps__item, .pagehead__title',
+        '.seg__item, .btn, .badge, .appnav__link, .envchip, .lcnone, .pagehead__title',
       )) {
         if (el.closest('[data-ui-check-wide]')) continue;
         const cs = getComputedStyle(el);
@@ -354,6 +571,7 @@ async function main() {
           });
           contexts.push(context);
           await setupContext(context, theme);
+          if (!forLoginPage) await installFakeApi(context);
           const page = await context.newPage();
           page.on('pageerror', (e) => errors.push(e.message));
           pageFor.set(forLoginPage, page);
@@ -395,6 +613,48 @@ async function main() {
             problems.push(`${label}: 開けない ${msg}`);
           }
         }
+        // 記録する画面の状態（Issue #13）
+        const recPage = pageFor.get(false);
+        for (const st of RECORD_STATES) {
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`/record（${st.name}）`, 22)}`;
+          try {
+            await openRecord(recPage, base);
+            await st.fn(recPage);
+            const m = await measure(recPage, w === 360, TAP);
+            states++;
+            worstH = Math.max(worstH, m.h);
+            smallTotal += m.small.length;
+            clippedTotal += m.clipped.length;
+            const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+            const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+            console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+            if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            for (const x of m.clipped) {
+              console.log(`    はみ出し: ${x}`);
+              problems.push(`${label}: はみ出し ${x}`);
+            }
+            for (const x of m.small) {
+              console.log(`    当たり<44: ${x}`);
+              problems.push(`${label}: 当たり<44 ${x}`);
+            }
+            for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+            if (opts.shots) {
+              // 判定の枠を上の帯のすぐ下に寄せて、見える範囲を撮る（全体を撮ると貼り付けた帯・ボタンが途中に重なる）
+              await recPage.evaluate(() => {
+                const v = document.querySelector('.verdict');
+                if (v) window.scrollTo(0, v.getBoundingClientRect().top + window.scrollY - 76);
+              });
+              await recPage.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-${st.slug}.png`),
+                fullPage: st.slug === 'record-1-open',
+              });
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            console.log(`${label} 開けない  NG`);
+            problems.push(`${label}: 開けない ${msg}`);
+          }
+        }
         for (const c of contexts) await c.close();
       }
     }
@@ -402,7 +662,9 @@ async function main() {
     // ── 行き来・テーマ・ログインの手順。--inject-wide / --inject-clip のときは画面の崩れの確かめだけにする
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
-      console.log('行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7');
+      console.log(
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5',
+      );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
         console.log(`  ${pad(id, 4)} ${ok ? 'ok' : 'NG'}${detail ? `  ${detail}` : ''}`);
@@ -447,6 +709,7 @@ async function runFlows(browser, base, signedIn) {
     viewport: { width: 390, height: 844 },
     storageState: signedIn,
   });
+  await installFakeApi(ctx);
   const page = await ctx.newPage();
 
   await check('V1', async () => {
@@ -518,6 +781,7 @@ async function runFlows(browser, base, signedIn) {
       viewport: { width: 360, height: 780 },
       storageState: signedIn,
     });
+    await installFakeApi(c);
     const p = await c.newPage();
     let taps = 0;
     try {
@@ -739,6 +1003,143 @@ async function runFlows(browser, base, signedIn) {
     }
     return 'エミュレーターに繋がらない → 「ログインのサービスにつながりません」、画面は残る';
   });
+
+  // ── 記録する（R1〜R5。Issue #13）。偽の記録の API で流す
+  const recordContext = async (fakeOpts) => {
+    const c = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      storageState: signedIn,
+    });
+    const fake = await installFakeApi(c, fakeOpts);
+    const p = await c.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    return { c, p, fake, errors };
+  };
+
+  await check('R1', async () => {
+    const { c, p, errors } = await recordContext();
+    try {
+      await openRecord(p, base);
+      expectEq(await p.locator('#record-instrument').inputValue(), 'US30', '銘柄');
+      expectEq(await p.locator('#record-quantity').inputValue(), '2', '数量');
+      const t = await p.locator('#record-exit-time').inputValue();
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t)) throw new Error(`決済の時刻 ${t}`);
+      for (const g of [
+        'L / S',
+        'LC を入る前に決めていたか',
+        'LC を動かしたか',
+        '時間足を変えたか',
+      ]) {
+        const n = await p.locator(`[role="radiogroup"][aria-label="${g}"] input:checked`).count();
+        expectEq(n, 0, `${g} の選択`);
+      }
+      expectEq(
+        await p.locator('button[type="submit"]').isDisabled(),
+        true,
+        '[記録する] が押せない',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '開いた → 銘柄 US30・数量 2・決済の時刻 = 今、L / S とタップは未選択、[記録する] は押せない';
+  });
+
+  await check('R2', async () => {
+    const { c, p, errors } = await recordContext();
+    try {
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1, false);
+      // タップの前でも R は出る
+      await p.locator('.verdict .num--xl', { hasText: '−1.6R' }).waitFor({ timeout: 5000 });
+      await fillRecord(p, EX_E1);
+      await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor({ timeout: 5000 });
+      const reasons = await p.locator('.reasons__item').allInnerTexts();
+      if (!reasons.includes('LC を下げた（99.5 → 99.2）'))
+        throw new Error(`理由 ${reasons.join(' / ')}`);
+      await p.getByText('資金を設定すると出ます').waitFor();
+      expectEq(await p.locator('button[type="submit"]').isDisabled(), false, '[記録する] が押せる');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'E1 → B・「LC を下げた（99.5 → 99.2）」・−1.6R・「資金を設定すると出ます」';
+  });
+
+  await check('R3', async () => {
+    const { c, p, fake } = await recordContext({ delayMs: 400 });
+    try {
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').dblclick();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      expectEq(fake.posts.length, 1, 'POST /api/trades の数');
+      await p.getByRole('button', { name: '次の取引を記録' }).click();
+      await p.locator('#record-entry').waitFor();
+      expectEq(await p.locator('#record-entry').inputValue(), '', '次の取引のイン');
+      expectEq(await p.locator('#record-instrument').inputValue(), 'US30', '次の取引の銘柄');
+    } finally {
+      await c.close();
+    }
+    return '[記録する] を素早く 2 回 → 保存の要求は 1 件、[次の取引を記録] で空の入力';
+  });
+
+  await check('R4', async () => {
+    const { c, p } = await recordContext();
+    const snap = () =>
+      p.evaluate(async () => {
+        const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+        return {
+          ls: Object.keys(localStorage).sort(),
+          ss: Object.keys(sessionStorage).sort(),
+          idb: dbs.map((d) => d.name).sort(),
+          values: Object.keys(localStorage)
+            .map((k) => localStorage.getItem(k) ?? '')
+            .concat(Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k) ?? ''))
+            .join('\n'),
+        };
+      });
+    try {
+      await openRecord(p, base);
+      const before = await snap();
+      await fillRecord(p, EX_E1);
+      await p.locator('#record-broken').fill('架空の崩れの条件');
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      const after = await snap();
+      expectEq(JSON.stringify(after.ls), JSON.stringify(before.ls), 'localStorage のキー');
+      expectEq(JSON.stringify(after.ss), JSON.stringify(before.ss), 'sessionStorage のキー');
+      expectEq(JSON.stringify(after.idb), JSON.stringify(before.idb), 'IndexedDB の名前');
+      for (const v of ['99.2', '架空の崩れの条件']) {
+        if (after.values.includes(v)) throw new Error(`Web Storage に ${v}`);
+      }
+    } finally {
+      await c.close();
+    }
+    return '入力・保存の前後で Web Storage のキーと IndexedDB の名前が増えず、取引の値も無い';
+  });
+
+  await check('R5', async () => {
+    const { c, p, errors } = await recordContext({ failTrades: 503 });
+    try {
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      await p
+        .getByRole('alert')
+        .filter({ hasText: '保存できませんでした。入力はそのまま残っています。' })
+        .waitFor({ timeout: 10000 });
+      expectEq(await p.locator('#record-entry').inputValue(), '100.00', '入力が残る');
+      const body = (await p.locator('main').textContent()) ?? '';
+      if (body.includes('unavailable')) throw new Error('応答の本文が画面に出た');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '503 → 決まった文言、入力は残る、応答の本文は出ない';
+  });
+
   return out;
 }
 

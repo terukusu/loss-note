@@ -1,0 +1,391 @@
+{
+  "trades": [
+    {
+      "name": "E1",
+      "instrument": {
+        "name": "架空指数E1"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "widened",
+          "after": 99.2
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.2,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "B",
+        "r": -1.5999999999999943
+      }
+    },
+    {
+      "name": "E2",
+      "instrument": {
+        "name": "架空指数E2"
+      },
+      "settings": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -5000,
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1
+      }
+    },
+    {
+      "name": "E5",
+      "instrument": {
+        "name": "架空指数E5"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "S",
+        "lc": 150.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "widened",
+          "after": 151
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 150,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 151,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "B",
+        "r": -2
+      }
+    },
+    {
+      "name": "E16",
+      "instrument": {
+        "name": "架空指数E16"
+      },
+      "settings": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": false,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.2,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "C",
+        "r": null
+      }
+    },
+    {
+      "name": "full",
+      "instrument": {
+        "name": "架空指数full"
+      },
+      "settings": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "brokenCondition": "架空の崩れの条件（押し目の安値を割ったら）",
+        "lcBasis": "amount",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000,
+            "time": 1772584200000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.4,
+          "orderType": "unknown",
+          "reason": "brokeManual",
+          "gapSlip": "yes"
+        },
+        "statementPnlYen": -12200,
+        "fees": [
+          {
+            "amountYen": 200
+          }
+        ],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "B",
+        "r": -1.1999999999999886
+      }
+    },
+    {
+      "name": "tightened",
+      "instrument": {
+        "name": "架空指数tightened"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "tightened"
+        },
+        "timeframeChange": "longer",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 100,
+          "orderType": "unknown",
+          "reason": "tp",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "riskyWin",
+        "r": 0
+      }
+    },
+    {
+      "name": "widenedNoAfter",
+      "instrument": {
+        "name": "架空指数widenedNoAfter"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "widened"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.2,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1
+      },
+      "expect": {
+        "grade": "B",
+        "r": -1.5999999999999943
+      }
+    }
+  ]
+}

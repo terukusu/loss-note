@@ -98,6 +98,11 @@ export function unavailableSession(): AuthSession {
   return session;
 }
 
+/** 今のログインを終える（API が 401 を返した = ログインが切れたとき。門がログイン画面へ置き換える） */
+export function signOutActive(): Promise<void> {
+  return active?.signOut() ?? Promise.resolve();
+}
+
 /** 画面から /api への要求（ログイン中の ID トークンを付ける）。最初に使うのは #13 / #4 */
 export function api(path: string, init: RequestInit = {}): Promise<Response> {
   return apiFetch(path, init, {

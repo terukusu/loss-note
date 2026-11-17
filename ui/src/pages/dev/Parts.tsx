@@ -11,6 +11,7 @@ import { RNum, YenNum } from '../../components/Num';
 import { NumberField } from '../../components/NumberField';
 import { PageHeader } from '../../components/PageHeader';
 import { Segment } from '../../components/Segment';
+import { TextField } from '../../components/TextField';
 import { badgeModel, TIER_NAME } from '../../lib/badge';
 import './parts.css';
 
@@ -91,6 +92,8 @@ export function Parts() {
   const [tf, setTf] = useState<'same' | 'longer' | 'shorter' | null>('same');
   const [lc, setLc] = useState('38250');
   const [entry, setEntry] = useState('38,25.0');
+  const [name, setName] = useState('架空指数A');
+  const [when, setWhen] = useState('2026-03-04T10:00');
 
   return (
     <div class="parts">
@@ -192,8 +195,38 @@ export function Parts() {
         </div>
       </Section>
 
-      <Section title="数値の入力欄">
+      <Section title="入力欄">
         <div class="stack">
+          <NumberField
+            id="parts-lg"
+            label="イン（大きい数字）"
+            size="lg"
+            value="100.00"
+            onInput={() => {}}
+          />
+          <NumberField
+            id="parts-disabled"
+            label="止めた欄"
+            value=""
+            placeholder="なし"
+            disabled
+            onInput={() => {}}
+          />
+          <TextField id="parts-name" label="銘柄（文字）" value={name} onInput={setName} />
+          <TextField
+            id="parts-when"
+            label="決済の時刻（日時）"
+            type="datetime-local"
+            value={when}
+            onInput={setWhen}
+          />
+          <TextField
+            id="parts-name-error"
+            label="銘柄（誤り）"
+            value={'あ'.repeat(41)}
+            onInput={() => {}}
+            error="40 字までで、制御文字を含めないでください"
+          />
           <NumberField
             id="parts-lc"
             label="LC"

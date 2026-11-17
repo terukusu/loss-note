@@ -15,11 +15,13 @@
     "lint": "biome check --error-on-warnings .",
     "format": "biome check --write .",
     "test": "vitest run",
-    "check:pinned": "node scripts/check-pinned.mjs"
+    "check:pinned": "node scripts/check-pinned.mjs",
+    "ui:check": "node scripts/ui-check.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
     "firebase-tools": "15.34.2",
+    "playwright": "1.56.0",
     "typescript": "5.9.3",
     "vite": "8.3.5",
     "vitest": "5.1.0"

@@ -1,0 +1,237 @@
+/* 部品の見本（開発の時だけの画面 /dev/parts）の CSS。Parts.tsx からだけ読み込み、本番の CSS に入れない。
+   色は var(--…) だけ（tokens.css のテーマの定義） */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.row-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.stat__label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+.parts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  padding: var(--sp-6);
+  background: radial-gradient(520px 260px at 100% 0%, var(--glow), transparent 70%), var(--s1);
+  box-shadow: var(--shadow-2);
+}
+
+.hero__stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-7);
+}
+
+.hero__reason {
+  color: var(--ink-2);
+}
+
+.badge-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.badge-list__row {
+  display: grid;
+  grid-template-columns: 36px auto 1fr;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.badge-list__row:first-child {
+  border-top: 0;
+}
+
+.badge-list__id,
+.num-table__id {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.badge-list__tier {
+  justify-self: end;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* 幅の狭いスマホでは段の名前を隠す（バッジの記号と文字で段は読める） */
+@media (max-width: 419px) {
+  .badge-list__tier {
+    display: none;
+  }
+}
+
+.num-table {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.num-table__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.num-table__row:first-child {
+  border-top: 0;
+}
+
+.num-table__row dt {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.num-table__input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (min-width: 720px) {
+  .num-table {
+    grid-template-columns: 1fr 1fr;
+    column-gap: var(--sp-7);
+  }
+
+  .num-table__row:nth-child(2) {
+    border-top: 0;
+  }
+}
+
+.swatches,
+.icons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: var(--sp-3);
+}
+
+.swatches__item,
+.icons__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  min-width: 0;
+}
+
+.swatches__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.icons__item {
+  padding: var(--sp-3) 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+}
+
+.icons__item .icon {
+  width: 24px;
+  height: 24px;
+  color: var(--ink);
+}
+
+.swatch {
+  display: block;
+  width: 100%;
+  height: 48px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line-2);
+}
+
+.swatch--bg {
+  background: var(--bg);
+}
+
+.swatch--s1 {
+  background: var(--s1);
+}
+
+.swatch--s2 {
+  background: var(--s2);
+}
+
+.swatch--s3 {
+  background: var(--s3);
+}
+
+.swatch--line-2 {
+  background: var(--line-2);
+}
+
+.swatch--ink {
+  background: var(--ink);
+}
+
+.swatch--ink-2 {
+  background: var(--ink-2);
+}
+
+.swatch--ink-3 {
+  background: var(--ink-3);
+}
+
+.swatch--accent {
+  background: var(--accent);
+}
+
+.swatch--danger {
+  background: var(--danger);
+}
+
+.swatch--tier-plan {
+  background: var(--tier-plan-ink);
+}
+
+.swatch--tier-break {
+  background: var(--tier-break-ink);
+}
+
+.swatch--tier-worst {
+  background: var(--tier-worst-ink);
+}
+
+.swatch--tier-neutral {
+  background: var(--tier-neutral-ink);
+}

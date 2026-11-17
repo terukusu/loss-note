@@ -1,0 +1,502 @@
+/* 部品の見た目（docs/ui-guidelines.md）。色は var(--…) だけ。DOM の形・クラス名・ARIA は部品の側の約束 */
+
+/* ── 面 ─────────────────────────── */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+
+.section__title {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.005em;
+}
+
+.section__note {
+  margin-top: calc(var(--sp-2) * -1);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.loading {
+  color: var(--ink-3);
+}
+
+/* ── 画面の見出し ─────────────────── */
+.pagehead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+
+.pagehead__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.pagehead__eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+
+.pagehead__title {
+  text-wrap: balance;
+  word-break: auto-phrase;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+
+.pagehead__desc {
+  max-width: 56ch;
+  color: var(--ink-2);
+}
+
+@media (min-width: 720px) {
+  .pagehead__title {
+    font-size: var(--fs-3xl);
+  }
+}
+
+/* ── ボタン ─────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 var(--sp-5);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.btn--primary {
+  color: var(--on-accent);
+  background: var(--accent);
+  box-shadow: var(--shadow-1);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+}
+
+.btn--secondary {
+  color: var(--ink);
+  background: var(--s3);
+  border-color: var(--line-2);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+}
+
+.btn--ghost {
+  color: var(--ink-2);
+  background: transparent;
+}
+
+.btn--ghost:hover:not(:disabled) {
+  color: var(--ink);
+  background: var(--s2);
+}
+
+.btn--lg {
+  min-height: 52px;
+  padding: 0 var(--sp-6);
+  font-size: var(--fs-lg);
+  border-radius: 14px;
+}
+
+.btn--block {
+  width: 100%;
+}
+
+/* ── 入力の欄 ─────────────────────── */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.field__label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink-2);
+}
+
+.field__hint {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.field__error {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--danger);
+}
+
+.numfield {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 var(--sp-4);
+  background: var(--s2);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-md);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.numfield:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent);
+}
+
+.field--error .numfield {
+  border-color: var(--danger);
+}
+
+.numfield__input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-lg);
+}
+
+.numfield__input::placeholder {
+  color: var(--ink-3);
+}
+
+.numfield__unit {
+  padding-left: var(--sp-2);
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+}
+
+/* ── セグメント（2〜3 択） ───────────── */
+.seg {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
+  background: var(--s2);
+  border: 1px solid var(--field-line);
+  border-radius: var(--radius-md);
+}
+
+.seg__item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+/* radio は項目の全面（枠線を含む）に透明で重ねる（当たり = 項目。見た目は項目の面で出す） */
+.seg__input {
+  position: absolute;
+  inset: -1px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.seg__item:hover {
+  color: var(--ink);
+}
+
+.seg__item:has(.seg__input:checked) {
+  background: color-mix(in srgb, var(--accent) 26%, var(--s1));
+  border-color: var(--accent);
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  box-shadow: var(--shadow-1);
+}
+
+/* 選んだ項目の印（チェックの記号。色だけに頼らない） */
+.seg__check {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+.seg__item:active {
+  transform: scale(0.98);
+}
+
+.seg__item:has(.seg__input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.seg__item .icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* ── 判定のバッジ（段の色はトークン。文字・記号・色の 3 つ） ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 4px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.badge__mark {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.6;
+}
+
+.badge--lg {
+  padding: 6px 16px 6px 12px;
+  font-size: var(--fs-md);
+}
+
+.badge--lg .badge__mark {
+  width: 18px;
+  height: 18px;
+}
+
+.badge--plan {
+  color: var(--tier-plan-ink);
+  background: var(--tier-plan-bg);
+  border-color: var(--tier-plan-line);
+}
+
+.badge--break {
+  color: var(--tier-break-ink);
+  background: var(--tier-break-bg);
+  border-color: var(--tier-break-line);
+}
+
+.badge--worst {
+  color: var(--tier-worst-ink);
+  background: var(--tier-worst-bg);
+  border-color: var(--tier-worst-line);
+}
+
+.badge--neutral {
+  color: var(--tier-neutral-ink);
+  background: var(--tier-neutral-bg);
+  border-color: var(--tier-neutral-line);
+}
+
+/* 等幅の補助（R・円ではない番号など） */
+.mono {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 数字（色を持たない。本文の文字の色を継ぐ。AC-5） ── */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.num--lg {
+  font-size: var(--fs-num-lg);
+  font-weight: var(--fw-bold);
+}
+
+.num--xl {
+  font-size: var(--fs-num-xl);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+/* ── 空の状態 ─────────────────────── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-8) var(--sp-5);
+  text-align: center;
+  background: radial-gradient(420px 200px at 50% 0%, var(--glow), transparent 70%), var(--s1);
+}
+
+.empty__icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--sp-2);
+  border-radius: 16px;
+  color: var(--accent);
+  background: var(--s3);
+  border: 1px solid var(--line-2);
+}
+
+.empty__icon .icon {
+  width: 26px;
+  height: 26px;
+}
+
+.empty__title {
+  text-wrap: balance;
+  word-break: auto-phrase;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.01em;
+}
+
+.empty__desc {
+  max-width: 40ch;
+  text-wrap: pretty;
+  color: var(--ink-2);
+}
+
+.empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+/* ── 記録の流れ（記録する画面の骨組み） ── */
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-2);
+}
+
+.steps__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--s1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+}
+
+.steps__no {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--s3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+/* ── ログイン ─────────────────────── */
+.login {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-7) var(--sp-6);
+  box-shadow: var(--shadow-2);
+}
+
+.login__mark {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--sp-2);
+  border-radius: 14px;
+  color: var(--on-accent);
+  background: linear-gradient(
+    135deg,
+    var(--accent),
+    color-mix(in srgb, var(--accent) 55%, var(--tier-plan-ink))
+  );
+}
+
+.login__mark .icon {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.2;
+}
+
+.login__title {
+  text-wrap: balance;
+  word-break: auto-phrase;
+  font-size: var(--fs-3xl);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  letter-spacing: -0.02em;
+}
+
+.login__lead {
+  color: var(--ink-2);
+}

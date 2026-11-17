@@ -1,0 +1,144 @@
+/*
+ * 見た目のトークン（Issue #3。docs/ui-guidelines.md P12）。
+ * 色・影はテーマの 2 つの定義の中だけに書き（AC-2）、部品の CSS は var(--…) だけで書く。
+ * 見た目の作り直しは、このファイルと部品の CSS の差し替えで済むようにしてある。
+ * テーマは <html data-theme> で選ぶ。OS の設定（prefers-color-scheme）は見ない（既定はダーク。R1）
+ */
+
+/* テーマに依らないもの: 文字・余白・角丸・動き・大きさ */
+:root {
+  --font:
+    system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
+    "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-md: 16px;
+  --fs-lg: 18px;
+  --fs-xl: 22px;
+  --fs-2xl: 28px;
+  --fs-3xl: 34px;
+  --fs-num-lg: 22px;
+  --fs-num-xl: 44px;
+
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-bold: 650;
+  --fw-heavy: 750;
+
+  --lh-tight: 1.2;
+  --lh-body: 1.65;
+
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 48px;
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* 押せるものの当たりの最小（Apple HIG の 44pt。AC-10） */
+  --tap: 44px;
+  --nav-h: 64px;
+  --topbar-h: 60px;
+  --content-max: 880px;
+  --gutter: 16px;
+}
+
+/* ダーク（既定）。落ち着いた深い面に、判定の規律の色だけが映える */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0a0c10;
+  --s1: #11141a;
+  --s2: #171b23;
+  --s3: #1e232d;
+  --line: #222834;
+  --line-2: #323a48;
+  /* 入力の部品（入力欄・セグメント）の枠。面に対して 3:1 以上（WCAG 1.4.11） */
+  --field-line: #646f82;
+
+  --ink: #eef1f6;
+  --ink-2: #a8b0bf;
+  --ink-3: #8d96a7;
+
+  --accent: #9aa8ff;
+  --on-accent: #0a0c10;
+  --focus: #b8c2ff;
+  --glow: #6f7dff1f;
+  --glow-2: #2ec5a00f;
+
+  /* 判定の 4 段（計画どおり / 崩れ / 極悪 / 中立）。損益の色ではない */
+  --tier-plan-ink: #6ee7b7;
+  --tier-plan-bg: #0e2a21;
+  --tier-plan-line: #1e5a46;
+  --tier-break-ink: #f7c063;
+  --tier-break-bg: #2e2310;
+  --tier-break-line: #6a4d16;
+  --tier-worst-ink: #ff8fa0;
+  --tier-worst-bg: #3a121b;
+  --tier-worst-line: #7a2536;
+  --tier-neutral-ink: #b3bac7;
+  --tier-neutral-bg: #232833;
+  --tier-neutral-line: #3a4252;
+
+  /* 入力の誤り（判定の色とは別の役割） */
+  --danger: #ff8f8f;
+
+  --shadow-1: 0 1px 0 #ffffff08 inset, 0 1px 2px #00000066;
+  --shadow-2: 0 1px 0 #ffffff0a inset, 0 12px 32px #00000080;
+  --scrim: #0a0c10cc;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f3f4f7;
+  --s1: #ffffff;
+  --s2: #f8f9fb;
+  --s3: #eceef2;
+  --line: #e2e5eb;
+  --line-2: #cbd0d9;
+  --field-line: #7d8696;
+
+  --ink: #0f1218;
+  --ink-2: #485062;
+  --ink-3: #5c6576;
+
+  --accent: #3d4fd6;
+  --on-accent: #ffffff;
+  --focus: #3d4fd6;
+  --glow: #3d4fd614;
+  --glow-2: #0f9e7a0d;
+
+  --tier-plan-ink: #09694a;
+  --tier-plan-bg: #e0f5ec;
+  --tier-plan-line: #9fd9c1;
+  --tier-break-ink: #855400;
+  --tier-break-bg: #fcefd6;
+  --tier-break-line: #ecc77f;
+  --tier-worst-ink: #b01c3b;
+  --tier-worst-bg: #fde6ea;
+  --tier-worst-line: #f0a8b6;
+  --tier-neutral-ink: #4a5263;
+  --tier-neutral-bg: #e9ebf0;
+  --tier-neutral-line: #cbd0d9;
+
+  --danger: #b4232f;
+
+  --shadow-1: 0 1px 2px #0f12180f, 0 1px 1px #0f12180a;
+  --shadow-2: 0 2px 4px #0f12180d, 0 16px 40px #0f121814;
+  --scrim: #0f121866;
+}

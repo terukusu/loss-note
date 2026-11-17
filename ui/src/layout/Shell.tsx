@@ -8,6 +8,10 @@ import { hrefOf, NAV_ITEMS, type Route } from '../lib/routes';
 export interface ShellProps {
   readonly route: Route;
   readonly children: ComponentChildren;
+  /** 手元のエミュレーターに繋いでいるか（帯に印を出す） */
+  readonly emulator?: boolean;
+  /** ログインの状態が分かるまでの面（行き先を出さない） */
+  readonly bare?: boolean;
 }
 
 function Brand() {
@@ -21,8 +25,8 @@ function Brand() {
   );
 }
 
-export function Shell({ route, children }: ShellProps) {
-  if (route.name === 'login') {
+export function Shell({ route, children, emulator, bare }: ShellProps) {
+  if (route.name === 'login' || bare) {
     return (
       <div class="shell shell--bare">
         <main id="main" class="content content--center">
@@ -35,7 +39,10 @@ export function Shell({ route, children }: ShellProps) {
     <div class="shell">
       <header class="topbar">
         <div class="topbar__inner">
-          <Brand />
+          <div class="topbar__brand">
+            <Brand />
+            {emulator ? <span class="envchip">エミュレーター</span> : null}
+          </div>
           <nav class="appnav" aria-label="メイン">
             <ul class="appnav__list">
               {NAV_ITEMS.map((item) => {

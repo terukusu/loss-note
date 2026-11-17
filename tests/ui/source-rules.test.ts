@@ -76,7 +76,19 @@ describe('検査そのものの自己テスト', () => {
   });
 });
 
+/** 画面が読み込んでよい firebase のモジュール（ログインだけ） */
+const ALLOWED_FIREBASE = new Set(['firebase/app', 'firebase/auth']);
+
 describe('画面のソース（KEEP-2・KEEP-3）', () => {
+  it('KEEP-3: firebase は firebase/app と firebase/auth だけを読み込む', () => {
+    const used = new Set<string>();
+    for (const src of Object.values(sources)) {
+      for (const s of importsOf(src)) if (/^@?firebase(\/|$)/.test(s)) used.add(s);
+    }
+    expect([...used].filter((s) => !ALLOWED_FIREBASE.has(s))).toEqual([]);
+    expect([...used].sort()).toEqual(['firebase/app', 'firebase/auth']);
+  });
+
   it('対象のファイルがある', () => {
     expect(Object.keys(sources).length).toBeGreaterThan(5);
   });

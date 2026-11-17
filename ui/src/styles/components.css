@@ -238,7 +238,8 @@
   gap: var(--sp-2);
   min-width: var(--tap);
   min-height: var(--tap);
-  padding: 0 var(--sp-2);
+  /* 左右の余白は右上のチェックの分（文字と重ねない） */
+  padding: 0 var(--sp-4);
   border: 1px solid transparent;
   border-radius: 9px;
   color: var(--ink-2);
@@ -275,10 +276,15 @@
 }
 
 /* 選んだ項目の印（チェックの記号。色だけに頼らない） */
-.seg__check {
-  width: 18px;
-  height: 18px;
-  stroke-width: 2.4;
+.seg__item .seg__check {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+  color: var(--accent);
+  pointer-events: none;
 }
 
 .seg__item:active {
@@ -445,6 +451,7 @@
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   line-height: 1.4;
+  word-break: auto-phrase;
 }
 
 .steps__no {
@@ -499,4 +506,40 @@
 
 .login__lead {
   color: var(--ink-2);
+}
+
+.login__action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.login__error {
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.login__env {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* 手元のエミュレーターに繋いでいる印（帯の名前の横） */
+.envchip {
+  padding: 2px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-pill);
+  background: var(--s2);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
 }

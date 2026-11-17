@@ -66,6 +66,7 @@ const ICONS: readonly IconName[] = [
   'cross',
   'dash',
   'check',
+  'logout',
   'back',
   'moon',
   'sun',
@@ -183,7 +184,7 @@ export function Parts() {
             value={tf}
             onChange={setTf}
             options={[
-              { value: 'same', label: '変えていない' },
+              { value: 'same', label: 'そのまま' },
               { value: 'longer', label: '長い足へ' },
               { value: 'shorter', label: '短い足へ' },
             ]}

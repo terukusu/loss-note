@@ -18,7 +18,8 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  /* ぼかしが効かない環境でも下の文字が透けないよう、面はほぼ不透明にする（#9 のデザインレビュー） */
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: saturate(160%) blur(16px);
   -webkit-backdrop-filter: saturate(160%) blur(16px);
   border-bottom: 1px solid var(--line);
@@ -102,7 +103,7 @@
   content: "";
   position: absolute;
   inset: 0;
-  background: color-mix(in srgb, var(--s1) 82%, transparent);
+  background: color-mix(in srgb, var(--s1) 96%, transparent);
   backdrop-filter: saturate(160%) blur(18px);
   -webkit-backdrop-filter: saturate(160%) blur(18px);
   border-top: 1px solid var(--line);
@@ -210,5 +211,31 @@
     padding-top: var(--sp-8);
     padding-bottom: var(--sp-8);
     gap: var(--sp-6);
+  }
+}
+
+/* トースト（#9）: 幅 720px 未満は下部の行き先のすぐ上、それ以上は右下。画面の幅を超えない */
+.toast-region {
+  position: fixed;
+  left: var(--gutter);
+  right: var(--gutter);
+  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--sp-3));
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  pointer-events: none;
+}
+
+.toast-region .toast {
+  pointer-events: auto;
+}
+
+@media (min-width: 720px) {
+  .toast-region {
+    left: auto;
+    right: var(--sp-6);
+    bottom: var(--sp-6);
+    width: min(420px, calc(100vw - 2 * var(--sp-6)));
   }
 }

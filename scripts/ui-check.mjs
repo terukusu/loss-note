@@ -12,6 +12,9 @@
 // 根拠の足のチャート（Issue #12）は、2 枠にチャートがある状態（時間足の欄つき）を同じ幅とテーマで測り、手順 C1〜C3
 // （枠を選んで貼る → チャート・枠の外に貼る → 明細 / 貼る → 保存 → 離れるの後に端末の保存先に画像が無い / 2 枚と明細で
 // 打つ 2・選ぶ 3 → 1 要求の multipart で保存）を流す。チャートの画像もページの中の canvas で作る（架空）。
+// 取引の一覧・詳細・直す（Issue #9）は、取引のある一覧・ホーム・詳細（チャート 2 枚）・直すを同じ幅とテーマで測り
+// （トーストの出た一覧も）、手順 T-L4・T-H1・T-D1・T-D2・T-E1・T-E2・T-X1・T-X2（例の表の L4・H1・D1・D2・E1・E2・X1・X2）を流す。
+// 例の取引とチャートの画像（このスクリプトが作る小さな PNG）はすべて架空。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
@@ -36,6 +39,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { createServer as createNetServer } from 'node:net';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { crc32, deflateSync } from 'node:zlib';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
@@ -75,13 +79,18 @@ function usageError(msg) {
 
 const opts = parseArgs(process.argv.slice(2));
 
-/** 検査する画面（6 画面 + 部品の見本）。詳細は無い取引の ID（V4 の画面） */
+/**
+ * 検査する画面（ログイン・ホーム・記録する・一覧・詳細・直す・設定 + 部品の見本）。詳細は無い取引の ID（V4 の画面）と
+ * チャート 2 枚の取引（Issue #9）。wait = 中身が出るまで待つ要素（ホーム・一覧は取引の行、詳細はチャートの canvas）
+ */
 const PAGES = [
   { path: '/login', h1: 'ログイン' },
-  { path: '/', h1: 'ホーム' },
+  { path: '/', h1: 'ホーム', wait: '.traderow' },
   { path: '/record', h1: '記録する' },
-  { path: '/trades', h1: '取引の一覧' },
+  { path: '/trades', h1: '取引の一覧', wait: '.traderow' },
   { path: '/trades/no-such-trade', h1: '取引の詳細' },
+  { path: '/trades/x-d1', h1: 'US30 · L', wait: 'canvas.chartview__canvas >> nth=1' },
+  { path: '/trades/x-e1/edit', h1: '取引を直す', wait: '#edit-submit' },
   { path: '/settings', h1: '設定' },
   { path: '/dev/parts', h1: '部品の見本' },
 ];
@@ -221,6 +230,184 @@ function fakeTrade(id, instrumentId, quantity, createdAt) {
   };
 }
 
+// ── 取引の一覧・詳細・直すの例（Issue #9 の例の表 L1〜L3・D1・D2・E1・E2・H1。値はすべて架空）──
+// 作った時刻はすべて t-last（1700000100000）より前（記録する画面の既定 R1 を変えない）。
+// 損益 = (決済 − イン) × 数量。資金 1,000,000 円（L2 は資金なし）
+const DAY_MS = 86400000;
+const T_1110 = Date.UTC(2026, 10, 10, 0, 0);
+const SNAP = {
+  instrument: {
+    multiplier: 1,
+    quantityStep: 1,
+    priceCurrency: null,
+    underlyingKind: 'index',
+    productForm: 'spotCfd',
+  },
+  capitalYen: 1000000,
+  riskTolerancePct: 1,
+};
+function exampleTrade(id, createdAt, over = {}, top = {}) {
+  const record = {
+    status: 'closed',
+    source: 'manual',
+    instrumentId: FAKE_US30.id,
+    side: 'L',
+    lc: 99.5,
+    lcBasis: 'chart',
+    stopOrderPlaced: 'unanswered',
+    lcDecidedBeforeEntry: true,
+    lcMove: { kind: 'none' },
+    timeframeChange: 'none',
+    entries: [{ price: 100, quantity: 10000 }],
+    exit: {
+      time: T_1110,
+      price: 99.5,
+      orderType: 'unknown',
+      reason: 'other',
+      gapSlip: 'unanswered',
+    },
+    fees: [],
+    statementPnlYen: -5000,
+    ...over,
+  };
+  for (const k of Object.keys(record)) if (record[k] === undefined) delete record[k];
+  return { id, schemaVersion: 1, createdAt, updatedAt: createdAt, snapshot: SNAP, record, ...top };
+}
+const TX_L1 = exampleTrade('x-l1', 1700000000001);
+const TX_L2 = exampleTrade(
+  'x-l2',
+  1700000000002,
+  {
+    side: 'S',
+    lc: 150.5,
+    entries: [{ price: 150, quantity: 10000 }],
+    exit: {
+      time: T_1110 + 2 * DAY_MS,
+      price: 149,
+      orderType: 'unknown',
+      reason: 'tp',
+      gapSlip: 'unanswered',
+    },
+    statementPnlYen: 10000,
+  },
+  { snapshot: { ...SNAP, capitalYen: null } },
+);
+const TX_L3 = exampleTrade('x-l3', 1700000000003, {
+  lc: undefined,
+  lcDecidedBeforeEntry: false,
+  entries: [{ price: 100, quantity: 3000 }],
+  exit: {
+    time: T_1110 + DAY_MS,
+    price: 101,
+    orderType: 'unknown',
+    reason: 'other',
+    gapSlip: 'unanswered',
+  },
+  statementPnlYen: 3000,
+});
+const D1_RECORD = {
+  lcMove: { kind: 'widened', after: 99.2 },
+  exit: {
+    time: T_1110 - DAY_MS,
+    price: 99.2,
+    orderType: 'unknown',
+    reason: 'other',
+    gapSlip: 'unanswered',
+  },
+  statementPnlYen: -8000,
+  entryChartTimeframe: '4h',
+};
+const TX_D1 = exampleTrade(
+  'x-d1',
+  1700000000004,
+  { ...D1_RECORD, exitChartTimeframe: '1d' },
+  {
+    charts: {
+      entry: { contentType: 'image/png', size: 1 },
+      exit: { contentType: 'image/png', size: 1 },
+    },
+  },
+);
+const TX_D2 = exampleTrade(
+  'x-d2',
+  1700000000005,
+  { ...D1_RECORD, exit: { ...D1_RECORD.exit, time: T_1110 - 2 * DAY_MS } },
+  { charts: { entry: { contentType: 'image/png', size: 1 } } },
+);
+const TX_E1 = exampleTrade('x-e1', 1700000000006, {
+  lcMove: { kind: 'widened', after: 99.2 },
+  exit: {
+    time: T_1110 - 3 * DAY_MS,
+    price: 99.5,
+    orderType: 'unknown',
+    reason: 'other',
+    gapSlip: 'unanswered',
+  },
+});
+const TX_E2 = exampleTrade('x-e2', 1700000000007, {
+  exit: {
+    time: T_1110 - 4 * DAY_MS,
+    price: 99.5,
+    orderType: 'unknown',
+    reason: 'other',
+    gapSlip: 'unanswered',
+  },
+  entryChartTimeframe: '4h',
+  exitChartTimeframe: '1d',
+});
+const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2];
+/** H1: 決済の時刻の違う 7 件（新しい方から 2 件目が危ない勝ち = L3 の形） */
+const TX_H1 = Array.from({ length: 7 }, (_, i) => {
+  const base = i === 1 ? TX_L3 : TX_L1;
+  return exampleTrade(`x-h${i}`, 1700000000010 + i, {
+    ...base.record,
+    exit: { ...base.record.exit, time: T_1110 - i * DAY_MS },
+  });
+});
+
+/** 架空のチャートの画像（無圧縮の画素を deflate した小さな PNG。縞の色で枠を見分ける） */
+function makePng(w, h, rgb) {
+  const raw = Buffer.alloc((w * 3 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    const row = y * (w * 3 + 1);
+    raw[row] = 0;
+    for (let x = 0; x < w; x++) {
+      const k = (x >> 3) % 2 === 0 ? 1 : 0.6;
+      raw[row + 1 + x * 3] = Math.round(rgb[0] * k);
+      raw[row + 2 + x * 3] = Math.round(rgb[1] * k);
+      raw[row + 3 + x * 3] = Math.round(rgb[2] * k);
+    }
+  }
+  const chunk = (type, data) => {
+    const len = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    const td = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(td) >>> 0);
+    return Buffer.concat([len, td, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // ビットの深さ
+  ihdr[9] = 2; // RGB
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+const CHART_PNG = {
+  entry: makePng(480, 300, [40, 160, 120]),
+  exit: makePng(480, 300, [200, 120, 40]),
+};
+/** API の trade_sort_key と同じ並び（決済の時刻の新しい順 → 作った時刻の新しい順 → ID） */
+const tradeSort = (a, b) =>
+  b.record.exit.time - a.record.exit.time ||
+  b.createdAt - a.createdAt ||
+  (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 // ── 偽の読み取りの応答の行（Issue #15 の例の表。値は架空。形は normalize_row と同じ 12 の鍵） ──
 const pad2 = (n) => String(n).padStart(2, '0');
 function jstTime(y, mo, d, h, mi) {
@@ -270,7 +457,13 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
 async function installFakeApi(context, opts = {}) {
   const api = {
     instruments: [FAKE_US30],
-    trades: [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000)],
+    trades: opts.trades
+      ? [...opts.trades]
+      : [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000), ...EXAMPLE_TRADES],
+    /** 取引の PUT・DELETE・チャートの GET（Issue #9） */
+    puts: [],
+    deletes: [],
+    chartGets: [],
     posts: [],
     chartPosts: [],
     read: { status: 200, rows: [READ_E1], holdMs: 0 },
@@ -338,7 +531,63 @@ async function installFakeApi(context, opts = {}) {
     } else {
       body = req.postData() ? JSON.parse(req.postData()) : undefined;
     }
-    if (key === 'GET /api/trades') return json(route, 200, { items: api.trades });
+    if (key === 'GET /api/trades') {
+      return json(route, 200, { items: [...api.trades].sort(tradeSort) });
+    }
+    // 取引 1 件・チャート（Issue #9。形は routes.py の get_trade / update_trade / delete_trade / get_chart）
+    const chartM = /^\/api\/trades\/([^/]+)\/charts\/([^/]+)$/.exec(path);
+    if (chartM && req.method() === 'GET') {
+      const id = decodeURIComponent(chartM[1]);
+      api.chartGets.push(`${id}-${chartM[2]}`);
+      const t = api.trades.find((x) => x.id === id);
+      const png = CHART_PNG[chartM[2]];
+      if (!t?.charts?.[chartM[2]] || !png) return json(route, 404, { error: 'not_found' });
+      return route.fulfill({ status: 200, contentType: 'image/png', body: png });
+    }
+    const tradeM = /^\/api\/trades\/([^/]+)$/.exec(path);
+    if (tradeM) {
+      const id = decodeURIComponent(tradeM[1]);
+      const idx = api.trades.findIndex((x) => x.id === id);
+      if (idx < 0) return json(route, 404, { error: 'not_found' });
+      const prev = api.trades[idx];
+      if (req.method() === 'GET') return json(route, 200, prev);
+      if (req.method() === 'DELETE') {
+        api.deletes.push(id);
+        api.trades.splice(idx, 1);
+        return route.fulfill({ status: 204, body: '' });
+      }
+      if (req.method() === 'PUT') {
+        api.puts.push({ id, body });
+        const inst = api.instruments.find((i) => i.id === body.instrumentId);
+        if (!inst) return json(route, 400, { error: 'invalid' });
+        for (const slot of ['entry', 'exit']) {
+          if (body[`${slot}ChartTimeframe`] !== undefined && !prev.charts?.[slot]) {
+            return json(route, 400, { error: 'invalid', issues: [{ kind: 'noChart' }] });
+          }
+        }
+        clock += 1;
+        const changed = inst.id !== prev.record.instrumentId;
+        const next = {
+          ...prev,
+          updatedAt: clock,
+          snapshot: changed
+            ? {
+                ...prev.snapshot,
+                instrument: {
+                  multiplier: inst.multiplier,
+                  quantityStep: inst.quantityStep,
+                  priceCurrency: inst.priceCurrency,
+                  underlyingKind: inst.underlyingKind,
+                  productForm: inst.productForm,
+                },
+              }
+            : prev.snapshot,
+          record: body,
+        };
+        api.trades[idx] = next;
+        return json(route, 200, next);
+      }
+    }
     if (key === 'GET /api/instruments') return json(route, 200, { items: api.instruments });
     if (key === 'GET /api/settings') return json(route, 200, settings());
     if (key === 'POST /api/instruments') {
@@ -1084,6 +1333,7 @@ async function main() {
           try {
             await page.goto(base + p.path);
             await waitReady(page, p.h1);
+            if (p.wait) await page.locator(p.wait).first().waitFor({ timeout: 15000 });
             const m = await measure(page, w === 360, TAP);
             states++;
             worstH = Math.max(worstH, m.h);
@@ -1108,7 +1358,56 @@ async function main() {
                 path: join(opts.shots, `${w}x${hgt}-${theme}-${slug}.png`),
                 fullPage: true,
               });
+              // 幅 360 は、少し下へスクロールした見える範囲も撮る（下部の行き先の面を通して文字が透けないかを見る）
+              if (w === 360 && (p.path === '/' || p.path === '/trades')) {
+                await page.evaluate(() => window.scrollTo(0, 240));
+                await page.screenshot({
+                  path: join(opts.shots, `${w}x${hgt}-${theme}-${slug}-viewport.png`),
+                });
+                await page.evaluate(() => window.scrollTo(0, 0));
+              }
             }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            console.log(`${label} 開けない  NG`);
+            problems.push(`${label}: 開けない ${msg}`);
+          }
+        }
+        // トーストの出た一覧（Issue #9。詳細から [消す] → 一覧に「取引を消しました」と [元に戻す]）。測った後に [元に戻す]
+        {
+          const tp = pageFor.get(false);
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad('/trades（トースト）', 22)}`;
+          try {
+            await tp.goto(`${base}/trades/x-d1`);
+            await waitReady(tp, 'US30 · L');
+            await tp.getByRole('button', { name: '消す' }).click();
+            await waitReady(tp, '取引の一覧');
+            await tp.locator('.toast').waitFor({ timeout: 5000 });
+            const m = await measure(tp, w === 360, TAP);
+            states++;
+            worstH = Math.max(worstH, m.h);
+            smallTotal += m.small.length;
+            clippedTotal += m.clipped.length;
+            const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+            const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+            console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+            if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            for (const x of m.clipped) {
+              console.log(`    はみ出し: ${x}`);
+              problems.push(`${label}: はみ出し ${x}`);
+            }
+            for (const x of m.small) {
+              console.log(`    当たり<44: ${x}`);
+              problems.push(`${label}: 当たり<44 ${x}`);
+            }
+            for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+            if (opts.shots) {
+              await tp.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-trades-toast.png`),
+              });
+            }
+            await tp.getByRole('button', { name: '元に戻す' }).click();
+            await tp.locator('.toast').waitFor({ state: 'detached', timeout: 5000 });
           } catch (e) {
             const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
             console.log(`${label} 開けない  NG`);
@@ -1210,7 +1509,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 設定 SET1〜SET4',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -1284,7 +1583,8 @@ async function runFlows(browser, base, signedIn) {
     viewport: { width: 390, height: 844 },
     storageState: signedIn,
   });
-  await installFakeApi(ctx);
+  // 行き来の手順は取引 0 件の偽の API で流す（V1 はホームの空の状態の [記録する] を踏む。Issue #9 の後も同じ手順）
+  await installFakeApi(ctx, { trades: [] });
   const page = await ctx.newPage();
 
   await check('V1', async () => {
@@ -1378,7 +1678,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return `幅 360 の 6 画面 × 4 項目 = ${taps} 回、すべて 1 タップ`;
+    return `幅 360 の ${PAGES.length - 1} 画面 × 4 項目 = ${taps} 回、すべて 1 タップ`;
   });
 
   await check('T2', async () => {
@@ -2355,6 +2655,298 @@ async function runFlows(browser, base, signedIn) {
       }
     }
     return '誤りのまま押す → 最初の誤りの欄・知らせ、保存の失敗 → 押したボタン（設定の [保存]・記録する画面の [記録する]）';
+  });
+
+  // ── 取引の一覧・詳細・直す・消す（Issue #9 の例の表 L4・H1・D1・D2・E1・E2・X1・X2）。偽の記録の API で流す
+  const rowsOf = (p) =>
+    p.locator('a.traderow').evaluateAll((as) =>
+      as.map((a) => ({
+        href: a.getAttribute('href'),
+        badge: a.querySelector('.badge')?.textContent ?? '',
+        badgeClass: a.querySelector('.badge')?.className ?? '',
+        text: a.textContent ?? '',
+      })),
+    );
+  const verdictOf = (p) =>
+    p
+      .locator('.verdict')
+      .first()
+      .evaluate((v) => ({
+        badge: v.querySelector('.badge')?.textContent ?? '',
+        text: v.textContent ?? '',
+        reasons: [...v.querySelectorAll('.reasons__item')].map((li) => li.textContent ?? ''),
+      }));
+  /** canvas の真ん中に画素がある（描けている）か */
+  const drawn = (p) =>
+    p.locator('canvas.chartview__canvas').evaluateAll((cs) =>
+      cs.map((c) => {
+        const d = c.getContext('2d')?.getImageData(c.width >> 1, c.height >> 1, 1, 1).data;
+        return { label: c.getAttribute('aria-label'), alpha: d ? d[3] : 0 };
+      }),
+    );
+  const noDialogs = (p) => p.locator('dialog, [role="dialog"], [role="alertdialog"]').count();
+
+  await check('T-L4', async () => {
+    const { c, p, errors } = await recordContext({ trades: [TX_L1, TX_L2, TX_L3] });
+    try {
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('a.traderow').nth(2).waitFor();
+      const rows = await rowsOf(p);
+      expectEq(rows.map((r) => r.href).join(' '), '/trades/x-l2 /trades/x-l3 /trades/x-l1', '並び');
+      expectEq(rows[0].badge, '計画どおりの勝ち', 'L2 の判定');
+      // 出ない値は行では「—」だけ、理由は一覧の上に 1 回だけ（Issue #9 のデザインレビュー 2）
+      if (!rows[0].text.includes('+2.0R') || !rows[0].text.endsWith('—'))
+        throw new Error(`L2 の行: ${rows[0].text}`);
+      expectEq(rows[1].badge, '危ない勝ち', 'L3 の判定');
+      if (!rows[1].badgeClass.includes('badge--break')) throw new Error('L3 の段が崩れでない');
+      if ((rows[1].text.match(/—/g) ?? []).length !== 2)
+        throw new Error(`L3 の行: ${rows[1].text}`);
+      const notes = (await p.locator('.tradelist__notes').textContent()) ?? '';
+      for (const want of [
+        'リスクの「—」: 資金を設定すると出ます（1 件）',
+        'R・リスクの「—」: LC が無いので出ません（1 件）',
+      ]) {
+        if (!notes.includes(want)) throw new Error(`一覧の上の理由に「${want}」が無い`);
+      }
+      expectEq(rows[2].badge, 'A いい損失', 'L1 の判定');
+      if (!rows[2].text.includes('−1.0R') || !rows[2].text.includes('0.5%'))
+        throw new Error(`L1 の行: ${rows[2].text}`);
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」、理由は一覧の上に 1 回）が例どおり';
+  });
+
+  await check('T-H1', async () => {
+    const { c, p, errors } = await recordContext({ trades: [...TX_H1].reverse() });
+    try {
+      await p.goto(`${base}/`);
+      await waitReady(p, 'ホーム');
+      await p.locator('a.traderow').first().waitFor();
+      const rows = await rowsOf(p);
+      expectEq(
+        rows.map((r) => r.href).join(' '),
+        '/trades/x-h0 /trades/x-h1 /trades/x-h2 /trades/x-h3 /trades/x-h4',
+        '直近 5 件の並び',
+      );
+      expectEq(rows[1].badge, '危ない勝ち', '2 件目の判定');
+      if (!rows[1].badgeClass.includes('badge--break')) throw new Error('2 件目の段が崩れでない');
+      await p.locator('main a[href="/record"]').first().waitFor();
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'ホームに新しい順の 5 件、2 件目の危ない勝ちは B と同じ崩れの段';
+  });
+
+  await check('T-D1', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await p.goto(`${base}/trades/x-d1`);
+      await waitReady(p, 'US30 · L');
+      await p.locator('canvas.chartview__canvas').nth(1).waitFor();
+      const v = await verdictOf(p);
+      expectEq(v.badge, 'B 悪い損失', '判定');
+      if (!v.text.includes('−1.6R') || !v.text.includes('0.5%'))
+        throw new Error(`判定の枠: ${v.text}`);
+      for (const want of [
+        'LC を下げた（99.5 → 99.2）',
+        '時間足を変えた（4 時間足 → 日足・チャートから）',
+      ]) {
+        if (!v.reasons.includes(want)) throw new Error(`理由に「${want}」が無い`);
+      }
+      await expectPollAsync(async () => (await drawn(p)).every((d) => d.alpha > 0), '2 枚が描ける');
+      const d = await drawn(p);
+      expectEq(
+        d.map((x) => x.label).join(' / '),
+        'エントリー時のチャート（4 時間足） / 決済時のチャート（日足）',
+        'チャートの名前',
+      );
+      const tfs = await p.locator('.chartview__tf').allTextContents();
+      expectEq(tfs.join(' / '), '時間足: 4 時間足 / 時間足: 日足', '時間足');
+      expectEq(fake.chartGets.join(' '), 'x-d1-entry x-d1-exit', 'チャートの GET');
+      expectEq(await p.locator('img').count(), 0, 'img の数');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'B・−1.6R・0.5%・2 つの理由、2 枚のチャート（API のバイト列を canvas に描く）と時間足';
+  });
+
+  await check('T-D2', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await p.goto(`${base}/trades/x-d2`);
+      await waitReady(p, 'US30 · L');
+      await p.locator('canvas.chartview__canvas').first().waitFor();
+      const figs = await p.locator('figure.chartview').allTextContents();
+      if (!figs[1]?.includes('チャートなし')) throw new Error(`決済時の枠: ${figs[1]}`);
+      expectEq(await p.locator('canvas.chartview__canvas').count(), 1, 'canvas の数');
+      expectEq(fake.chartGets.join(' '), 'x-d2-entry', 'チャートの GET');
+      const v = await verdictOf(p);
+      if (v.reasons.some((r) => r.startsWith('時間足を変えた')))
+        throw new Error('時間足を変えたが出た');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '決済時の枠は「チャートなし」（GET を送らない）、理由に時間足を変えたは出ない';
+  });
+
+  await check('T-E1', async () => {
+    const { c, p, fake, errors } = await recordContext({ capitalYen: 2000000 });
+    try {
+      await p.goto(`${base}/trades/x-e1`);
+      await waitReady(p, 'US30 · L');
+      await p.locator('a[href="/trades/x-e1/edit"]').click();
+      await waitReady(p, '取引を直す');
+      await p.locator('#edit-submit').waitFor();
+      expectEq(await p.locator('#record-lc').inputValue(), '99.5', 'LC の欄');
+      expectEq((await verdictOf(p)).badge, 'B 悪い損失', '直す前');
+      await seg(p, 'LC を動かしたか', 'そのまま').click();
+      expectEq(
+        await p.locator('#edit-change').textContent(),
+        '判定: B 悪い損失 −1.0R → A いい損失 −1.0R',
+        '保存の帯の直す前 → 直した後',
+      );
+      const v = await verdictOf(p);
+      expectEq(v.badge, 'A いい損失', 'プレビュー');
+      if (!v.text.includes('−1.0R') || !v.text.includes('0.5%') || v.text.includes('0.3%'))
+        throw new Error(`プレビュー: ${v.text}`);
+      await p.locator('#edit-submit').click();
+      await waitReady(p, 'US30 · L');
+      expectEq(path(p), '/trades/x-e1', '保存の後の URL');
+      await p.locator('.verdict .badge').first().waitFor();
+      const after = await verdictOf(p);
+      expectEq(after.badge, 'A いい損失', '保存の後');
+      if (!after.text.includes('0.5%')) throw new Error(`保存の後: ${after.text}`);
+      expectEq(fake.puts.length, 1, 'PUT の数');
+      expectEq(JSON.stringify(fake.puts[0].body.lcMove), '{"kind":"none"}', 'LC を動かしたか');
+      expectEq(fake.trades.find((t) => t.id === 'x-e1').snapshot.capitalYen, 1000000, '写した資金');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '直す前 B →「そのまま」でプレビューも保存後も A・−1.0R・0.5%（今の資金 2,000,000 円の 0.3% にならない）';
+  });
+
+  await check('T-E2', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await p.goto(`${base}/trades/x-e2`);
+      await waitReady(p, 'US30 · L');
+      await p.locator('.verdict .badge').first().waitFor();
+      const before = await verdictOf(p);
+      expectEq(before.badge, 'B 悪い損失', '直す前');
+      if (!before.reasons.some((r) => r.includes('チャートから'))) throw new Error('直す前の理由');
+      await p.goto(`${base}/trades/x-e2/edit`);
+      await waitReady(p, '取引を直す');
+      const notice = await p.locator('#edit-orphans').textContent();
+      if (
+        !notice?.includes('エントリー時: 4 時間足・決済時: 日足') ||
+        !notice.includes('保存のときに外します')
+      )
+        throw new Error(`外す旨: ${notice}`);
+      await p.locator('#edit-submit').click();
+      await waitReady(p, 'US30 · L');
+      await p.locator('.verdict .badge').first().waitFor();
+      expectEq((await verdictOf(p)).badge, 'A いい損失', '保存の後');
+      const body = fake.puts[0]?.body ?? {};
+      expectEq(
+        'entryChartTimeframe' in body || 'exitChartTimeframe' in body,
+        false,
+        '本文の時間足',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'チャートの無い枠の時間足を外す旨を出し、何も変えずに保存 → 200、保存の後 A';
+  });
+
+  await check('T-X1', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    let dialogs = 0;
+    p.on('dialog', (d) => {
+      dialogs++;
+      void d.dismiss();
+    });
+    try {
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('a.traderow').first().waitFor();
+      const n = (await rowsOf(p)).length;
+      await p.locator('a.traderow[href="/trades/x-d1"]').click();
+      await waitReady(p, 'US30 · L');
+      await p.getByRole('button', { name: '消す' }).click();
+      await waitReady(p, '取引の一覧');
+      expectEq(path(p), '/trades', '消した後の URL');
+      await p
+        .locator('.toast')
+        .filter({ hasText: 'US30 L' })
+        .filter({ hasText: 'を消しました' })
+        .waitFor();
+      // [消す] の後のフォーカスは [元に戻す]（8 秒の間にキーで届く。レビュー指摘 3）
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id ?? '')) === 'toast-undo',
+        '[元に戻す] へフォーカス',
+      );
+      expectEq(dialogs, 0, 'ダイアログ');
+      expectEq(await noDialogs(p), 0, '確認の画面');
+      const rows = await rowsOf(p);
+      expectEq(rows.length, n - 1, '一覧の件数');
+      if (rows.some((r) => r.href === '/trades/x-d1')) throw new Error('消した取引が一覧に残る');
+      // アプリの中で詳細の URL を開く（戻る・進むと同じ道）
+      await p.evaluate(() => {
+        window.history.pushState(null, '', '/trades/x-d1');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      });
+      await waitReady(p, '取引の詳細');
+      await p.getByText('この取引は見つかりません').waitFor();
+      expectEq(fake.deletes.length, 0, '取り消しの時間の間の DELETE');
+      // 取り消しの時間（8 秒）が過ぎたら DELETE が 1 回。直接開いても見つからない
+      await p.waitForTimeout(8500);
+      await expectPollAsync(async () => fake.deletes.length === 1, 'DELETE が届く');
+      expectEq(fake.deletes.join(' '), 'x-d1', 'DELETE の取引');
+      await p.reload();
+      await waitReady(p, '取引の詳細');
+      await p.getByText('この取引は見つかりません').waitFor();
+      expectEq(fake.deletes.length, 1, 'DELETE の数');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '確認なしで消える、一覧 N → N − 1、アプリの中で開くと見つからない、8 秒後に DELETE 1 回・再読み込みでも見つからない';
+  });
+
+  await check('T-X2', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await p.goto(`${base}/trades/x-d1`);
+      await waitReady(p, 'US30 · L');
+      await p.locator('canvas.chartview__canvas').nth(1).waitFor();
+      await p.getByRole('button', { name: '消す' }).click();
+      await waitReady(p, '取引の一覧');
+      await p.getByRole('button', { name: '元に戻す' }).click();
+      await p.locator('a.traderow[href="/trades/x-d1"]').waitFor();
+      await p.waitForTimeout(8500);
+      expectEq(fake.deletes.length, 0, 'DELETE');
+      await p.locator('a.traderow[href="/trades/x-d1"]').click();
+      await waitReady(p, 'US30 · L');
+      expectEq(path(p), '/trades/x-d1', '同じ ID');
+      await p.locator('canvas.chartview__canvas').nth(1).waitFor();
+      await expectPollAsync(
+        async () => (await drawn(p)).filter((d) => d.alpha > 0).length === 2,
+        '2 枚',
+      );
+      expectEq((await verdictOf(p)).badge, 'B 悪い損失', '判定');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '[元に戻す] で DELETE を送らず、同じ ID が一覧に戻り、詳細に B と 2 枚のチャート';
   });
 
   return out;

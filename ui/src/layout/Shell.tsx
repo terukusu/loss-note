@@ -12,6 +12,8 @@ export interface ShellProps {
   readonly emulator?: boolean;
   /** ログインの状態が分かるまでの面（行き先を出さない） */
   readonly bare?: boolean;
+  /** トースト（[元に戻す] など。#9。画面を移っても残る。幅 720 未満は下部の行き先の上、以上は右下） */
+  readonly toast?: ComponentChildren;
 }
 
 function Brand() {
@@ -25,7 +27,7 @@ function Brand() {
   );
 }
 
-export function Shell({ route, children, emulator, bare }: ShellProps) {
+export function Shell({ route, children, emulator, bare, toast }: ShellProps) {
   if (route.name === 'login' || bare) {
     return (
       <div class="shell shell--bare">
@@ -67,6 +69,7 @@ export function Shell({ route, children, emulator, bare }: ShellProps) {
       <main id="main" class="content">
         {children}
       </main>
+      {toast ?? null}
     </div>
   );
 }

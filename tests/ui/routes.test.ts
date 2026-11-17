@@ -266,3 +266,39 @@ describe('画面の行き来（例の表 V1〜V6）', () => {
     expect(nav.current.route).toEqual({ name: 'trades' });
   });
 });
+
+describe('直すの URL（Issue #9。/trades/<id>/edit）', () => {
+  it('直すの URL を開く・戻り先にする・名前', () => {
+    expect(parseRoute('/trades/abc_DEF-123/edit', PROD)).toEqual({
+      name: 'tradeEdit',
+      id: 'abc_DEF-123',
+    });
+    expect(parseRoute('/trades/abc/edit/', PROD)).toEqual({ name: 'tradeEdit', id: 'abc' });
+    expect(hrefOf({ name: 'tradeEdit', id: 't-1' })).toBe('/trades/t-1/edit');
+    expect(parseRoute(hrefOf({ name: 'tradeEdit', id: 't-1' }), PROD)).toEqual({
+      name: 'tradeEdit',
+      id: 't-1',
+    });
+    expect(safeNext('/trades/abc/edit', PROD)).toEqual({ name: 'tradeEdit', id: 'abc' });
+    expect(titleOf({ name: 'tradeEdit', id: 'x' })).toBe('取引を直す — loss-note');
+  });
+
+  it.each([
+    '/trades/a.b/edit',
+    '/trades/a/edit/x',
+    '/trades/a/editx',
+    `/trades/${'x'.repeat(65)}/edit`,
+  ])('知らない URL: %s → null', (path) => {
+    expect(parseRoute(path, PROD)).toBeNull();
+  });
+
+  it('直すの画面でも 4 つの行き先があり、一覧の印', () => {
+    const tree = JSON.stringify(Shell({ route: { name: 'tradeEdit', id: 'x' }, children: null }));
+    for (const href of ['/', '/record', '/trades', '/settings']) {
+      expect(tree).toContain(`"href":"${href}"`);
+    }
+    expect(tree).toMatch(
+      /"href":"\/trades"[^}]*"aria-current":"page"|"aria-current":"page"[^}]*"href":"\/trades"/,
+    );
+  });
+});

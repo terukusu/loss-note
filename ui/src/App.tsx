@@ -1,11 +1,14 @@
 // アプリの殻: ログインの門を通し、今の画面を枠（Shell）に入れて描く。URL・テーマ・ログインは main.tsx が実物を渡す
 import type { ComponentType, JSX } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { errorCode, loginErrorMessage, SIGN_OUT_FAILED } from './auth/errors';
 import { type AuthState, gate } from './auth/gate';
-import type { AuthSession } from './auth/session';
+import { type AuthSession, api } from './auth/session';
+import { TOAST_UNDO_ID, Toast } from './components/Toast';
 import { loadParts } from './devPages';
 import { Shell } from './layout/Shell';
+import { createDeletions, type DeletionsState } from './lib/deletions';
+import { DeletionsContext } from './lib/deletions-context';
 import { type Navigator, NavigatorContext, useCurrent } from './lib/router';
 import { hrefOf, type Route, titleOf } from './lib/routes';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
@@ -14,6 +17,7 @@ import { Login } from './pages/Login';
 import { Record } from './pages/Record';
 import { Settings } from './pages/Settings';
 import { TradeDetail } from './pages/TradeDetail';
+import { TradeEdit } from './pages/TradeEdit';
 import { Trades } from './pages/Trades';
 
 export const APP_NAME = 'loss-note';
@@ -55,6 +59,8 @@ export function Page(p: PageProps) {
       return <Trades />;
     case 'trade':
       return <TradeDetail id={route.id} />;
+    case 'tradeEdit':
+      return <TradeEdit id={route.id} />;
     case 'settings':
       return (
         <Settings
@@ -90,6 +96,46 @@ export function App(props: AppProps) {
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [Parts, setParts] = useState<ComponentType | null>(null);
   const first = useRef(true);
+  // 取引を消す + [元に戻す]（Issue #9。ADR-0007）: アプリの殻に 1 つ。画面を移っても取り消せる
+  const deletions = useMemo(
+    () =>
+      createDeletions({
+        api,
+        setTimer: (fn, ms) => setTimeout(fn, ms),
+        clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+      }),
+    [],
+  );
+  const [delState, setDelState] = useState<DeletionsState>(deletions.getState());
+  useEffect(() => deletions.subscribe(setDelState), [deletions]);
+  /** [消す] の直後の画面の移りでは、見出しではなく [元に戻す] へフォーカスを移す（8 秒の間にキーで届くように） */
+  const focusUndo = useRef(false);
+  const removeTrade = (id: string, label: string) => {
+    focusUndo.current = true;
+    deletions.remove(id, label);
+  };
+  /** トーストが閉じた後は、見出しへフォーカスを戻す（body に落とさない） */
+  const focusHeading = () => {
+    setTimeout(
+      () => document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true }),
+      0,
+    );
+  };
+  // タブが隠れた・ページを離れるときは、待っている削除をすぐ送る（届かなければ取引は残る側に倒れる）
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === 'hidden') void deletions.flush();
+    };
+    const onPageHide = () => {
+      void deletions.flush();
+    };
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [deletions]);
 
   useEffect(() => session.subscribe(setAuth), [session]);
 
@@ -118,8 +164,11 @@ export function App(props: AppProps) {
     // 状態が signedOut になると門がログイン画面へ置き換える。戻り先は付けない
     setSignOutBusy(true);
     setSignOutError(null);
-    session
-      .signOut()
+    // 待っている削除は、ログアウトの前に送る（ID トークンがあるうちに）
+    deletions
+      .flush()
+      .then(() => session.signOut())
+      .then(() => deletions.reset())
       .then(() => nav.replace('/login'))
       .catch(() => setSignOutError(SIGN_OUT_FAILED))
       .finally(() => setSignOutBusy(false));
@@ -145,7 +194,10 @@ export function App(props: AppProps) {
       first.current = false;
       return;
     }
-    document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true });
+    const undo = focusUndo.current ? document.getElementById(TOAST_UNDO_ID) : null;
+    focusUndo.current = false;
+    if (undo) undo.focus({ preventScroll: true });
+    else document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true });
     if (via === 'push') window.scrollTo(0, 0);
   }, [route, via, g.render]);
 
@@ -164,7 +216,30 @@ export function App(props: AppProps) {
     );
   } else {
     body = (
-      <Shell route={route} emulator={emulator}>
+      <Shell
+        route={route}
+        emulator={emulator}
+        toast={
+          <Toast
+            toast={delState.toast}
+            failed={delState.failed}
+            onUndo={() => {
+              deletions.undo();
+              focusHeading();
+            }}
+            onDismiss={() => {
+              deletions.dismiss();
+              focusHeading();
+            }}
+            onDismissFailed={() => {
+              deletions.dismissFailed();
+              focusHeading();
+            }}
+            onHold={deletions.hold}
+            onResume={deletions.resume}
+          />
+        }
+      >
         <Page
           route={route}
           theme={theme}
@@ -177,5 +252,11 @@ export function App(props: AppProps) {
       </Shell>
     );
   }
-  return <NavigatorContext.Provider value={nav}>{body}</NavigatorContext.Provider>;
+  return (
+    <NavigatorContext.Provider value={nav}>
+      <DeletionsContext.Provider value={{ state: delState, deletions, remove: removeTrade }}>
+        {body}
+      </DeletionsContext.Provider>
+    </NavigatorContext.Provider>
+  );
 }

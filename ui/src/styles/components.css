@@ -1373,3 +1373,354 @@
 .instlist__row .btn {
   flex-shrink: 0;
 }
+
+/* ── 取引の一覧・ホームの行（#9）。行全体が詳細へのリンク。1 行目 = 判定・R・リスク、2 行目 = 銘柄・L / S・日付 ── */
+.home__record {
+  display: flex;
+}
+
+.tradelist-card {
+  padding: var(--sp-2) 0;
+}
+
+.tradelist-card__count {
+  padding: var(--sp-3) var(--sp-5) var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.tradelist {
+  display: flex;
+  flex-direction: column;
+}
+
+.tradelist__item + .tradelist__item {
+  border-top: 1px solid var(--line);
+}
+
+.section .tradelist {
+  margin: 0 calc(var(--sp-5) * -1);
+}
+
+.traderow {
+  display: grid;
+  /* 列の幅は行ごとに変えない（日付・R・リスクが縦に揃う） */
+  grid-template-columns: minmax(0, 1fr) 5.75rem 4.75rem;
+  grid-template-areas:
+    "badge badge r"
+    "inst date risk";
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+  min-height: var(--tap);
+  padding: var(--sp-3) var(--sp-5);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.traderow:hover {
+  background: var(--s2);
+}
+
+.traderow:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+
+.traderow__date {
+  grid-area: date;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.traderow__inst {
+  grid-area: inst;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-size: var(--fs-sm);
+}
+
+.traderow__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-bold);
+}
+
+.traderow__side {
+  color: var(--ink-2);
+}
+
+.traderow__badge {
+  grid-area: badge;
+  min-width: 0;
+}
+
+.traderow__r {
+  grid-area: r;
+  justify-self: end;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+.traderow__risk {
+  grid-area: risk;
+  justify-self: end;
+  min-width: 4.5ch;
+  text-align: right;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+/* 値が出ない（「—」）。理由は一覧の上に 1 回だけ */
+.traderow__none {
+  color: var(--ink-3);
+}
+
+.tradelist__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-5) var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.section .tradelist__notes {
+  padding: 0;
+}
+
+/* 列の見出し（幅 720px 以上の 1 行の並びだけ） */
+.tradelist__head {
+  display: none;
+}
+
+@media (min-width: 720px) {
+  .traderow,
+  .tradelist__head {
+    grid-template-columns: 6.5rem minmax(0, 1fr) 10rem 6.5ch 5.5ch;
+    grid-template-areas: "date inst badge r risk";
+    column-gap: var(--sp-4);
+  }
+
+  .traderow {
+    min-height: 48px;
+    padding: var(--sp-2) var(--sp-5);
+  }
+
+  .traderow__r {
+    font-size: var(--fs-md);
+  }
+
+  .tradelist__head {
+    display: grid;
+    padding: var(--sp-1) var(--sp-5);
+    font-size: var(--fs-xs);
+    color: var(--ink-3);
+  }
+
+  .tradelist__head-num {
+    justify-self: end;
+  }
+}
+
+/* ── 取引の詳細（#9）。チャートの枠は 720px 未満は縦、以上は横に 2 つ（.charts__grid） ── */
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.detail__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.detail__note {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.chartview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+}
+
+.chartview__name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.chartview__canvas {
+  width: 100%;
+}
+
+.chartview__none {
+  padding: var(--sp-6) 0;
+  text-align: center;
+  color: var(--ink-3);
+}
+
+.chartview__tf {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.chartview__failed {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+}
+
+.fields {
+  display: flex;
+  flex-direction: column;
+}
+
+.fields__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.fields__row:last-child {
+  border-bottom: 0;
+}
+
+.fields__label {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.fields__value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 直す画面の、チャートの無い枠の時間足を外す旨（#9） */
+.edit__orphans {
+  font-weight: var(--fw-medium);
+}
+
+/* ── トースト（#9。[元に戻す]）。置き場所は layout.css ── */
+.toast {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-md);
+  background: var(--s3);
+  box-shadow: var(--shadow-2);
+  color: var(--ink);
+}
+
+.toast--error {
+  border-color: var(--danger);
+}
+
+.toast__text {
+  flex: 1 1 10rem;
+  min-width: 0;
+  font-weight: var(--fw-bold);
+  text-wrap: pretty;
+}
+
+.toast__close {
+  display: grid;
+  place-items: center;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.toast__close:hover {
+  background: var(--s2);
+  color: var(--ink);
+}
+
+.toast__close .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.toast--error .toast__text {
+  color: var(--danger);
+}
+
+/* 詳細の見出しの添え（一覧へ戻る・決済の日時） */
+.detail__back {
+  display: inline-flex;
+  align-items: center;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  margin-right: var(--sp-3);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.detail__when {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 直す画面: 直す前の判定（判定の枠の中）と、保存の帯の変化の 1 行 */
+.verdict__before {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+
+.edit__change {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+@media (min-width: 720px) {
+  .edit__submit {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .edit__submit .edit__change,
+  .edit__submit .record__missing,
+  .edit__submit .notice {
+    flex: 1 1 100%;
+  }
+
+  .edit__submit .btn--block {
+    width: auto;
+    min-width: 10rem;
+  }
+}

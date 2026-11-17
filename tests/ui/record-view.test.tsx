@@ -698,3 +698,12 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
     expect(text(row)).toBe('1 / 2 行目');
   });
 });
+
+describe('保存に失敗して戻ったときのフォーカスの戻り先（Issue #5 のレビュー指摘 6）', () => {
+  it('[記録する] は ID を持ち（RecordScreen が失敗の後にここへフォーカスを戻す）、失敗の文言は role="alert"', () => {
+    const tree = view(stateFor(E1, CAPITAL_1M, { error: SAVE_FAILED, errorKind: 'other' }));
+    expect(submit(tree).props.id).toBe('record-submit');
+    expect(submit(tree).props.disabled).toBe(false);
+    expect(text(all(tree, (e) => e.props.role === 'alert'))).toContain(SAVE_FAILED);
+  });
+});

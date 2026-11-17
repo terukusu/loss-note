@@ -9,6 +9,8 @@ export interface ButtonProps {
   readonly icon?: IconName;
   readonly block?: boolean;
   readonly href?: string;
+  /** フォーカスを戻す先にするときの ID（保存に失敗して戻ったときなど） */
+  readonly id?: string;
   readonly type?: 'button' | 'submit';
   readonly disabled?: boolean;
   readonly onClick?: () => void;
@@ -42,7 +44,13 @@ export function Button(p: ButtonProps) {
     );
   }
   return (
-    <button type={p.type ?? 'button'} class={cls} disabled={p.disabled} onClick={p.onClick}>
+    <button
+      type={p.type ?? 'button'}
+      id={p.id}
+      class={cls}
+      disabled={p.disabled}
+      onClick={p.onClick}
+    >
       {body}
     </button>
   );

@@ -36,6 +36,16 @@ export function formatYen(yen: number): string {
 }
 
 /**
+ * 符号の無い金額の表示（資金・1 回の負けの上限など。損益ではないので + を付けない。Issue #5）。
+ * 例: 1,000,000円。1 円単位へ四捨五入（0 から遠い側）。有限でないときは「金額なし」
+ */
+export function formatAmountYen(yen: number): string {
+  if (!Number.isFinite(yen)) return '金額なし';
+  const n = roundAway(Math.abs(yen), 1);
+  return `${yen < 0 && n !== 0 ? MINUS : ''}${group(n.toFixed(0))}円`;
+}
+
+/**
  * リスク（%）の表示（Issue #13 ルール 5・契約 R-2。設計書 5.1）。小数 1 桁へ **切り上げ**（2% を超えた取引が 2.0% と出て、
  * 過剰リスクの理由と食い違うのを防ぐ。多めに出るのはリスクの側に安全）。2 進の誤差で 1 段上がらないよう、
  * 先に 1e-9 を引いてから切り上げる（0.5 → 0.5%、2.0 → 2.0%、2.01 → 2.1%）。有限でないときは「リスクなし」

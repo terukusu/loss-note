@@ -19,7 +19,6 @@ import type {
   StoredTrade,
   TradeRecord,
 } from '../../../core/record';
-import { NotSignedIn } from './api';
 import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import { findInstrument } from './instrument-name';
@@ -36,6 +35,17 @@ import {
   summarize,
 } from './record-form';
 import {
+  type ApiFn,
+  AUTH_EXPIRED,
+  createRequest,
+  Failed,
+  type FailureKind,
+  getJson,
+  JSON_HEADERS,
+  kindOf,
+  REQUEST_TIMEOUT_MS,
+} from './request';
+import {
   confirmTimeZone,
   fillFromRow,
   gateReading,
@@ -49,19 +59,16 @@ import {
 } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
 
-/** /api への要求（ui/src/auth/session.ts の api と同じ形） */
-export type ApiFn = (path: string, init?: RequestInit) => Promise<Response>;
+export type { ApiFn, FailureKind };
+export { AUTH_EXPIRED, REQUEST_TIMEOUT_MS };
 
 export const LOAD_FAILED =
   '記録の準備ができませんでした。通信を確かめて、もう一度読み込んでください。';
 export const SAVE_FAILED =
   '保存できませんでした。入力はそのまま残っています。もう一度 [記録する] を押してください。';
-export const AUTH_EXPIRED = 'ログインが切れました。ログインし直してください。';
 export const NETWORK_FAILED =
   'つながりません。入力はそのまま残っています。もう一度 [記録する] を押してください（届いていた記録は二重に保存しません）。';
 
-/** 要求の時間の上限（ミリ秒） */
-export const REQUEST_TIMEOUT_MS = 15_000;
 /** 読み取りの要求の時間の上限（API の締め切り 20 秒 + 後始末 約 5 秒 + 余裕。R3） */
 export const READ_TIMEOUT_MS = 30_000;
 export const READ_PATH = '/api/statement-reads';
@@ -76,7 +83,6 @@ export const READ_BLOCKED = {
 } as const;
 
 export type RecordPhase = 'loading' | 'loadFailed' | 'editing' | 'saving' | 'saved';
-export type FailureKind = 'auth' | 'network' | 'other';
 
 /** 明細の読み取りの段階: 描き直し中 / 読み取り中 / 行を確かめている / 失敗 / 行を最後まで見た */
 export type StatementPhase = 'preparing' | 'reading' | 'ready' | 'failed' | 'done';
@@ -143,12 +149,6 @@ export interface RecordController {
   dispose(): void;
 }
 
-class Failed extends Error {
-  constructor(readonly kind: FailureKind) {
-    super(kind);
-  }
-}
-
 /** 開いたときの既定（AC-9）: 最後に記録した取引（作った時刻が最大）の銘柄・数量、決済の時刻 = 今（分まで） */
 export function defaultsFrom(
   trades: readonly StoredTrade[],
@@ -179,8 +179,6 @@ function canonical(v: unknown): string {
   }
   return JSON.stringify(v);
 }
-
-const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 function messageOf(kind: FailureKind): string {
   if (kind === 'auth') return AUTH_EXPIRED;
@@ -245,46 +243,8 @@ export function createRecordController(deps: {
     for (const fn of listeners) fn(state);
   };
 
-  /** 時間の上限つきの要求。時間切れ・通信の失敗は network、ログインしていなければ auth */
-  const request = async (
-    path: string,
-    init: RequestInit = {},
-    limit: { readonly ms?: number; readonly ctl?: AbortController } = {},
-  ): Promise<Response> => {
-    const ctl = limit.ctl ?? new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, ng) => {
-      timer = setTimeout(() => {
-        ctl.abort();
-        ng(new Failed('network'));
-      }, limit.ms ?? timeoutMs);
-      // 外から止めた（やめた・新しい読み取り）ときは待たずに終える
-      limit.ctl?.signal.addEventListener('abort', () => ng(new Failed('network')), { once: true });
-    });
-    try {
-      const res = await Promise.race([deps.api(path, { ...init, signal: ctl.signal }), timeout]);
-      if (res.status === 401) throw new Failed('auth');
-      return res;
-    } catch (e) {
-      if (e instanceof Failed) throw e;
-      if (e instanceof NotSignedIn) throw new Failed('auth');
-      throw new Failed('network');
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
-  /** 応答を JSON で読む（!ok・読めない本文は Failed。本文の中身は持ち出さない） */
-  const getJson = async <T>(res: Response, ok: number): Promise<T> => {
-    if (res.status !== ok) throw new Failed('other');
-    try {
-      return (await res.json()) as T;
-    } catch {
-      throw new Failed('other');
-    }
-  };
-
-  const kindOf = (e: unknown): FailureKind => (e instanceof Failed ? e.kind : 'other');
+  /** 時間の上限つきの要求。時間切れ・通信の失敗は network、ログインしていなければ auth（request.ts） */
+  const request = createRequest(deps.api, timeoutMs);
 
   const load = async () => {
     set({ phase: 'loading', error: null, readBlocked: null }, true);

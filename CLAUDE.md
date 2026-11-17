@@ -98,7 +98,7 @@ npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test 
 
 - **実際の売買の記録**（オーナー・利用者の損益・気づきの中身、建玉・約定・口座残高・損益の実額、チャートのスクリーンショット）。個人の金銭の情報なので、テストは架空の値で作った合成のデータを使う。実データの写しは `data/local/`（gitignore）に置き、件数・割合などの要約だけを Issue / PR に書く。本番のデータを調べるときも、Issue / PR / ログには件数・要約だけを書く
 - 利用者の個人情報（メールアドレス・ユーザー ID と記録の対応）
-- 特定の利用者の値（スプレッドシートの ID・URL、GCP のプロジェクト ID・番号、バケット名、Cloud Run の URL、GitHub のオーナー名・リポジトリ名、メールアドレス、ホームディレクトリのパス）。コード・設定は変数で受け取り、docs の例は `<PROJECT_ID>`・`<SHEET_ID>`・`<OWNER>/<REPO>` などのプレースホルダにする
+- 特定の利用者の値（スプレッドシートの ID・URL、GCP のプロジェクト ID・番号、バケット名、Cloud Run の URL、GitHub のオーナー名・リポジトリ名、メールアドレス、ホームディレクトリのパス）。コード・設定は変数で受け取り、docs の例は `<PROJECT_ID>`・`<SHEET_ID>`・`<OWNER>/<REPO>` などのプレースホルダにする。例外は `LICENSE` の著作権表示の 1 行だけ（MIT。オーナーが決めた名前で、ほかの所には書かない）
 - アクセストークン、OAuth クライアントのシークレット、サービスアカウント鍵、署名付き URL
 - `.claude/settings.local.json`、作業用ファイル（`.claude/handoff/`、`.claude/worktrees/`、一時ディレクトリ）
 

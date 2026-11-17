@@ -1,6 +1,6 @@
 rules_version = '2';
 // 画面（クライアント）から Firestore を直接読み書きさせない。読み書きは API（サーバー）だけが行う（docs/design.md 10 章）。
-// 中身のテストは記録の API の Issue で足す
+// 中身のテストは api/tests/emulator/test_emulator_e2e.py（npm run test:api:emulator）
 service cloud.firestore {
   match /databases/{database}/documents {
     match /{document=**} {

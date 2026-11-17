@@ -8,13 +8,14 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:api": "cd api && uv run --locked flask --app loss_note_api.app:create_app run -p 8000",
+    "dev:api": "cd api && GOOGLE_CLOUD_PROJECT=demo-loss-note FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 uv run --locked flask --app loss_note_api.app:create_app run -p 8000",
     "emulators": "scripts/emulators.sh",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
     "lint": "biome check --error-on-warnings .",
     "format": "biome check --write .",
     "test": "vitest run",
+    "test:api:emulator": "firebase emulators:exec --project demo-loss-note --only auth,firestore 'cd api && LOSS_NOTE_REQUIRE_EMULATOR=1 uv run --locked pytest -q'",
     "check:pinned": "node scripts/check-pinned.mjs",
     "ui:check": "node scripts/ui-check.mjs"
   },

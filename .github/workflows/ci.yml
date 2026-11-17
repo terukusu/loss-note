@@ -56,6 +56,19 @@ jobs:
       - name: API のテスト
         working-directory: api
         run: uv run --locked pytest -q
+      # API の結合のテスト（Firebase のエミュレーター。Auth の本物のトークン・Firestore の読み書きとルール・利用者の分離）。
+      # エミュレーターは Java が要る（手元は mise.toml の Temurin 21.0.13）。本体（jar）は初回に取得してキャッシュする
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21.0.13"
+      - name: エミュレーターの本体のキャッシュ
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: API のテスト（エミュレーター。スキップを失敗にする）
+        run: npm run test:api:emulator
       # 決済明細の読み取りを測る道具（tools/statement-eval/。#14）。AI の SDK（依存グループ ai）と資格情報は使わない
       - name: 道具の依存（uv.lock どおり。既定のグループだけ）
         working-directory: tools/statement-eval

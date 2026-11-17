@@ -56,8 +56,8 @@ describe('App', () => {
     expect(failed).toContain('"role":"alert"');
     expect(failed).toContain('ログインのサービスにつながりません');
     expect(failed).toContain('エミュレーター');
-    // 利用者の分離（#4）が入るまで、本人だけが見られるという約束の文言は出さない
-    expect(failed).not.toContain('本人だけ');
+    expect(plain).toContain('記録は本人だけが見られます。');
+    expect(failed).toContain('記録は本人だけが見られます。');
   });
 });
 

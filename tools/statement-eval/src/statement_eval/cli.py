@@ -3,7 +3,8 @@
 - generate: 合成の明細（manifest.json・answers.json・sNN.png）を作る。--check は manifest と answers を作り直して
   コミット済みと比べるだけ（画像は描かない）
 - eval: 明細の画像を AI で読み、正解と欄ごとに比べ、件数・割合・秒数・費用だけを出す（R5）。資格情報が無ければ
-  SDK を import せずに exit 2
+  SDK を import せずに exit 2。--preset app はアプリ（API）の読み取りの設定（statement_read.app_settings のモデル・
+  effort・締め切り）で読み、画像は縮めずに API と同じ上限（statement_read.image.check_limits）で検査する（#11 の AC-14）
 """
 
 import argparse
@@ -16,6 +17,9 @@ from collections import Counter
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
+
+from statement_read import app_settings
+from statement_read import image as shared_image
 
 from . import images, report, schema, score, synthetic
 
@@ -79,10 +83,10 @@ def cmd_generate(args, out) -> int:
 # ---- eval ----
 
 
-def _default_reader_factory(credential, secret, model, effort, tmp_parent):
+def _default_reader_factory(credential, secret, model, effort, tmp_parent, timeout=None):
     from .reader import Reader
 
-    return Reader(credential, secret, model, effort, tmp_parent=tmp_parent)
+    return Reader(credential, secret, model, effort, tmp_parent=tmp_parent, timeout=timeout)
 
 
 def _median_max(xs):
@@ -92,6 +96,18 @@ def _median_max(xs):
 
 def run_eval(args, env: dict[str, str], reader_factory: Callable, out, err) -> int:
     from .reader import NoCredential, credential_secret
+
+    # --preset app: アプリの読み取りの設定（モデル・effort・締め切り）。--model・--effort とは一緒に使えない
+    timeout = None
+    if args.preset == "app":
+        if args.model is not None or args.effort is not None:
+            print("--preset app は --model・--effort と一緒に指定できません", file=out)
+            return 2
+        args.model, args.effort = app_settings.APP_MODEL, app_settings.APP_EFFORT
+        timeout = app_settings.APP_TIMEOUT_SECONDS
+    else:
+        args.model = DEFAULT_MODEL if args.model is None else args.model
+        args.effort = DEFAULT_EFFORT if args.effort is None else args.effort
 
     # 資格情報（値は表示しない。SDK を import する前に確かめる）
     try:
@@ -152,14 +168,24 @@ def run_eval(args, env: dict[str, str], reader_factory: Callable, out, err) -> i
     for i, im in enumerate(answers["images"], start=1):
         p = base / im["file"]
         try:
-            data, media_type, was_shrunk = images.prepare(p.read_bytes())
+            raw = p.read_bytes()
+            if args.preset == "app":
+                # API と同じ: 縮めない。上限の外なら API も断るので、ここでも読まずに止める
+                media_type = shared_image.media_type_of(raw)
+                if shared_image.check_limits(raw, media_type) is not None:
+                    print(f"画像 {i} がアプリの上限の外です（PNG / JPEG・500,000 B 以下・長辺 2,000 px 以下）",
+                          file=out)
+                    return 2
+                data, was_shrunk = raw, False
+            else:
+                data, media_type, was_shrunk = images.prepare(raw)
         except (OSError, ValueError):
             print(f"画像 {i} を読めません", file=out)
             return 2
         shrunk += int(was_shrunk)
         prepared.append((data, media_type))
 
-    reader = reader_factory(args.credential, secret, args.model, args.effort, tmp_parent)
+    reader = reader_factory(args.credential, secret, args.model, args.effort, tmp_parent, timeout)
     scores: list[score.ImageScore] = []
     seconds: list[float] = []
     api_seconds: list[float] = []
@@ -274,8 +300,10 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--set", choices=("synthetic", "real"), required=True)
     e.add_argument("--dir", help="実物の画像と answers.json の置き場所（data/local/ の下だけ）")
     e.add_argument("--credential", choices=("oauth_token", "api_key"))
-    e.add_argument("--model", default=DEFAULT_MODEL)
-    e.add_argument("--effort", choices=EFFORTS, default=DEFAULT_EFFORT)
+    e.add_argument("--preset", choices=("app",),
+                   help="アプリ（API）の読み取りの設定で読む（モデル・effort・締め切り。画像は縮めずに検査）")
+    e.add_argument("--model", help=f"モデル（既定は {DEFAULT_MODEL}）")
+    e.add_argument("--effort", choices=EFFORTS, help=f"effort（既定は {DEFAULT_EFFORT}）")
     e.add_argument("--repeat", type=int, choices=range(1, 11), metavar="1-10")
     e.add_argument("--usd-jpy", type=float, help="円の換算に使うレート（渡したときだけ円も出す）")
     e.add_argument("--json-out", help="要約の JSON の書き出し先（data/local/ の下か一時ディレクトリだけ）")

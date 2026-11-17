@@ -10,6 +10,10 @@ dependencies = [
     "firebase-admin>=7.7,<7.8",
     # Firestore の読み書き（手元はエミュレーター）。firebase-admin の推移的な依存だが直接 import する
     "google-cloud-firestore>=2.34,<2.35",
+    # 決済明細の読み取りの部品（指示・結果の形・直しの純関数・送り口）。評価の道具と共有する（packages/statement-read/。#11）
+    "statement-read",
+    # 読み取りの締め切り（cancel scope）。statement-read の推移的な依存だが API の入口でも使う
+    "anyio>=4.16,<4.17",
 ]
 
 [dependency-groups]
@@ -17,10 +21,17 @@ dev = [
     "pytest>=9.2,<10",
     "ruff>=0.17,<0.18",
 ]
+# 明細の読み取りで実際の AI を呼ぶときだけ入れる（uv sync --locked --group ai。ADR-0005）。確認コマンドと CI では入れない
+ai = [
+    "claude-agent-sdk==0.2.176",
+]
 
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+statement-read = { path = "../packages/statement-read", editable = true }
 
 [tool.uv]
 # 公開から 2 週間未満の版を入れない（サプライチェーン対策）。更新するときはこの日付を進めて uv lock する

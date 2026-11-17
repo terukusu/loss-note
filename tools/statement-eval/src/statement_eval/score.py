@@ -14,8 +14,11 @@ import re
 import statistics
 import unicodedata
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Literal
+
+# 数・日時・向き・手数料の純関数は API の直しと共有する（statement_read.values。#11）。ここからも同じ名前で使える
+from statement_read.values import ORDER_TYPES, Usage, normalize_number, opened_side, sum_fees, time_key
 
 # R1 の 10 欄（出力の順番）
 FIELDS = (
@@ -34,27 +37,13 @@ FIELDS = (
 DECISIVE_FIELDS = ("side", "entry_price", "exit_price", "pnl_jpy")
 NUMBER_FIELDS = ("entry_price", "exit_price", "qty", "pnl_jpy")
 TIME_FIELDS = ("entry_time", "exit_time")
-ORDER_TYPES = ("stop", "market", "limit", "unknown")
 # 全順列で行を対応づける上限（8! = 40,320 通り）
 MAX_PERMUTE_ROWS = 8
 
-_CURRENCY = ("USD", "JPY", "¥", "円", "$")
-_MINUS = ("−", "▲", "△", "－", "‐", "–")
-_ISO_RE = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})(?::\d{2})?$")
 _STATEMENT_DT_RE = re.compile(r"^\s*(\d{1,4})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{1,4})\s+(\d{1,2}):(\d{2})(?::\d{2})?")
 
 AnswerRow = dict  # キーは FIELDS。数は文字列、fees は文字列の配列、無い欄は None
 ReadRow = dict  # schema.READ_ROW_KEYS。検査済み
-
-
-@dataclass(frozen=True)
-class Usage:
-    """使用量（トークン数）。提供元が返す値をそのまま"""
-
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_creation_input_tokens: int = 0
-    cache_read_input_tokens: int = 0
 
 
 @dataclass(frozen=True)
@@ -110,43 +99,6 @@ class Tally:
 # ---- 正規化 ----
 
 
-def normalize_number(v: str | int | float | Decimal | None) -> Decimal | None:
-    """数の文字列・数 → Decimal。読めなければ None（NaN・無限も None）"""
-    if v is None or isinstance(v, bool):
-        return None
-    if isinstance(v, Decimal):
-        d = v
-    elif isinstance(v, int):
-        d = Decimal(v)
-    elif isinstance(v, float):
-        d = Decimal(repr(v))
-    elif isinstance(v, str):
-        s = unicodedata.normalize("NFKC", v)
-        s = "".join(s.split())
-        for c in _CURRENCY:
-            s = s.replace(c, "")
-        s = s.replace(",", "")
-        neg = False
-        if s[:1] in _MINUS or s[:1] == "-":
-            neg = True
-            s = s[1:]
-        elif s[:1] == "+":
-            s = s[1:]
-        if not s or not re.fullmatch(r"\d+(\.\d+)?|\.\d+", s):
-            return None
-        try:
-            d = Decimal(s)
-        except InvalidOperation:
-            return None
-        if neg:
-            d = -d
-    else:
-        return None
-    if not d.is_finite():
-        return None
-    return d
-
-
 def parse_statement_datetime(text: str, order: Literal["DMY", "YMD"]) -> str:
     """明細の書き方の日時（「04/03/2026 10:15」「2026/03/04 10:15」）→ ISO の「YYYY-MM-DDTHH:MM」。時間帯は換算しない"""
     m = _STATEMENT_DT_RE.match(unicodedata.normalize("NFKC", text))
@@ -164,48 +116,11 @@ def parse_statement_datetime(text: str, order: Literal["DMY", "YMD"]) -> str:
     return f"{y:04d}-{mo:02d}-{d:02d}T{hh:02d}:{mm:02d}"
 
 
-def time_key(v: str | None) -> tuple[int, int, int, int, int] | None:
-    """ISO の日時 → (年, 月, 日, 時, 分)。読めなければ None"""
-    if not isinstance(v, str):
-        return None
-    m = _ISO_RE.match(unicodedata.normalize("NFKC", v).strip())
-    if not m:
-        return None
-    return tuple(int(x) for x in m.groups())  # type: ignore[return-value]
-
-
 def normalize_symbol(v: str | None) -> str | None:
     if not isinstance(v, str):
         return None
     s = "".join(unicodedata.normalize("NFKC", v).split())
     return s or None
-
-
-def opened_side(side_written: str | None, side_of: str | None) -> Literal["L", "S"] | None:
-    """明細に書かれた向き → 建てた向き。side_of = position（建玉そのものの向き。形 1 の「売約定」）はそのまま、
-    close（決済の向き。形 2 の「決済売」）は反転する"""
-    if side_written not in ("buy", "sell"):
-        return None
-    if side_of == "position":
-        return "L" if side_written == "buy" else "S"
-    if side_of == "close":
-        return "L" if side_written == "sell" else "S"
-    return None
-
-
-def sum_fees(v: list | None) -> Decimal | None:
-    """手数料・消費税の欄ごとの配列 → 合計。None・空配列・読めない要素がある配列は None（例外を出さない）"""
-    if v is None:
-        return None
-    if not isinstance(v, list) or not v:
-        return None
-    total = Decimal(0)
-    for x in v:
-        d = normalize_number(x)
-        if d is None:
-            return None
-        total += d
-    return total
 
 
 # ---- 比べる ----

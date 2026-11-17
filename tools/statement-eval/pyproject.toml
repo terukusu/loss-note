@@ -7,6 +7,8 @@ dependencies = [
     # 正確な版とハッシュは uv.lock で固定する
     # 合成の明細の描画と、送る前の寸法の確認・縮小
     "pillow>=13.0,<13.1",
+    # 読み取りの部品（指示・結果の形と検査・送り口・数の純関数）。API と共有する（packages/statement-read/。#11）
+    "statement-read",
 ]
 
 [dependency-groups]
@@ -22,6 +24,9 @@ ai = [
 [build-system]
 requires = ["uv_build>=0.13,<0.14"]
 build-backend = "uv_build"
+
+[tool.uv.sources]
+statement-read = { path = "../../packages/statement-read", editable = true }
 
 [tool.uv]
 # 公開から 2 週間未満の版を入れない（サプライチェーン対策。api/ と同じ日付）。更新するときはこの日付を進めて uv lock する

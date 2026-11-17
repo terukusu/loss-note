@@ -17,7 +17,7 @@ mise exec -- npm ci
 (cd api && mise exec -- uv sync --locked)
 ```
 
-以下のコマンドは、mise を有効にしたシェル（`mise activate`）か、`mise exec -- <コマンド>` で実行してください。Python 3.13 は uv が `api/.python-version` を見て用意します。
+以下のコマンドは、mise を有効にしたシェル（`mise activate`）か、`mise exec -- <コマンド>` で実行してください。Python 3.13 は uv が `api/.python-version` などを見て用意します。
 
 ## 手元で動かす
 
@@ -96,12 +96,40 @@ curl -s -H 'Authorization: Bearer owner' \
 
 トークンが無い・壊れている・期限切れなら 401、ほかの利用者の記録は 404、形に合わない本文は 400 で、何も保存しません。手元の開発サーバー（`npm run dev:api`）は要求のパス（取引・銘柄の ID を含む）をログに出しますが、記録の中身・メール・トークンは出しません。
 
-## 確認コマンド
+### 決済明細の読み取りを試す（実際の AI を呼びます）
 
-型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（API と、決済明細の読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）をまとめて流します。API のテストは、エミュレーター（Auth・Firestore）を自分で起動して流す段もあります（Java が要ります。`npm run emulators` を動かしているとポートがぶつかるので、止めてから流してください）。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
+`POST /api/statement-reads` は、決済明細の画像 1 枚（PNG / JPEG・500,000 B 以下・長辺 2,000 px 以下）を本文の生のバイトで受け取り、読み取った取引を行ごとに返します（画像も結果も保存しません。[`docs/adr-0005-statement-read-api.md`](docs/adr-0005-statement-read-api.md)）。AI を呼ぶには、Claude Agent SDK（依存グループ `ai`）と資格情報が要ります。資格情報が無いときは 503 `read_unavailable` を返し、AI は呼びません。
+
+| 環境変数 | 中身 |
+|---|---|
+| `STATEMENT_READ_CREDENTIAL` | `api_key`（既定）か `oauth_token`。どちらの資格情報を使うか |
+| `ANTHROPIC_API_KEY` | `api_key` のときの Anthropic API のキー |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `oauth_token` のときのトークン（手元の実測だけに使います） |
+
+端末 2 の `npm run dev:api` の代わりに、資格情報を環境変数に置いた端末で次を起動します（値は表示しないでください）。
 
 ```sh
-mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
+cd api
+uv sync --locked --group ai
+GOOGLE_CLOUD_PROJECT=demo-loss-note FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+  uv run --locked --group ai flask --app loss_note_api.app:create_app run -p 8000
+```
+
+上の手順で ID トークンを取ったあと、架空の値の合成の明細を送ります。
+
+```sh
+curl -s -X POST -H "$AUTH" -H 'Content-Type: image/png' \
+  --data-binary @tools/statement-eval/synthetic/s01.png "$API/statement-reads"
+```
+
+終わったら `(cd api && uv sync --locked)` で AI の SDK を外し、確認コマンドと同じ状態に戻します。
+
+## 確認コマンド
+
+型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（決済明細の読み取りの部品 `packages/statement-read/`、API、読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）をまとめて流します。API のテストは、エミュレーター（Auth・Firestore）を自分で起動して流す段もあります（Java が要ります。`npm run emulators` を動かしているとポートがぶつかるので、止めてから流してください）。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
+
+```sh
+mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
 ```
 
 ## ログイン（手元）

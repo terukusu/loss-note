@@ -1,0 +1,35 @@
+[project]
+name = "statement-read"
+version = "0.1.0"
+description = "決済明細の画像の読み取りの部品（指示・結果の形と検査・直しの純関数・Agent SDK の送り口）。API と評価の道具が共有する"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    # 正確な版とハッシュは uv.lock で固定する
+    # 読み取りの締め切り（cancel scope。SDK の後始末を飛ばさずに取り消す）
+    "anyio>=4.16,<4.17",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2,<10",
+    "ruff>=0.17,<0.18",
+]
+
+[build-system]
+requires = ["uv_build>=0.13,<0.14"]
+build-backend = "uv_build"
+
+[tool.uv]
+# 公開から 2 週間未満の版を入れない（サプライチェーン対策。api/・tools/statement-eval/ と同じ日付）
+exclude-newer = "2026-11-03T00:00:00Z"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]

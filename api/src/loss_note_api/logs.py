@@ -10,7 +10,8 @@ import sys
 
 logger = logging.getLogger("loss_note_api")
 
-_ALLOWED_KEYS = frozenset({"event", "method", "route", "status", "ms", "exc", "reason"})
+# rows = 明細の読み取りで返した行の数（件数だけ。#11）
+_ALLOWED_KEYS = frozenset({"event", "method", "route", "status", "ms", "exc", "reason", "rows"})
 
 
 class _StderrHandler(logging.StreamHandler):

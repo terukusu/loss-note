@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping
 from flask import Flask, Response, g, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
-from loss_note_api import logs, schema
+from loss_note_api import logs, schema, statement_read
 from loss_note_api.auth import TokenVerifier
 from loss_note_api.routes import error, invalid, make_blueprint, make_unconfigured_blueprint
 from loss_note_api.runtime import decide_runtime
@@ -30,13 +30,17 @@ def create_app(
     *,
     store: Store | None = None,
     clock: Callable[[], int] | None = None,
+    read_timeout: float | None = None,
 ) -> Flask:
-    runtime = decide_runtime(os.environ if env is None else env)
+    """env は環境変数（既定は os.environ）。明細の読み取りの資格情報もここから読む（ADR-0005）。
+    read_timeout は読み取りの締め切りの秒数（テスト用。既定は statement_read.app_settings.APP_TIMEOUT_SECONDS）"""
+    env = os.environ if env is None else env
+    runtime = decide_runtime(env)
     clock = clock or _now_ms
     logs.configure()
 
     app = Flask(__name__)
-    # 本文の上限（超えたら 413 → 400 に直す）
+    # 本文の上限（超えたら 413 → 400 に直す）。明細の読み取りの入口だけは画像の上限に上げる（statement_read.py）
     app.config["MAX_CONTENT_LENGTH"] = schema.MAX_BODY_BYTES
 
     @app.get("/api/health")
@@ -48,7 +52,8 @@ def create_app(
         app.register_blueprint(make_unconfigured_blueprint())
     else:
         app.register_blueprint(
-            make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock)
+            make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock,
+                           statement_read.read_config(env, read_timeout))
         )
 
     @app.before_request

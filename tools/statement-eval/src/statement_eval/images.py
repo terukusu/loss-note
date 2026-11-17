@@ -1,19 +1,14 @@
-"""送る前の画像の確認と縮小（メモリ上だけ。ディスクに書かない）。上限は option-simulator の ADR-0009 と同じ"""
+"""送る前の画像の確認と縮小（メモリ上だけ。ディスクに書かない）。上限と形式の判定は共有のパッケージ
+（statement_read.image。API と同じ。option-simulator の ADR-0009 と同じ上限）。
+
+上限の名前（MAX_EDGE・MAX_BYTES）はこのモジュールの名前として持ち、fits・prepare はこの名前を見る（テストが差し替える）
+"""
 
 import io
 
-MAX_EDGE = 2000
-MAX_BYTES = 500_000
-PNG_SIG = b"\x89PNG\r\n\x1a\n"
-JPEG_SIG = b"\xff\xd8\xff"
+from statement_read.image import JPEG_SIG, MAX_BYTES, MAX_EDGE, PNG_SIG, media_type_of
 
-
-def media_type_of(data: bytes) -> str | None:
-    if data.startswith(PNG_SIG):
-        return "image/png"
-    if data.startswith(JPEG_SIG):
-        return "image/jpeg"
-    return None
+__all__ = ["JPEG_SIG", "MAX_BYTES", "MAX_EDGE", "PNG_SIG", "fits", "media_type_of", "prepare"]
 
 
 def fits(data: bytes) -> bool:

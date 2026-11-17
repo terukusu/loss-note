@@ -45,11 +45,21 @@ jobs:
           python-version: "3.13"
       - name: Python の版
         run: python -V
-      - name: API の依存（uv.lock どおり。食い違うと失敗する）
+      - name: uv（版とハッシュを固定）
+        run: python -m pip install --require-hashes -r .github/uv-requirements.txt
+      # 決済明細の読み取りの部品（packages/statement-read/。API と道具が共有する。#11）。AI の SDK と資格情報は使わない
+      - name: 読み取りの部品の依存（uv.lock どおり）
+        working-directory: packages/statement-read
+        run: uv sync --locked --python 3.13
+      - name: 読み取りの部品の lint
+        working-directory: packages/statement-read
+        run: uv run --locked ruff check
+      - name: 読み取りの部品のテスト
+        working-directory: packages/statement-read
+        run: uv run --locked pytest -q
+      - name: API の依存（uv.lock どおり。食い違うと失敗する。AI の SDK の依存グループ ai は入れない）
         working-directory: api
-        run: |
-          python -m pip install --require-hashes -r ../.github/uv-requirements.txt
-          uv sync --locked --python 3.13
+        run: uv sync --locked --python 3.13
       - name: API の lint
         working-directory: api
         run: uv run --locked ruff check

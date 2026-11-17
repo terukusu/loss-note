@@ -4,7 +4,9 @@
 // 判定・R は core/ の evaluateTrade の結果だけを使う（規則を作り直さない）。本文を保存の形に写し、
 // core/record.ts の toTradeInput を通して計算するので、保存の前の表示と保存の後に読み直した表示が同じ道を通る。
 // #15（スクショの読み取り）は、読み取った値を applyDraft の fill で同じ欄に流し込み（statement-fill.ts）、
-// 出どころ・注文の種類・逆指値を入れたかも下書きに持って、同じ readDraft の道で本文を作る
+// 出どころ・注文の種類・逆指値を入れたかも下書きに持って、同じ readDraft の道で本文を作る。
+// #12（根拠の足のチャート）: 枠ごとの時間足を下書きに持ち、チャートのある枠（DraftContext.charts）の選んだ時間足だけを
+// 本文に入れる（プレビューの判定にも同じ本文が効く）。チャートが無いときの本文は今と同じ
 import { evaluateTrade } from '../../../core/evaluate';
 import type { Judgment } from '../../../core/judge';
 import type {
@@ -18,7 +20,14 @@ import type {
   TradeSnapshot,
 } from '../../../core/record';
 import { toTradeInput } from '../../../core/record';
-import type { ExitOrderType, ExitReason, LcMove, Side, TimeframeChange } from '../../../core/trade';
+import type {
+  ExitOrderType,
+  ExitReason,
+  LcMove,
+  Side,
+  Timeframe,
+  TimeframeChange,
+} from '../../../core/trade';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
 import { widenVerb } from './reasons';
@@ -53,6 +62,9 @@ export interface Draft {
   readonly exitOrderType: ExitOrderType;
   /** 逆指値を入れたか（明細で逆指値と読めたときだけ placed） */
   readonly stopOrderPlaced: StopOrderPlaced;
+  /** チャートの時間足（任意。チャートのある枠でだけ選べ、本文に入る。#12） */
+  readonly entryChartTimeframe: Timeframe | null;
+  readonly exitChartTimeframe: Timeframe | null;
 }
 
 export type DraftField = keyof Draft;
@@ -81,6 +93,8 @@ export const EMPTY_DRAFT: Draft = {
   source: 'manual',
   exitOrderType: 'unknown',
   stopOrderPlaced: 'unanswered',
+  entryChartTimeframe: null,
+  exitChartTimeframe: null,
 };
 
 export type DraftAction =
@@ -110,6 +124,8 @@ export function applyDraft(draft: Draft, action: DraftAction): Draft {
 export interface DraftContext {
   readonly instruments: readonly InstrumentRecord[];
   readonly settings: { readonly capitalYen: number | null; readonly riskTolerancePct: number };
+  /** チャートのある枠（#12。省けばどちらも無い） */
+  readonly charts?: { readonly entry: boolean; readonly exit: boolean };
 }
 
 /** API に送る取引の本文（銘柄の ID は保存のときに決める） */
@@ -196,6 +212,8 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   source: '出どころ',
   exitOrderType: '注文の種類',
   stopOrderPlaced: '逆指値を入れたか',
+  entryChartTimeframe: 'エントリー時のチャートの時間足',
+  exitChartTimeframe: '決済時のチャートの時間足',
 };
 
 /** 「ほかの欄（任意）」に畳んだ欄 */
@@ -413,6 +431,10 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   const pnlYen = num('pnlYen', draft.pnlYen, 'signed');
   const feeYen = num('feeYen', draft.feeYen, 'nonNegative');
 
+  // チャートの時間足（チャートのある枠の、選んだものだけ。R2・R4）
+  const entryChartTimeframe = ctx.charts?.entry ? draft.entryChartTimeframe : null;
+  const exitChartTimeframe = ctx.charts?.exit ? draft.exitChartTimeframe : null;
+
   const instrument = { name, ...(matched ? { matchedId: matched.id } : {}) };
   const snapshot = snapshotOf(ctx, matched);
   const hasErrors = Object.keys(errors).length > 0;
@@ -460,6 +482,8 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       },
       ...(pnlYen === undefined ? {} : { statementPnlYen: pnlYen }),
       fees: feeYen === undefined ? [] : [{ amountYen: feeYen }],
+      ...(entryChartTimeframe === null ? {} : { entryChartTimeframe }),
+      ...(exitChartTimeframe === null ? {} : { exitChartTimeframe }),
     };
   };
   const asStored = (body: TradeBody) => ({

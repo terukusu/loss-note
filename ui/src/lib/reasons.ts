@@ -33,9 +33,10 @@ const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
       ? `${verb}（${formatPrice(r.from)} → ${formatPrice(r.to)}）`
       : verb;
   },
+  // チャートの時間足の比較から出た理由は「・チャートから」を添え、3 つのタップの申告と見分ける（Issue #12 AC-4）
   timeframeLonger: (r) =>
     r.from !== undefined && r.to !== undefined
-      ? `時間足を変えた（${TIMEFRAME_NAME[r.from]} → ${TIMEFRAME_NAME[r.to]}）`
+      ? `時間足を変えた（${TIMEFRAME_NAME[r.from]} → ${TIMEFRAME_NAME[r.to]}${r.source === 'chart' ? '・チャートから' : ''}）`
       : '時間足を変えた',
   heldPastLc: (r) => `LC で切らずに持ち続けた（${formatR(r.r)}）`,
   overRisk: (r) => `過剰リスク（${formatPct(r.riskPct)}）`,

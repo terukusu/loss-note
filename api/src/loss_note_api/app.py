@@ -7,11 +7,12 @@
 ``demo-`` で始まらない設定では ``StartupRefused`` を投げ、アプリを返さない。
 """
 
+import io
 import os
 import time
 from collections.abc import Callable, Mapping
 
-from flask import Flask, Response, g, request
+from flask import Flask, Request, Response, g, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 from loss_note_api import logs, schema, statement_read
@@ -23,6 +24,15 @@ from loss_note_api.store import FirestoreStore, Store, StoreUnavailable
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+class MemoryOnlyRequest(Request):
+    """multipart のファイルの部分を記憶の中だけで受ける（Werkzeug の既定は大きな部分をディスクの一時ファイルに書く）。
+    チャート画像も個人の情報なのでディスクに残さない（Issue #12・ADR-0006。ADR-0005 が multipart を避けた理由を塞ぐ）。
+    大きさは入口ごとの上限（routes.read_trade_multipart）で抑える"""
+
+    def _get_file_stream(self, total_content_length, content_type, filename=None, content_length=None):
+        return io.BytesIO()
 
 
 def create_app(
@@ -40,6 +50,7 @@ def create_app(
     logs.configure()
 
     app = Flask(__name__)
+    app.request_class = MemoryOnlyRequest
     # 本文の上限（超えたら 413 → 400 に直す）。明細の読み取りの入口だけは画像の上限に上げる（statement_read.py）
     app.config["MAX_CONTENT_LENGTH"] = schema.MAX_BODY_BYTES
 

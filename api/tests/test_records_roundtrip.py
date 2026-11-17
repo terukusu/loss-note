@@ -2,10 +2,14 @@
 
 共有の合成の fixture（``tests/fixtures/records/``。TS のテスト ``tests/core/record.test.ts`` も読む）を API に通す。
 TS の型と Python の検査の項目がずれたら、ここで 400 か不一致になる。保存先 2 つで回す。
+
+チャートの時間足（``entryChartTimeframe`` / ``exitChartTimeframe``）は、その枠のチャートがある取引にだけ持てる
+（Issue #12 R4）。時間足を持つ項目は、その枠に合成のチャートを付けて multipart で送る（期待値は変えない。送り方だけ）。
 """
 
 import copy
 
+from helpers.charts import chart_png, post_with_charts
 from helpers.records import load_fixture, same_typed
 
 A = "userA"
@@ -22,7 +26,8 @@ def roundtrip(api, item: dict) -> tuple[dict, dict]:
     sent = copy.deepcopy(item["record"])
     assert sent["instrumentId"] == PLACEHOLDER
     sent["instrumentId"] = iid
-    res = api.post("/api/trades", A, sent)
+    slots = {s: (chart_png(), "image/png") for s in ("entry", "exit") if f"{s}ChartTimeframe" in sent}
+    res = post_with_charts(api, A, sent, slots) if slots else api.post("/api/trades", A, sent)
     assert res.status_code == 201, (item.get("name") or item.get("scene"), res.get_json())
     got = api.get(f"/api/trades/{res.get_json()['id']}", A).get_json()
     return sent, got

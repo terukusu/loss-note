@@ -9,6 +9,9 @@
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
 // バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
 // 実際の AI は呼ばない。画像はページの中の canvas で作るか、合成の明細 tools/statement-eval/synthetic/ を使う。
+// 根拠の足のチャート（Issue #12）は、2 枠にチャートがある状態（時間足の欄つき）を同じ幅とテーマで測り、手順 C1〜C3
+// （枠を選んで貼る → チャート・枠の外に貼る → 明細 / 貼る → 保存 → 離れるの後に端末の保存先に画像が無い / 2 枚と明細で
+// 打つ 2・選ぶ 3 → 1 要求の multipart で保存）を流す。チャートの画像もページの中の canvas で作る（架空）。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
@@ -269,6 +272,7 @@ async function installFakeApi(context, opts = {}) {
     instruments: [FAKE_US30],
     trades: [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000)],
     posts: [],
+    chartPosts: [],
     read: { status: 200, rows: [READ_E1], holdMs: 0 },
     reads: [],
     settings: {
@@ -314,7 +318,26 @@ async function installFakeApi(context, opts = {}) {
         return undefined; // 待たせている間に画面を離れた
       }
     }
-    const body = req.postData() ? JSON.parse(req.postData()) : undefined;
+    // 取引の作成の multipart（#12）: 部分 record（JSON の文字）+ entryChart / exitChart（画像）
+    const ctype = req.headers()['content-type'] ?? '';
+    let body;
+    let chartParts = null;
+    if (ctype.startsWith('multipart/form-data')) {
+      const fd = await new Response(req.postDataBuffer(), {
+        headers: { 'Content-Type': ctype },
+      }).formData();
+      body = JSON.parse(String(fd.get('record')));
+      chartParts = {};
+      for (const slot of ['entry', 'exit']) {
+        const f = fd.get(`${slot}Chart`);
+        if (f && typeof f !== 'string') {
+          chartParts[slot] = { type: f.type, bytes: Buffer.from(await f.arrayBuffer()) };
+        }
+      }
+      api.chartPosts.push({ parts: [...fd.keys()], charts: chartParts });
+    } else {
+      body = req.postData() ? JSON.parse(req.postData()) : undefined;
+    }
     if (key === 'GET /api/trades') return json(route, 200, { items: api.trades });
     if (key === 'GET /api/instruments') return json(route, 200, { items: api.instruments });
     if (key === 'GET /api/settings') return json(route, 200, settings());
@@ -413,6 +436,16 @@ async function installFakeApi(context, opts = {}) {
           riskTolerancePct: s.riskTolerancePct,
         },
         record: body,
+        ...(chartParts && Object.keys(chartParts).length > 0
+          ? {
+              charts: Object.fromEntries(
+                Object.entries(chartParts).map(([k, v]) => [
+                  k,
+                  { contentType: v.type, size: v.bytes.length },
+                ]),
+              ),
+            }
+          : {}),
       };
       api.trades.push(stored);
       return json(route, 201, stored);
@@ -525,6 +558,66 @@ async function makeImage(page, spec, to) {
 }
 
 const STATEMENT_SPEC = { w: 1200, h: 600, type: 'image/png' };
+
+/** チャートの画像に付ける架空のファイル名（端末の保存先・URL に出ていないかを探す印） */
+const CHART_MARKER = 'CHARTMARK-9d3f';
+
+/**
+ * ページの中の canvas で架空のローソク足のチャートを作る。to = 'paste' なら target（CSS selector。無ければ今フォーカスの
+ * ある要素）に画像の貼り付けを送り、'bytes' ならバイト列を返す。ブラウザはフォーカスのある要素に paste を送る（枠を選んで貼る）
+ */
+async function makeChart(page, to, target = null) {
+  return page.evaluate(
+    async ({ to, target, marker }) => {
+      const w = 1280;
+      const h = 720;
+      const c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      const g = c.getContext('2d');
+      g.fillStyle = '#10141c';
+      g.fillRect(0, 0, w, h);
+      let seed = 7;
+      const rnd = () => {
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+        return seed / 0x7fffffff;
+      };
+      let price = h / 2;
+      for (let i = 0; i < 60; i++) {
+        const o = price;
+        price += (rnd() - 0.5) * 40;
+        const hi = Math.min(o, price) - rnd() * 20;
+        const lo = Math.max(o, price) + rnd() * 20;
+        const x = 20 + i * 20;
+        g.fillStyle = price < o ? '#2ec5a0' : '#ff8fa0';
+        g.fillRect(x + 6, hi, 2, lo - hi);
+        g.fillRect(x, Math.min(o, price), 14, Math.max(2, Math.abs(price - o)));
+      }
+      g.fillStyle = '#a8b0bf';
+      g.fillRect(0, h * 0.62, w, 1);
+      const blob = await new Promise((ok) => c.toBlob(ok, 'image/png'));
+      if (to === 'paste') {
+        const dt = new DataTransfer();
+        dt.items.add(new File([blob], `${marker}.png`, { type: 'image/png' }));
+        const el = target ? document.querySelector(target) : document.activeElement;
+        (el ?? document.body).dispatchEvent(
+          new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }),
+        );
+        return blob.size;
+      }
+      return Array.from(new Uint8Array(await blob.arrayBuffer()));
+    },
+    { to, target, marker: CHART_MARKER },
+  );
+}
+
+/** 枠を選んで（クリックでフォーカスして）チャートを貼り、プレビューが出るまで待つ */
+async function pasteChart(page, slot) {
+  const frame = page.locator(`#record-chart-${slot}`);
+  await frame.locator('.chart__hint').click();
+  await makeChart(page, 'paste');
+  await frame.locator('canvas.chart__preview').waitFor({ timeout: 10000 });
+}
 
 /** 本文の形式と寸法（PNG の IHDR・JPEG の SOF。読めなければ null。image.py の image_info と同じ規則） */
 function imageInfoOf(b) {
@@ -639,6 +732,23 @@ const RECORD_STATES = [
       if (box.h > 320.5) throw new Error(`プレビューが高すぎる ${box.h}px`);
       if (Math.abs(box.w / box.h - box.aw / box.ah) > 0.02)
         throw new Error(`プレビューの縦横比 ${box.w}×${box.h}（画像 ${box.aw}×${box.ah}）`);
+    },
+  },
+  {
+    slug: 'record-12-charts',
+    name: 'チャートあり',
+    anchor: '.charts',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await pasteChart(p, 'entry');
+      await pasteChart(p, 'exit');
+      await p.locator('#record-chart-entry-tf').selectOption('4h');
+      await p.locator('#record-chart-exit-tf').selectOption('1d');
+      await p
+        .locator('.reasons__item', { hasText: '時間足を変えた（4 時間足 → 日足・チャートから）' })
+        .waitFor();
+      // 枠を選んだ状態（輪と「ここに貼れます」）を撮る
+      await p.locator('#record-chart-exit .chart__hint').click();
     },
   },
   {
@@ -1878,6 +1988,194 @@ async function runFlows(browser, base, signedIn) {
       expectEq(sent.exit.orderType, 'unknown', '注文の種類');
       expectEq(errors.length, 0, 'ページのエラー');
       return `合成の明細を選ぶ → 打つ ${typed.typed}・選ぶ ${typed.chosen} → A・−1.0R → 保存（自動の操作で ${(ms / 1000).toFixed(1)} 秒）`;
+    } finally {
+      await c.close();
+    }
+  });
+
+  // ── 根拠の足のチャート（C1〜C3。Issue #12）。偽の記録の API で流す
+  await check('C1', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await openRecord(p, base);
+      // エントリー時の枠を選んで貼る → 枠に入り、明細の読み取りの要求は 0
+      await p.locator('#record-chart-entry .chart__hint').click();
+      expectEq(
+        await p.evaluate(() => document.activeElement?.id),
+        'record-chart-entry',
+        '枠をクリックしたときのフォーカス',
+      );
+      await makeChart(p, 'paste');
+      await p.locator('#record-chart-entry canvas.chart__preview').waitFor({ timeout: 10000 });
+      expectEq(fake.reads.length, 0, '枠に貼った後の明細の読み取りの要求');
+      // Tab で決済時の枠へ移って貼る → 決済時の枠に入る
+      await p.locator('#record-chart-exit').focus();
+      await makeChart(p, 'paste');
+      await p.locator('#record-chart-exit canvas.chart__preview').waitFor({ timeout: 10000 });
+      expectEq(fake.reads.length, 0, '2 枚目の後の明細の読み取りの要求');
+      // 時間足の欄はチャートのある枠だけ（2 枚あるので 2 つ）。[外す] で欄も消え、フォーカスは枠へ
+      expectEq(await p.locator('.chart select').count(), 2, '時間足の欄の数');
+      await p.locator('#record-chart-exit-tf').selectOption('1d');
+      // レビュー指摘 1: 時間足の欄にフォーカスが残ったまま貼る → 目印（輪・「ここに貼れます」）は出ておらず、
+      // チャートは置き換わらず時間足も消えない（明細の読み取りへ。目印と行き先が一致する）
+      await p.locator('#record-chart-exit-tf').focus();
+      const ringOnSelect = await p.evaluate(
+        () => getComputedStyle(document.querySelector('#record-chart-exit .chart__ready')).display,
+      );
+      expectEq(ringOnSelect, 'none', '時間足の欄にフォーカスがあるときの「ここに貼れます」');
+      const exitPreviewBefore = await p.evaluate(
+        () => document.querySelector('#record-chart-exit canvas.chart__preview') !== null,
+      );
+      await makeChart(p, 'paste');
+      await expectPoll(() => fake.reads.length === 1, '時間足の欄に貼った後の明細の読み取りの要求');
+      await p.locator('.field__mark').first().waitFor({ timeout: 10000 });
+      expectEq(exitPreviewBefore, true, '貼る前の決済時のプレビュー');
+      expectEq(await p.locator('#record-chart-exit-tf').inputValue(), '1d', '貼った後の時間足');
+      expectEq(await p.locator('canvas.chart__preview').count(), 2, '貼った後のチャートの枚数');
+      // 枠そのものにフォーカスがあるときは目印が出る
+      await p.locator('#record-chart-exit').focus();
+      expectEq(
+        await p.evaluate(
+          () =>
+            getComputedStyle(document.querySelector('#record-chart-exit .chart__ready')).display,
+        ),
+        'block',
+        '枠にフォーカスがあるときの「ここに貼れます」',
+      );
+      await p
+        .locator('#record-chart-exit')
+        .getByRole('button', { name: '決済時のチャートを外す' })
+        .click();
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-chart-exit',
+        '[外す] の後のフォーカス',
+      );
+      expectEq(await p.locator('.chart select').count(), 1, '外した後の時間足の欄の数');
+      // 枠の外（本文）に貼る → 明細の読み取りへ 1 件、チャートの枠は増えない
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await expectPoll(() => fake.reads.length === 2, '枠の外に貼った後の明細の読み取りの要求');
+      expectEq(await p.locator('canvas.chart__preview').count(), 1, '枠の外に貼った後のチャート');
+      // [チャートを選ぶ]（ファイル）でも決済時の枠に入る
+      const bytes = Buffer.from(await makeChart(p, 'bytes'));
+      await p
+        .locator('#record-chart-exit-file')
+        .setInputFiles({ name: `${CHART_MARKER}.png`, mimeType: 'image/png', buffer: bytes });
+      await p.locator('#record-chart-exit canvas.chart__preview').waitFor({ timeout: 10000 });
+      expectEq(fake.reads.length, 2, 'ファイルを選んだ後の明細の読み取りの要求');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '枠をクリック / Tab で選んで貼る → その枠（明細の要求 0）・時間足の欄にフォーカスで貼る → 目印なし・明細へ・チャートと時間足は不変・枠の外に貼る → 明細・[チャートを選ぶ] → 枠・[外す] → 欄が消えフォーカスは枠';
+  });
+
+  await check('C2', async () => {
+    const { c, p, fake } = await recordContext();
+    const snap = () =>
+      p.evaluate(async () => {
+        const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+        return {
+          ls: Object.keys(localStorage).sort(),
+          ss: Object.keys(sessionStorage).sort(),
+          idb: dbs.map((d) => d.name).sort(),
+          caches: (await caches.keys()).sort(),
+          href: location.href,
+          state: JSON.stringify(history.state),
+          values: Object.keys(localStorage)
+            .map((k) => localStorage.getItem(k) ?? '')
+            .concat(Object.keys(sessionStorage).map((k) => sessionStorage.getItem(k) ?? ''))
+            .join('\n'),
+        };
+      });
+    try {
+      await openRecord(p, base);
+      const before = await snap();
+      await fillRecord(p, EX_E1);
+      await pasteChart(p, 'entry');
+      await pasteChart(p, 'exit');
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await p.getByText('チャート 2 枚も保存しました').waitFor();
+      await p.getByRole('button', { name: '次の取引を記録' }).click();
+      // もう 1 枚貼ってから一覧へ移る（保存しないチャートは送らない。E12）
+      await pasteChart(p, 'entry');
+      const postsBefore = fake.chartPosts.length;
+      await p.locator(`nav a[href="/trades"]`).first().click();
+      await waitReady(p, '取引の一覧');
+      expectEq(fake.chartPosts.length, postsBefore, '離れた後のチャートの送信');
+      const after = await snap();
+      for (const k of ['ls', 'ss', 'idb', 'caches']) {
+        expectEq(JSON.stringify(after[k]), JSON.stringify(before[k]), k);
+      }
+      if (after.ls.some((k) => k !== THEME_KEY)) throw new Error(`localStorage の鍵 ${after.ls}`);
+      if (after.ss.length !== 0) throw new Error(`sessionStorage の鍵 ${after.ss}`);
+      if (after.caches.length !== 0) throw new Error('Cache Storage が空でない');
+      // 送った画像のバイト列の一部（base64・16 進）と印が、端末の保存先の値に無い
+      const sent = fake.chartPosts[0]?.charts.entry?.bytes;
+      if (!sent) throw new Error('チャートが送られていない');
+      const needles = [
+        CHART_MARKER,
+        sent.subarray(64, 160).toString('base64'),
+        sent.subarray(64, 96).toString('hex'),
+      ];
+      const idbText = await p.evaluate(async () => {
+        const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+        const out = [];
+        for (const d of dbs) {
+          const db = await new Promise((ok, ng) => {
+            const r = indexedDB.open(d.name);
+            r.onsuccess = () => ok(r.result);
+            r.onerror = () => ng(r.error);
+          });
+          for (const name of db.objectStoreNames) {
+            const all = await new Promise((ok) => {
+              const r = db.transaction(name).objectStore(name).getAll();
+              r.onsuccess = () => ok(r.result);
+              r.onerror = () => ok([]);
+            });
+            out.push(JSON.stringify(all));
+          }
+          db.close();
+        }
+        return out.join('\n');
+      });
+      for (const n of needles) {
+        if (after.values.includes(n)) throw new Error('Web Storage にチャートの画像');
+        if (idbText.includes(n)) throw new Error('IndexedDB にチャートの画像');
+      }
+      if (after.href.includes(CHART_MARKER) || (after.state ?? '').includes(CHART_MARKER))
+        throw new Error('URL・履歴にチャート');
+    } finally {
+      await c.close();
+    }
+    return '貼る → 保存 → 次の取引で 1 枚 → 一覧へ: Web Storage の鍵はテーマだけ・IndexedDB の名前と Cache Storage は前と同じ・値に画像なし・離れた後の送信 0';
+  });
+
+  await check('C3', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await openRecord(p, base);
+      await pasteChart(p, 'entry');
+      await pasteChart(p, 'exit');
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor({ timeout: 10000 });
+      const typed = await fillStatementTaps(p);
+      await p.locator('.verdict .badge', { hasText: 'A' }).waitFor({ timeout: 5000 });
+      await p.locator('button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      expectEq(fake.chartPosts.length, 1, 'チャートつきの保存の要求');
+      expectEq(fake.chartPosts[0].parts.join(','), 'record,entryChart,exitChart', '部分');
+      for (const slot of ['entry', 'exit']) {
+        const ch = fake.chartPosts[0].charts[slot];
+        const info = imageInfoOf(ch.bytes);
+        if (!info || info.type !== ch.type) throw new Error(`${slot}: 形式`);
+        if (ch.bytes.length > 500000 || Math.max(info.w, info.h) > 2000)
+          throw new Error(`${slot}: ${ch.bytes.length} B ${info.w}×${info.h}`);
+      }
+      expectEq(fake.reads.length, 1, '明細の読み取りの要求');
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `チャート 2 枚 + 明細 1 枚 → 打つ ${typed.typed}・選ぶ ${typed.chosen} → A → 1 要求（record・entryChart・exitChart）で保存`;
     } finally {
       await c.close();
     }

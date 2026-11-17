@@ -11,6 +11,8 @@
 //   直しても記録済みの取引の snapshot は変わらない（取引は記録したときの値を写して持つ。C36）
 // - POST /api/statement-reads（#15）: opts.reads の台本を順に返す（無ければ 0 行の statement）。要求は calls に
 //   Content-Type とバイト数だけを残す（画像のバイト列そのものは持たない）。holdReads / releaseReads で応答を止める
+// - POST /api/trades の multipart（#12）: 部分 record（JSON の文字）+ entryChart / exitChart（画像）。チャートは charts に
+//   形式と大きさだけを残す（バイト列は持たない）。チャートの無い枠に時間足 → 400 noChart（本物と同じ）。応答に charts の要約
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 import type {
   InstrumentBody,
@@ -30,6 +32,14 @@ export interface FakeCall {
   /** 読み取りの要求の Content-Type とバイト数 */
   readonly contentType?: string;
   readonly bytes?: number;
+  /** multipart の部分の名前（取引の作成。#12） */
+  readonly parts?: readonly string[];
+}
+
+/** 保存したチャート（形式と大きさだけ） */
+export interface FakeChart {
+  readonly contentType: string;
+  readonly size: number;
 }
 
 /** 読み取りの応答の台本（状態と本文、または通信の失敗） */
@@ -57,6 +67,8 @@ export interface FakeApi {
   readonly calls: FakeCall[];
   readonly instruments: InstrumentRecord[];
   readonly trades: StoredTrade[];
+  /** 保存したチャート（鍵 = 取引 ID-枠）。枚数 = size */
+  readonly charts: Map<string, FakeChart>;
   /** 今の設定（PUT /api/settings で変わる） */
   settings(): SettingsRecord;
   /** 待たせている要求を進める（delay を使うとき） */
@@ -78,6 +90,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   const instruments: InstrumentRecord[] = [...(opts.instruments ?? [])];
   const trades: StoredTrade[] = [...(opts.trades ?? [])];
   const calls: FakeCall[] = [];
+  const charts = new Map<string, FakeChart>();
   let clock = 1_800_000_000_000;
   let seq = 0;
   let conflict = opts.conflictOnce;
@@ -113,8 +126,24 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
         throw new TypeError('読み取りの通信の誤り（偽物。SECRET-本文 は画面に出ないこと）');
       return json(script.status, script.body ?? { error: 'x', detail: 'SECRET-本文' });
     }
-    const body = typeof init.body === 'string' ? (JSON.parse(init.body) as unknown) : undefined;
-    calls.push({ method, path, ...(body === undefined ? {} : { body }) });
+    const form = init.body instanceof FormData ? init.body : undefined;
+    const formRecord = form?.get('record');
+    const body =
+      typeof init.body === 'string'
+        ? (JSON.parse(init.body) as unknown)
+        : typeof formRecord === 'string'
+          ? (JSON.parse(formRecord) as unknown)
+          : undefined;
+    const partNames: string[] = [];
+    form?.forEach((_v, k) => {
+      partNames.push(k);
+    });
+    calls.push({
+      method,
+      path,
+      ...(body === undefined ? {} : { body }),
+      ...(form ? { parts: partNames } : {}),
+    });
     if (gate) await gate;
     const f = opts.fail?.[key] ?? once.get(key);
     once.delete(key);
@@ -208,6 +237,17 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const record = body as TradeRecord;
       const inst = instruments.find((i) => i.id === record.instrumentId);
       if (!inst) return json(400, { error: 'invalid', issues: [{ field: 'instrumentId' }] });
+      const parts: Partial<Record<'entry' | 'exit', FakeChart>> = {};
+      for (const slot of ['entry', 'exit'] as const) {
+        const f = form?.get(`${slot}Chart`);
+        if (f instanceof Blob) parts[slot] = { contentType: f.type, size: f.size };
+        if (record[`${slot}ChartTimeframe`] !== undefined && !parts[slot]) {
+          return json(400, {
+            error: 'invalid',
+            issues: [{ field: `${slot}ChartTimeframe`, kind: 'noChart' }],
+          });
+        }
+      }
       clock += 1;
       const s = settings();
       const stored: StoredTrade = {
@@ -233,7 +273,11 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
           stopOrderPlaced: record.stopOrderPlaced ?? 'unanswered',
           fees: record.fees ?? [],
         },
+        ...(Object.keys(parts).length > 0
+          ? { charts: parts as NonNullable<StoredTrade['charts']> }
+          : {}),
       };
+      for (const [slot, c] of Object.entries(parts)) charts.set(`${stored.id}-${slot}`, c);
       trades.push(stored);
       return json(201, stored);
     }
@@ -245,6 +289,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     calls,
     instruments,
     trades,
+    charts,
     settings,
     hold() {
       gate = new Promise((ok) => {

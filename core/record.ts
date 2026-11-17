@@ -90,6 +90,12 @@ export interface TradeSnapshot {
   readonly riskTolerancePct: number;
 }
 
+/** 保存したチャート画像の要約（形式と大きさだけ。バイト列は API の /api/trades/{id}/charts/{slot} から読む。Issue #12） */
+export interface ChartMeta {
+  readonly contentType: 'image/png' | 'image/jpeg';
+  readonly size: number;
+}
+
 export interface StoredTrade {
   readonly id: string;
   readonly schemaVersion: 1;
@@ -97,6 +103,8 @@ export interface StoredTrade {
   readonly updatedAt: number;
   readonly snapshot: TradeSnapshot;
   readonly record: TradeRecord;
+  /** 根拠の足のチャート（エントリー時・決済時。ある枠だけ。チャートの無い取引には鍵が無い） */
+  readonly charts?: { readonly entry?: ChartMeta; readonly exit?: ChartMeta };
 }
 
 /** 銘柄の本文（省いた欄は API が既定を入れる） */

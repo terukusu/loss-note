@@ -1,6 +1,8 @@
 """テスト用の記憶の保存先（``loss_note_api.store.Store`` と同じ約束）。
 
 API のテストはこれとエミュレーターの Firestore の両方で同じテストを回す（conftest の ``store_kind``）。
+チャート（Issue #12）は ``users[uid]["charts"]["{tradeId}-{slot}"]``。``fail_charts`` を立てると、チャートに触れる
+書き込みが何も書かずに StoreUnavailable になる（取引とチャートを一緒に書く約束の試験。AC-6）。
 """
 
 import copy
@@ -8,6 +10,7 @@ import secrets
 import string
 import threading
 
+from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.store import Conflict, MissingInstrument, StoreUnavailable
 
 _ALNUM = string.ascii_letters + string.digits
@@ -23,6 +26,7 @@ class MemoryStore:
         self.users: dict[str, dict[str, dict[str, dict]]] = {}
         self.fail_with: Exception | None = None  # 次の呼び出しで投げる例外（500 の試験）
         self.unavailable = False
+        self.fail_charts = False  # チャートの書き込みで失敗する（何も書かない）
 
     def _col(self, uid, name):
         if self.fail_with is not None:
@@ -43,14 +47,23 @@ class MemoryStore:
         with self._lock:
             return copy.deepcopy(self._col(uid, "trades").get(trade_id))
 
-    def create_trade(self, uid, instrument_id, build):
+    def _chart_write(self):
+        if self.fail_charts:
+            raise StoreUnavailable("test")
+
+    def create_trade(self, uid, instrument_id, build, charts=None):
         with self._lock:
             inst = self._col(uid, "instruments").get(instrument_id)
             if inst is None:
                 raise MissingInstrument()
             doc = build(copy.deepcopy(inst), copy.deepcopy(self._col(uid, "settings").get("current")))
             tid = _new_id()
+            if charts:
+                self._chart_write()
+            # ここから下は失敗しない（取引とチャートを一緒に書く = トランザクションと同じ）
             self._col(uid, "trades")[tid] = copy.deepcopy(doc)
+            for slot, chart in (charts or {}).items():
+                self._col(uid, "charts")[chart_doc_id(tid, slot)] = copy.deepcopy(chart)
             return tid, doc
 
     def update_trade(self, uid, trade_id, instrument_id, mutate):
@@ -70,7 +83,43 @@ class MemoryStore:
 
     def delete_trade(self, uid, trade_id):
         with self._lock:
-            return self._col(uid, "trades").pop(trade_id, None) is not None
+            trades = self._col(uid, "trades")
+            if trade_id not in trades:
+                return False
+            self._chart_write()
+            del trades[trade_id]
+            for slot in SLOTS:
+                self._col(uid, "charts").pop(chart_doc_id(trade_id, slot), None)
+            return True
+
+    # ── チャート ──
+    def get_chart(self, uid, trade_id, slot):
+        with self._lock:
+            return copy.deepcopy(self._col(uid, "charts").get(chart_doc_id(trade_id, slot)))
+
+    def put_chart(self, uid, trade_id, slot, chart, mutate):
+        with self._lock:
+            trades = self._col(uid, "trades")
+            if trade_id not in trades:
+                return None
+            new = mutate(copy.deepcopy(trades[trade_id]))
+            self._chart_write()
+            self._col(uid, "charts")[chart_doc_id(trade_id, slot)] = copy.deepcopy(chart)
+            trades[trade_id] = copy.deepcopy(new)
+            return new
+
+    def delete_chart(self, uid, trade_id, slot, mutate):
+        with self._lock:
+            trades = self._col(uid, "trades")
+            key = chart_doc_id(trade_id, slot)
+            # 有無は取引の文書の要約で見る（FirestoreStore と同じ約束）
+            if trade_id not in trades or slot not in (trades[trade_id].get("charts") or {}):
+                return None
+            new = mutate(copy.deepcopy(trades[trade_id]))
+            self._chart_write()
+            self._col(uid, "charts").pop(key, None)
+            trades[trade_id] = copy.deepcopy(new)
+            return new
 
     # ── 銘柄 ──
     def _name_taken(self, uid, key, except_id=None):

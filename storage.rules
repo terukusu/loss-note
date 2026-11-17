@@ -1,6 +1,7 @@
 rules_version = '2';
 // 画面（クライアント）から Storage を直接読み書きさせない。読み書きは API（サーバー）だけが行う（docs/design.md 10 章）。
-// 中身のテストは画像を扱う Issue で足す
+// チャート画像は Firestore に置く（Storage は使っていない。ADR-0006）。中身のテストは
+// api/tests/emulator/test_emulator_e2e.py の test_storage_rules_deny_everything（npm run test:api:emulator）
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} {

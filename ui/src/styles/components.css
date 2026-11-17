@@ -885,13 +885,15 @@
   background: var(--ink-3);
 }
 
-/* 貼り付けの案内は、ポインタの細かい端末（PC）だけに出す（スマホには貼り付けのキーが無い） */
-.statement__pastehint {
+/* 貼り付けの案内は、ポインタの細かい端末（PC）だけに出す（スマホには貼り付けのキーが無い。#12 のチャートの枠も同じ） */
+.statement__pastehint,
+.chart__pastehint {
   display: none;
 }
 
 @media (pointer: fine) {
-  .statement__pastehint {
+  .statement__pastehint,
+  .chart__pastehint {
     display: block;
   }
 }
@@ -982,7 +984,8 @@
   }
 }
 
-.statement__preview {
+.statement__preview,
+.chart__preview {
   display: block;
   max-width: 100%;
   height: auto;
@@ -1005,6 +1008,100 @@
   font-size: var(--fs-sm);
   color: var(--ink-2);
   text-wrap: pretty;
+}
+
+/* ── 根拠の足のチャートの枠（#12）。720px 未満は縦に、以上は横に 2 つ。枠を選ぶ（フォーカス）と輪と「ここに貼れます」 ── */
+.charts__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
+}
+
+@media (min-width: 720px) {
+  .charts__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.chart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--sp-4);
+  border: 1px dashed var(--line-2);
+  border-radius: var(--radius-md);
+  background: var(--s2);
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+/* 枠そのものにフォーカスがあるとき（= 貼るとこの枠に入るとき）だけ輪を出す。枠の中の欄・ボタンでは出さない
+   （行き先は枠そのものだけ。chartSlotOf と同じ条件）。輪はキーの操作と、貼り付けのキーがある PC のクリックで出す */
+.chart:focus {
+  outline: none;
+}
+
+.chart:focus-visible {
+  border-style: solid;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+
+@media (pointer: fine) {
+  .chart:focus {
+    border-style: solid;
+    border-color: var(--focus);
+    box-shadow: 0 0 0 1px var(--focus);
+  }
+}
+
+.chart__name {
+  float: left;
+  width: 100%;
+  padding: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.chart__name + * {
+  clear: both;
+}
+
+.chart__hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* 「ここに貼れます」は枠を選んでいるときだけ（PC。指の端末には貼り付けのキーが無い） */
+.chart__ready {
+  display: none;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+@media (pointer: fine) {
+  .chart:focus .chart__ready {
+    display: block;
+  }
+}
+
+.chart__preview {
+  max-height: 240px;
+}
+
+.chart__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.chart__tf {
+  flex: 1 1 10rem;
+  min-width: 0;
 }
 
 /* 欄の印（読み取り・直した など）。ラベルの横に小さな文字で（色だけに頼らない） */

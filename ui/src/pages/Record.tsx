@@ -105,8 +105,12 @@ export function RecordScreen() {
     } else if (before === 'saved' && state.phase === 'editing') {
       window.scrollTo({ top: 0 });
       document.getElementById(FIRST_FIELD_ID)?.focus({ preventScroll: true });
+    } else if (before === 'saving' && state.phase === 'editing' && state.error) {
+      // 保存に失敗して戻った: 保存中は欄とボタンが無効でフォーカスが外れるので、押した [記録する] へ戻す
+      // （失敗の文言は role="alert" で読み上げる。#5 のレビュー指摘 6）
+      document.getElementById(SUBMIT_ID)?.focus();
     }
-  }, [state.phase]);
+  }, [state.phase, state.error]);
 
   // 明細の 1 行を保存して次の行へ移ったら、枠の行の番号へスクロールしてフォーカスを移す
   // （知らせ「i / N 行目を記録しました。次の行（…）です」は role="status" で読み上げる）
@@ -184,6 +188,7 @@ export interface RecordViewProps {
 }
 
 const FIRST_FIELD_ID = 'record-instrument';
+const SUBMIT_ID = 'record-submit';
 const VERDICT_TITLE_ID = 'record-verdict-title';
 const INSTRUMENT_LIST_ID = 'record-instruments';
 const STATEMENT_FILE_ID = 'record-statement-file';
@@ -601,7 +606,14 @@ function RecordForm(p: RecordViewProps) {
             .filter(Boolean)
             .join(' / ')}
         </p>
-        <Button type="submit" size="lg" block icon="record" disabled={!read.canSave || saving}>
+        <Button
+          type="submit"
+          id={SUBMIT_ID}
+          size="lg"
+          block
+          icon="record"
+          disabled={!read.canSave || saving}
+        >
           {saving ? '記録しています…' : '記録する'}
         </Button>
       </div>

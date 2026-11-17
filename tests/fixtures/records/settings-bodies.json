@@ -1,0 +1,121 @@
+{
+  "settings": [
+    {
+      "name": "E1",
+      "before": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "body": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      }
+    },
+    {
+      "name": "E2",
+      "before": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "body": {
+        "capitalYen": 1200000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      }
+    },
+    {
+      "name": "E3b",
+      "before": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "body": {
+        "capitalYen": null,
+        "riskTolerancePct": 1.5,
+        "performanceUnit": "R"
+      }
+    },
+    {
+      "name": "E7",
+      "before": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "body": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 2.5,
+        "performanceUnit": "R"
+      }
+    },
+    {
+      "name": "KEEP-2",
+      "before": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "yen"
+      },
+      "body": {
+        "capitalYen": 800000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "yen"
+      }
+    }
+  ],
+  "instruments": [
+    {
+      "name": "E9",
+      "before": {
+        "name": "US30"
+      },
+      "body": {
+        "name": "US30",
+        "underlyingKind": "index",
+        "productForm": "spotCfd",
+        "priceCurrency": "USD",
+        "multiplier": 1,
+        "quantityStep": 0.1
+      }
+    },
+    {
+      "name": "E12",
+      "before": {
+        "name": "US30"
+      },
+      "body": {
+        "name": "US30",
+        "underlyingKind": "other",
+        "productForm": "spotCfd",
+        "priceCurrency": "USD",
+        "multiplier": 1,
+        "quantityStep": 1
+      }
+    },
+    {
+      "name": "full",
+      "before": {
+        "name": "US30"
+      },
+      "body": {
+        "name": "US30",
+        "underlying": "架空指数",
+        "underlyingKind": "commodity",
+        "productForm": "future",
+        "priceCurrency": "JPY",
+        "multiplier": 100,
+        "quantityStep": 0.01
+      }
+    },
+    {
+      "name": "E13",
+      "before": null,
+      "body": {
+        "name": "GOLD"
+      }
+    }
+  ]
+}

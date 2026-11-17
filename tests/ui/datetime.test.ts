@@ -1,6 +1,11 @@
 // datetime-local の文字列 ⇔ エポック（端末の時間帯。Issue #13）。値はすべて架空
 import { describe, expect, it } from 'vitest';
-import { floorToMinute, fromLocalInput, toLocalInput } from '../../ui/src/lib/datetime';
+import {
+  floorToMinute,
+  formatDateTime,
+  fromLocalInput,
+  toLocalInput,
+} from '../../ui/src/lib/datetime';
 import { forAll } from '../core/helpers/prng';
 
 describe('datetime-local の読み書き', () => {
@@ -43,5 +48,12 @@ describe('datetime-local の読み書き', () => {
   it('floorToMinute は秒・ミリ秒を落とす', () => {
     const t = new Date(2026, 5, 6, 7, 8, 9, 10).getTime();
     expect(floorToMinute(t)).toBe(new Date(2026, 5, 6, 7, 8).getTime());
+  });
+});
+
+describe('formatDateTime（資金の履歴の日時。端末の時間帯。Issue #5）', () => {
+  it('YYYY/MM/DD HH:mm（0 で埋める）', () => {
+    expect(formatDateTime(new Date(2026, 10, 8, 9, 5, 30).getTime())).toBe('2026/11/08 09:05');
+    expect(formatDateTime(new Date(2026, 0, 1, 0, 0).getTime())).toBe('2026/01/01 00:00');
   });
 });

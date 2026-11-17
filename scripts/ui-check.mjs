@@ -9,6 +9,10 @@
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
 // バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
 // 実際の AI は呼ばない。画像はページの中の canvas で作るか、合成の明細 tools/statement-eval/synthetic/ を使う。
+// 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
+// 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
+// フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
+// 文字に重なっていないかも、部品のはみ出しと一緒に数える。
 // ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
 // （Flask と Firestore のエミュレーターを立てなくてよい。本物の API の経路は Issue #13 の手での確かめで見る）。
 //
@@ -255,6 +259,8 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
 /**
  * 文脈の /api/** を偽の記録の API に置き換える。opts.capitalYen（資金）、opts.failTrades（POST /api/trades の状態）、
  * opts.delayMs（POST /api/trades を待たせる）。返す api.posts で保存の要求を数える。
+ * 設定（Issue #5）: api.settings は書き換えてよい（PUT /api/settings で変わる。資金が変わったときだけ履歴に足す）。
+ * PUT /api/instruments/<id> は本文に無い欄を既定に戻し、名前が自分以外と同じなら 409。設定・銘柄の書き込みは api.writes に残す
  * POST /api/statement-reads は api.read（{ status, rows, holdMs }。後から書き換えてよい）で答え、要求の
  * Content-Type と本文のバイト列を api.reads に残す（このスクリプトの記憶の中だけ）
  */
@@ -265,15 +271,19 @@ async function installFakeApi(context, opts = {}) {
     posts: [],
     read: { status: 200, rows: [READ_E1], holdMs: 0 },
     reads: [],
+    settings: {
+      capitalYen: opts.capitalYen ?? null,
+      riskTolerancePct: 1,
+      performanceUnit: 'R',
+      capitalHistory: [],
+    },
+    writes: [],
   };
   let seq = 0;
   let clock = 1800000000000;
-  const settings = () => ({
-    capitalYen: opts.capitalYen ?? null,
-    riskTolerancePct: 1,
-    performanceUnit: 'R',
-    capitalHistory: [],
-  });
+  const settings = () => api.settings;
+  /** 名前の同一視（API の name_key と同じ） */
+  const nameKey = (n) => n.normalize('NFKC').toUpperCase().toLowerCase().trim();
   const json = (route, status, body) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await context.route('**/api/**', async (route) => {
@@ -309,9 +319,74 @@ async function installFakeApi(context, opts = {}) {
     if (key === 'GET /api/instruments') return json(route, 200, { items: api.instruments });
     if (key === 'GET /api/settings') return json(route, 200, settings());
     if (key === 'POST /api/instruments') {
-      const inst = { ...FAKE_US30, id: `inst-${++seq}`, name: body.name, underlyingKind: 'other' };
+      api.writes.push({ key, body });
+      if (api.instruments.some((i) => nameKey(i.name) === nameKey(body.name))) {
+        return json(route, 409, { error: 'conflict', reason: 'duplicateName' });
+      }
+      clock += 1;
+      const inst = {
+        id: `inst-${++seq}`,
+        name: body.name.trim(),
+        underlyingKind: 'other',
+        productForm: 'spotCfd',
+        priceCurrency: null,
+        multiplier: 1,
+        quantityStep: 1,
+        createdAt: clock,
+        updatedAt: clock,
+      };
       api.instruments.push(inst);
       return json(route, 201, inst);
+    }
+    if (key === 'PUT /api/settings') {
+      api.writes.push({ key, body });
+      if (opts.failSettings) return json(route, opts.failSettings, { error: 'unavailable' });
+      const cap = body.capitalYen;
+      const risk = body.riskTolerancePct;
+      if (
+        !(cap === null || (typeof cap === 'number' && cap > 0)) ||
+        !(typeof risk === 'number' && risk >= 0.5 && risk <= 3) ||
+        !['R', 'yen'].includes(body.performanceUnit)
+      ) {
+        return json(route, 400, { error: 'invalid' });
+      }
+      clock += 1;
+      const cur = api.settings;
+      api.settings = {
+        capitalYen: cap,
+        riskTolerancePct: risk,
+        performanceUnit: body.performanceUnit,
+        capitalHistory:
+          cap === cur.capitalYen
+            ? cur.capitalHistory
+            : [...cur.capitalHistory, { valueYen: cap, at: clock }],
+      };
+      return json(route, 200, api.settings);
+    }
+    if (req.method() === 'PUT' && path.startsWith('/api/instruments/')) {
+      api.writes.push({ key, body });
+      const id = decodeURIComponent(path.slice('/api/instruments/'.length));
+      const idx = api.instruments.findIndex((i) => i.id === id);
+      if (idx < 0) return json(route, 404, { error: 'not_found' });
+      if (api.instruments.some((i) => i.id !== id && nameKey(i.name) === nameKey(body.name))) {
+        return json(route, 409, { error: 'conflict', reason: 'duplicateName' });
+      }
+      clock += 1;
+      const prev = api.instruments[idx];
+      const next = {
+        id,
+        name: body.name.trim(),
+        ...(body.underlying === undefined ? {} : { underlying: body.underlying }),
+        underlyingKind: body.underlyingKind ?? 'other',
+        productForm: body.productForm ?? 'spotCfd',
+        priceCurrency: body.priceCurrency ?? null,
+        multiplier: body.multiplier ?? 1,
+        quantityStep: body.quantityStep ?? 1,
+        createdAt: prev.createdAt,
+        updatedAt: clock,
+      };
+      api.instruments[idx] = next;
+      return json(route, 200, next);
     }
     if (key === 'POST /api/trades') {
       api.posts.push(body);
@@ -578,6 +653,94 @@ const RECORD_STATES = [
   },
 ];
 
+// ── 設定の画面（Issue #5 の E16）。値はすべて架空 ──
+const FAKE_N225 = {
+  ...FAKE_US30,
+  id: 'inst-n225',
+  name: '日経225',
+  underlying: '架空指数',
+  priceCurrency: 'JPY',
+};
+const FAKE_XAU = {
+  ...FAKE_US30,
+  id: 'inst-xau',
+  name: 'XAU',
+  underlyingKind: 'commodity',
+  priceCurrency: 'USD',
+  multiplier: 100,
+  quantityStep: 0.01,
+};
+/** 自動で足されたままの銘柄（仮の値） */
+const FAKE_US30_AUTO = { ...FAKE_US30, underlyingKind: 'other' };
+
+/** 資金 1,000,000円（履歴 3 件）・銘柄 3 件にする */
+function seedSettings(api) {
+  api.instruments.splice(0, api.instruments.length, FAKE_US30_AUTO, FAKE_N225, FAKE_XAU);
+  api.settings = {
+    capitalYen: 1000000,
+    riskTolerancePct: 1,
+    performanceUnit: 'R',
+    capitalHistory: [
+      { valueYen: 800000, at: 1799000000000 },
+      { valueYen: 1200000, at: 1799500000000 },
+      { valueYen: 1000000, at: 1799900000000 },
+    ],
+  };
+}
+
+/** 設定の画面を開き、資金の欄が出るまで待つ */
+async function openSettings(page, base) {
+  await page.goto(`${base}/settings`);
+  await waitReady(page, '設定');
+  await page.locator('#settings-capital').waitFor({ state: 'visible', timeout: 15000 });
+}
+
+/** 設定の画面の状態（幅 × テーマで測る）。prep は開く前に偽の API を整え、fn は開いた画面をその状態にする */
+const SETTINGS_STATES = [
+  {
+    slug: 'settings-1-open',
+    name: '開いた直後',
+    prep: seedSettings,
+    fn: async () => {},
+  },
+  {
+    slug: 'settings-2-editing',
+    name: '銘柄を直している',
+    prep: seedSettings,
+    fn: async (p) => {
+      await p.getByRole('button', { name: 'US30 を直す' }).click();
+      await p.locator('#settings-inst-name').waitFor();
+      await p.locator('#settings-inst-kind').selectOption('index');
+      await p.locator('#settings-inst-currency').fill('USD');
+    },
+  },
+  {
+    slug: 'settings-3-errors',
+    name: '誤りと警告',
+    prep: seedSettings,
+    fn: async (p) => {
+      await p.locator('#settings-capital').fill('1000.5');
+      await p.locator('#settings-risk').fill('2.5');
+      await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
+      await p.getByRole('button', { name: 'US30 を直す' }).click();
+      await p.locator('#settings-inst-name').fill('日経２２５ ');
+      await p.locator('#settings-inst-currency').fill('US');
+      await p.locator('#settings-inst-multiplier').fill('0');
+      await p.getByText('同じ名前の銘柄があります').waitFor();
+    },
+  },
+  {
+    slug: 'settings-4-unset',
+    name: '資金が未設定',
+    prep: (api) => {
+      api.instruments.splice(0, api.instruments.length, FAKE_US30_AUTO);
+    },
+    fn: async (p) => {
+      await p.getByText('資金を設定すると、記録した取引にリスク（%）が出ます').waitFor();
+    },
+  },
+];
+
 async function emulatorUp() {
   try {
     const r = await fetch(`${AUTH_EMULATOR}/`);
@@ -677,6 +840,24 @@ async function measure(page, withTargets, tap) {
             `${name} 切れ（${c.className.split(' ')[0] || c.tagName.toLowerCase()} の外）`,
           );
         }
+      }
+      // 重なり: セグメントの選んだ項目のチェックの記号が、項目の文字に重なる（#5 のレビュー指摘 2）
+      for (const mark of document.querySelectorAll('.seg__item .seg__check')) {
+        const item = mark.closest('.seg__item');
+        if (!item || item.closest('[data-ui-check-wide]')) continue;
+        // 畳んだ欄（<details>）の中など、描かれていないものは見ない
+        if (typeof mark.checkVisibility === 'function' && !mark.checkVisibility()) continue;
+        const label = [...item.children].find((c) => c.tagName === 'SPAN');
+        if (!label) continue;
+        const range = document.createRange();
+        range.selectNodeContents(label);
+        const t = range.getBoundingClientRect();
+        const m = mark.getBoundingClientRect();
+        if (t.width === 0 || m.width === 0) continue;
+        const overlap =
+          Math.min(t.right, m.right) - Math.max(t.left, m.left) > 0.5 &&
+          Math.min(t.bottom, m.bottom) - Math.max(t.top, m.top) > 0.5;
+        if (overlap) clipped.push(`seg__check「${(label.textContent || '').trim()}」 文字に重なる`);
       }
       return { h, small, clipped };
     },
@@ -867,6 +1048,50 @@ async function main() {
             problems.push(`${label}: 開けない ${msg}`);
           }
         }
+        // 設定の画面の状態（Issue #5 の E16）。状態ごとに偽の API の設定・銘柄を元に戻してから開く
+        for (const st of SETTINGS_STATES) {
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`/settings（${st.name}）`, 22)}`;
+          try {
+            recApi.instruments.splice(0, recApi.instruments.length, FAKE_US30);
+            recApi.settings = {
+              capitalYen: null,
+              riskTolerancePct: 1,
+              performanceUnit: 'R',
+              capitalHistory: [],
+            };
+            st.prep(recApi);
+            await openSettings(recPage, base);
+            await st.fn(recPage, recApi);
+            const m = await measure(recPage, w === 360, TAP);
+            states++;
+            worstH = Math.max(worstH, m.h);
+            smallTotal += m.small.length;
+            clippedTotal += m.clipped.length;
+            const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+            const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+            console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+            if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            for (const x of m.clipped) {
+              console.log(`    はみ出し: ${x}`);
+              problems.push(`${label}: はみ出し ${x}`);
+            }
+            for (const x of m.small) {
+              console.log(`    当たり<44: ${x}`);
+              problems.push(`${label}: 当たり<44 ${x}`);
+            }
+            for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+            if (opts.shots) {
+              await recPage.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-${st.slug}.png`),
+                fullPage: true,
+              });
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            console.log(`${label} 開けない  NG`);
+            problems.push(`${label}: 開けない ${msg}`);
+          }
+        }
         for (const c of contexts) await c.close();
       }
     }
@@ -875,7 +1100,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 設定 SET1〜SET4',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -1077,6 +1302,8 @@ async function runFlows(browser, base, signedIn) {
       viewport: { width: 390, height: 844 },
       storageState: signedIn,
     });
+    // 設定の画面は /api を読む（#5）。手元の API への proxy の失敗を出さないよう偽の API を入れる
+    await installFakeApi(c);
     const p = await c.newPage();
     try {
       await p.goto(`${base}/settings`);
@@ -1099,6 +1326,7 @@ async function runFlows(browser, base, signedIn) {
       viewport: { width: 390, height: 844 },
       storageState: signedIn,
     });
+    await installFakeApi(c);
     await c.addInitScript(() => {
       Object.defineProperty(window, 'localStorage', {
         configurable: true,
@@ -1653,6 +1881,182 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
+  });
+
+  // ── 設定（SET1〜SET3。Issue #5）。偽の記録の API で流す
+  await check('SET1', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      // 円建ての銘柄にしておく（1R・リスク（%）を価格から出せる。5.1）
+      fake.instruments[0] = { ...FAKE_US30, priceCurrency: 'JPY' };
+      await openSettings(p, base);
+      await p.getByText('未設定', { exact: true }).waitFor();
+      await p.locator('#settings-capital').fill('1,000,000');
+      await p.getByText('1 回の負けは 10,000円 までです').waitFor();
+      await p.locator('#settings-form button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '保存しました' }).waitFor({ timeout: 5000 });
+      expectEq(fake.settings.capitalYen, 1000000, '保存した資金');
+      await p.reload();
+      await openSettings(p, base);
+      await p.locator('.settings__stat dd', { hasText: '1,000,000円' }).waitFor();
+      expectEq(await p.locator('#settings-history li').count(), 1, '履歴の件数');
+      expectEq(await p.locator('#settings-capital').inputValue(), '1,000,000', '開き直した欄');
+      // 記録する画面で 5.1 の例（L・イン 100.00・LC 99.50・数量 10,000・決済 99.40）→ リスク 0.5%
+      await openRecord(p, base);
+      await fillRecord(p, {
+        side: 'L',
+        entry: '100.00',
+        exit: '99.40',
+        lc: '99.50',
+        decided: true,
+        move: 'そのまま',
+      });
+      await p.locator('.verdict .num', { hasText: '0.5%' }).waitFor({ timeout: 5000 });
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '資金 1,000,000 を保存 → 開き直しても 1,000,000円・履歴 1 件 → 記録する画面でリスク 0.5%';
+  });
+
+  await check('SET2', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      seedSettings(fake);
+      await openSettings(p, base);
+      // E9: [直す] → 名前の欄にフォーカス → 株価指数・usd・刻み 0.1 → 保存
+      await p.getByRole('button', { name: 'US30 を直す' }).click();
+      await p.locator('#settings-inst-name').waitFor();
+      // フォーカスは描き直しの後の effect で移る（待つ）
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id)) === 'settings-inst-name',
+        '開いた後のフォーカス',
+      );
+      await p.locator('#settings-inst-kind').selectOption('index');
+      await p.locator('#settings-inst-currency').fill('usd');
+      await p.locator('#settings-inst-step').fill('0.1');
+      await p.locator('form.instedit button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: 'US30 を保存しました' }).waitFor();
+      const want = '株価指数 · 現物・CFD · 通貨 USD · 乗数 1 · 刻み 0.1';
+      await p.locator('.instlist__item', { hasText: want }).waitFor();
+      // フォーカスは描き直しの後の effect で移る（待つ）
+      await expectPollAsync(
+        async () =>
+          (await p.evaluate(() => document.activeElement?.id)) === 'settings-edit-inst-us30',
+        '閉じた後のフォーカス',
+      );
+      await p.reload();
+      await openSettings(p, base);
+      await p.locator('.instlist__item', { hasText: want }).waitFor();
+      // E10・E11: 重複の名前・乗数 0 → 送らずに欄の誤り
+      const before = fake.writes.length;
+      await p.getByRole('button', { name: 'XAU を直す' }).click();
+      await p.locator('#settings-inst-name').fill('日経２２５ ');
+      await p.locator('#settings-inst-multiplier').fill('0');
+      await p.locator('form.instedit button[type="submit"]').click();
+      await p
+        .locator('#settings-inst-name-error', { hasText: '同じ名前の銘柄があります' })
+        .waitFor();
+      await p.locator('#settings-inst-multiplier-error').waitFor();
+      expectEq(fake.writes.length, before, '誤りのときの書き込み');
+      await p.getByRole('button', { name: 'やめる' }).click();
+      // フォーカスは描き直しの後の effect で移る（待つ）
+      await expectPollAsync(
+        async () =>
+          (await p.evaluate(() => document.activeElement?.id)) === 'settings-edit-inst-xau',
+        'やめた後のフォーカス',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'E9 を直して保存 → 一覧・開き直しても同じ、E10・E11 は送らない、フォーカスは名前の欄 ⇄ [直す]';
+  });
+
+  await check('SET3', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      seedSettings(fake);
+      await openSettings(p, base);
+      // E13: 名前だけで足す
+      await p.locator('#settings-new-name').fill('GOLD');
+      await p.getByRole('button', { name: '足す', exact: true }).click();
+      await p.getByRole('status').filter({ hasText: 'GOLD を足しました' }).waitFor();
+      const row = p.locator('.instlist__item', { hasText: 'GOLD' });
+      await row.filter({ hasText: '仮の値' }).waitFor();
+      await row.filter({ hasText: 'その他 · 現物・CFD · 通貨 未設定 · 乗数 1 · 刻み 1' }).waitFor();
+      const post = fake.writes.find((x) => x.key === 'POST /api/instruments');
+      expectEq(JSON.stringify(post?.body), JSON.stringify({ name: 'GOLD' }), '足す本文');
+      // E7: 許容リスク 2.5 → 警告を出して保存できる
+      await p.locator('#settings-risk').fill('2.5');
+      await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
+      await p.locator('#settings-form button[type="submit"]').click();
+      await p.getByRole('status').filter({ hasText: '保存しました' }).waitFor();
+      expectEq(fake.settings.riskTolerancePct, 2.5, '保存した許容リスク');
+      // E8: 3.1 は送らない
+      const before = fake.writes.length;
+      await p.locator('#settings-risk').fill('3.1');
+      await p.locator('#settings-form button[type="submit"]').click();
+      await p.locator('#settings-risk-error').waitFor();
+      expectEq(fake.writes.length, before, '範囲外のときの書き込み');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'E13 GOLD を名前だけで足す（仮の値・既定の 5 欄）、E7 は警告つきで保存、E8 は送らない';
+  });
+
+  await check('SET4', async () => {
+    const focused = (p) => p.evaluate(() => document.activeElement?.id ?? '');
+    // 誤りのまま [保存] → 最初の誤りの欄へフォーカス、誤りのある欄を role="alert" で知らせる
+    {
+      const { c, p, fake, errors } = await recordContext({ failSettings: 503 });
+      try {
+        seedSettings(fake);
+        await openSettings(p, base);
+        await p.locator('#settings-risk').fill('3.1');
+        await p.locator('#settings-capital').fill('0');
+        await p.locator('#settings-save').click();
+        await p
+          .getByRole('alert')
+          .filter({ hasText: '誤りのある欄があります（資金・許容リスク）' })
+          .waitFor();
+        await expectPollAsync(async () => (await focused(p)) === 'settings-capital', '誤りの欄へ');
+        // 保存に失敗して戻った → 押した [保存] へ
+        await p.locator('#settings-capital').fill('1000000');
+        await p.locator('#settings-risk').fill('1');
+        await p.locator('#settings-save').click();
+        await p.getByRole('alert').filter({ hasText: '保存できませんでした' }).waitFor();
+        await expectPollAsync(async () => (await focused(p)) === 'settings-save', '[保存] へ');
+        // 銘柄: 誤りのまま [保存] → 最初の誤りの欄（価格の通貨）
+        await p.getByRole('button', { name: 'US30 を直す' }).click();
+        await p.locator('#settings-inst-multiplier').fill('0');
+        await p.locator('#settings-inst-currency').fill('US');
+        await p.locator('#settings-inst-save').click();
+        await expectPollAsync(
+          async () => (await focused(p)) === 'settings-inst-currency',
+          '銘柄の誤りの欄へ',
+        );
+        expectEq(errors.length, 0, 'ページのエラー');
+      } finally {
+        await c.close();
+      }
+    }
+    // 記録する画面: 保存に失敗して戻った → [記録する] へ
+    {
+      const { c, p, errors } = await recordContext({ failTrades: 503 });
+      try {
+        await openRecord(p, base);
+        await fillRecord(p, EX_E1);
+        await p.locator('#record-submit').click();
+        await p.getByRole('alert').filter({ hasText: '保存できませんでした' }).waitFor();
+        await expectPollAsync(async () => (await focused(p)) === 'record-submit', '[記録する] へ');
+        expectEq(errors.length, 0, 'ページのエラー');
+      } finally {
+        await c.close();
+      }
+    }
+    return '誤りのまま押す → 最初の誤りの欄・知らせ、保存の失敗 → 押したボタン（設定の [保存]・記録する画面の [記録する]）';
   });
 
   return out;

@@ -155,8 +155,8 @@ export const DEFAULT_INSTRUMENT: InstrumentSnapshot = {
 };
 
 /** API の入力の上限（api/src/loss_note_api/schema.py と同じ） */
-const MAX_ABS = 1e12;
-const NAME_MAX = 40;
+export const MAX_ABS = 1e12;
+export const NAME_MAX = 40;
 const BROKEN_CONDITION_MAX = 200;
 
 export const MISSING_LABEL = {
@@ -249,7 +249,7 @@ export function parseNum(raw: string): Parsed {
 }
 
 /** 制御文字・孤立したサロゲート・書式文字（ZWJ を除く）を含むか（API の text() と同じ） */
-function hasBadChar(s: string): boolean {
+export function hasBadChar(s: string): boolean {
   for (const ch of s) {
     if (ch === '‍') continue;
     if (/[\p{Cc}\p{Cf}]/u.test(ch)) return true;
@@ -260,7 +260,7 @@ function hasBadChar(s: string): boolean {
 }
 
 /** 文字の数（Python の len と同じ、コードポイントで数える） */
-function lengthOf(s: string): number {
+export function lengthOf(s: string): number {
   return [...s].length;
 }
 

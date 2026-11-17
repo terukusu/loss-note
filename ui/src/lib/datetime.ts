@@ -35,3 +35,9 @@ export function floorToMinute(ms: number): number {
   d.setSeconds(0, 0);
   return d.getTime();
 }
+
+/** 日時の表示（資金の履歴など。端末の時間帯。例: 2026/11/18 09:30。Issue #5） */
+export function formatDateTime(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}

@@ -5,17 +5,23 @@
 // - GET /api/instruments = { items }。POST /api/instruments = 201 + 銘柄（省いた欄は既定: other・spotCfd・通貨 null・
 //   乗数 1・刻み 1）。名前が同じ（name_key）なら 409 { error: 'conflict', reason: 'duplicateName' }
 // - GET /api/settings = { capitalYen, riskTolerancePct, performanceUnit, capitalHistory }（既定 null・1・R）
+// - PUT /api/settings（#5）: 3 欄を丸ごと置き換える。資金が前と違うときだけ履歴（古い順）に { valueYen, at } を足す。
+//   範囲外（資金が正でない・許容リスクが 0.5〜3 の外・performanceUnit が R / yen でない）は 400
+// - PUT /api/instruments/<id>（#5）: 本文に無い欄は既定に戻す（原資産は消える）。名前が自分以外と同じなら 409、無い ID は 404。
+//   直しても記録済みの取引の snapshot は変わらない（取引は記録したときの値を写して持つ。C36）
 // - POST /api/statement-reads（#15）: opts.reads の台本を順に返す（無ければ 0 行の statement）。要求は calls に
 //   Content-Type とバイト数だけを残す（画像のバイト列そのものは持たない）。holdReads / releaseReads で応答を止める
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 import type {
   InstrumentBody,
   InstrumentRecord,
+  PerformanceUnit,
+  SettingsRecord,
   StoredTrade,
   TradeRecord,
 } from '../../../core/record';
 import { nameKey } from '../../../ui/src/lib/instrument-name';
-import type { ApiFn } from '../../../ui/src/lib/record-controller';
+import type { ApiFn } from '../../../ui/src/lib/request';
 
 export interface FakeCall {
   readonly method: string;
@@ -34,6 +40,8 @@ export interface FakeOptions {
   readonly trades?: readonly StoredTrade[];
   readonly capitalYen?: number | null;
   readonly riskTolerancePct?: number;
+  readonly performanceUnit?: PerformanceUnit;
+  readonly capitalHistory?: SettingsRecord['capitalHistory'];
   /** パスと方法ごとに返す状態を差し替える（例: { 'POST /api/trades': 503 }） */
   readonly fail?: Readonly<Record<string, number | 'throw'>>;
   /** fail と同じだが 1 回だけ（2 回目からは普通に答える） */
@@ -49,6 +57,8 @@ export interface FakeApi {
   readonly calls: FakeCall[];
   readonly instruments: InstrumentRecord[];
   readonly trades: StoredTrade[];
+  /** 今の設定（PUT /api/settings で変わる） */
+  settings(): SettingsRecord;
   /** 待たせている要求を進める（delay を使うとき） */
   hold(): void;
   release(): void;
@@ -78,12 +88,13 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   let readOpen: (() => void) | null = null;
   const reads = [...(opts.reads ?? [])];
 
-  const settings = () => ({
+  let current: SettingsRecord = {
     capitalYen: opts.capitalYen ?? null,
     riskTolerancePct: opts.riskTolerancePct ?? 1,
-    performanceUnit: 'R',
-    capitalHistory: [],
-  });
+    performanceUnit: opts.performanceUnit ?? 'R',
+    capitalHistory: [...(opts.capitalHistory ?? [])],
+  };
+  const settings = (): SettingsRecord => current;
 
   const api: ApiFn = async (path, init = {}) => {
     const method = (init.method ?? 'GET').toUpperCase();
@@ -120,6 +131,54 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     }
     if (key === 'GET /api/instruments') return json(200, { items: instruments });
     if (key === 'GET /api/settings') return json(200, settings());
+    if (key === 'PUT /api/settings') {
+      const b = body as Record<string, unknown>;
+      const cap = b.capitalYen;
+      const risk = b.riskTolerancePct;
+      const unit = b.performanceUnit;
+      const okCap = cap === null || (typeof cap === 'number' && cap > 0 && cap <= 1e12);
+      const okRisk = typeof risk === 'number' && risk >= 0.5 && risk <= 3;
+      if (!okCap || !okRisk || (unit !== 'R' && unit !== 'yen')) {
+        return json(400, { error: 'invalid', issues: [{ field: 'settings' }] });
+      }
+      clock += 1;
+      const history =
+        cap === current.capitalYen
+          ? current.capitalHistory
+          : [...current.capitalHistory, { valueYen: cap as number | null, at: clock }];
+      current = {
+        capitalYen: cap as number | null,
+        riskTolerancePct: risk,
+        performanceUnit: unit,
+        capitalHistory: history,
+      };
+      return json(200, current);
+    }
+    if (method === 'PUT' && path.startsWith('/api/instruments/')) {
+      const id = path.slice('/api/instruments/'.length);
+      const b = body as InstrumentBody;
+      const idx = instruments.findIndex((i) => i.id === id);
+      if (idx < 0) return json(404, { error: 'not_found' });
+      if (instruments.some((i) => i.id !== id && nameKey(i.name) === nameKey(b.name))) {
+        return json(409, { error: 'conflict', reason: 'duplicateName' });
+      }
+      const prev = instruments[idx] as InstrumentRecord;
+      clock += 1;
+      const next: InstrumentRecord = {
+        id,
+        name: b.name.trim(),
+        ...(b.underlying === undefined ? {} : { underlying: b.underlying }),
+        underlyingKind: b.underlyingKind ?? 'other',
+        productForm: b.productForm ?? 'spotCfd',
+        priceCurrency: b.priceCurrency ?? null,
+        multiplier: b.multiplier ?? 1,
+        quantityStep: b.quantityStep ?? 1,
+        createdAt: prev.createdAt,
+        updatedAt: clock,
+      };
+      instruments[idx] = next;
+      return json(200, next);
+    }
     if (key === 'POST /api/instruments') {
       const b = body as InstrumentBody;
       if (conflict) {
@@ -186,6 +245,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     calls,
     instruments,
     trades,
+    settings,
     hold() {
       gate = new Promise((ok) => {
         open = ok;

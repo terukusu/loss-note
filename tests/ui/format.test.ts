@@ -1,6 +1,13 @@
 // C-1 数字の表示（Issue #3 の例の表 N1〜N10・R3）。値はすべて架空
 import { describe, expect, it } from 'vitest';
-import { formatPct, formatPlain, formatPrice, formatR, formatYen } from '../../ui/src/lib/format';
+import {
+  formatAmountYen,
+  formatPct,
+  formatPlain,
+  formatPrice,
+  formatR,
+  formatYen,
+} from '../../ui/src/lib/format';
 import { forAll } from '../core/helpers/prng';
 
 const MINUS = '−';
@@ -170,5 +177,21 @@ describe('formatPlain（レビュー指摘 5）: 指数表記にしない', () =
         expect(Number(s)).toBeCloseTo(x, 12);
       },
     );
+  });
+});
+
+describe('formatAmountYen（資金のような符号の無い金額。Issue #5）', () => {
+  it.each([
+    [1_000_000, '1,000,000円'],
+    [1_200_000, '1,200,000円'],
+    [999, '999円'],
+    [1e12, '1,000,000,000,000円'],
+    [10_000.4, '10,000円'],
+    [15_000.5, '15,001円'],
+  ])('%d → %s（+ を付けない）', (n, want) => {
+    expect(formatAmountYen(n)).toBe(want);
+  });
+  it('有限でないときは「金額なし」', () => {
+    expect(formatAmountYen(Number.NaN)).toBe('金額なし');
   });
 });

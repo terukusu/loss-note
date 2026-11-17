@@ -1,0 +1,170 @@
+{
+  "schema_version": 1,
+  "images": [
+    {
+      "file": "s01.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_long",
+        "day_le_12",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s02.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_short",
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s03.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_long",
+        "form1_short",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s04.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_long",
+        "form1_short",
+        "day_le_12",
+        "multi_rows",
+        "pnl_zero_and_loss"
+      ]
+    },
+    {
+      "file": "s05.png",
+      "form": "form2_future",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_future_close_sell",
+        "day_le_12",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s06.png",
+      "form": "form2_future",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s07.png",
+      "form": "form2_option",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_option_close_buy",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s08.png",
+      "form": "form2_option",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s09.png",
+      "form": "form2_future",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_future_close_sell",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s10.png",
+      "form": "form1",
+      "order_type_column": true,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_long",
+        "form1_short",
+        "day_le_12",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "order_type_column",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s11.png",
+      "form": "form2_future",
+      "order_type_column": true,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_future_close_sell",
+        "day_le_12",
+        "pnl_zero_and_loss",
+        "order_type_column",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s12.png",
+      "form": "form2_option",
+      "order_type_column": true,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_option_close_buy",
+        "order_type_column",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s13.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_short",
+        "day_le_12",
+        "decimal_and_separator"
+      ]
+    },
+    {
+      "file": "s14.png",
+      "form": "form2_future",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_future_close_sell",
+        "day_le_12",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
+    }
+  ]
+}

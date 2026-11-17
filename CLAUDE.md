@@ -49,6 +49,7 @@
 | `core/` | 計算・判定の純関数（TypeScript）。**まだ無い**（判定の純関数の Issue で作る） |
 | `tests/` | 画面と `core/` のテスト（vitest）。ソースに対応して `tests/ui/`・`tests/core/` に置く |
 | `api/` | API（Python 3.13・Flask・uv）。`src/loss_note_api/app.py` の `create_app()` が入口、テストは `api/tests/`（pytest） |
+| `tools/statement-eval/` | 決済明細の AI による読み取りを測る道具（Python 3.13・uv の独立したプロジェクト。アプリの依存ではない。#14・ADR-0001）。採点の純関数は `src/statement_eval/score.py`（テストは `tests/test_score.py`）、合成の明細（架空の値の画像・正解）は `synthetic/`（`python -m statement_eval generate` で作り直す）。実物の明細と正解は `data/local/statement-eval/real/` だけに置く。実際の AI を呼ぶのは手元で `eval` を回したときだけ（依存グループ `ai`・資格情報の環境変数） |
 | `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査） |
 | `.github/` | CI（`workflows/ci.yml`）とビルド成果物の検査（`scripts/csp-check.sh`・自己テスト `csp-check.test.sh`） |
 | `firebase.json`・`firestore.rules`・`storage.rules` | 手元のエミュレーター（Firestore・Auth・Storage）の設定。ルールはすべて拒否（画面から直接読み書きさせない） |
@@ -64,14 +65,14 @@
 確認コマンド（CI と同じもの。手元は `mise exec -- bash -c '<この 1 行>'` で Node 24・uv を使う）:
 
 ```
-npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)
+npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)
 ```
 
 スキル（`.claude/skills/implement-issue` ほか）はこの確認コマンドを検証の正として使う。Terraform の検査（fmt・validate・test）は `infra/` を作る Issue で足す。
 
-- 手元の道具の版は `mise.toml` でパッチまで固定する（Node 24.22.3・Java 21.0.13（Temurin。エミュレーター用）・uv 0.13.6）。Node の版は `.node-version`（CI が読む）、uv の版とハッシュは `.github/uv-requirements.txt`（CI が pip の `--require-hashes` で入れる）にも書いてあるので、変えるときは両方を直す。Python 3.13 は uv が `api/.python-version` を見て入れる
+- 手元の道具の版は `mise.toml` でパッチまで固定する（Node 24.22.3・Java 21.0.13（Temurin。エミュレーター用）・uv 0.13.6）。Node の版は `.node-version`（CI が読む）、uv の版とハッシュは `.github/uv-requirements.txt`（CI が pip の `--require-hashes` で入れる）にも書いてあるので、変えるときは両方を直す。Python 3.13 は uv が `api/.python-version`・`tools/statement-eval/.python-version` を見て入れる
 - 手元の起動は `README.md`（`npm run emulators`・`npm run dev:api`・`npm run dev`）
-- 依存はバージョンを固定する（lock ファイルをコミットする）。画面の直接の依存は正確な版（`.npmrc` の `save-exact=true`。`npm run check:pinned` で検査）、API は `api/pyproject.toml` の範囲 + `[tool.uv] exclude-newer` + `api/uv.lock`。CI は `npm ci` と `uv sync --locked`（lock と食い違うと失敗）
+- 依存はバージョンを固定する（lock ファイルをコミットする）。画面の直接の依存は正確な版（`.npmrc` の `save-exact=true`。`npm run check:pinned` で検査）、API は `api/pyproject.toml` の範囲 + `[tool.uv] exclude-newer` + `api/uv.lock`（`tools/statement-eval/` も同じ形。AI の SDK は依存グループ `ai` に入れ、確認コマンドと CI では入れない）。CI は `npm ci` と `uv sync --locked`（lock と食い違うと失敗）
 - 直接の依存は、公開から 14 日以上たった版を使う（サプライチェーン対策）。npm は `npm view <pkg> time --json` で公開日を調べる。API は `exclude-newer` の日付を進めて `uv lock` する（API は推移的な依存にも同じ日付の上限が掛かる。画面の推移的な依存には日付の上限をまだ掛けていない）
 - 設計判断は必要に応じて `docs/adr-NNNN-<slug>.md`（0001 から連番。状態・日付・背景・決定・選択肢・結果・関連）に残す
 

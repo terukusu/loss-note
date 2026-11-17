@@ -79,10 +79,10 @@ curl -s -H 'Authorization: Bearer owner' \
 
 ## 確認コマンド
 
-型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（API）をまとめて流します。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
+型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（API と、決済明細の読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）をまとめて流します。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
 
 ```sh
-mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
+mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
 ```
 
 ## ディレクトリ

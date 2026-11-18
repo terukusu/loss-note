@@ -2,7 +2,7 @@
 // 3 層: 純関数（lib/settings-form.ts）→ 通信と状態（lib/settings-controller.ts）→ この画面（薄い）。
 // Settings は hook を持たない（App のテストが 1 段だけ呼ぶ）。SettingsScreen が controller を購読し、
 // 描画は hook を持たない SettingsView に任せる（記録する画面の Record / RecordScreen / RecordView と同じ形）。
-// 並びは「口座」→「銘柄」→「表示」→「アカウント」。数字に損益の色を付けない（資金は損益でない）
+// 並びは「口座」→「銘柄」→「AI の利用状況」（#62。components/AiUsage.tsx）→「表示」→「アカウント」。数字に損益の色を付けない（資金は損益でない）
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type {
   AccountPut,
@@ -12,6 +12,7 @@ import type {
   UnderlyingKind,
 } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
+import { AiUsageCard } from '../components/AiUsage';
 import { Button, buttonClass } from '../components/Button';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
@@ -66,6 +67,8 @@ export function Settings({ theme, onTheme, onSignOut, signOutBusy, signOutError 
         description="口座の資金と許容リスクは、記録を始める前に一度だけ。ここで決めた値は、これから記録する取引に写して使います。"
       />
       <SettingsScreen />
+      {/* AI の利用状況（#62）。独立した部品（読めなくてもほかのカードを止めない） */}
+      <AiUsageCard />
       <section class="card section">
         <h2 class="section__title">表示</h2>
         <Segment

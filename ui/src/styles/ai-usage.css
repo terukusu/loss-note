@@ -1,0 +1,123 @@
+/* AI の利用状況のカード（Issue #62。components/AiUsage.tsx が読み込む）。色は文字と線のトークンだけ
+   （判定の段の色を使わない。状態は文字・形で出す）。カードの中に内枠を作らない（区切りは余白と 1 辺の線） */
+
+.usage__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.usage__group + .usage__group {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+.usage__heading {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+/* まとめの 1 行（近い・届いた）: 左の 1 辺の線 + 上限の記号 + 文字 */
+.usage__summary {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding-left: var(--sp-3);
+  border-left: 3px solid var(--ink-2);
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.usage__summary[data-status="reached"] {
+  border-left-color: var(--ink);
+}
+
+.usage__summary .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.usage__meter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-width: 32rem;
+}
+
+.usage__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-width: 32rem;
+}
+
+.usage__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-3);
+}
+
+.usage__label {
+  min-width: 6.5em;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.usage__value {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+.usage__sub {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage__bar {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.usage__track {
+  fill: var(--line);
+}
+
+.usage__fill {
+  fill: var(--ink-2);
+}
+
+/* 使えない残り（次の 1 回分に足りない分）: 点線の枠 */
+.usage__rest {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 2;
+  stroke-dasharray: 3 2;
+}
+
+.usage__status {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.usage__bypass {
+  color: var(--ink-2);
+}
+
+.usage__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding-left: var(--sp-4);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  list-style: disc;
+}

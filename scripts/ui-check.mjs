@@ -546,6 +546,8 @@ async function installFakeApi(context, opts = {}) {
     },
     writes: [],
     accounts: [...(opts.accounts ?? [])],
+    /** GET /api/ai-usage の応答（Issue #62。{ status, body, holdMs }。後から書き換えてよい） */
+    aiUsage: { status: 200, body: FAKE_AI_USAGE },
   };
   let seq = 0;
   let clock = 1800000000000;
@@ -887,6 +889,20 @@ async function installFakeApi(context, opts = {}) {
       };
       api.trades.push(stored);
       return json(route, 201, stored);
+    }
+    if (key === 'GET /api/ai-usage') {
+      const u = api.aiUsage;
+      if (u.holdMs) {
+        await new Promise((ok) => {
+          const t = setTimeout(ok, u.holdMs);
+          t.unref?.();
+        });
+      }
+      try {
+        return await json(route, u.status, u.body);
+      } catch {
+        return undefined; // 待たせている間に画面を離れた
+      }
     }
     if (key === 'GET /api/health') return json(route, 200, { status: 'ok' });
     return json(route, 404, { error: 'not_found' });
@@ -1494,6 +1510,18 @@ const FAKE_XAU = {
   multiplier: 100,
   quantityStep: 0.01,
 };
+/**
+ * AI の利用状況（Issue #62。架空の値）: 今日 3 回・0.12 USD、今月（18 日まで）41 回・0.96 USD、既定の上限。
+ * 状態の値は、今月 ≥ 今日・今月の回数 ≤ 1 日の上限 × 経過日数の範囲にそろえる（ありえない数を写さない）
+ */
+const FAKE_AI_USAGE = {
+  today: { date: '2026-11-18', count: 3, microUsd: 120000 },
+  month: { month: '2026-11', count: 41, microUsd: 960000 },
+  limits: { count: 30, userMicroUsd: 1000000, dailyMicroUsd: 2000000 },
+  bypass: false,
+  blocked: { count: false, microUsd: false },
+};
+const usageBody = (over) => ({ ...FAKE_AI_USAGE, ...over });
 /** 自動で足されたままの銘柄（仮の値） */
 const FAKE_US30_AUTO = { ...FAKE_US30, underlyingKind: 'other' };
 
@@ -1606,6 +1634,124 @@ const SETTINGS_STATES = [
       await p
         .locator('.instlist__item', { hasText: '資金を入れるとリスク（%）が出ます' })
         .waitFor();
+    },
+  },
+  {
+    slug: 'settings-8-usage-reached',
+    name: 'AI 金額で届いた',
+    prep: (api) => {
+      seedSettings(api);
+      api.aiUsage = {
+        status: 200,
+        body: usageBody({
+          today: { date: '2026-11-18', count: 24, microUsd: 721265 },
+          month: { month: '2026-11', count: 96, microUsd: 3121265 },
+          blocked: { count: false, microUsd: true },
+        }),
+      };
+    },
+    fn: async (p) => {
+      await p.getByText('今日の読み取りは上限に届きました').waitFor();
+    },
+  },
+  {
+    slug: 'settings-11-usage-near',
+    name: 'AI 上限に近いだけ',
+    prep: (api) => {
+      seedSettings(api);
+      api.aiUsage = {
+        status: 200,
+        body: usageBody({
+          today: { date: '2026-11-18', count: 25, microUsd: 310000 },
+          month: { month: '2026-11', count: 88, microUsd: 1720000 },
+        }),
+      };
+    },
+    fn: async (p) => {
+      await p.getByText('今日の読み取りは上限に近づいています').waitFor();
+    },
+  },
+  {
+    slug: 'settings-12-usage-count-reached',
+    name: 'AI 回数で届いた',
+    prep: (api) => {
+      seedSettings(api);
+      api.aiUsage = {
+        status: 200,
+        body: usageBody({
+          today: { date: '2026-11-18', count: 30, microUsd: 420000 },
+          month: { month: '2026-11', count: 120, microUsd: 2100000 },
+          blocked: { count: true, microUsd: false },
+        }),
+      };
+    },
+    fn: async (p) => {
+      await p.getByText('あと 0 回').waitFor();
+    },
+  },
+  {
+    slug: 'settings-13-usage-zero',
+    name: 'AI 月の初日・0 回',
+    prep: (api) => {
+      seedSettings(api);
+      api.aiUsage = {
+        status: 200,
+        body: usageBody({
+          today: { date: '2026-12-01', count: 0, microUsd: 0 },
+          month: { month: '2026-12', count: 0, microUsd: 0 },
+        }),
+      };
+    },
+    fn: async (p) => {
+      await p.getByText('今日（12 月 1 日）').waitFor();
+    },
+  },
+  {
+    slug: 'settings-9-usage-bypass',
+    name: 'AI 上限を受けない',
+    prep: (api) => {
+      seedSettings(api);
+      api.aiUsage = {
+        status: 200,
+        body: usageBody({
+          today: { date: '2026-11-18', count: 40, microUsd: 1500000 },
+          month: { month: '2026-11', count: 212, microUsd: 6400000 },
+          bypass: true,
+          limits: { count: null, userMicroUsd: null, dailyMicroUsd: 2000000 },
+        }),
+      };
+    },
+    fn: async (p) => {
+      await p.getByText('あなたの 1 日の上限: なし').waitFor();
+    },
+  },
+  {
+    slug: 'settings-14-usage-loading',
+    name: 'AI 読み込み中',
+    prep: (api) => {
+      seedSettings(api);
+      api.aiUsage = { status: 200, body: FAKE_AI_USAGE, holdMs: 20000 };
+    },
+    fn: async (p) => {
+      await p.locator('.usage .loading', { hasText: '読み込んでいます…' }).waitFor();
+    },
+  },
+  {
+    slug: 'settings-10-usage-failed',
+    name: 'AI 読めない',
+    prep: (api) => {
+      seedSettings(api);
+      setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_B]);
+      api.aiUsage = { status: 503, body: { error: 'read_unavailable' } };
+    },
+    fn: async (p) => {
+      await p.getByText('利用状況を読み込めませんでした').waitFor();
+      // AC-7: 利用状況が読めなくても、口座の編集と [保存] は使える（別の部品で状態を共有しない）
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await p.locator('#settings-account-name').waitFor();
+      if (!(await p.locator('#settings-account-save').isEnabled())) {
+        throw new Error('利用状況が読めないときに口座の [保存] が押せない（AC-7）');
+      }
     },
   },
 ];
@@ -2120,6 +2266,7 @@ async function main() {
               capitalHistory: [],
             };
             setAccounts(recApi, []);
+            recApi.aiUsage = { status: 200, body: FAKE_AI_USAGE };
             st.prep(recApi);
             await openSettings(recPage, base);
             await st.fn(recPage, recApi);

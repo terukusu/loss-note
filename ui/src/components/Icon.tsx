@@ -21,7 +21,8 @@ export type IconName =
   | 'edit'
   | 'trash'
   | 'undo'
-  | 'offPlan';
+  | 'offPlan'
+  | 'limit';
 
 const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   home: () => (
@@ -68,6 +69,13 @@ const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   offPlan: () => (
     <>
       <rect x="4" y="4" width="16" height="16" rx="4" />
+      <path d="M12 8v5M12 16.2h.01" />
+    </>
+  ),
+  // 上限に届いた・近い（AI の利用状況。八角形に感嘆の形。判定の記号 ○ △ × − と計画から外れた印の四角と別の形。#62）
+  limit: () => (
+    <>
+      <path d="M8.7 3.5h6.6l5.2 5.2v6.6l-5.2 5.2H8.7l-5.2-5.2V8.7z" />
       <path d="M12 8v5M12 16.2h.01" />
     </>
   ),

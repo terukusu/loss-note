@@ -19,7 +19,7 @@ import threading
 from loss_note_api import accounts
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
-from loss_note_api.read_limits import effective_user_micro
+from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
 from loss_note_api.store import Conflict, MissingAccount, MissingInstrument, StoreUnavailable
 
 _ALNUM = string.ascii_letters + string.digits
@@ -41,6 +41,7 @@ class MemoryStore:
         self.read_days: dict[str, dict[str, dict]] = {}  # 利用者の日の計上（users/{uid}/statement_read_days/{day}）
         self.spend: dict[str, dict] = {}  # 全体の日の計上（statement_read_spend/{day}）
         self.warm_calls = 0  # 起動の準備の回数（#60）
+        self.usage_reads = 0  # 使った量の読みの回数（#62）
         self.fail_warm: Exception | None = None  # 起動の準備で投げる例外（#60）
         self.default_created = 0  # 既定の口座を移し替えで作った回数（#47 M3）
 
@@ -282,6 +283,18 @@ class MemoryStore:
                 return
             for doc in (self.read_days.setdefault(uid, {}).setdefault(day, {}), self.spend.setdefault(day, {})):
                 doc["microUsd"] = int(doc.get("microUsd", 0)) + delta_micro
+
+    # ── 使った量（#62）──
+    def read_days_between(self, uid, first, last):
+        with self._lock:
+            if self.fail_limits or self.unavailable:
+                raise StoreUnavailable("test")
+            if self.fail_with is not None:
+                raise self.fail_with
+            self.usage_reads += 1
+            days = sorted((d, copy.deepcopy(doc)) for d, doc in self.read_days.get(uid, {}).items()
+                          if first <= d <= last)
+            return days[:USAGE_MAX_DAYS]
 
     # ── 起動の準備（#60）──
     def warm(self):

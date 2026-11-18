@@ -12,6 +12,8 @@
 上限の値とバイパスのリストは環境変数で受ける（#51・ADR-0014。ADR-0010 の決定 1 を上書き）。未設定・空なら既定値。
 形の誤りは既定値に戻さず ``config_error`` に変数の名前を残し、読み取りの入口が 503 にする（閉じる側。下げるつもりの
 誤記で高い既定値が効く経路を作らない）。テストは ``ReadLimits`` を差し込む。
+
+使った量（#62）の応答は ``usage_of``（本人の日の文書だけから、判定と同じ数え方で作る。入口は ``ai_usage.py``）。
 """
 
 import re
@@ -165,3 +167,50 @@ def settled_micro(usage: Usage | None, sdk_cost_usd: float | None, reserve: int,
         if b is not None:
             amounts.append(b)
     return max(amounts) if amounts else reserve
+
+
+# ── 使った量（Issue #62）──
+# 本人の日の文書だけから作る（全体の日の文書は読まない = ほかの利用者の使い方を出さない）。全体の上限は「値」だけ返す
+USAGE_MAX_DAYS = 31
+
+
+def month_first_day(day: str) -> str:
+    """日本時間の日付 ``YYYY-MM-DD`` → その月の 1 日"""
+    return f"{day[:8]}01"
+
+
+def _day_numbers(doc: Mapping[str, object], reserve_micro: int) -> tuple[int, int]:
+    """日の文書 → (回数, 金額 µUSD)。回数は保存先の予約と同じく整数に直し（負は 0）、金額は判定と同じ見積もり
+    （``effective_user_micro``。欠け・負は回数 × 予約額）"""
+    raw = doc.get("count", 0)
+    count = max(int(raw), 0) if isinstance(raw, int | float) and not isinstance(raw, bool) else 0
+    return count, effective_user_micro(count, doc.get("microUsd"), reserve_micro)
+
+
+def usage_of(today: str, days: Mapping[str, Mapping[str, object]], limits: ReadLimits, *, bypass: bool) -> dict:
+    """本人の日の文書（日付 → 文書）→ 使った量の応答。今日はその日の文書、今月は今月 1 日〜今日の文書の和（ほかの日付の
+    鍵は入れない）。blocked は今日の次の読み取りが本人の上限で止まるか（``decide`` の利用者の 2 段と同じ式。全体は
+    見ない）。バイパスなら利用者の上限は None で、止まらない（全体の上限の値は返すが、全体の使った量は返さない）"""
+    reserve = limits.reserve_micro_usd
+    first = month_first_day(today)
+    t_count, t_micro = _day_numbers(days.get(today, {}), reserve)
+    m_count = m_micro = 0
+    for day, doc in days.items():
+        if first <= day <= today and day.startswith(today[:8]):
+            c, m = _day_numbers(doc, reserve)
+            m_count += c
+            m_micro += m
+    return {
+        "today": {"date": today, "count": t_count, "microUsd": t_micro},
+        "month": {"month": today[:7], "count": m_count, "microUsd": m_micro},
+        "limits": {
+            "count": None if bypass else limits.per_user,
+            "userMicroUsd": None if bypass else limits.per_user_micro_usd,
+            "dailyMicroUsd": limits.daily_micro_usd,
+        },
+        "bypass": bypass,
+        "blocked": {
+            "count": not bypass and t_count >= limits.per_user,
+            "microUsd": not bypass and t_micro + reserve > limits.per_user_micro_usd,
+        },
+    }

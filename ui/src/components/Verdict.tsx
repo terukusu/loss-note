@@ -57,6 +57,11 @@ export interface VerdictProps {
    * どの口座の資金で割ったかの 1 行（#47 U10・U17。口座が 2 つ以上のときだけ画面が渡す）。数の段のすぐ下に無色で出す
    */
   readonly account?: string;
+  /**
+   * 「見ていないもの」の注記のすぐ後に置く操作（編集の画面だけ。写した資金が空で今の口座の資金があるときの
+   * [今の値で計算し直す]。#31）。注記が無ければ出さない
+   */
+  readonly asideAction?: ComponentChildren;
 }
 
 /** 3 つのタップの答えの札（外れた札は形の印・「外れ」の文字・読み上げの「計画から外れた」） */
@@ -196,6 +201,9 @@ export function Verdict(v: VerdictProps) {
           {reasonText(r, v.side)}
         </p>
       ))}
+      {v.asideAction && n.aside.length > 0 ? (
+        <div class="verdict__action">{v.asideAction}</div>
+      ) : null}
       {v.taps ? <Taps {...v.taps} /> : null}
       {hint ? (
         <p class="verdict__hint" id={v.hintId}>

@@ -97,9 +97,10 @@ class Store(Protocol):
     # instrument_id が今の取引の銘柄と違えば、同じトランザクションで付け替え先の銘柄を読んで mutate に渡す。
     # account_id（None = 今の口座のまま）が今の取引の口座（accountId が無ければ既定の口座）と違うときだけ、
     # 付け替え先の口座を読んで mutate に渡す
+    # refresh = True（#31）なら、銘柄・口座が保存済みと同じでも今の値を読んで mutate に渡す（今の値で写し直す）
     def update_trade(
         self, uid: str, trade_id: str, instrument_id: str, account_id: str | None, mutate: MutateTrade,
-        build_default: BuildDefault = ...,
+        build_default: BuildDefault = ..., refresh: bool = False,
     ) -> Doc | None: ...
     # 取引と 2 枠のチャートを 1 トランザクションで消す
     def delete_trade(self, uid: str, trade_id: str) -> bool: ...
@@ -232,7 +233,7 @@ class FirestoreStore:
 
     @_guard
     def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
-                     build_default=accounts.build_default_now):  # fmt: skip
+                     build_default=accounts.build_default_now, refresh=False):  # fmt: skip
         user = self._user(uid)
         ref = user.collection("trades").document(trade_id)
 
@@ -242,14 +243,15 @@ class FirestoreStore:
                 return None
             doc = snap.to_dict()
             instrument = None
-            if instrument_id != doc["record"]["instrumentId"]:
+            if refresh or instrument_id != doc["record"]["instrumentId"]:
                 inst = user.collection("instruments").document(instrument_id).get(transaction=tx)
                 if not inst.exists:
                     raise MissingInstrument()
                 instrument = inst.to_dict()
             account = None
-            if account_id is not None and account_id != accounts.account_id_of(doc["record"]):
-                account = self._read_account(tx, uid, account_id)
+            target = account_id if account_id is not None else accounts.account_id_of(doc["record"])
+            if refresh or target != accounts.account_id_of(doc["record"]):
+                account = self._read_account(tx, uid, target)
                 if account is None:
                     raise MissingAccount()
             new = mutate(doc, instrument, account)

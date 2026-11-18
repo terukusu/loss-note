@@ -6,6 +6,10 @@
 //   （readDraft + editPreview）
 // - 保存は PUT（JSON）。1 回押して 1 件（実行中は同じ Promise）。PUT は冪等なので、時間切れの後に送り直してよい。
 //   チャートは変えない（チャートの無い枠の時間足は本文に入らない。orphanTimeframes をその旨として出す）
+// - 今の値で計算し直す（#31）: 写した値と取引の口座・銘柄の今の値が違えば offer（違う値と判定・R・リスクの 前 → 後）を出す。
+//   setRefresh(true) で「今の値」を選ぶとプレビューは今の値で出し、保存の PUT に ?snapshot=current を付ける（選ばなければ付けない。
+//   C36）。違いが無くなったら（口座・銘柄を付け替えた等）選択も戻す。保存の前に口座・銘柄を読み直し、開いてから今の値が
+//   変わっていたら保存せずに知らせる（見せた値と違う値で保存しない）
 // - 失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。下書きは記憶の中だけ（端末の保存先・URL・履歴に書かない）
 import type {
   AccountRecord,
@@ -48,12 +52,20 @@ import {
   kindOf,
   REQUEST_TIMEOUT_MS,
 } from './request';
+import {
+  currentSnapshot,
+  RESNAPSHOT_QUERY,
+  type ResnapshotOffer,
+  resnapshotOffer,
+} from './resnapshot';
 import { tradePath } from './trade-detail-controller';
 
 export const EDIT_LOAD_FAILED =
   '取引を読み込めませんでした。通信を確かめて、もう一度読み込んでください。';
 export const EDIT_SAVE_FAILED =
   '保存できませんでした。入力はそのまま残っています。もう一度 [保存する] を押してください。';
+export const EDIT_VALUES_CHANGED =
+  '開いてから口座・銘柄の値が変わりました。表示を今の値に更新したので、確かめてからもう一度 [保存する] を押してください。';
 export const EDIT_NETWORK_FAILED =
   'つながりません。入力はそのまま残っています。もう一度 [保存する] を押してください。';
 
@@ -84,6 +96,10 @@ export interface EditState {
   readonly orphans: readonly OrphanTimeframe[];
   /** 直せない理由（phase = blocked） */
   readonly block: string | null;
+  /** 写した値と今の値の違い（違わなければ null。#31） */
+  readonly offer: ResnapshotOffer | null;
+  /** 今の値で計算し直すを選んでいる（offer があるときだけ効く） */
+  readonly refresh: boolean;
   readonly error: string | null;
   readonly errorKind?: FailureKind;
 }
@@ -93,6 +109,8 @@ export interface EditController {
   subscribe(fn: (s: EditState) => void): () => void;
   load(): Promise<void>;
   update(action: DraftAction): void;
+  /** 計算に使う値: true = 今の値、false = 記録したとき（#31。違いが無ければ何もしない） */
+  setRefresh(on: boolean): void;
   save(): Promise<void>;
   dispose(): void;
 }
@@ -132,6 +150,8 @@ export function createEditController(deps: {
     before: { noLc: false },
     orphans: [],
     block: null,
+    offer: null,
+    refresh: false,
     error: null,
   };
   let inflight: Promise<void> | null = null;
@@ -149,6 +169,7 @@ export function createEditController(deps: {
     accounts: readonly AccountRecord[],
     draft0: Draft,
     initial: Draft,
+    refresh: boolean,
   ) => {
     const ctx = editContext(trade, instruments, accounts);
     let draft = draft0;
@@ -164,7 +185,10 @@ export function createEditController(deps: {
     }
     const id = read.instrument.matchedId ?? trade.record.instrumentId;
     const merged = mergedOf(trade, initial, draft, read, id);
-    return { draft, read, preview: editPreview(read, merged, editSnapshot(read, ctx, draft)) };
+    const stored = editSnapshot(read, ctx, draft);
+    const offer = resnapshotOffer(stored, currentSnapshot(read, ctx, draft), merged);
+    const snapshot = refresh && offer !== null ? offer.snapshot : stored;
+    return { draft, read, offer, preview: editPreview(read, merged, snapshot) };
   };
 
   const set = (patch: Partial<EditState>) => {
@@ -210,7 +234,7 @@ export function createEditController(deps: {
         return;
       }
       const initial = draftFromStored(trade, inst.items);
-      const next = withDraft(trade, inst.items, accounts, initial, initial);
+      const next = withDraft(trade, inst.items, accounts, initial, initial, false);
       set({
         phase: 'editing',
         trade,
@@ -221,6 +245,7 @@ export function createEditController(deps: {
         before: summarize(trade),
         orphans: orphanTimeframes(trade),
         block: null,
+        refresh: false,
         error: null,
       });
     } catch (e) {
@@ -236,12 +261,37 @@ export function createEditController(deps: {
 
   const doSave = async () => {
     const { trade, read, draft, initial } = state;
+    // 「今の値」を選んでいて、記録したときの値と今の値が違うときだけ保存し直しを頼む（#31）
+    const refresh = state.refresh && state.offer !== null;
     if (state.phase !== 'editing' || trade === null || !read.canSave || read.body === undefined) {
       return;
     }
     const body = read.body;
     set({ phase: 'saving', error: null });
     try {
+      if (refresh) {
+        // 開いてから口座・銘柄の今の値が変わっていたら、表示を更新して保存しない（N-6）
+        const [inst2, acc2] = await Promise.all([
+          request('/api/instruments').then((r) => getJson<{ items: InstrumentRecord[] }>(r, 200)),
+          request('/api/accounts').then((r) => getJson<{ items: AccountRecord[] }>(r, 200)),
+        ]);
+        if (disposed) return;
+        if (!Array.isArray(inst2?.items) || !Array.isArray(acc2?.items)) throw new Failed('other');
+        const accounts2 = sortAccounts(acc2.items);
+        const next = withDraft(trade, inst2.items, accounts2, draft, initial, true);
+        const seen = JSON.stringify(state.offer?.snapshot);
+        if (next.offer === null || JSON.stringify(next.offer.snapshot) !== seen) {
+          set({
+            phase: 'editing',
+            instruments: inst2.items,
+            accounts: accounts2,
+            ...next,
+            refresh: next.offer !== null,
+            error: EDIT_VALUES_CHANGED,
+          });
+          return;
+        }
+      }
       const inst = await resolveInstrument(
         request,
         read.instrument.name,
@@ -251,7 +301,7 @@ export function createEditController(deps: {
       // 足した銘柄は保存に失敗しても一覧に残す（次に押したときに同じ名前を足し直さない）
       if (inst.instruments !== state.instruments) set({ instruments: inst.instruments });
       const record = mergeEdit(trade.record, initial, draft, body, inst.id);
-      const res = await request(tradePath(deps.id), {
+      const res = await request(`${tradePath(deps.id)}${refresh ? RESNAPSHOT_QUERY : ''}`, {
         method: 'PUT',
         headers: JSON_HEADERS,
         body: JSON.stringify(record),
@@ -298,8 +348,24 @@ export function createEditController(deps: {
         state.accounts,
         applyDraft(state.draft, action),
         state.initial,
+        state.refresh,
       );
-      set({ ...next, error: null });
+      // 違いが無くなったら選択も戻す（付け替えて戻したときに、押した覚えの無い「今の値」にならない。N-8）
+      set({ ...next, ...(next.offer === null ? { refresh: false } : {}), error: null });
+    },
+    setRefresh(on) {
+      const trade = state.trade;
+      if (state.phase !== 'editing' || trade === null) return;
+      if (on && state.offer === null) return;
+      const next = withDraft(
+        trade,
+        state.instruments,
+        state.accounts,
+        state.draft,
+        state.initial,
+        on,
+      );
+      set({ ...next, refresh: on, error: null });
     },
     save() {
       if (inflight) return inflight;

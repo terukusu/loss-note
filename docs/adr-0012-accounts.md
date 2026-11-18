@@ -14,7 +14,7 @@
 2. **API**: `GET / POST /api/accounts`・`GET / PUT /api/accounts/{id}`。ほかの利用者の口座は読む・直すで 404、取引の作成・直しで指せば 400 `accountId notFound`
 3. **既定の口座は決まった ID `default`（名前「口座 1」）**。取引の `record.accountId` は任意の欄で、無い = 既定の口座（移す前の取引・口座が 1 つの利用者の取引）。画面は口座が 2 つ以上のときだけ本文に `accountId` を入れる（口座 1 つの利用者の本文は今と同じ）
 4. **移し替えは「読む・使うときに無ければ作る」**: 口座を読む・使う API の入口（口座の一覧・1 件・作る・直す、取引の作成・直し）で `accounts/default` が無ければ、`settings/current` を読み、その資金・許容リスク（無ければ 1%）・資金の履歴を写した文書を、**トランザクションの外で、決まった ID の `create`（無いときだけ作る）** で作る。既にあれば（AlreadyExists。ほかの要求が先に作った）作らない。口座を使うトランザクションの中で既定の口座が無いと分かったら、トランザクションを抜けて作ってから 1 回だけやり直す。作ったときだけログ `default_account_created`（設定から写したかの真偽と履歴の件数だけ）を 1 回出す。取引・設定は書き換えない
-5. **snapshot の鍵は変えない**: `snapshot.capitalYen`・`snapshot.riskTolerancePct` を「記録したときの、その取引の口座の資金・許容リスク」と読む。`core/record.ts` の `toTradeInput` は変えない。直す（PUT）で本文に `accountId` が無ければ保存済みの口座を保ち、口座を付け替えたときだけ付け替え先の口座の今の値で写し直す（銘柄の付け替え C36 と同じ考え方。両者は独立に効く）
+5. **snapshot の鍵は変えない**: `snapshot.capitalYen`・`snapshot.riskTolerancePct` を「記録したときの、その取引の口座の資金・許容リスク」と読む。`core/record.ts` の `toTradeInput` は変えない。直す（PUT）で本文に `accountId` が無ければ保存済みの口座を保ち、口座を付け替えたときだけ付け替え先の口座の今の値で写し直す（銘柄の付け替え C36 と同じ考え方。両者は独立に効く）。#31 で、付け替えの無い取引も、編集の画面で利用者が「今の値」を選んで保存したとき（PUT の `?snapshot=current`）だけ、取引の口座・銘柄の今の値で写し直せるようにした（設計書 C36）
 6. **設定の文書と `GET / PUT /api/settings` の形は変えない**。設定の `capitalYen`・`riskTolerancePct`・`capitalHistory` は移し替えの元として残し、画面はもう読まない・書かない（`performanceUnit` と 403 の確かめは今のまま）
 
 ## 選択肢

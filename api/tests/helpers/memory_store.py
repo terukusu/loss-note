@@ -91,20 +91,22 @@ class MemoryStore:
             return tid, doc
 
     def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
-                     build_default=accounts.build_default_now):  # fmt: skip
+                     build_default=accounts.build_default_now, refresh=False):  # fmt: skip
         with self._lock:
             col = self._col(uid, "trades")
             if trade_id not in col:
                 return None
             instrument = None
-            if instrument_id != col[trade_id]["record"]["instrumentId"]:
+            if refresh or instrument_id != col[trade_id]["record"]["instrumentId"]:
                 inst = self._col(uid, "instruments").get(instrument_id)
                 if inst is None:
                     raise MissingInstrument()
                 instrument = copy.deepcopy(inst)
             account, pending = None, None
-            if account_id is not None and account_id != accounts.account_id_of(col[trade_id]["record"]):
-                account, pending = self._read_account(uid, account_id, build_default)
+            stored = accounts.account_id_of(col[trade_id]["record"])
+            target = account_id if account_id is not None else stored
+            if refresh or target != stored:
+                account, pending = self._read_account(uid, target, build_default)
                 if account is None:
                     raise MissingAccount()
                 self._write_default(uid, pending)  # 取引より先（create_trade と同じ）

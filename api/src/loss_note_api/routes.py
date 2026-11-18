@@ -12,6 +12,9 @@
 ``snapshot.capitalYen``・``snapshot.riskTolerancePct`` に写す。既定の口座は口座を読む・使う入口で無ければ設定から
 1 回だけ作る（``accounts.py``）。設定の ``capitalYen`` 等は移し替えの元として形を変えずに残す（KEEP-6）。
 
+今の値で写し直す（Issue #31・設計書 C36）: 取引の PUT に ``?snapshot=current`` を付けたときだけ、取引の銘柄と口座の
+今の値で snapshot を写し直す（利用者が編集の画面で前 → 後を見て選んだとき）。付けなければ今と同じ。
+
 根拠の足のチャート画像（Issue #12・ADR-0006）: 作成は ``POST /api/trades`` の multipart（部分 ``record`` = JSON の文字、
 ``entryChart`` / ``exitChart`` = 画像。どちらも任意）で取引と 1 トランザクション。差し替え・外す・読み戻しは
 ``/api/trades/{id}/charts/{slot}``。API が中継し、画面から保存先は直接読めない。multipart は記憶の中だけで読む
@@ -39,6 +42,8 @@ from loss_note_api.store import (
 SCHEMA_VERSION = 1
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
 _INSTRUMENT_SNAPSHOT_KEYS = ("multiplier", "quantityStep", "priceCurrency", "underlyingKind", "productForm")
+# 取引の PUT のクエリ snapshot の決まった値（#31。今の口座・銘柄の値で写し直す）
+SNAPSHOT_CURRENT = "current"
 
 
 def error(status: int, code: str, **extra) -> Response:
@@ -275,6 +280,12 @@ def make_blueprint(
     def update_trade(trade_id: str):
         if not valid_id(trade_id):
             return error(404, "not_found")
+        # 今の値で写し直す（#31）: ?snapshot=current のときだけ。無ければ今と同じ（付け替えたときだけ写し直す）
+        # 重ねた指定（?snapshot=current&snapshot=x）も 400（先頭だけを見て黙って通さない）
+        modes = request.args.getlist("snapshot")
+        if modes and modes != [SNAPSHOT_CURRENT]:
+            return invalid([{"field": "snapshot", "kind": "invalid"}])
+        refresh = bool(modes)
         body, err = read_body()
         if err:
             return err
@@ -307,7 +318,7 @@ def make_blueprint(
 
         try:
             doc = store.update_trade(g.uid, trade_id, record["instrumentId"], record.get("accountId"), mutate,
-                                     build_default=build_default)  # fmt: skip
+                                     build_default=build_default, refresh=refresh)  # fmt: skip
         except MissingInstrument:
             return invalid([{"field": "instrumentId", "kind": "notFound"}])
         except MissingAccount:

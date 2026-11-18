@@ -124,7 +124,7 @@ def sdk_available() -> bool:
 
 
 # 送り口の失敗 → (状態, 符号, ログの理由)
-def _failure(error: str) -> tuple[int, str, str]:
+def failure_of(error: str) -> tuple[int, str, str]:
     if error == "timeout":
         return 504, "read_timeout", "timeout"
     if error == "sdk_missing":
@@ -267,7 +267,7 @@ def register(
         except Exception:  # noqa: BLE001 - 応答は変えない（予約額が残る）。例外の文言は出さない
             log_event(event="statement_read_settle", reason="unavailable", rows=0, ms=elapsed())
         if outcome.result is None or outcome.error is not None:
-            status, code, why = _failure(outcome.error or "no_tool_call")
+            status, code, why = failure_of(outcome.error or "no_tool_call")
             return reply(status, {"error": code}, why)
         try:
             body = normalize_result(outcome.result)

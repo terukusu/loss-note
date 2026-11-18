@@ -3,6 +3,7 @@
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
+import { CHART_READ_MARK, CHART_READ_MSG, CHART_READ_NOTICE } from '../../ui/src/lib/chart-read';
 import {
   type AddAccountState,
   AUTH_EXPIRED,
@@ -1070,6 +1071,108 @@ describe('チャートの枠（Issue #12）', () => {
     const tree = view(stateFor(E1, NO_CAPITAL, { chartBlocked: msg }));
     const charts = all(tree, hasClass('charts'))[0] as El;
     expect(text(all([charts], (e) => e.props.role === 'status'))).toBe(msg);
+  });
+});
+
+describe('チャートの時間足の読み取りの表示（Issue #27 の U0・U1・U4・U6）', () => {
+  const ready = (over: Record<string, unknown> = {}) => ({
+    phase: 'ready' as const,
+    preview: fakePreview(1200, 800),
+    message: null,
+    ...over,
+  });
+
+  it('U0: チャートの枠の見出しの下に、AI の提供元に送って記録と一緒に保存する注意を常に出す。明細の注意は明細だけ', () => {
+    for (const tree of [
+      view(stateFor(E1, NO_CAPITAL)),
+      view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } })),
+    ]) {
+      expect(text(all(tree, hasClass('charts__notice')))).toBe(CHART_READ_NOTICE);
+      const body = text(all(tree, (e) => e.props.id === 'record-statement-notice'));
+      expect(body).toContain('明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません');
+    }
+  });
+
+  it('U9: 利用者の選んだ値と読めた値が違えば、読めた値と [〈値〉にする] を出す', () => {
+    const d = applyDraft(E1, { type: 'set', field: 'exitChartTimeframe', value: '4h' });
+    let accepted: string | null = null;
+    const tree = view(
+      stateFor(d, NO_CAPITAL, { charts: { exit: ready({ read: 'done', readSuggest: '1d' }) } }),
+      {
+        onAcceptChartTimeframe: (slot) => {
+          accepted = slot;
+        },
+      },
+    );
+    const box = all(tree, hasClass('chart__suggest'))[0] as El;
+    expect(text(all([box], hasClass('field__hint')))).toBe('チャートからは 日足 と読めました');
+    const btn = all([box], (e) => e.type === 'button')[0] as El;
+    expect(text(btn)).toBe('日足にする');
+    (btn.props.onClick as () => void)();
+    expect(accepted).toBe('exit');
+  });
+
+  it('U10: タップの答え「変えず」とチャートの時間足が食い違えば、理由の 2 行目とタップの下に事実として並べる', () => {
+    const d = applyDraft(
+      applyDraft(applyDraft(E1, { type: 'set', field: 'entryChartTimeframe', value: '4h' }), {
+        type: 'set',
+        field: 'exitChartTimeframe',
+        value: '1d',
+      }),
+      { type: 'set', field: 'timeframeChange', value: 'none' },
+    );
+    const ctx = { ...NO_CAPITAL, charts: { entry: true, exit: true } };
+    const tree = view(stateFor(d, ctx, { charts: { entry: ready(), exit: ready() } }));
+    expect(text(all(tree, hasClass('reasons__sub'))).replace(/\u00a0/g, ' ')).toBe(
+      'あなたの答え: 変えず ／ チャート: 4 時間足 → 日足',
+    );
+    expect(text(all(tree, hasClass('field__hint'))).replace(/\u00a0/g, ' ')).toContain(
+      'チャートでは 4 時間足 → 日足',
+    );
+  });
+
+  it('デザイン 7: 貼った枠の「ここに貼れます」は「貼ると差し替えます」になり、撮る足の添え書きは読み上げだけに残る', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
+    const box = all(tree, (e) => e.props.id === 'record-chart-entry')[0] as El;
+    expect(text(all([box], hasClass('chart__ready')))).toBe('貼ると差し替えます');
+    expect(cls(all([box], hasClass('chart__hint'))[0] as El)).toContain('sr-only');
+    const empty = all(tree, (e) => e.props.id === 'record-chart-exit')[0] as El;
+    expect(text(all([empty], hasClass('chart__ready')))).toBe('ここに貼れます');
+  });
+
+  it('U1: 読み取りで埋めた欄に印「チャートから読み取り」（select の説明にもつなぐ）', () => {
+    const d = applyDraft(E1, { type: 'set', field: 'entryChartTimeframe', value: '4h' });
+    const tree = view(
+      stateFor(d, NO_CAPITAL, { charts: { entry: ready({ read: 'done', readMark: true }) } }),
+    );
+    const mark = all(tree, (e) => e.props.id === 'record-chart-entry-tf-mark')[0] as El;
+    expect(text(mark)).toBe(CHART_READ_MARK);
+    const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-chart-entry-tf');
+    expect(sel[0]?.props['aria-describedby']).toBe('record-chart-entry-tf-mark');
+    expect(sel[0]?.props.value).toBe('4h');
+  });
+
+  it('印が無い欄は今までどおり（ラベルだけ）', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready({ read: 'done' }) } }));
+    expect(all(tree, (e) => e.props.id === 'record-chart-entry-tf-mark')).toHaveLength(0);
+    const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-chart-entry-tf');
+    expect(sel[0]?.props['aria-describedby']).toBeUndefined();
+  });
+
+  it('U6: 読み取り中は枠に「時間足を読み取っています…」', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL, { charts: { exit: ready({ read: 'reading' }) } }));
+    const box = all(tree, (e) => e.props.id === 'record-chart-exit')[0] as El;
+    expect(text(all([box], (e) => e.props.role === 'status'))).toBe('時間足を読み取っています…');
+  });
+
+  it('U4・U5: 知らせを枠の中に出す', () => {
+    const tree = view(
+      stateFor(E1, NO_CAPITAL, {
+        charts: { entry: ready({ read: 'done', readNote: CHART_READ_MSG.notChart }) },
+      }),
+    );
+    const box = all(tree, (e) => e.props.id === 'record-chart-entry')[0] as El;
+    expect(text(all([box], (e) => e.props.role === 'status'))).toBe(CHART_READ_MSG.notChart);
   });
 });
 

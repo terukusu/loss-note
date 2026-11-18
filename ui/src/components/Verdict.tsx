@@ -46,6 +46,11 @@ export interface VerdictProps {
   readonly titleId?: string;
   /** 直す前の判定（直す画面だけ。直す前 → 直した後が分かるように、判定の行の上に出す） */
   readonly before?: Summary;
+  /**
+   * 3 つ目のタップの答えとチャートの時間足の違いが食い違うときの 1 行（記録する画面だけ。#27）。チャートからの
+   * 「時間足を変えた」の理由の 2 行目に、責めずに事実として並べる
+   */
+  readonly chartConflict?: string | null;
   /** 3 つのタップの答え（取引の詳細だけ。理由の下に札で並べる。#34） */
   readonly taps?: { readonly items: readonly TapAnswer[]; readonly note: string | null };
   /**
@@ -179,6 +184,9 @@ export function Verdict(v: VerdictProps) {
           {n.reasons.map((r, i) => (
             <li key={`${r.kind}-${i}`} class="reasons__item">
               {reasonText(r, v.side)}
+              {v.chartConflict && r.kind === 'timeframeLonger' && r.source === 'chart' ? (
+                <span class="reasons__sub">{v.chartConflict}</span>
+              ) : null}
             </li>
           ))}
         </ul>

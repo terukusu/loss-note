@@ -5,6 +5,11 @@
 - eval: 明細の画像を AI で読み、正解と欄ごとに比べ、件数・割合・秒数・費用だけを出す（R5）。資格情報が無ければ
   SDK を import せずに exit 2。--preset app はアプリ（API）の読み取りの設定（statement_read.app_settings のモデル・
   effort・締め切り）で読み、画像は縮めずに API と同じ上限（statement_read.image.check_limits）で検査する（#11 の AC-14）
+- generate-charts: 合成のチャート（synthetic-charts/ の manifest.json・answers.json・cNN.png。#27）を作る。
+  --check は generate と同じ
+- eval-charts: チャートの時間足の表示を AI で読み（共有の送り口に chart_timeframe.CHART_TASK を差し込む。API と同じ
+  指示）、読み違い・作り話の件数と秒数だけを出す（#27 の AC-7）。--preset app はアプリの設定。--set real は
+  data/local/ の下だけ
 """
 
 import argparse
@@ -21,11 +26,12 @@ from pathlib import Path
 from statement_read import app_settings
 from statement_read import image as shared_image
 
-from . import images, report, schema, score, synthetic
+from . import chart_score, chart_synthetic, images, report, schema, score, synthetic
 
 TOOL_DIR = Path(__file__).resolve().parents[2]
 REPO_ROOT = TOOL_DIR.parents[1]
 SYNTHETIC_DIR = TOOL_DIR / "synthetic"
+SYNTHETIC_CHARTS_DIR = TOOL_DIR / "synthetic-charts"
 DATA_LOCAL = REPO_ROOT / "data" / "local"
 REAL_TMP = DATA_LOCAL / "statement-eval" / "tmp"
 DEFAULT_MODEL = "claude-opus-5-5"
@@ -77,6 +83,137 @@ def cmd_generate(args, out) -> int:
     for s in synthetic.STATEMENTS:
         (target / s.file).write_bytes(render.render_png(synthetic.layout(s), font))
     print(f"合成の明細 {len(synthetic.STATEMENTS)} 枚と正解を書きました", file=out)
+    return 0
+
+
+# ---- generate-charts（#27） ----
+
+
+def cmd_generate_charts(args, out) -> int:
+    from . import chart_render, render
+
+    target = Path(args.out) if args.out else SYNTHETIC_CHARTS_DIR
+    manifest_text = _dump(chart_synthetic.manifest())
+    answers_text = _dump(chart_synthetic.answers())
+    if args.check:
+        ok = True
+        for name, text in (("manifest.json", manifest_text), ("answers.json", answers_text)):
+            p = target / name
+            if not p.is_file() or p.read_text(encoding="utf-8") != text:
+                print(f"{name} がコミット済みと違います"
+                      "（python -m statement_eval generate-charts で作り直してください）", file=out)
+                ok = False
+        if ok:
+            print("manifest.json・answers.json はコミット済みと同じです", file=out)
+        return 0 if ok else 1
+    try:
+        font = render.find_font(args.font)
+    except render.FontNotFound as e:
+        print(str(e), file=out)
+        return 2
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "manifest.json").write_text(manifest_text, encoding="utf-8")
+    (target / "answers.json").write_text(answers_text, encoding="utf-8")
+    for c in chart_synthetic.CASES:
+        (target / c.file).write_bytes(chart_render.render_chart_png(c, font))
+    print(f"合成のチャート {len(chart_synthetic.CASES)} 枚と正解を書きました", file=out)
+    return 0
+
+
+# ---- eval-charts（#27） ----
+
+
+def _default_chart_reader_factory(credential, secret, model, effort, tmp_parent, timeout=None,
+                                  max_output_tokens=None):
+    from statement_read.chart_timeframe import CHART_TASK
+
+    from .reader import Reader
+
+    return Reader(credential, secret, model, effort, tmp_parent=tmp_parent, timeout=timeout, task=CHART_TASK,
+                  max_output_tokens=max_output_tokens)
+
+
+def run_eval_charts(args, env: dict[str, str], reader_factory: Callable, out, err) -> int:
+    from .reader import NoCredential, credential_secret
+
+    timeout = max_output = None
+    if args.preset == "app":
+        if args.model is not None or args.effort is not None:
+            print("--preset app は --model・--effort と一緒に指定できません", file=out)
+            return 2
+        args.model, args.effort = app_settings.APP_MODEL, app_settings.APP_EFFORT
+        # アプリと同じ締め切り・最大出力（チャートの最大出力。#27・ADR-0015）
+        timeout, max_output = app_settings.APP_TIMEOUT_SECONDS, app_settings.APP_CHART_MAX_OUTPUT_TOKENS
+    else:
+        args.model = DEFAULT_MODEL if args.model is None else args.model
+        args.effort = DEFAULT_EFFORT if args.effort is None else args.effort
+    try:
+        secret = credential_secret(args.credential, env)
+    except NoCredential:
+        print("資格情報がありません（--credential oauth_token なら CLAUDE_CODE_OAUTH_TOKEN、api_key なら "
+              "ANTHROPIC_API_KEY）。AI は呼んでいません", file=out)
+        return 2
+    if not _MODEL_RE.match(args.model or ""):
+        print("--model の形が不正です", file=out)
+        return 2
+    if args.set == "real":
+        if not args.dir or not _within(Path(args.dir), DATA_LOCAL):
+            print("--set real には data/local/ の下の --dir が要ります", file=out)
+            return 2
+        base, tmp_parent, repeat = Path(args.dir), str(REAL_TMP), args.repeat or 3
+    else:
+        base, tmp_parent, repeat = SYNTHETIC_CHARTS_DIR, None, args.repeat or 1
+    if args.json_out and not (_within(Path(args.json_out).parent, DATA_LOCAL)
+                              or _within(Path(args.json_out).parent, Path(tempfile.gettempdir()))):
+        print("--json-out は data/local/ の下か一時ディレクトリだけを受け付けます", file=out)
+        return 2
+    try:
+        answers = chart_score.check_answers(json.loads((base / "answers.json").read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        print("answers.json がありません", file=out)
+        return 2
+    except ValueError:  # JSONDecodeError を含む
+        print("answers.json が不正です", file=out)
+        return 2
+    prepared = []
+    for i, im in enumerate(answers, start=1):
+        try:
+            raw = (base / im["file"]).read_bytes()
+        except OSError:
+            print(f"画像 {i} を読めません", file=out)
+            return 2
+        media_type = shared_image.media_type_of(raw)
+        # API と同じ上限（縮めない）。外なら API も断るので読まずに止める
+        if shared_image.check_limits(raw, media_type) is not None:
+            print(f"画像 {i} がアプリの上限の外です（PNG / JPEG・500,000 B 以下・長辺 2,000 px 以下）", file=out)
+            return 2
+        prepared.append((raw, media_type))
+
+    reader = reader_factory(args.credential, secret, args.model, args.effort, tmp_parent, timeout, max_output)
+    counts: Counter = Counter()
+    failures: Counter = Counter()
+    seconds: list[float] = []
+    total = len(prepared) * repeat
+    n = 0
+    for im, (data, media_type) in zip(answers, prepared, strict=True):
+        for _ in range(repeat):
+            n += 1
+            print(f"読み取り {n} / {total}", file=err)
+            o = reader.read(data, media_type)
+            counts[chart_score.classify(im, o.result)] += 1
+            if o.result is None:
+                failures[o.error or "unknown"] += 1
+            elif o.seconds is not None:
+                seconds.append(o.seconds)
+    smed, smax = _median_max(seconds)
+    summary = chart_score.ChartSummary(
+        model=args.model, effort=args.effort, n_images=len(prepared), repeat=repeat, n_reads=total,
+        counts={k: counts.get(k, 0) for k in chart_score.CATEGORIES}, seconds_median=smed, seconds_max=smax,
+        failures=dict(failures),
+    )
+    out.write(chart_score.to_markdown(summary))
+    if args.json_out:
+        Path(args.json_out).write_text(chart_score.to_json(summary), encoding="utf-8")
     return 0
 
 
@@ -307,6 +444,21 @@ def build_parser() -> argparse.ArgumentParser:
     e.add_argument("--repeat", type=int, choices=range(1, 11), metavar="1-10")
     e.add_argument("--usd-jpy", type=float, help="円の換算に使うレート（渡したときだけ円も出す）")
     e.add_argument("--json-out", help="要約の JSON の書き出し先（data/local/ の下か一時ディレクトリだけ）")
+    gc = sub.add_parser("generate-charts", help="合成のチャートと正解を作る（#27）")
+    gc.add_argument("--check", action="store_true", help="manifest と answers をコミット済みと比べるだけ")
+    gc.add_argument("--font", help="日本語のフォントのパス（無ければ代表的な置き場所を探す）")
+    gc.add_argument("--out", help="書き出す先（既定は tools/statement-eval/synthetic-charts）")
+    ec = sub.add_parser("eval-charts",
+                        help="チャートの時間足を AI で読んで採点する（読み違い・作り話の件数と秒数だけ）")
+    ec.add_argument("--set", choices=("synthetic", "real"), default="synthetic")
+    ec.add_argument("--dir", help="実物のチャートと answers.json の置き場所（data/local/ の下だけ）")
+    ec.add_argument("--credential", choices=("oauth_token", "api_key"))
+    ec.add_argument("--preset", choices=("app",),
+                    help="アプリ（API）の読み取りの設定で読む（モデル・effort・締め切り）")
+    ec.add_argument("--model", help=f"モデル（既定は {DEFAULT_MODEL}）")
+    ec.add_argument("--effort", choices=EFFORTS, help=f"effort（既定は {DEFAULT_EFFORT}）")
+    ec.add_argument("--repeat", type=int, choices=range(1, 11), metavar="1-10")
+    ec.add_argument("--json-out", help="要約の JSON の書き出し先（data/local/ の下か一時ディレクトリだけ）")
     return p
 
 
@@ -320,6 +472,8 @@ def main(argv: list[str] | None = None, *, env: dict[str, str] | None = None,
         return int(e.code or 0) if isinstance(e.code, int) else 2
     if args.cmd == "generate":
         return cmd_generate(args, out)
+    if args.cmd == "generate-charts":
+        return cmd_generate_charts(args, out)
     if env is None:
         # 資格情報を写したら、この process の環境から資格情報・送り先の系統の名前を外す（入口の 1 回だけ。送り口は
         # 名前が残っていると送らない。#55・ADR-0011）
@@ -327,4 +481,6 @@ def main(argv: list[str] | None = None, *, env: dict[str, str] | None = None,
         from .reader import scrub_process_env
 
         scrub_process_env()
+    if args.cmd == "eval-charts":
+        return run_eval_charts(args, env, reader_factory or _default_chart_reader_factory, out, err)
     return run_eval(args, env, reader_factory or _default_reader_factory, out, err)

@@ -16,7 +16,7 @@
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
@@ -48,6 +48,13 @@ def _app_reserve() -> int:
     return pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_MAX_OUTPUT_TOKENS)
 
 
+def _chart_reserve() -> int:
+    """チャートの時間足の読み取り 1 回の費用の上界（種類ごとの指示・最大出力から出す。#27・ADR-0015）"""
+    from statement_read.chart_timeframe import CHART_TASK
+
+    return pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_CHART_MAX_OUTPUT_TOKENS, CHART_TASK)
+
+
 @dataclass(frozen=True)
 class ReadLimits:
     """上限の値。reserve_micro_usd は読み取り 1 回の費用の上界（アプリのモデル・最大出力から出す）。
@@ -61,6 +68,12 @@ class ReadLimits:
     per_user_micro_usd: int = PER_USER_MICRO_USD_DEFAULT
     bypass: frozenset[str] = field(default=frozenset(), repr=False)
     config_error: str | None = None
+    # チャートの時間足の読み取りの予約額（#27。明細と同じ財布で、予約額だけ種類ごと）
+    chart_reserve_micro_usd: int = field(default_factory=_chart_reserve)
+
+    def for_chart(self) -> "ReadLimits":
+        """チャートの時間足の読み取りの判定に使う上限（予約額だけをチャートの額に置き換えたもの）"""
+        return replace(self, reserve_micro_usd=self.chart_reserve_micro_usd)
 
 
 def parse_count(raw: str) -> int | None:

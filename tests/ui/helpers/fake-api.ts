@@ -22,6 +22,8 @@
 //   POST /api/accounts = 201（資金を入れたら履歴 1 件）・名前が同じなら 409。PUT /api/accounts/<id> = 3 欄を置き換え、
 //   資金が前と違うときだけ履歴に足す。無い ID は 404。取引の snapshot の資金・許容リスクは取引の口座（accountId。無い = 既定）
 //   から写す。PUT で口座を付け替えたときだけ付け替え先の今の値で写し直す（本文に口座が無ければ前の口座を保つ）。無い口座は 400
+// - POST /api/chart-reads（#27）: opts.chartReads の台本を順に返す（無ければ { kind: 'chart', timeframe: null } =
+//   時間足を読めなかった）。要求は calls に Content-Type とバイト数だけを残す。holdChartReads / releaseChartReads で止める
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 import {
   type AccountBody,
@@ -78,6 +80,8 @@ export interface FakeOptions {
   readonly chartData?: Readonly<Record<string, Uint8Array>>;
   /** 口座（#47。省けば既定の口座を設定から作る = 移し替え） */
   readonly accounts?: readonly AccountRecord[];
+  /** POST /api/chart-reads の応答（順に使う。#27） */
+  readonly chartReads?: readonly ReadScript[];
 }
 
 export interface FakeApi {
@@ -97,6 +101,9 @@ export interface FakeApi {
   /** 読み取りの応答だけを止める / 進める */
   holdReads(): void;
   releaseReads(): void;
+  /** チャートの時間足の読み取りの応答だけを止める / 進める（#27） */
+  holdChartReads(): void;
+  releaseChartReads(): void;
 }
 
 function json(status: number, body: unknown): Response {
@@ -120,6 +127,9 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   let readGate: Promise<void> | null = null;
   let readOpen: (() => void) | null = null;
   const reads = [...(opts.reads ?? [])];
+  const chartReads = [...(opts.chartReads ?? [])];
+  let chartReadGate: Promise<void> | null = null;
+  let chartReadOpen: (() => void) | null = null;
 
   let current: SettingsRecord = {
     capitalYen: opts.capitalYen ?? null,
@@ -168,6 +178,23 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const script = reads.shift() ?? { status: 200, body: { kind: 'statement', rows: [] } };
       if (script === 'throw')
         throw new TypeError('読み取りの通信の誤り（偽物。SECRET-本文 は画面に出ないこと）');
+      return json(script.status, script.body ?? { error: 'x', detail: 'SECRET-本文' });
+    }
+    if (key === 'POST /api/chart-reads') {
+      const raw = init.body;
+      calls.push({
+        method,
+        path,
+        contentType: new Headers(init.headers).get('Content-Type') ?? '',
+        bytes: raw instanceof Uint8Array ? raw.length : -1,
+      });
+      if (chartReadGate) await chartReadGate;
+      const script = chartReads.shift() ?? {
+        status: 200,
+        body: { kind: 'chart', timeframe: null },
+      };
+      if (script === 'throw')
+        throw new TypeError('チャートの読み取りの通信の誤り（偽物。SECRET-本文）');
       return json(script.status, script.body ?? { error: 'x', detail: 'SECRET-本文' });
     }
     const form = init.body instanceof FormData ? init.body : undefined;
@@ -526,6 +553,17 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const o = readOpen;
       readGate = null;
       readOpen = null;
+      o?.();
+    },
+    holdChartReads() {
+      chartReadGate = new Promise((ok) => {
+        chartReadOpen = ok;
+      });
+    },
+    releaseChartReads() {
+      const o = chartReadOpen;
+      chartReadGate = null;
+      chartReadOpen = null;
       o?.();
     },
   };

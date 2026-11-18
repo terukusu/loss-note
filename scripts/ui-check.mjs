@@ -518,6 +518,8 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
  * 口座（Issue #47）: api.accounts（opts.accounts。書き換えてよい）。既定の口座 default（「口座 1」）が無ければ、口座を読む・使う
  * 入口で api.settings から作る（本物の移し替えと同じ）。取引の snapshot の資金・許容リスクは取引の口座から写し、PUT で口座を
  * 付け替えたときだけ付け替え先の今の値で写し直す。opts.failAccounts は PUT /api/accounts/<id> の状態
+ * POST /api/chart-reads（Issue #27）は api.chartTimeframes の先頭から順に時間足を返す（無ければ null = 読めなかった）。
+ * api.chartRead（{ status, kind, holdMs }。後から書き換えてよい）で状態・種類・待ちを変える。要求の数を api.chartReads に残す
  */
 async function installFakeApi(context, opts = {}) {
   const api = {
@@ -533,6 +535,9 @@ async function installFakeApi(context, opts = {}) {
     chartPosts: [],
     read: { status: 200, rows: [READ_E1], holdMs: 0 },
     reads: [],
+    chartTimeframes: [],
+    chartRead: { status: 200, kind: 'chart', holdMs: 0 },
+    chartReads: 0,
     settings: {
       capitalYen: opts.capitalYen ?? null,
       riskTolerancePct: 1,
@@ -594,6 +599,23 @@ async function installFakeApi(context, opts = {}) {
             ? { kind: 'statement', rows: r.rows }
             : { error: 'read_unavailable', detail: 'SECRET-本文' },
         );
+      } catch {
+        return undefined; // 待たせている間に画面を離れた
+      }
+    }
+    if (key === 'POST /api/chart-reads') {
+      api.chartReads++;
+      const r = api.chartRead;
+      if (r.holdMs) {
+        await new Promise((ok) => {
+          const t = setTimeout(ok, r.holdMs);
+          t.unref?.();
+        });
+      }
+      try {
+        if (r.status !== 200) return await json(route, r.status, { error: 'read_unavailable' });
+        const timeframe = r.kind === 'chart' ? (api.chartTimeframes.shift() ?? null) : null;
+        return await json(route, 200, { kind: r.kind, timeframe });
       } catch {
         return undefined; // 待たせている間に画面を離れた
       }
@@ -1111,7 +1133,7 @@ async function makeChart(page, to, target = null) {
 /** 枠を選んで（クリックでフォーカスして）チャートを貼り、プレビューが出るまで待つ */
 async function pasteChart(page, slot) {
   const frame = page.locator(`#record-chart-${slot}`);
-  await frame.locator('.chart__hint').click();
+  await frame.locator('.chart__name').click();
   await makeChart(page, 'paste');
   await frame.locator('canvas.chart__preview').waitFor({ timeout: 10000 });
 }
@@ -1257,17 +1279,77 @@ const RECORD_STATES = [
     slug: 'record-12-charts',
     name: 'チャートあり',
     anchor: '.charts',
-    fn: async (p) => {
+    fn: async (p, api) => {
+      // 読み取りで埋めた直後（印「チャートから」つき。#27）
+      api.chartTimeframes = ['4h', '1d'];
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
-      await p.locator('#record-chart-entry-tf').selectOption('4h');
-      await p.locator('#record-chart-exit-tf').selectOption('1d');
+      await p.locator('#record-chart-exit-tf-mark').waitFor();
       await p
         .locator('.reasons__item', { hasText: '時間足を変えた（4 時間足 → 日足・チャートから）' })
         .waitFor();
-      // 枠を選んだ状態（輪と「ここに貼れます」）を撮る
-      await p.locator('#record-chart-exit .chart__hint').click();
+      // 枠を選んだ状態（輪と「貼ると差し替えます」）を撮る
+      await p.locator('#record-chart-exit .chart__name').click();
+    },
+  },
+  {
+    slug: 'record-15-chart-reading',
+    name: 'チャートの読み取り中',
+    anchor: '.charts',
+    fn: async (p, api) => {
+      api.chartRead = { status: 200, kind: 'chart', holdMs: 20000 };
+      await fillRecord(p, EX_E1);
+      await pasteChart(p, 'entry');
+      await p.getByRole('status').filter({ hasText: '時間足を読み取っています' }).waitFor();
+      // 読み取り中も [記録する] は押せる（帯は「待たずに記録できます」）
+      if (await p.locator('#record-submit').isDisabled())
+        throw new Error('読み取り中に [記録する] が押せない');
+      await p.locator('.record__status', { hasText: '待たずに記録できます' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-16-chart-not-chart',
+    name: 'チャートと読めない',
+    anchor: '.charts',
+    fn: async (p, api) => {
+      api.chartRead = { status: 200, kind: 'not_chart', holdMs: 0 };
+      await pasteChart(p, 'entry');
+      await p.getByText('チャートと読めませんでした').waitFor();
+    },
+  },
+  {
+    slug: 'record-17-chart-failed',
+    name: 'チャートの読み取りの失敗',
+    anchor: '.charts',
+    fn: async (p, api) => {
+      api.chartRead = { status: 503, kind: 'chart', holdMs: 0 };
+      await pasteChart(p, 'entry');
+      await p.getByText('今は時間足の読み取りを使えません').waitFor();
+    },
+  },
+  {
+    slug: 'record-18-chart-suggest',
+    name: '選んだ値と読めた値が違う',
+    anchor: '.charts',
+    fn: async (p, api) => {
+      api.chartTimeframes = ['1d'];
+      api.chartRead = { status: 200, kind: 'chart', holdMs: 1500 };
+      await pasteChart(p, 'exit');
+      await p.locator('#record-chart-exit-tf').selectOption('4h');
+      await p.locator('#record-chart-exit .chart__suggest').waitFor({ timeout: 10000 });
+      await p.getByRole('button', { name: '日足にする' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-19-chart-conflict',
+    name: 'タップとチャートの食い違い',
+    fn: async (p, api) => {
+      api.chartTimeframes = ['4h', '1d'];
+      await fillRecord(p, EX_E1);
+      await pasteChart(p, 'entry');
+      await pasteChart(p, 'exit');
+      await p.locator('.reasons__sub', { hasText: 'あなたの答え: 変えず' }).waitFor();
     },
   },
   {
@@ -1962,6 +2044,9 @@ async function main() {
             // 口座は状態ごとに入れ替える（無い状態 = 既定の口座 1 つ。設定から作り直す）
             setAccounts(recApi, []);
             st.prep?.(recApi);
+            // チャートの読み取りの偽の応答を状態ごとに戻す（#27）
+            recApi.chartTimeframes = [];
+            recApi.chartRead = { status: 200, kind: 'chart', holdMs: 0 };
             await openRecord(recPage, base);
             await st.fn(recPage, recApi);
             // --inject-clip: 帯の見本（長い文・改行・背の高い要素）を足し、帯の測りが見逃さないことを確かめる
@@ -3340,13 +3425,52 @@ async function runFlows(browser, base, signedIn) {
     }
   });
 
+  // ── チャートの時間足の読み取り（CR1。Issue #27）。偽の記録の API が 4 時間足・日足を返す
+  await check('CR1', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await openRecord(p, base);
+      await p.locator('.charts__notice', { hasText: 'AI（Anthropic）に送ります' }).waitFor();
+      fake.chartTimeframes = ['4h', '1d'];
+      await fillRecord(p, EX_E1);
+      await pasteChart(p, 'entry');
+      await pasteChart(p, 'exit');
+      await expectPollAsync(
+        async () => (await p.locator('#record-chart-exit-tf').inputValue()) === '1d',
+        '読み取りで埋まった決済時の時間足',
+      );
+      expectEq(
+        await p.locator('#record-chart-entry-tf').inputValue(),
+        '4h',
+        'エントリー時の時間足',
+      );
+      expectEq(await p.locator('#record-chart-entry-tf-mark').textContent(), 'チャートから', '印');
+      expectEq(fake.chartReads, 2, '時間足の読み取りの要求');
+      expectEq(fake.reads.length, 0, '明細の読み取りの要求');
+      await p
+        .locator('.reasons__item', { hasText: '時間足を変えた（4 時間足 → 日足・チャートから）' })
+        .waitFor();
+      // 利用者が直すと印が消える
+      await p.locator('#record-chart-entry-tf').selectOption('1h');
+      expectEq(await p.locator('#record-chart-entry-tf-mark').count(), 0, '直した後の印');
+      const overflow = await p.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expectEq(overflow, 0, '横スクロール');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'チャートを 2 枠に貼る → 時間足の読み取り 2 回・欄に 4 時間足 / 日足と印・判定に「チャートから」・直すと印が消える・横スクロール 0';
+  });
+
   // ── 根拠の足のチャート（C1〜C3。Issue #12）。偽の記録の API で流す
   await check('C1', async () => {
     const { c, p, fake, errors } = await recordContext();
     try {
       await openRecord(p, base);
       // エントリー時の枠を選んで貼る → 枠に入り、明細の読み取りの要求は 0
-      await p.locator('#record-chart-entry .chart__hint').click();
+      await p.locator('#record-chart-entry .chart__name').click();
       expectEq(
         await p.evaluate(() => document.activeElement?.id),
         'record-chart-entry',

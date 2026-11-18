@@ -1016,6 +1016,14 @@
   line-height: 1.5;
 }
 
+/* 理由の 2 行目（タップの答えとチャートの食い違いを事実として並べる。#27。警告の色にしない） */
+.reasons__sub {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--ink-2);
+}
+
 .reasons__item::before {
   content: "";
   position: absolute;
@@ -1415,6 +1423,15 @@
   }
 }
 
+/* 送る前の注意（チャートは時間足を読むため AI に送り、記録と一緒に保存する。#27・C38） */
+.charts__notice {
+  /* 見出しに寄せる（段の間の gap を詰め、口座の欄が入っても記録する画面の全長の上限に収める。#47 との合流） */
+  margin: calc(-1 * var(--sp-3)) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  text-wrap: pretty;
+}
+
 .chart {
   display: flex;
   flex-direction: column;
@@ -1484,6 +1501,35 @@
   max-height: 240px;
 }
 
+/* 狭い画面では枠を詰め、プレビューを低くして 2 枠の時間足を 1 画面で見比べられるようにする（#27 デザイン 6） */
+@media (max-width: 719px) {
+  .chart {
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+  }
+
+  .chart__preview {
+    max-height: 120px;
+  }
+}
+
+/* 読めた値の案（利用者の選んだ値と違うとき。上書きせず、1 タップで直せる。#27 デザイン 3） */
+.chart__suggest {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+.chart__suggest .field__hint {
+  margin: 0;
+}
+
+/* 読み取りで埋めた時間足の欄: 札（印）と左の線の 2 つで示す（色だけに頼らない。#27 デザイン 2） */
+.select--read:not(:focus-visible) {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .chart__row {
   display: flex;
   flex-wrap: wrap;
@@ -1502,6 +1548,23 @@
   flex-wrap: wrap;
   align-items: baseline;
   gap: var(--sp-1) var(--sp-2);
+}
+
+/* 札「チャートから」はラベルと同じ行に収める（幅 360px でも別の行に落とさない。R6） */
+.chart__tf .field__head {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.field__mark--chart {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}
+
+.field__markicon {
+  width: 1em;
+  height: 1em;
 }
 
 .field__mark {

@@ -25,9 +25,11 @@ import {
   RecordView,
   type RecordViewProps,
   STATEMENT_NOTICE,
+  STATEMENT_NOTICE_MORE,
 } from '../../ui/src/pages/Record';
 import { account, defaultAccount } from './helpers/accounts';
 import { CTX_A, CTX_D, INST_JPY, INST_NONE, pDraft } from './helpers/currency-examples';
+import { closedInfoTip } from './helpers/info-tip';
 import {
   CAPITAL_1M,
   draft,
@@ -61,6 +63,8 @@ function expand(v: unknown): Node[] {
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  const tip = closedInfoTip(vn);
+  if (tip) return expand(tip);
   if (typeof vn.type === 'function') {
     const fn = vn.type as (p: unknown) => unknown;
     return expand(fn(vn.props));
@@ -480,7 +484,8 @@ describe('保存の後', () => {
     expect(text(all(tree, hasClass('num--xl')))).toBe('−1.6R');
     expect(text(tree)).toContain('US30 · L ロング · イン 100 → 決済 99.2 · 数量 10000');
     expect(all(tree, (e) => e.type === 'input')).toEqual([]);
-    const btn = all(tree, (e) => e.type === 'button')[0] as El;
+    // 「i」（説明のボタン。#57）を除いた最初のボタン
+    const btn = all(tree, (e) => e.type === 'button' && !hasClass('info')(e))[0] as El;
     expect(text(btn)).toBe('次の取引を記録');
     // ボタン 1 つのための帯（カード）に包まない（Phase 4b 指摘 6）
     expect(all(tree, hasClass('record__submit'))).toEqual([]);
@@ -609,14 +614,24 @@ describe('送る前の注意（AC-11・R10）', () => {
       for (const d of all(t, (e) => e.type === 'details')) {
         expect(all([d], hasClass('statement__notice'))).toEqual([]);
       }
-      // 補足は「詳しく」に畳む（3 つの中身は畳まない注意の側にある）
-      const more = all(t, hasClass('statement__more'));
-      expect(more).toHaveLength(1);
-      expect(more[0]?.type).toBe('details');
-      expect(text(all(more, (e) => e.type === 'summary'))).toBe('詳しく');
+      // 補足は「i」に（#57 AC-9。3 つの中身は畳まない注意の側にある）。「詳しく」の文字・details の補足は無い
+      expect(text(t)).not.toContain('詳しく');
+      expect(all(t, hasClass('statement__more'))).toEqual([]);
+      // 「i」は注意の文の末尾（デザインレビュー 6）
+      const info = all(notice, (e) => e.type === 'button' && hasClass('info')(e));
+      expect(info).toHaveLength(1);
+      expect(info[0]?.props['aria-label']).toBe('「明細の送り方」の説明');
+      expect(info[0]?.props['aria-expanded']).toBe('false');
+      // 閉じている間は補足の文が無い（開いたときの中身は info-tip.test.tsx）
+      expect(text(t)).not.toContain(STATEMENT_NOTICE_MORE);
       // [スクショを選ぶ] の読み上げの説明に注意を結ぶ
       const input = all(t, (e) => e.props.id === 'record-statement-file')[0] as El;
-      expect(input.props['aria-describedby']).toBe(notice[0]?.props.id);
+      // （結ぶのは注意の文の span だけ。「i」の名前を説明に混ぜない）
+      const span = (notice[0] as El).children.find(
+        (c): c is El => typeof c !== 'string' && c.type === 'span' && c.props.id !== undefined,
+      );
+      expect(span && text(span)).toBe(STATEMENT_NOTICE.join(''));
+      expect(input.props['aria-describedby']).toBe(span?.props.id);
     }
   });
 
@@ -1690,5 +1705,62 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
     });
     expect(inputs(jpy)).toEqual(inputs(noCurrency));
     expect(byId(jpy, 'record-instrument-hint')).toHaveLength(0);
+  });
+});
+
+describe('言葉の説明の「i」（#57）', () => {
+  const infoButtons = (t: Node[]) => all(t, (e) => e.type === 'button' && hasClass('info')(e));
+  const names = (t: Node[]) => infoButtons(t).map((e) => String(e.props['aria-label']));
+
+  it('AC-1: 3 つのタップに「〈問い〉の説明」のボタンが 1 つずつ。radiogroup の外（KEEP-4）', () => {
+    const t = view(stateFor(E1, CAPITAL_1M));
+    for (const q of ['LC を入る前に決めていたか', 'LC を動かしたか', '時間足を変えたか']) {
+      expect(names(t).filter((n) => n === `「${q}」の説明`)).toHaveLength(1);
+    }
+    const groups = all(t, (e) => e.props.role === 'radiogroup');
+    expect(groups.length).toBeGreaterThanOrEqual(3);
+    for (const g of groups) expect(infoButtons([g])).toEqual([]);
+  });
+
+  it('AC-2: 判定が出ている状態で「判定」「R」「LC の物差し」の「i」が判定の枠にある', () => {
+    const t = view(stateFor(E1, CAPITAL_1M));
+    expect(names([verdictOf(t)])).toEqual(
+      expect.arrayContaining(['「判定」の説明', '「R」の説明', '「LC の物差し」の説明']),
+    );
+  });
+
+  it('AC-3（木）: 閉じている間は aria-expanded="false"・aria-controls なし（開いている間だけ。レビュー N10）、吹き出しは無い。名前は重ならない', () => {
+    const t = view(stateFor(E1, CAPITAL_1M));
+    for (const b of infoButtons(t)) {
+      expect(b.props['aria-expanded']).toBe('false');
+      expect(b.props['aria-controls']).toBeUndefined();
+    }
+    const n = names(t);
+    expect(new Set(n).size).toBe(n.length);
+    expect(all(t, hasClass('info__pop'))).toEqual([]);
+  });
+
+  it('AC-5: 「i」は type="button" で、押しても onUpdate・onSave を呼ばない（未選択の下書き）', () => {
+    const got: unknown[] = [];
+    const t = view(stateFor(draft({}), NO_CAPITAL), {
+      onUpdate: (a) => got.push(a),
+      onSave: () => got.push('save'),
+    });
+    const buttons = infoButtons(t);
+    // 3 つのタップ・明細の補足・判定の枠の見出し・R（判定を待つ間も言葉の説明は読める）
+    expect(names(t)).toEqual(
+      expect.arrayContaining([
+        '「LC を入る前に決めていたか」の説明',
+        '「LC を動かしたか」の説明',
+        '「時間足を変えたか」の説明',
+        '「明細の送り方」の説明',
+        '「判定」の説明',
+      ]),
+    );
+    for (const b of buttons) {
+      expect(b.props.type).toBe('button');
+      (b.props.onClick as () => void)();
+    }
+    expect(got).toEqual([]);
   });
 });

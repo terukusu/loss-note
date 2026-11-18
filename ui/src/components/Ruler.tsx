@@ -2,6 +2,7 @@
 // 横 1 本の線（左 = 損の側）の上に イン・決めた LC（−1R の縦線）・動かした LC（線の上側の ▽）・決済・TP を形で置き、
 // 線の下に目盛り（−1R・0・+1R・TP）、その下に名前と価格の 1 行（R は読み上げだけ）と越えた幅。
 // 決めた LC〜動かした LC は破線の太線、決済が決めた LC を越えた区間は実線の太線。入る前に決めていない LC は破線の縦線。
+// 物差しの右上（図の線より上・利益の側）に小さな見出し「LC の物差し」と説明の「i」（#57。段の高さを変えない）。
 // 図は読み上げから外し、文字の一覧を「LC の物差し」という名前の一覧として読ませる。色は文字・線のトークンだけ（CSS）。
 // 位置は SVG の属性の百分率と px（style を使わない。CSP）。入れ子の svg を点の位置に置き、形は原点を中心に描く
 import type { JSX } from 'preact';
@@ -15,6 +16,7 @@ import {
   widenArc,
   xOf,
 } from '../lib/ruler-view';
+import { InfoTip } from './InfoTip';
 
 export type RulerShape = 'ring' | 'bar' | 'triangleDown' | 'diamond' | 'square';
 
@@ -86,6 +88,11 @@ export function Ruler({ ruler }: { readonly ruler: RulerModel }) {
   );
   return (
     <div class="ruler">
+      {/* 右上の小さな見出しと「i」（#57）。名前は文字の一覧の読み上げの名前と同じ言葉。見出しの文字は一覧の名前と重ねて読ませない */}
+      <div class="ruler__head">
+        <span aria-hidden="true">{RULER_LABEL}</span>
+        <InfoTip term="ruler" size="sm" prefer="above" />
+      </div>
       <div class="ruler__track">
         <svg class="ruler__plot" aria-hidden="true" focusable="false">
           <line class="ruler__line" x1="0%" x2="100%" y1={LINE_Y} y2={LINE_Y} />

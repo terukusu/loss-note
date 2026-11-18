@@ -29,6 +29,7 @@ import {
 import { currencyLockedText, unitOf } from '../lib/currency';
 import { formatDateTime } from '../lib/datetime';
 import { formatAmount } from '../lib/format';
+import { Link } from '../lib/router';
 import {
   ACCOUNT_FIELD_ID,
   ADD_ACCOUNT_ID,
@@ -78,6 +79,18 @@ export function Settings({ theme, onTheme, onSignOut, signOutBusy, signOutError 
       <SettingsScreen />
       {/* AI の利用状況（#62）。独立した部品（読めなくてもほかのカードを止めない） */}
       <AiUsageCard />
+      {/* 用語集（#76）。判定に効く言葉の説明の一覧 */}
+      <section class="card section" aria-labelledby="settings-glossary-title">
+        <h2 class="section__title" id="settings-glossary-title">
+          用語集
+        </h2>
+        <p class="field__hint">LC・R・判定など、判定に効く言葉の意味です。</p>
+        <div>
+          <Link class="btn btn--secondary" href="/glossary">
+            用語集を開く
+          </Link>
+        </div>
+      </section>
       <section class="card section">
         <h2 class="section__title">表示</h2>
         <Segment

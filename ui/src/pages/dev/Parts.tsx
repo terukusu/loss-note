@@ -6,6 +6,7 @@ import type { Grade } from '../../../../core/judge';
 import { Button } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { Icon, type IconName } from '../../components/Icon';
+import { InfoTip } from '../../components/InfoTip';
 import { JudgeBadge } from '../../components/JudgeBadge';
 import { RNum, YenNum } from '../../components/Num';
 import { NumberField } from '../../components/NumberField';
@@ -195,6 +196,17 @@ export function Parts() {
         </div>
       </Section>
 
+      <Section
+        title="言葉の説明（i）"
+        note="押すと吹き出しが開きます。文の中の言葉で用語集をたどり、戻るで 1 つずつ戻ります（#57）。"
+      >
+        <p class="field__head">
+          <span class="field__label">判定</span>
+          <InfoTip term="judgment" id="parts-info-judgment" />
+          <span class="field__label">R</span>
+          <InfoTip term="r" size="sm" id="parts-info-r" />
+        </p>
+      </Section>
       <Section title="入力欄">
         <div class="stack">
           <NumberField

@@ -19,6 +19,7 @@ import { TradeEdit, TradeEditView } from '../../ui/src/pages/TradeEdit';
 import { TRADES_MORE_ID, Trades, TradesView } from '../../ui/src/pages/Trades';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
+import { closedInfoTip } from './helpers/info-tip';
 import {
   CAPITAL_NOW,
   D1,
@@ -46,6 +47,8 @@ function expand(v: unknown): Node[] {
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  const tip = closedInfoTip(vn);
+  if (tip) return expand(tip);
   if (vn.type === (Link as unknown)) {
     const { children, ...props } = vn.props ?? {};
     return [{ type: 'a', props, children: expand(children) }];
@@ -287,6 +290,22 @@ function detailTree(t: StoredTrade, over: Partial<Parameters<typeof TradeDetailV
 }
 
 describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
+  it('#57 AC-2・例 I10: 詳細の判定の枠に「判定」「R」「LC の物差し」の「i」と、3 つのタップの答えの札の「i」（デザインレビュー 8）', () => {
+    const names = all(detailTree(D1), (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
+      String(e.props['aria-label']),
+    );
+    expect([...names].sort()).toEqual(
+      [
+        '「判定」の説明',
+        '「R」の説明',
+        '「LC の物差し」の説明',
+        '「LC を入る前に決めていたか」の説明',
+        '「LC を動かしたか」の説明',
+        '「時間足を変えたか」の説明',
+      ].sort(),
+    );
+  });
+
   it('AC-2: D1 に B・−1.6R・0.5% と 2 つの理由', () => {
     const tree = detailTree(D1);
     const verdict = all(tree, hasClass('verdict'))[0] as El;
@@ -402,6 +421,23 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     );
   }
   const verdictText = (tree: Node[]) => text(all(tree, hasClass('verdict'))[0] as El);
+
+  it('#57 AC-1・AC-2: 直す画面の 3 つのタップと判定の枠（判定・R・LC の物差し）に「i」', async () => {
+    const tree = await editTree(E1);
+    const names = all(tree, (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
+      String(e.props['aria-label']),
+    );
+    for (const q of [
+      'LC を入る前に決めていたか',
+      'LC を動かしたか',
+      '時間足を変えたか',
+      '判定',
+      'R',
+      'LC の物差し',
+    ]) {
+      expect(names.filter((n) => n === `「${q}」の説明`)).toHaveLength(1);
+    }
+  });
 
   it('E1: 保存した値が入り、直す前 B →「そのまま」でプレビュー A・−1.0R・0.5%', async () => {
     const before = await editTree(E1);

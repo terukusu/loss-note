@@ -22,7 +22,8 @@ export type IconName =
   | 'trash'
   | 'undo'
   | 'offPlan'
-  | 'limit';
+  | 'limit'
+  | 'info';
 
 const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   home: () => (
@@ -77,6 +78,13 @@ const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
     <>
       <path d="M8.7 3.5h6.6l5.2 5.2v6.6l-5.2 5.2H8.7l-5.2-5.2V8.7z" />
       <path d="M12 8v5M12 16.2h.01" />
+    </>
+  ),
+  // 言葉の説明の「i」（丸の中の i。#57）
+  info: () => (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5.5M12 7.8h.01" />
     </>
   ),
   moon: () => <path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z" />,

@@ -19,6 +19,7 @@ import {
 import { MARK_LABEL, type Marks } from '../lib/statement-fill';
 import { AccountField } from './AccountField';
 import { Icon } from './Icon';
+import { InfoTip } from './InfoTip';
 import { NumberField } from './NumberField';
 import { Segment } from './Segment';
 import { TextField } from './TextField';
@@ -277,6 +278,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
             <Segment
               label="LC を入る前に決めていたか"
               id="record-lc-decided"
+              info={<InfoTip term="lcDecided" prefer="above" />}
               {...mark('lcDecided')}
               value={d.lcDecided === null ? null : d.lcDecided ? 'yes' : 'no'}
               onChange={(v) => onUpdate({ type: 'set', field: 'lcDecided', value: v === 'yes' })}
@@ -287,6 +289,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
             />
             <Segment
               label="LC を動かしたか"
+              info={<InfoTip term="lcMove" prefer="above" />}
               value={d.lcMove}
               onChange={set('lcMove')}
               options={moveOptions}
@@ -304,6 +307,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
         )}
         <Segment
           label="時間足を変えたか"
+          info={<InfoTip term="timeframeChange" prefer="above" />}
           value={d.timeframeChange}
           onChange={set('timeframeChange')}
           options={TIMEFRAME_OPTIONS}

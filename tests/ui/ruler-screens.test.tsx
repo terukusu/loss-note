@@ -26,6 +26,7 @@ import type { DetailState } from '../../ui/src/lib/trade-detail-controller';
 import { recordFields } from '../../ui/src/lib/trade-view';
 import { RecordView } from '../../ui/src/pages/Record';
 import { notFoundState, TradeDetailView } from '../../ui/src/pages/TradeDetail';
+import { closedInfoTip } from './helpers/info-tip';
 import { CAPITAL_1M, E1 as DRAFT_E2, E16 as DRAFT_NO_LC, draft } from './helpers/record-drafts';
 import { exitAt, N1, N2, N3, RULER_EXAMPLES } from './helpers/ruler-examples';
 import { D1, INSTRUMENTS, stored } from './helpers/trade-examples';
@@ -43,6 +44,8 @@ function expand(v: unknown): Node[] {
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  const tip = closedInfoTip(vn);
+  if (tip) return expand(tip);
   if (vn.type === (Link as unknown)) {
     const { children, ...props } = vn.props ?? {};
     return [{ type: 'a', props, children: expand(children) }];
@@ -397,7 +400,9 @@ describe('AC-7: 詳細の 3 つのタップの答え（判定の枠の中、理�
     expect(all([off], hasClass('icon'))[0]?.props['aria-hidden']).toBe('true');
     expect(one([off], hasClass('taps__off')).props['aria-hidden']).toBe('true');
     expect(text(one([off], hasClass('sr-only')))).toBe('計画から外れた');
-    expect(all([li[0] as El, li[2] as El], hasClass('icon'))).toEqual([]);
+    // 外れの印の形は外れた札だけ（問いの説明の「i」の記号は数えない。#57）
+    const shapes = (e: El) => all([e], (x) => hasClass('icon')(x) && !hasClass('info__icon')(x));
+    expect([...shapes(li[0] as El), ...shapes(li[2] as El)]).toEqual([]);
   });
 
   it('E3（S）: 「上げた（150.8）」', () => {
@@ -507,5 +512,22 @@ describe('AC-8: 「すべての欄」は既定で閉じ、行は今と同じ', (
     );
     // 「記録した欄」の見出しは残さない
     expect(text(tree)).not.toContain('記録した欄');
+  });
+});
+
+describe('物差しの見出しと「i」（#57）', () => {
+  it('物差しの上に見出し「LC の物差し」（読み上げは一覧の名前に任せる）と「「LC の物差し」の説明」のボタン', () => {
+    const v = verdictOf(detailTree(D1));
+    const ruler = one([v], hasClass('ruler'));
+    const head = one([ruler], hasClass('ruler__head'));
+    expect(ruler.children[0]).toBe(head);
+    const label = head.children.find((n) => typeof n !== 'string' && n.type === 'span') as El;
+    expect(label.props['aria-hidden']).toBe('true');
+    expect(text(label)).toBe('LC の物差し');
+    const b = one([head], (e) => e.type === 'button');
+    expect(b.props['aria-label']).toBe('「LC の物差し」の説明');
+    // N1（物差しが出ない取引）には物差しの「i」も出ない
+    const n1 = verdictOf(detailTree(N1));
+    expect(all([n1], (e) => e.props['aria-label'] === '「LC の物差し」の説明')).toEqual([]);
   });
 });

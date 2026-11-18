@@ -41,9 +41,29 @@ export function windowEnv(win: Window): NavEnv {
   };
 }
 
-export function createNavigator(env: NavEnv, opts: RouteOptions): Navigator {
+/** 画面の行き来に添える知らせ（#57: 開いて閉じる層の記録を捨てる。back-layers.ts の reset） */
+export interface NavHooks {
+  /**
+   * 画面が移る（push・replace は履歴を書く前、ほかの URL への戻る / 進むは着いた後）。URL の変わらない戻る（層の段）では
+   * 呼ばない。push の前に呼ぶのは、層の記録を捨てて今の項目のスクロールの復元を auto に戻してから次の項目を積むため
+   */
+  readonly onNavigate?: () => void;
+  /**
+   * replace の前: 開いて閉じる層の段が積まれていれば巻き戻し、元の項目に着いてから done を呼ぶ（true）。段が無ければ false
+   * （すぐ置き換える）。back-layers.ts の unwind（#57 再レビュー B3）
+   */
+  readonly unwind?: (done: () => void) => boolean;
+}
+
+export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks = {}): Navigator {
   const listeners = new Set<() => void>();
   let current: Navigator['current'] = { route: { name: 'home' }, search: '', via: 'init' };
+  /** 今の画面の URL（パス + 検索）。URL の変わらない popstate（層の段の出入り）を見分ける */
+  let at = '';
+  const here = () => {
+    const loc = env.location();
+    return `${loc.pathname}${loc.search}`;
+  };
 
   /** 今の URL から画面を決める。知らない URL は履歴を置き換えてホーム */
   const sync = (via: NavVia) => {
@@ -55,6 +75,7 @@ export function createNavigator(env: NavEnv, opts: RouteOptions): Navigator {
     } else {
       current = { route: r.route, search: loc.search, via };
     }
+    at = here();
   };
   const notify = () => {
     for (const fn of listeners) fn();
@@ -62,7 +83,10 @@ export function createNavigator(env: NavEnv, opts: RouteOptions): Navigator {
 
   sync('init');
   const off = env.onPopState(() => {
+    // 開いて閉じる層（「i」の吹き出し）の段の出入りは URL が変わらない: 画面を変えない（戻るで層だけを閉じる。#57）
+    if (here() === at) return;
     sync('pop');
+    hooks.onNavigate?.();
     notify();
   });
 
@@ -74,15 +98,22 @@ export function createNavigator(env: NavEnv, opts: RouteOptions): Navigator {
       const path = href.split(/[?#]/)[0] ?? '';
       const r = resolveNavigation(path, opts);
       // 知らない画面へは積まずに置き換える（戻るで知らない URL に戻らない）
+      hooks.onNavigate?.();
       if (r.replace !== undefined) env.replaceState(r.replace);
       else env.pushState(href);
       sync('push');
       notify();
     },
     replace(href) {
-      env.replaceState(href);
-      sync('replace');
-      notify();
+      const run = () => {
+        hooks.onNavigate?.();
+        env.replaceState(href);
+        sync('replace');
+        notify();
+      };
+      // 層の段が積まれていれば、巻き戻してから置き換える（段の項目だけが置き換わり元の画面が残らないように）
+      if (hooks.unwind?.(run)) return;
+      run();
     },
     subscribe(fn) {
       listeners.add(fn);

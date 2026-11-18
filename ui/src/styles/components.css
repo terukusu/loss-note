@@ -822,8 +822,10 @@
   gap: var(--sp-3);
   padding: var(--sp-4) var(--sp-5);
   /* clip（hidden にしない）: スクロールの容器にしない。hidden だと scrollIntoView が枠の中で寄せを終え、scroll-margin が
-     画面のスクロールに効かない（Issue #33 のレビュー後に R11 で見つけた） */
-  overflow: clip;
+     画面のスクロールに効かない（Issue #33 のレビュー後に R11 で見つけた）。縦は切らない（言葉の説明の吹き出しが枠の
+     下へ出られるように。#57。縦に枠を越えて描くものはほかに無い） */
+  overflow-x: clip;
+  overflow-y: visible;
   color: var(--ink);
 }
 
@@ -937,8 +939,11 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-3);
+  gap: var(--sp-1) var(--sp-3);
+}
+
+.verdict__head > .badge {
+  margin-inline-start: auto;
 }
 
 .verdict__title {
@@ -1213,16 +1218,23 @@
 
 .taps__item {
   display: inline-flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-1);
   max-width: 100%;
+}
+
+.taps__chip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
   padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line-2);
   border-radius: var(--radius-pill);
 }
 
-.taps__item--off {
+.taps__item--off .taps__chip {
   border: 1.5px solid var(--ink);
   font-weight: var(--fw-bold);
   color: var(--ink);
@@ -1233,7 +1245,7 @@
   letter-spacing: 0.04em;
 }
 
-.taps__item .icon {
+.taps__chip .icon {
   flex: none;
   width: 16px;
   height: 16px;
@@ -1296,37 +1308,6 @@
   .chart__pastehint {
     display: block;
   }
-}
-
-/* 注意の「詳しく」（[スクショを選ぶ] の横。開くと下に補足の文） */
-.statement__more {
-  font-size: var(--fs-sm);
-  color: var(--ink-2);
-}
-
-.statement__more-summary {
-  display: inline-flex;
-  align-items: center;
-  min-height: var(--tap);
-  padding: 0 var(--sp-2);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  cursor: pointer;
-}
-
-.statement__more-summary:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.statement__more[open] {
-  flex: 1 1 100%;
-}
-
-.statement__more-body {
-  font-size: var(--fs-xs);
-  line-height: 1.6;
-  text-wrap: pretty;
 }
 
 .statement__row:focus,
@@ -2601,4 +2582,407 @@ summary.settings__subtitle {
     width: auto;
     min-width: 10rem;
   }
+}
+
+/* ── 言葉の説明の「i」（#57。components/InfoTip.tsx） ─────────────────── */
+/* 見た目は 20px の丸の i（--sm は 16px）、当たりは 44×44px。.info-wrap の負の余白でラベルの段の高さを変えない（上下左右に
+   12px ずつはみ出す）。吹き出しは .info-wrap に対する絶対配置 */
+.info-wrap {
+  --info-size: 20px;
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  margin: calc((var(--info-size) - var(--tap)) / 2);
+  vertical-align: middle;
+}
+
+.info-wrap--sm {
+  --info-size: 16px;
+}
+
+.info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: var(--tap);
+  block-size: var(--tap);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.info__icon {
+  inline-size: var(--info-size);
+  block-size: var(--info-size);
+}
+
+@media (hover: hover) {
+  .info:hover {
+    color: var(--ink);
+  }
+}
+
+/* 開いている「i」は強調の色と太い線（押した所が残る。吹き出しとのつながり） */
+.info[aria-expanded="true"] {
+  color: var(--accent);
+}
+
+.info[aria-expanded="true"] .info__icon {
+  stroke-width: 2.4;
+}
+
+.info:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -8px;
+}
+
+/* 吹き出し: ボタンの下に開く。start = 左端をボタンに、--end = 右端をボタンに、--above = ボタンの上に。位置はボタンの見た目
+   （当たりの 44px の内側）に寄せ、すき間 8px（矢印 4px を含む。InfoTip.tsx の GAP）。矢印は「i」の中心を指す */
+.info__pop {
+  --info-half: calc(var(--tap) / 2);
+  --info-in: calc((var(--tap) - var(--info-size)) / 2);
+  position: absolute;
+  top: calc(100% - var(--info-in) + 8px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  inline-size: max-content;
+  max-inline-size: min(320px, calc(100vw - 16px));
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  background: var(--s2);
+  box-shadow: var(--shadow-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  letter-spacing: normal;
+  line-height: 1.6;
+  text-align: start;
+  text-transform: none;
+  color: var(--ink-2);
+  text-wrap: pretty;
+  white-space: normal;
+  cursor: auto;
+}
+
+.info__pop:focus {
+  outline: none;
+}
+
+.info__pop:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.info__pop::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: calc(var(--info-half) - 4px);
+  inline-size: 8px;
+  block-size: 8px;
+  border-block-start: 1px solid var(--line-2);
+  border-inline-start: 1px solid var(--line-2);
+  background: var(--s2);
+  rotate: 45deg;
+}
+
+.info__pop--end {
+  right: 0;
+  left: auto;
+}
+
+.info__pop--end::before {
+  right: calc(var(--info-half) - 4px);
+  left: auto;
+}
+
+.info__pop--above {
+  top: auto;
+  bottom: calc(100% - var(--info-in) + 8px);
+}
+
+.info__pop--above::before {
+  top: auto;
+  bottom: -5px;
+  rotate: 225deg;
+}
+
+/* 左右どちらに揃えても入らないとき（fit）: ボタンを含むカードに対する絶対配置で、カードの左右 8px の内側に広げる
+   （.info-wrap は位置を持たない = 包むブロックはカード・判定の枠）。縦は .info-wrap（flex）の中の静的な位置（下端 / 上端を
+   ボタンに揃える）から自分の高さ + すき間だけずらす。--above の後に置いて top / bottom を戻す。矢印はボタンの x を CSS に
+   渡せない（style 属性を使わない）ので出さない */
+.card:has(.info-wrap) {
+  position: relative;
+}
+
+.info-wrap--fit {
+  position: static;
+}
+
+.info__pop--fit {
+  top: auto;
+  right: var(--sp-2);
+  bottom: auto;
+  left: var(--sp-2);
+  inline-size: auto;
+  max-inline-size: none;
+  align-self: flex-end;
+  translate: 0 calc(100% - var(--info-in) + 8px);
+}
+
+.info__pop--fit.info__pop--above {
+  align-self: flex-start;
+  translate: 0 calc(-100% + var(--info-in) - 8px);
+}
+
+.info__pop--fit::before {
+  content: none;
+}
+
+.info__lead {
+  color: var(--ink);
+}
+
+/* たどった先の見出しと [‹ 前の説明] */
+.info__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--sp-2);
+  margin: calc(var(--sp-2) * -1) 0 0 calc(var(--sp-3) * -1);
+}
+
+.info__up {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-block-size: var(--tap);
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.info__up .icon {
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.info__up:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/* たどった先の言葉の見出し（戻るの行とは分けた 1 行。#57 デザインの再レビュー 5） */
+.info__title {
+  margin-block-start: calc(var(--sp-2) * -1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* 判定の名前の前の記号（判定のバッジと同じ形。色は付けない = 色は判定の枠の段だけ） */
+.info__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.info__grade {
+  inline-size: 14px;
+  block-size: 14px;
+  flex: none;
+}
+
+.info__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.info__name {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.info__example {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.info__more {
+  font-size: var(--fs-xs);
+}
+
+.info__glossary {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: var(--tap);
+  margin-block: calc((var(--tap) - 1.6em) / -2);
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+/* 文の中の用語集のリンク（吹き出しの中はボタン・用語集の画面はページの中のリンク）。文の中なので当たりの 44px の例外
+   （WCAG 2.5.8 の inline） */
+.glink {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.glink:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* R のラベル: 文字と「i」を 1 段に */
+.verdict__label--info {
+  display: flex;
+  align-items: center;
+  gap: 0 var(--sp-1);
+}
+
+/* 物差しの右上の小さな見出しと「i」。図の線（上から 20px）より上の右端（TP・利益の側。動かした LC の ▽ は損の側の左に出る）に
+   重ねて置き、物差しの段の高さを変えない（#34 の T-D3: 360 で 120px 以下）。重ねるのは grid の同じ升（位置を持たない =
+   fit の吹き出しの包むブロックは判定の枠のまま。#57 レビュー N4） */
+.ruler {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  row-gap: var(--sp-1);
+}
+
+.ruler__track {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.ruler__head {
+  z-index: 1;
+  display: flex;
+  grid-row: 1;
+  grid-column: 1;
+  align-items: center;
+  align-self: start;
+  justify-self: end;
+  gap: 0 var(--sp-1);
+  margin-block-start: -5px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  line-height: 16px;
+  color: var(--ink-3);
+}
+
+/* ── 用語集（#76。pages/Glossary.tsx） ─────────────────── */
+.glossary__index ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+  line-height: 2;
+}
+
+.glossary__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  /* ページの中のリンクで移ったとき、上の帯に隠れない */
+  scroll-margin-top: calc(var(--topbar-h) + var(--sp-3));
+  color: var(--ink-2);
+  line-height: 1.7;
+}
+
+.glossary__item:focus {
+  outline: none;
+}
+
+/* 今見ている項目（たどった先）は左の線で示す（色だけに頼らず、見出しの位置と線。aria-current も付ける） */
+.glossary__item--current {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* 項目の見出し（言葉の名前）は本文より強く（探すときの目印。#57 デザインの再レビュー 2） */
+.glossary__item > .glossary__term {
+  color: var(--ink);
+}
+
+.glossary__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.glossary__group-title,
+.glossary__group-name {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+.glossary__group-title {
+  margin-block-start: var(--sp-3);
+}
+
+.glossary__index {
+  gap: var(--sp-3);
+}
+
+.glossary__index-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.glossary__back {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.glossary__lead {
+  color: var(--ink-2);
+}
+
+.glossary__items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.glossary__example,
+.glossary__related {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.glossary__related-label {
+  font-weight: var(--fw-bold);
 }

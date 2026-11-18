@@ -283,14 +283,14 @@ def test_child_env_has_only_selected_credential(make_client, sdk):
     assert client.post_image(SMALL_PNG).status_code == 200
     env = sdk.calls[0]["options"].env
     assert env["ANTHROPIC_API_KEY"] == CRED_MARKER
-    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "" and env["CLAUDE_CODE_MAX_RETRIES"] == "0"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in sdk.calls[0]["child_env"] and env["CLAUDE_CODE_MAX_RETRIES"] == "0"
 
 
 def test_oauth_token_switch(make_client, sdk):
     client = make_client(env=base_env(STATEMENT_READ_CREDENTIAL="oauth_token", CLAUDE_CODE_OAUTH_TOKEN=CRED_MARKER))
     assert client.post_image(SMALL_PNG).status_code == 200
     env = sdk.calls[0]["options"].env
-    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == CRED_MARKER and env["ANTHROPIC_API_KEY"] == ""
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == CRED_MARKER and "ANTHROPIC_API_KEY" not in sdk.calls[0]["child_env"]
 
 
 # ---- AC-5: 形に合わない結果は全体を捨てる（例 #20〜#25） ----

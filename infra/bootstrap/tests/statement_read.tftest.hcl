@@ -98,3 +98,32 @@ run "statement_read_secret" {
     error_message = "API キーの入れ物は許可リストの入れ物と別"
   }
 }
+
+# OAuth トークンの入れ物（Issue #55 の AC-9）: キーの入れ物と同じ形で別に 1 つ
+run "statement_read_oauth_secret" {
+  assert {
+    condition     = google_secret_manager_secret.statement_read_oauth.secret_id == "statement-read-claude-oauth-token" && google_secret_manager_secret.statement_read_oauth.project == "example-project"
+    error_message = "入れ物は statement-read-claude-oauth-token・このプロジェクト"
+  }
+  assert {
+    condition     = length(google_secret_manager_secret.statement_read_oauth.replication[0].auto) == 0 && length(google_secret_manager_secret.statement_read_oauth.replication[0].user_managed) == 1 && toset([for r in google_secret_manager_secret.statement_read_oauth.replication[0].user_managed[0].replicas : r.location]) == toset(["asia-northeast1"])
+    error_message = "複製は東京（asia-northeast1）だけ"
+  }
+  assert {
+    condition     = google_secret_manager_secret.statement_read_oauth.deletion_policy == "PREVENT"
+    error_message = "入れ物は削除の防止（PREVENT）"
+  }
+  assert {
+    condition     = google_secret_manager_secret_iam_member.statement_read_oauth.role == "roles/secretmanager.secretAccessor" && google_secret_manager_secret_iam_member.statement_read_oauth.member == "serviceAccount:sa-loss-note@example-project.iam.gserviceaccount.com" && google_secret_manager_secret_iam_member.statement_read_oauth.secret_id == "statement-read-claude-oauth-token" && google_secret_manager_secret_iam_member.statement_read_oauth.project == "example-project"
+    error_message = "付与は入れ物の単位で、実行用 SA（sa-loss-note）の secretAccessor だけ"
+  }
+  assert {
+    condition     = !contains([google_service_account.tf_plan.member, google_service_account.tf_apply.member], google_secret_manager_secret_iam_member.statement_read_oauth.member)
+    error_message = "CI の SA に入れ物の読み取りを付けない"
+  }
+  # キー・許可リストの入れ物と別（方式を切り替えても、もう片方の値に触れない）
+  assert {
+    condition     = length(toset([google_secret_manager_secret.statement_read_oauth.secret_id, google_secret_manager_secret.statement_read.secret_id, google_secret_manager_secret.allowed_emails.secret_id])) == 3
+    error_message = "OAuth トークンの入れ物はキー・許可リストの入れ物と別"
+  }
+}

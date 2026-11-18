@@ -12,9 +12,12 @@ from statement_read.agent_reader import (
     Reader,
     ReadOutcome,
     child_env,
+    credential_names_in,
     credential_secret,
     option_kwargs,
+    scrub_process_env,
     sdk_options,
+    spawn_env,
 )
 
 __all__ = [
@@ -28,7 +31,10 @@ __all__ = [
     "ReadOutcome",
     "Reader",
     "child_env",
+    "credential_names_in",
     "credential_secret",
     "option_kwargs",
+    "scrub_process_env",
     "sdk_options",
+    "spawn_env",
 ]

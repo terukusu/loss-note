@@ -7,8 +7,30 @@ locals {
   runtime_sa = "sa-loss-note@${var.project_id}.iam.gserviceaccount.com"
   # 名前は infra/bootstrap の google_secret_manager_secret.allowed_emails と同じ（#43。読み取りの付与も bootstrap）
   allowed_emails_secret = "loss-note-allowed-emails"
-  # 明細の読み取りのキーの入れ物（infra/bootstrap/statement_read_credentials.tf と同じ名前。#44）
-  statement_read_secret = "statement-read-anthropic-api-key"
+  # 明細の読み取りの資格情報の方式（#55・ADR-0011）。切り替え statement_read_credential が空なら、#44 の statement_read_key = true を
+  # api_key と同じに扱う（後方互換）。どちらも無ければ ""（資格情報の環境変数を載せない。読み取りは 503・ほかの機能は動く）
+  statement_read_credential = var.statement_read_credential != "" ? var.statement_read_credential : (var.statement_read_key ? "api_key" : "")
+  # 値を Secret Manager に置く方式 → 環境変数の名前と入れ物（infra/bootstrap/statement_read_credentials.tf と同じ名前）
+  statement_read_secrets = {
+    api_key     = { name = "ANTHROPIC_API_KEY", secret = "statement-read-anthropic-api-key" }
+    oauth_token = { name = "CLAUDE_CODE_OAUTH_TOKEN", secret = "statement-read-claude-oauth-token" }
+  }
+  # 値を環境変数に直に置くもの（方式の切り替えと、federation の識別子。識別子は秘密ではないが伏せた変数で受け、plan に出さない）。
+  # 名前の集合だけを nonsensitive にする（for_each は伏せた値を受けない。名前は値の有無しか表さない）
+  statement_read_values = {
+    STATEMENT_READ_CREDENTIAL    = local.statement_read_credential
+    ANTHROPIC_FEDERATION_RULE_ID = var.statement_read_federation_rule_id
+    ANTHROPIC_ORGANIZATION_ID    = var.statement_read_organization_id
+    ANTHROPIC_SERVICE_ACCOUNT_ID = var.statement_read_service_account_id
+    ANTHROPIC_WORKSPACE_ID       = var.statement_read_workspace_id
+  }
+  statement_read_plain_names = nonsensitive(toset(concat(
+    local.statement_read_credential != "" ? ["STATEMENT_READ_CREDENTIAL"] : [],
+    local.statement_read_credential == "federation" ? [
+      for n in ["ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_WORKSPACE_ID"] :
+      n if local.statement_read_values[n] != ""
+    ] : [],
+  )))
 }
 
 # ingress は all（run.app の URL で配る。ロードバランサは使わない）。IAM の検査は無効にしない（invoker は下の付与）。
@@ -74,20 +96,30 @@ resource "google_cloud_run_v2_service" "app" {
         }
       }
 
-      # 明細の読み取りの資格情報（#44・ADR-0010）: Anthropic API のキーを Secret Manager の参照で載せる（値は Terraform に入らない）。
-      # 参照はインスタンスの起動時に解決され、版が無い・無効だとインスタンスが起動しないので、オーナーがキーの版を入れた後に
-      # statement_read_key = true にしたときだけ付ける（それまで読み取りは 503・ほかの機能は動く）。
-      # STATEMENT_READ_CREDENTIAL は載せない（既定の api_key。本番は OAuth トークンを使わない）
+      # 明細の読み取りの資格情報（#44・ADR-0010、#55・ADR-0011）: 方式の切り替えで載せる環境変数の集合が決まる。
+      # - api_key / oauth_token: 値は Secret Manager の参照（値は Terraform に入らない）。参照はインスタンスの起動時に解決され、
+      #   版が無い・無効だとインスタンスが起動しないので、オーナーが版を入れた後に方式を選ぶ
+      # - federation: 識別子（ルール ID・組織 ID、任意で SA の ID・ワークスペースの ID）だけ。秘密は持たない
+      #   （ID トークンは API が要求ごとにメタデータ サーバーから取る）
+      # 選ばなかった方式の変数は載せない（API は子の CLI に選んだ方式の変数だけを渡す）
       dynamic "env" {
-        for_each = var.statement_read_key ? [local.statement_read_secret] : []
+        for_each = contains(keys(local.statement_read_secrets), local.statement_read_credential) ? [local.statement_read_secrets[local.statement_read_credential]] : []
         content {
-          name = "ANTHROPIC_API_KEY"
+          name = env.value.name
           value_source {
             secret_key_ref {
-              secret  = env.value
+              secret  = env.value.secret
               version = "latest"
             }
           }
+        }
+      }
+
+      dynamic "env" {
+        for_each = local.statement_read_plain_names
+        content {
+          name  = env.value
+          value = local.statement_read_values[env.value]
         }
       }
 

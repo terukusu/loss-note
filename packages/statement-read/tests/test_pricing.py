@@ -116,7 +116,11 @@ def test_output_bound_is_min_of_cap_and_model():
 def test_child_env_sets_max_output_only_when_given():
     parent = {"PATH": "/bin", agent_reader.MAX_OUTPUT_ENV: "999999"}
     env = agent_reader.child_env("api_key", "S", "/b", parent_env=parent)
-    assert env[agent_reader.MAX_OUTPUT_ENV] == ""  # 親の値は使わせない（CLI の既定）
+    # 親の値は使わせない（CLI の既定）。CLAUDE_* は資格情報・送り先の系統なので親から外し、子には名前ごと無い（#55）
+    assert agent_reader.MAX_OUTPUT_ENV not in env
+    scrubbed = dict(parent)
+    agent_reader.scrub_process_env(scrubbed)
+    assert agent_reader.MAX_OUTPUT_ENV not in agent_reader.spawn_env(scrubbed, env)
     env = agent_reader.child_env("api_key", "S", "/b", parent_env=parent, max_output_tokens=16_000)
     assert env[agent_reader.MAX_OUTPUT_ENV] == "16000"
     kw = agent_reader.option_kwargs("m", "low", "api_key", "S", "/b", max_output_tokens=16_000)

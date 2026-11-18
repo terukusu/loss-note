@@ -29,3 +29,29 @@ resource "google_secret_manager_secret_iam_member" "statement_read" {
   role      = "roles/secretmanager.secretAccessor"
   member    = google_service_account.runtime.member
 }
+
+# OAuth トークン（Claude のサブスクの資格情報。#55・ADR-0011）の入れ物。キーの入れ物と同じ形で別に 1 つ（方式を切り替えても
+# もう片方の値に触れない）。本番で使うのはオーナーだけが使う間に限る（他の利用者を受け入れる前に federation か api_key へ）。
+# 値（版）はここで宣言しない。オーナーが GCP のコンソールの Secret Manager の画面で新しい版として貼る（infra/README.md）
+resource "google_secret_manager_secret" "statement_read_oauth" {
+  project         = var.project_id
+  secret_id       = "statement-read-claude-oauth-token"
+  deletion_policy = "PREVENT"
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_iam_member" "statement_read_oauth" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.statement_read_oauth.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.runtime.member
+}

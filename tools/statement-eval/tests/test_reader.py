@@ -70,14 +70,18 @@ def test_bad_model_name_rejected():
 def test_child_env_keeps_only_selected_credential():
     parent = {"PATH": "/bin", "HOME": "/h", "LANG": "ja_JP.UTF-8", "ANTHROPIC_AUTH_TOKEN": "T",
               "OTHER_SERVICE_TOKEN": "X", "ANTHROPIC_BASE_URL": "http://elsewhere"}
+    # 資格情報・送り先の系統は選んだ方式の変数だけ。ほかは空にせず名前ごと置かない（親からは送る直前に外す。#55）
+    scrubbed = dict(parent)
+    reader.scrub_process_env(scrubbed)
     env = reader.child_env("api_key", "SECRET-A", "/base", parent_env=parent)
-    assert env["ANTHROPIC_API_KEY"] == "SECRET-A"
-    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "" and env["ANTHROPIC_AUTH_TOKEN"] == ""
-    assert env["ANTHROPIC_BASE_URL"] == ""
+    child = reader.spawn_env(scrubbed, env)
+    assert child["ANTHROPIC_API_KEY"] == "SECRET-A"
+    for k in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
+        assert k not in child
     assert env["CLAUDE_CONFIG_DIR"] == "/base/cfg" and env["CLAUDE_CODE_TMPDIR"] == "/base/tmp"
     assert env["CLAUDE_CODE_MAX_RETRIES"] == "0"
-    env2 = reader.child_env("oauth_token", "SECRET-O", "/base", parent_env=parent)
-    assert env2["CLAUDE_CODE_OAUTH_TOKEN"] == "SECRET-O" and env2["ANTHROPIC_API_KEY"] == ""
+    child2 = reader.spawn_env(scrubbed, reader.child_env("oauth_token", "SECRET-O", "/base", parent_env=parent))
+    assert child2["CLAUDE_CODE_OAUTH_TOKEN"] == "SECRET-O" and "ANTHROPIC_API_KEY" not in child2
 
 
 def test_child_env_is_allowlist():
@@ -85,9 +89,12 @@ def test_child_env_is_allowlist():
     parent = {"PATH": "/bin", "HOME": "/h", "LANG": "C.UTF-8", "TMPDIR": "/t", "OTHER_SERVICE_TOKEN": "X",
               "GH_TOKEN": "Y", "AWS_SECRET_ACCESS_KEY": "Z", "NODE_OPTIONS": "--require x"}
     env = reader.child_env("api_key", "S", "/b", parent_env=parent)
-    merged = {**parent, **env}
-    for k in ("OTHER_SERVICE_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "NODE_OPTIONS"):
+    scrubbed = dict(parent)
+    reader.scrub_process_env(scrubbed)  # AWS_* は資格情報の系統（名前ごと外す。#55）
+    merged = reader.spawn_env(scrubbed, env)
+    for k in ("OTHER_SERVICE_TOKEN", "GH_TOKEN", "NODE_OPTIONS"):
         assert merged[k] == ""
+    assert "AWS_SECRET_ACCESS_KEY" not in merged
     for k in ("PATH", "HOME", "LANG", "TMPDIR"):
         assert k not in env and merged[k] == parent[k]
     assert {k for k, v in merged.items() if v} <= set(reader.PASS_THROUGH_ENV) | {

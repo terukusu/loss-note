@@ -332,11 +332,11 @@ function AccountRow({
         type="button"
         id={accountEditButtonId(rec.id)}
         class={buttonClass({ variant: 'secondary' })}
-        aria-label={`${rec.name} を直す`}
+        aria-label={`${rec.name} を編集`}
         disabled={busy}
         onClick={() => onOpen(rec.id)}
       >
-        <span>直す</span>
+        <span>編集</span>
       </button>
     </div>
   );
@@ -356,7 +356,7 @@ function AccountEditor(
   // 入れた値で、すぐに「1 回の負けの上限」を出す（どれかの欄に誤りがある間は出さない）
   const allowance = body ? allowanceText(body.capitalYen, body.riskTolerancePct) : null;
   const history = rec ? historyRows(rec.capitalHistory) : [];
-  const title = rec ? `${rec.name} を直す` : '口座を足す';
+  const title = rec ? `${rec.name} を編集` : '口座を足す';
   return (
     <form
       class="instedit"
@@ -533,11 +533,11 @@ function InstrumentRow({
         type="button"
         id={editButtonId(rec.id)}
         class={buttonClass({ variant: 'secondary' })}
-        aria-label={`${rec.name} を直す`}
+        aria-label={`${rec.name} を編集`}
         disabled={busy}
         onClick={() => onOpen(rec.id)}
       >
-        <span>直す</span>
+        <span>編集</span>
       </button>
     </div>
   );
@@ -557,7 +557,7 @@ function InstrumentEditor(
     <form
       class="instedit"
       noValidate
-      aria-label={`${rec.name} を直す`}
+      aria-label={`${rec.name} を編集`}
       onSubmit={(ev) => {
         ev.preventDefault();
         p.onSaveInstrument();

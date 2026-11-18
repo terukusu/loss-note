@@ -280,7 +280,7 @@ describe('直すの URL（Issue #9。/trades/<id>/edit）', () => {
       id: 't-1',
     });
     expect(safeNext('/trades/abc/edit', PROD)).toEqual({ name: 'tradeEdit', id: 'abc' });
-    expect(titleOf({ name: 'tradeEdit', id: 'x' })).toBe('取引を直す — 損失ノート');
+    expect(titleOf({ name: 'tradeEdit', id: 'x' })).toBe('取引を編集 — 損失ノート');
   });
 
   it.each([

@@ -162,7 +162,7 @@ export function TradeDetailView(p: TradeDetailViewProps) {
           <>
             {block === null ? (
               <Button href={`/trades/${t.id}/edit`} variant="secondary" icon="edit">
-                直す
+                編集
               </Button>
             ) : null}
             <Button variant="ghost" icon="trash" onClick={p.onDelete}>

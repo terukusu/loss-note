@@ -73,7 +73,7 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   record: '記録する',
   trades: '取引の一覧',
   trade: '取引の詳細',
-  tradeEdit: '取引を直す',
+  tradeEdit: '取引を編集',
   settings: '設定',
   // 開発の時だけの画面。名前の文字列を本番のビルドに残さないため、見出しは画面の側に持つ
   parts: '開発用',

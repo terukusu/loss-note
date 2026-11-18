@@ -159,7 +159,7 @@ describe('口座（#47 U12〜U15）', () => {
     ]) {
       expect(byId(f, id)?.type, id).toBe('input');
     }
-    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['保存', 'やめる']);
+    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['保存', 'キャンセル']);
     expect(text(f)).toContain(EFFECT_NOTE);
     expect(text(f)).toContain('1 回の負けは 9,000円 までです');
     const details = all(f, (e) => e.type === 'details')[0];
@@ -204,7 +204,7 @@ describe('口座（#47 U12〜U15）', () => {
     const form = all(open, (e) => e.type === 'form' && e.props['aria-label'] === '口座を足す')[0];
     expect(all(form ? [form] : [], (e) => e.type === 'button').map(text)).toEqual([
       '足す',
-      'やめる',
+      'キャンセル',
     ]);
   });
 
@@ -304,7 +304,7 @@ describe('銘柄', () => {
     }
     const buttons = all(tree, (e) => e.type === 'button').map(text);
     expect(buttons).toContain('保存');
-    expect(buttons).toContain('やめる');
+    expect(buttons).toContain('キャンセル');
     // 6 択は select
     const sel = byId(tree, 'settings-inst-kind');
     expect(sel?.type).toBe('select');

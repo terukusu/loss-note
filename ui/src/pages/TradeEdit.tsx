@@ -303,7 +303,7 @@ export function TradeEditView(p: TradeEditViewProps) {
           {saving ? '保存しています…' : '保存する'}
         </Button>
         <Button href={`/trades/${p.id}`} variant="ghost" icon="back" block>
-          やめる
+          キャンセル
         </Button>
       </div>
     </form>

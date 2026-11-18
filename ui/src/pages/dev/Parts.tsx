@@ -250,7 +250,7 @@ export function Parts() {
         <div class="row-wrap">
           <Button icon="record">記録する</Button>
           <Button variant="secondary">保存する</Button>
-          <Button variant="ghost">やめる</Button>
+          <Button variant="ghost">キャンセル</Button>
           <Button disabled>押せない</Button>
         </div>
         <Button size="lg" block icon="record">

@@ -422,7 +422,7 @@ function AccountEditor(
           {editing.saving ? (rec ? '保存しています…' : '足しています…') : rec ? '保存' : '足す'}
         </Button>
         <Button variant="ghost" onClick={p.onCloseAccount} disabled={editing.saving}>
-          やめる
+          キャンセル
         </Button>
       </div>
       {rec ? (
@@ -641,7 +641,7 @@ function InstrumentEditor(
           {editing.saving ? '保存しています…' : '保存'}
         </Button>
         <Button variant="ghost" onClick={p.onClose} disabled={editing.saving}>
-          やめる
+          キャンセル
         </Button>
       </div>
     </form>

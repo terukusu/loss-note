@@ -100,7 +100,7 @@ export function AccountAddForm(p: AccountAddFormProps) {
           {s.saving ? '足しています…' : '足す'}
         </Button>
         <Button variant="ghost" onClick={p.onClose} disabled={s.saving}>
-          やめる
+          キャンセル
         </Button>
       </div>
     </fieldset>

@@ -639,7 +639,7 @@ describe('読み取り中（AC-3）', () => {
     });
     const status = all(tree, (e) => e.props.role === 'status').map(text);
     expect(status).toContain('明細を読み取っています…');
-    const btn = all(tree, (e) => e.type === 'button' && text(e) === 'やめて手で入れる')[0] as El;
+    const btn = all(tree, (e) => e.type === 'button' && text(e) === 'キャンセル')[0] as El;
     (btn.props.onClick as () => void)();
     expect(cancel).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
@@ -1359,7 +1359,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     expect(box?.type).toBe('fieldset');
     const b = box ? [box] : [];
     expect(all(b, (e) => e.type === 'label').map(text)).toEqual(['名前', '資金（任意）']);
-    expect(all(b, (e) => e.type === 'button').map(text)).toEqual(['足す', 'やめる']);
+    expect(all(b, (e) => e.type === 'button').map(text)).toEqual(['足す', 'キャンセル']);
     expect(text(b)).toContain('空でも足せます。資金を入れるとリスク（%）が出ます');
     expect(
       all(tree, (e) => e.props['aria-label'] === '口座' && e.props.role === 'radiogroup'),

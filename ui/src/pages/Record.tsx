@@ -560,8 +560,12 @@ function StatementPanel(p: RecordViewProps) {
           <p class="statement__reading" role="status">
             明細を読み取っています…
           </p>
-          <Button variant="ghost" onClick={() => p.onCancelRead?.()}>
-            やめて手で入れる
+          <Button
+            variant="ghost"
+            label="明細の読み取りをキャンセル"
+            onClick={() => p.onCancelRead?.()}
+          >
+            キャンセル
           </Button>
         </div>
       ) : null}

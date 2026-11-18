@@ -74,6 +74,8 @@ export interface TradeRecord {
   readonly fees: readonly Fee[];
   readonly entryChartTimeframe?: Timeframe;
   readonly exitChartTimeframe?: Timeframe;
+  /** 付属のチャート（#89。最大 5 枚・追加した順。判定に使わない）。付属の無い取引には鍵が無い */
+  readonly extraCharts?: readonly ExtraChart[];
 }
 
 /** 記録したときの銘柄の値 */
@@ -105,6 +107,16 @@ export function accountCurrencyOf(snapshot: Pick<TradeSnapshot, 'accountCurrency
   return snapshot.accountCurrency || DEFAULT_CURRENCY;
 }
 
+/** 付属のチャートの枠（#89。x1〜x5） */
+export type ExtraChartSlot = 'x1' | 'x2' | 'x3' | 'x4' | 'x5';
+
+/** 付属のチャートの記録（枠・任意の時間足・任意の一言 40 字まで） */
+export interface ExtraChart {
+  readonly slot: ExtraChartSlot;
+  readonly timeframe?: Timeframe;
+  readonly note?: string;
+}
+
 /** 保存したチャート画像の要約（形式と大きさだけ。バイト列は API の /api/trades/{id}/charts/{slot} から読む。Issue #12） */
 export interface ChartMeta {
   readonly contentType: 'image/png' | 'image/jpeg';
@@ -118,8 +130,8 @@ export interface StoredTrade {
   readonly updatedAt: number;
   readonly snapshot: TradeSnapshot;
   readonly record: TradeRecord;
-  /** 根拠の足のチャート（エントリー時・決済時。ある枠だけ。チャートの無い取引には鍵が無い） */
-  readonly charts?: { readonly entry?: ChartMeta; readonly exit?: ChartMeta };
+  /** 根拠の足のチャート（エントリー時・決済時・付属 x1〜x5。ある枠だけ。チャートの無い取引には鍵が無い） */
+  readonly charts?: { readonly [K in 'entry' | 'exit' | ExtraChartSlot]?: ChartMeta };
 }
 
 /** 銘柄の本文（省いた欄は API が既定を入れる） */

@@ -466,8 +466,11 @@ describe('AC-4: 直す（例 E1・E2）', () => {
       'チャートの無い枠の時間足（エントリー時: 4 時間足・決済時: 日足）は、保存のときに外します。チャートが無いと時間足の違いを確かめられないためです。',
     );
     expect(verdictText(tree)).toContain('A いい損失');
-    // 時間足の選択はチャートのある枠だけ（E2 には無い）
-    expect(all(tree, (e) => String(e.props.id ?? '').startsWith('edit-chart-'))).toEqual([]);
+    // 時間足の選択はチャートのある枠だけ（E2 には無い）。枠は出て、チャートを追加できる（#89）
+    expect(
+      all(tree, (e) => e.type === 'select' && String(e.props.id ?? '').startsWith('edit-chart-')),
+    ).toEqual([]);
+    expect(all(tree, (e) => e.props.id === 'edit-chart-exit-file')).toHaveLength(1);
   });
 
   it('チャートのある枠（D1）は時間足だけを選び直せる', async () => {

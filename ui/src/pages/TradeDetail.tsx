@@ -10,12 +10,13 @@ import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
 import { accountCurrencyOf } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { Button } from '../components/Button';
+import { EXTRA_TITLE } from '../components/ChartPanel';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { Verdict } from '../components/Verdict';
 import { hasManyAccounts, tradeAccountName, verdictAsideText } from '../lib/accounts';
 import { APP_NAME } from '../lib/app-name';
-import type { ChartSlot } from '../lib/charts';
+import { type AnySlot, isMainSlot } from '../lib/charts';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import { editBlock } from '../lib/edit-form';
 import { Link, NavigatorContext } from '../lib/router';
@@ -23,6 +24,7 @@ import { titleOf } from '../lib/routes';
 import { browserCodec } from '../lib/statement-image';
 import { createTradeDetailController, type DetailState } from '../lib/trade-detail-controller';
 import {
+  type ChartSlotView,
   chartSlots,
   detailHeading,
   recordFields,
@@ -119,7 +121,7 @@ export interface TradeDetailViewProps {
   readonly hidden: ReadonlySet<string>;
   readonly notFound: JSX.Element;
   readonly onDelete: () => void;
-  readonly onReloadChart: (slot: ChartSlot) => void;
+  readonly onReloadChart: (slot: AnySlot) => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
 }
@@ -221,60 +223,77 @@ function DetailBody(p: TradeDetailViewProps) {
   );
 }
 
-/** エントリー時・決済時のチャートを並べる（ある枠は canvas と時間足、無い枠は「チャートなし」） */
+/**
+ * エントリー時・決済時のチャートを並べる（ある枠は canvas と時間足、無い枠は「チャートなし」）。その後ろに小見出し
+ * 「追加のチャート（判定には使いません）」で分けて、追加のチャート（#89。追加した順・一言と時間足つき）
+ */
 function ChartsView(p: TradeDetailViewProps) {
   const { state } = p;
   if (state.phase !== 'ready') return null;
+  const all = chartSlots(state.trade);
+  const main = all.filter((c) => isMainSlot(c.slot));
+  const extras = all.filter((c) => !isMainSlot(c.slot));
+  const figure = (c: ChartSlotView) => {
+    const view = state.charts[c.slot] ?? { phase: 'loading' as const };
+    const tf = c.timeframe ?? '指定なし';
+    const extra = !isMainSlot(c.slot);
+    return (
+      <figure
+        key={c.slot}
+        class={extra ? 'chartview chartview--extra' : 'chartview'}
+        aria-labelledby={`detail-chart-${c.slot}`}
+      >
+        {/* 追加のチャートは一言があれば一言を名前にする（番号は追加した順で、振り返りの手掛かりにならない） */}
+        <figcaption class="chartview__name" id={`detail-chart-${c.slot}`}>
+          {c.note ?? c.name}
+        </figcaption>
+        {!c.has ? (
+          <p class="chartview__none">チャートなし</p>
+        ) : (
+          <>
+            {view.phase === 'ready' ? (
+              <canvas
+                class="chart__preview chartview__canvas"
+                width={view.preview.width}
+                height={view.preview.height}
+                role="img"
+                aria-label={`${c.name}のチャート（${tf}）`}
+                ref={(el: HTMLCanvasElement | null) => {
+                  if (el) view.preview.draw(el);
+                }}
+              />
+            ) : view.phase === 'failed' ? (
+              <div class="chartview__failed">
+                <p class="notice notice--error" role="alert">
+                  チャートを読み込めませんでした
+                </p>
+                <Button variant="secondary" onClick={() => p.onReloadChart(c.slot)}>
+                  もう一度読み込む
+                </Button>
+              </div>
+            ) : (
+              <p class="loading" role="status">
+                チャートを読み込んでいます…
+              </p>
+            )}
+            <p class="chartview__tf">時間足: {tf}</p>
+          </>
+        )}
+      </figure>
+    );
+  };
   return (
     <section class="card section" aria-labelledby="detail-charts-title">
       <h2 class="section__title" id="detail-charts-title">
-        根拠の足のチャート
+        チャート
       </h2>
-      <div class="charts__grid">
-        {chartSlots(state.trade).map((c) => {
-          const view = state.charts[c.slot];
-          const tf = c.timeframe ?? '選んでいない';
-          return (
-            <figure key={c.slot} class="chartview" aria-labelledby={`detail-chart-${c.slot}`}>
-              <figcaption class="chartview__name" id={`detail-chart-${c.slot}`}>
-                {c.name}
-              </figcaption>
-              {!c.has ? (
-                <p class="chartview__none">チャートなし</p>
-              ) : (
-                <>
-                  {view.phase === 'ready' ? (
-                    <canvas
-                      class="chart__preview chartview__canvas"
-                      width={view.preview.width}
-                      height={view.preview.height}
-                      role="img"
-                      aria-label={`${c.name}のチャート（${tf}）`}
-                      ref={(el: HTMLCanvasElement | null) => {
-                        if (el) view.preview.draw(el);
-                      }}
-                    />
-                  ) : view.phase === 'failed' ? (
-                    <div class="chartview__failed">
-                      <p class="notice notice--error" role="alert">
-                        チャートを読み込めませんでした
-                      </p>
-                      <Button variant="secondary" onClick={() => p.onReloadChart(c.slot)}>
-                        もう一度読み込む
-                      </Button>
-                    </div>
-                  ) : (
-                    <p class="loading" role="status">
-                      チャートを読み込んでいます…
-                    </p>
-                  )}
-                  <p class="chartview__tf">時間足: {tf}</p>
-                </>
-              )}
-            </figure>
-          );
-        })}
-      </div>
+      <div class="charts__grid">{main.map(figure)}</div>
+      {extras.length > 0 ? (
+        <>
+          <h3 class="charts__subtitle">{EXTRA_TITLE}</h3>
+          <div class="charts__grid">{extras.map(figure)}</div>
+        </>
+      ) : null}
     </section>
   );
 }

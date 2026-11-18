@@ -16,7 +16,13 @@ import {
 import { isLongerTimeframe } from '../../../core/trade';
 import { hasManyAccounts, tradeAccountName } from './accounts';
 import { type BadgeModel, badgeModel } from './badge';
-import { CHART_SLOT_TEXT, CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
+import {
+  type AnySlot,
+  CHART_SLOT_TEXT,
+  CHART_SLOTS,
+  CHART_TIMEFRAME_FIELD,
+  extraName,
+} from './charts';
 import { formatFxDerived, fxFieldVisible, withUnit } from './currency';
 import { formatDate, formatDateTime } from './datetime';
 import {
@@ -404,16 +410,21 @@ export function recordFields(
 }
 
 export interface ChartSlotView {
-  readonly slot: ChartSlot;
+  readonly slot: AnySlot;
   readonly name: string;
   readonly has: boolean;
   /** 時間足の名前（チャートがあって時間足を選んでいないときは null） */
   readonly timeframe: string | null;
+  /** 付属のチャートの一言（#89。付属の枠で一言があるときだけ） */
+  readonly note?: string;
 }
 
-/** エントリー時・決済時の枠（チャートの有無と時間足の名前） */
+/**
+ * エントリー時・決済時の枠（チャートの有無と時間足の名前）と、その後ろに付属のチャート（#89。追加した順・画像のある枠だけ。
+ * 一言つき）
+ */
 export function chartSlots(t: StoredTrade): readonly ChartSlotView[] {
-  return CHART_SLOTS.map((slot) => {
+  const main = CHART_SLOTS.map((slot) => {
     const has = t.charts?.[slot] !== undefined;
     const tf = t.record[CHART_TIMEFRAME_FIELD[slot]];
     return {
@@ -423,6 +434,16 @@ export function chartSlots(t: StoredTrade): readonly ChartSlotView[] {
       timeframe: has && tf !== undefined ? TIMEFRAME_NAME[tf] : null,
     };
   });
+  const extras = (t.record.extraCharts ?? [])
+    .filter((e) => t.charts?.[e.slot] !== undefined)
+    .map((e, i) => ({
+      slot: e.slot,
+      name: extraName(i),
+      has: true,
+      timeframe: e.timeframe === undefined ? null : TIMEFRAME_NAME[e.timeframe],
+      ...(e.note ? { note: e.note } : {}),
+    }));
+  return [...main, ...extras];
 }
 
 /** どの取引かが分かる短い名前（トースト「US30 L 11/09 を消しました」・詳細の見出し。端末の時間帯） */

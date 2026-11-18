@@ -24,6 +24,7 @@ import { TradeEditView } from '../../ui/src/pages/TradeEdit';
 import { account } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
 import { closedInfoTip } from './helpers/info-tip';
+import { blobOf, fakePreview, pngBytes, preparedImage } from './helpers/statement-rows';
 import { stored } from './helpers/trade-examples';
 
 const IDX: InstrumentRecord = {
@@ -334,7 +335,36 @@ describe('controller: 選んだときだけ今の値で計算し、保存に ?sn
     expect((c.getState().trade as StoredTrade).snapshot.capitalYen).toBe(500_000);
   });
 
-  it('N-8: 選んだ後に口座を付け替えて違いが無くなったら、選択も戻す（元に戻しても「記録したとき」）', async () => {
+  it('#89 R3: 今の値が変わって保存を止めたときも、止めたチャートの時間足の読み取りを並べ直す', async () => {
+    const fake = createFakeApi({ trades: [X1], instruments: [IDX], capitalYen: 1_000_000 });
+    const c = createEditController({
+      api: fake.api,
+      id: X1.id,
+      prepare: async () => ({ ok: true, image: preparedImage(fakePreview()) }),
+    });
+    await c.load();
+    c.setRefresh(true);
+    fake.holdChartReads();
+    void c.setChart('x1', blobOf(pngBytes(1200, 800, 2048)));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(c.getState().charts?.x1?.read).toBe('reading');
+    await fake.api('/api/accounts/default', {
+      method: 'PUT',
+      body: JSON.stringify({ name: '口座 1', capitalYen: 500_000, riskTolerancePct: 1 }),
+    });
+    await c.save();
+    expect(c.getState().error).toBe(EDIT_VALUES_CHANGED);
+    // 止めた読み取りは「読み取り中」に戻って、もう一度送られる
+    expect(c.getState().charts?.x1?.read).toBe('reading');
+    fake.releaseChartReads();
+    for (let i = 0; i < 20 && c.getState().charts?.x1?.read !== 'done'; i++) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    expect(c.getState().charts?.x1?.read).toBe('done');
+    c.dispose();
+  });
+
+  it('N-8:選んだ後に口座を付け替えて違いが無くなったら、選択も戻す（元に戻しても「記録したとき」）', async () => {
     const fake = createFakeApi({
       trades: [X1],
       instruments: [IDX],

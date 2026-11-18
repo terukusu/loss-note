@@ -430,6 +430,29 @@ const TX_R3 = exampleTrade('x-r3', 1700000000013, {
 });
 const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2, TX_R1, TX_R2, TX_R3];
 /** #47 PR-2: JPY の口座 × USD 建て・為替 150 の取引（詳細の外貨建ての測りで一時だけ足す。架空の値） */
+/** Issue #89: エントリー時・決済時 + 追加のチャート 5 枚（一言の有り無し・時間足の有り無しを混ぜる。値は架空） */
+const CHART_META = { contentType: 'image/png', size: 1 };
+const TX_C7 = exampleTrade(
+  'x-c7',
+  1700000000040,
+  {
+    ...D1_RECORD,
+    exitChartTimeframe: '1d',
+    extraCharts: [
+      { slot: 'x2', timeframe: '1w', note: '上位足の環境（週足の高値の下）' },
+      { slot: 'x1', timeframe: '15m', note: '下位足のタイミング' },
+      { slot: 'x3' },
+      { slot: 'x5', note: '指標の予定の画面' },
+      { slot: 'x4', timeframe: '1h' },
+    ],
+  },
+  {
+    charts: Object.fromEntries(
+      ['entry', 'exit', 'x1', 'x2', 'x3', 'x4', 'x5'].map((slot) => [slot, CHART_META]),
+    ),
+  },
+);
+
 const TX_FX = exampleTrade(
   'x-fx',
   1700000000021,
@@ -513,6 +536,12 @@ function makePng(w, h, rgb) {
 const CHART_PNG = {
   entry: makePng(480, 300, [40, 160, 120]),
   exit: makePng(480, 300, [200, 120, 40]),
+  // 追加のチャート（Issue #89）
+  x1: makePng(480, 300, [70, 110, 200]),
+  x2: makePng(480, 300, [150, 80, 180]),
+  x3: makePng(480, 300, [60, 150, 170]),
+  x4: makePng(480, 300, [180, 160, 60]),
+  x5: makePng(480, 300, [120, 120, 120]),
 };
 /** API の trade_sort_key と同じ並び（決済の時刻の新しい順 → 作った時刻の新しい順 → ID） */
 const tradeSort = (a, b) =>
@@ -591,6 +620,8 @@ async function installFakeApi(context, opts = {}) {
     tradesPageDelayMs: 0,
     deletes: [],
     chartGets: [],
+    /** 取引の PUT のチャートの変更（Issue #89） */
+    chartPuts: [],
     posts: [],
     chartPosts: [],
     read: { status: 200, rows: [READ_E1], holdMs: 0 },
@@ -695,13 +726,15 @@ async function installFakeApi(context, opts = {}) {
     const ctype = req.headers()['content-type'] ?? '';
     let body;
     let chartParts = null;
+    let chartRemoves = [];
     if (ctype.startsWith('multipart/form-data')) {
       const fd = await new Response(req.postDataBuffer(), {
         headers: { 'Content-Type': ctype },
       }).formData();
       body = JSON.parse(String(fd.get('record')));
       chartParts = {};
-      for (const slot of ['entry', 'exit']) {
+      chartRemoves = fd.getAll('removeChart').map(String);
+      for (const slot of ['entry', 'exit', 'x1', 'x2', 'x3', 'x4', 'x5']) {
         const f = fd.get(`${slot}Chart`);
         if (f && typeof f !== 'string') {
           chartParts[slot] = { type: f.type, bytes: Buffer.from(await f.arrayBuffer()) };
@@ -770,8 +803,17 @@ async function installFakeApi(context, opts = {}) {
         api.puts.push({ id, body, query });
         const inst = api.instruments.find((i) => i.id === body.instrumentId);
         if (!inst) return json(route, 400, { error: 'invalid' });
+        // チャートの変更（Issue #89。multipart の PUT: 差し替え・足す画像 + 外す枠）。直した後の枠で時間足を見る
+        const nextCharts = {};
+        for (const slot of ['entry', 'exit', 'x1', 'x2', 'x3', 'x4', 'x5']) {
+          if (chartParts?.[slot])
+            nextCharts[slot] = { contentType: chartParts[slot].type, size: 1 };
+          else if (prev.charts?.[slot] && !chartRemoves.includes(slot))
+            nextCharts[slot] = prev.charts[slot];
+        }
+        api.chartPuts.push({ id, parts: Object.keys(chartParts ?? {}), removes: chartRemoves });
         for (const slot of ['entry', 'exit']) {
-          if (body[`${slot}ChartTimeframe`] !== undefined && !prev.charts?.[slot]) {
+          if (body[`${slot}ChartTimeframe`] !== undefined && !nextCharts[slot]) {
             return json(route, 400, { error: 'invalid', issues: [{ kind: 'noChart' }] });
           }
         }
@@ -798,8 +840,10 @@ async function installFakeApi(context, opts = {}) {
               },
             }
           : prev.snapshot;
+        const { charts: _prevCharts, ...prevRest } = prev;
         const next = {
-          ...prev,
+          ...prevRest,
+          ...(Object.keys(nextCharts).length > 0 ? { charts: nextCharts } : {}),
           updatedAt: clock,
           snapshot: moved
             ? {
@@ -1520,6 +1564,56 @@ const RECORD_STATES = [
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
       await p.locator('.reasons__sub', { hasText: 'あなたの答え: 変えず' }).waitFor();
+    },
+  },
+  // Issue #89: 追加のチャート（見出しの行の [＋ 追加] → 枠を足して貼る）
+  {
+    slug: 'record-30-extra-1',
+    name: '追加のチャート 1 枚',
+    anchor: '.charts',
+    fn: async (p, api) => {
+      api.chartTimeframes = ['1d'];
+      await p.locator('#record-chart-add').click();
+      await pasteChart(p, 'x1');
+      await p.locator('#record-chart-x1-note').fill('上位足の環境');
+      await p.locator('.charts__subtitle', { hasText: '判定には使いません' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-31-extra-full',
+    name: '追加のチャート 5 枚',
+    anchor: '.charts__subtitle',
+    fn: async (p) => {
+      for (let i = 0; i < 5; i++) await p.locator('#record-chart-add').click();
+      for (const slot of ['x1', 'x2', 'x3', 'x4', 'x5']) await pasteChart(p, slot);
+      if (!(await p.locator('#record-chart-add').isDisabled()))
+        throw new Error('5 枚で [＋ 追加] が押せる');
+      await p.getByText('追加のチャートは 5 枚までです。').waitFor();
+    },
+  },
+  {
+    slug: 'record-32-extra-note-err',
+    name: '一言が字数を超えた',
+    anchor: '.charts__subtitle',
+    fn: async (p) => {
+      await p.locator('#record-chart-add').click();
+      await pasteChart(p, 'x1');
+      await p.locator('#record-chart-x1-note').fill('あ'.repeat(41));
+      // 欄の誤り（保存しないことは controller のテストで見る）
+      await p
+        .locator('#record-chart-x1-note-error', { hasText: '一言は 40 字までです。' })
+        .waitFor();
+    },
+  },
+  {
+    slug: 'record-33-extra-fifth',
+    name: '追加のチャートの 5 枚目',
+    anchor: '#record-chart-x4',
+    fn: async (p) => {
+      for (let i = 0; i < 5; i++) await p.locator('#record-chart-add').click();
+      await pasteChart(p, 'x5');
+      if (!(await p.locator('#record-chart-add').isDisabled()))
+        throw new Error('5 枚で [＋ 追加] が押せる');
     },
   },
   {
@@ -3022,6 +3116,168 @@ async function main() {
             setAccounts(recApi, []);
           }
         }
+        // Issue #89: 追加のチャートの詳細（7 枚）と、編集の画面の差し替え・削除・追加の直後
+        for (const cs of [
+          {
+            path: '/trades/x-c7',
+            h1: 'US30 · L',
+            slug: 'trade-x-c7',
+            name: '詳細 7 枚',
+            wait: 'canvas.chartview__canvas >> nth=6',
+            after: async () => {},
+          },
+          {
+            path: '/trades/x-d1/edit',
+            h1: '取引を編集',
+            slug: 'edit-chart-replace',
+            name: '編集 差し替え',
+            wait: '#edit-chart-exit canvas',
+            after: async (pg) => {
+              const frame = pg.locator('#edit-chart-exit');
+              await frame.locator('.chart__name').click();
+              await makeChart(pg, 'paste');
+              await frame.locator('.chart__mark', { hasText: '差し替え' }).waitFor();
+              await pg.locator('#edit-change', { hasText: 'チャート 1 か所を変更' }).waitFor();
+              await frame.scrollIntoViewIfNeeded();
+            },
+          },
+          {
+            path: '/trades/x-c7/edit',
+            h1: '取引を編集',
+            slug: 'edit-chart-remove',
+            name: '編集 削除',
+            wait: '#edit-chart-x2 canvas',
+            after: async (pg) => {
+              await pg.getByRole('button', { name: '追加のチャート 1のチャートを削除' }).click();
+              await pg.locator('#edit-chart-x2-restore').waitFor();
+              await pg.locator('#edit-chart-x2').scrollIntoViewIfNeeded();
+            },
+          },
+          {
+            path: '/trades/x-d1/edit',
+            h1: '取引を編集',
+            slug: 'edit-chart-add',
+            name: '編集 追加',
+            wait: '#edit-chart-exit canvas',
+            after: async (pg) => {
+              await pg.locator('#edit-chart-add').click();
+              const frame = pg.locator('#edit-chart-x1');
+              await frame.locator('.chart__name').click();
+              await makeChart(pg, 'paste');
+              await frame.locator('.chart__mark', { hasText: '追加' }).waitFor();
+              await frame.scrollIntoViewIfNeeded();
+            },
+          },
+          // 再レビューで撮れていなかった状態（[元に戻す] の後・2 枠の削除・差し替えの失敗・保存の後。フォーカスの移りも写る）
+          {
+            path: '/trades/x-c7/edit',
+            h1: '取引を編集',
+            slug: 'edit-chart-restore',
+            name: '編集 元に戻す',
+            wait: '#edit-chart-x2 canvas',
+            after: async (pg) => {
+              await pg.getByRole('button', { name: '追加のチャート 1のチャートを削除' }).click();
+              await pg.locator('#edit-chart-x2-restore').click();
+              await pg.locator('#edit-chart-x2 canvas').waitFor();
+              await expectPollAsync(
+                async () =>
+                  (await pg.evaluate(() => document.activeElement?.id)) === 'edit-chart-x2',
+                '[元に戻す] の後のフォーカス',
+              );
+            },
+          },
+          {
+            path: '/trades/x-d1/edit',
+            h1: '取引を編集',
+            slug: 'edit-chart-remove-main',
+            name: '編集 決済時を削除',
+            wait: '#edit-chart-exit canvas',
+            after: async (pg) => {
+              await pg.getByRole('button', { name: '決済時のチャートを削除' }).click();
+              await pg
+                .locator('#edit-chart-exit .chart__mark', { hasText: '削除（未保存）' })
+                .waitFor();
+              await expectPollAsync(
+                async () =>
+                  (await pg.evaluate(() => document.activeElement?.id)) ===
+                  'edit-chart-exit-restore',
+                '[削除] の後のフォーカス',
+              );
+            },
+          },
+          {
+            path: '/trades/x-d1/edit',
+            h1: '取引を編集',
+            slug: 'edit-chart-replace-failed',
+            name: '編集 差し替えの失敗',
+            wait: '#edit-chart-exit canvas',
+            after: async (pg) => {
+              await pg.locator('#edit-chart-exit-file').setInputFiles({
+                name: 'not-a-chart.png',
+                mimeType: 'image/png',
+                buffer: Buffer.from('これは画像ではない（架空）'),
+              });
+              await pg.locator('#edit-chart-exit', { hasText: '前のチャートのまま' }).waitFor();
+              await pg.locator('#edit-chart-exit canvas').waitFor();
+              await pg.locator('#edit-chart-exit').scrollIntoViewIfNeeded();
+            },
+          },
+          {
+            path: '/trades/x-c7/edit',
+            h1: '取引を編集',
+            slug: 'trade-x-c7-saved',
+            name: '保存の後の詳細',
+            wait: '#edit-chart-x1 canvas',
+            after: async (pg) => {
+              const frame = pg.locator('#edit-chart-x1');
+              await frame.locator('.chart__name').click();
+              await makeChart(pg, 'paste');
+              await frame.locator('.chart__mark', { hasText: '差し替え済み' }).waitFor();
+              await pg.locator('#edit-submit').click();
+              await pg.locator('h1', { hasText: 'US30 · L' }).waitFor();
+              await pg.locator('canvas.chartview__canvas >> nth=6').waitFor({ timeout: 15000 });
+            },
+          },
+        ]) {
+          const tp = pageFor.get(false);
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`${cs.path}（${cs.name}）`, 22)}`;
+          recApi.trades.push(TX_C7);
+          recApi.chartTimeframes = [];
+          try {
+            await tp.goto(base + cs.path);
+            await waitReady(tp, cs.h1);
+            await tp.locator(cs.wait).first().waitFor({ timeout: 15000 });
+            await cs.after(tp);
+            await tp.mouse.move(0, 0);
+            const m = await measure(tp, w === 360, TAP);
+            states++;
+            worstH = Math.max(worstH, m.h);
+            smallTotal += m.small.length;
+            clippedTotal += m.clipped.length;
+            const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+            const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+            console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+            if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            for (const x of m.clipped) problems.push(`${label}: はみ出し ${x}`);
+            for (const x of m.small) problems.push(`${label}: 当たり<44 ${x}`);
+            checkNest(label, m);
+            for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+            if (opts.shots) {
+              await tp.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-${cs.slug}.png`),
+                fullPage: true,
+              });
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            console.log(`${label} 開けない  NG`);
+            problems.push(`${label}: 開けない ${msg}`);
+          } finally {
+            // 保存の場面は取引を置き換えるので、ID で外す
+            const at = recApi.trades.findIndex((t) => t.id === TX_C7.id);
+            if (at >= 0) recApi.trades.splice(at, 1);
+          }
+        }
         for (const c of contexts) await c.close();
       }
     }
@@ -4317,7 +4573,7 @@ async function runFlows(browser, base, signedIn) {
       await makeChart(p, 'paste');
       await p.locator('#record-chart-exit canvas.chart__preview').waitFor({ timeout: 10000 });
       expectEq(fake.reads.length, 0, '2 枚目の後の明細の読み取りの要求');
-      // 時間足の欄はチャートのある枠だけ（2 枚あるので 2 つ）。[外す] で欄も消え、フォーカスは枠へ
+      // 時間足の欄はチャートのある枠だけ（2 枚あるので 2 つ）。[削除] で欄も消え、フォーカスは枠へ
       expectEq(await p.locator('.chart select').count(), 2, '時間足の欄の数');
       await p.locator('#record-chart-exit-tf').selectOption('1d');
       // レビュー指摘 1: 時間足の欄にフォーカスが残ったまま貼る → 目印（輪・「ここに貼れます」）は出ておらず、
@@ -4348,11 +4604,11 @@ async function runFlows(browser, base, signedIn) {
       );
       await p
         .locator('#record-chart-exit')
-        .getByRole('button', { name: '決済時のチャートを外す' })
+        .getByRole('button', { name: '決済時のチャートを削除' })
         .click();
       await expectPollAsync(
         async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-chart-exit',
-        '[外す] の後のフォーカス',
+        '[削除] の後のフォーカス',
       );
       expectEq(await p.locator('.chart select').count(), 1, '外した後の時間足の欄の数');
       // 枠の外（本文）に貼る → 明細の読み取りへ 1 件、チャートの枠は増えない
@@ -4370,7 +4626,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return '枠をクリック / Tab で選んで貼る → その枠（明細の要求 0）・時間足の欄にフォーカスで貼る → 目印なし・明細へ・チャートと時間足は不変・枠の外に貼る → 明細・[チャートを選ぶ] → 枠・[外す] → 欄が消えフォーカスは枠';
+    return '枠をクリック / Tab で選んで貼る → その枠（明細の要求 0）・時間足の欄にフォーカスで貼る → 目印なし・明細へ・チャートと時間足は不変・枠の外に貼る → 明細・[チャートを選ぶ] → 枠・[削除] → 欄が消えフォーカスは枠';
   });
 
   await check('C2', async () => {

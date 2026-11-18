@@ -7,7 +7,8 @@
 //   （根拠・TP・感情・総評・限月など）は元の値。手数料・決済 / 建ての時刻は、下書きの文字が開いたときから変わっていなければ
 //   元の値（手数料のラベル・秒を落とさない）。出どころ（source）は元の値。利用者が触っていない答えも書き換えない:
 //   「窓・滑りでしたか」の答え（聞かない場面でも開いたときのまま）、LC なしの取引の「決めていたか」「動かしたか」
-// - チャートの無い枠の時間足（#12 より前の形）は本文に入れない（保存の前に orphanTimeframes をその旨として出す）
+// - チャートの無い枠の時間足（#12 より前の形）は本文に入れない（保存の前に orphanTimeframes をその旨として出す）。
+//   チャートの有無は編集の今の枠（#89。足した・外したチャートを含む）で見る
 // - 建てが複数・建てごとの LC の取引は下書きで表せない（直すと判定が変わる）ので直せない（editBlock）
 // - 口座（#47）: 下書きの口座は取引の口座（accountId の無い取引は既定の口座）。口座が元と同じなら写した資金・許容リスク、
 //   付け替えたら付け替え先の今の値で計算する（API と同じ）。本文の口座は、口座が 2 つ以上なら下書きの口座、
@@ -92,16 +93,23 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
   };
 }
 
-/** 直すときの読みの文脈: 銘柄と口座の一覧、チャートのある枠、元の銘柄・口座と写した値 */
+/**
+ * 直すときの読みの文脈: 銘柄と口座の一覧、チャートのある枠（charts を省けば保存した取引の枠。#89 は編集の今の枠）、
+ * 元の銘柄・口座と写した値
+ */
 export function editContext(
   t: StoredTrade,
   instruments: readonly InstrumentRecord[],
   accounts: readonly AccountRecord[] = [],
+  charts?: { readonly entry: boolean; readonly exit: boolean },
 ): DraftContext {
   return {
     instruments,
     accounts,
-    charts: { entry: t.charts?.entry !== undefined, exit: t.charts?.exit !== undefined },
+    charts: charts ?? {
+      entry: t.charts?.entry !== undefined,
+      exit: t.charts?.exit !== undefined,
+    },
     base: {
       instrumentId: t.record.instrumentId,
       accountId: accountIdOf(t.record),
@@ -115,12 +123,18 @@ export interface OrphanTimeframe {
   readonly timeframe: Timeframe;
 }
 
-/** チャートの無い枠に記録された時間足（#12 より前の形。直しの保存では外す） */
-export function orphanTimeframes(t: StoredTrade): readonly OrphanTimeframe[] {
+/**
+ * チャートの無い枠に記録された時間足（#12 より前の形。直しの保存では外す）。has を渡せば編集の今の枠で見る
+ * （チャートを足した枠は外さない。#89）
+ */
+export function orphanTimeframes(
+  t: StoredTrade,
+  has: (slot: ChartSlot) => boolean = (slot) => t.charts?.[slot] !== undefined,
+): readonly OrphanTimeframe[] {
   const out: OrphanTimeframe[] = [];
   for (const slot of CHART_SLOTS) {
     const tf = t.record[CHART_TIMEFRAME_FIELD[slot]];
-    if (tf !== undefined && t.charts?.[slot] === undefined) out.push({ slot, timeframe: tf });
+    if (tf !== undefined && !has(slot)) out.push({ slot, timeframe: tf });
   }
   return out;
 }
@@ -261,5 +275,31 @@ export function changeText(before: Summary, after: Summary): string {
   const a = verdictText(before);
   if (after.judgment === undefined) return `編集前: ${a}（編集後の判定は、欄をそろえると出ます）`;
   const b = verdictText(after);
-  return a === b ? `判定は変わりません: ${a}` : `判定: ${a} → ${b}`;
+  if (a !== b) return `判定: ${a} → ${b}`;
+  // 段と R が同じでも理由が変われば言う（チャートを差し替えて「時間足を変えた（…・チャートから）」が消えるなど。#89）
+  return sameReasons(before, after)
+    ? `判定は変わりません: ${a}`
+    : `判定は ${a} のまま・理由が変わります`;
+}
+
+function sameReasons(a: Summary, b: Summary): boolean {
+  // 理由の種類と出どころ（チャートから・タップ）だけを比べる（金額・% の数は判定の数の行に出る）。リスクを確かめられない
+  // 注記（riskNotChecked）は資金の有無の知らせで、規律の理由ではないので比べない（今の値の再計算は #31 の枠が見せる）
+  const key = (s: Summary) =>
+    (s.judgment?.reasons ?? [])
+      .filter((r) => r.kind !== 'riskNotChecked')
+      .map((r) => `${r.kind}:${'source' in r ? String(r.source) : ''}`)
+      .join('|');
+  return key(a) === key(b);
+}
+
+/**
+ * 保存の帯の文: チャートを変えたら「・チャート n か所を変更」を足す。判定が同じなら「判定は同じ（…）」に縮めて
+ * 360px で 1 行に収める（#89）
+ */
+export function bandText(change: string, chartChanges: number): string {
+  if (chartChanges === 0) return change;
+  const same = /^判定は変わりません: (.*)$/.exec(change);
+  const head = same ? `判定は同じ（${same[1]}）` : change;
+  return `${head}・チャート ${chartChanges} か所を変更`;
 }

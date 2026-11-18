@@ -746,3 +746,37 @@ describe('口座（#47 D1・U16〜U19）', () => {
     expect(all(tree(), (e) => e.props.id === 'record-account-hint')).toEqual([]);
   });
 });
+
+// ---- 数量の比と提案の数量（Issue #67 AC-7・AC-8）。値・名前はすべて架空 ----
+
+describe('詳細の数量の比と提案の数量（#67）', () => {
+  it('L1（1R 5,000・資金 1,000,000・1%）: 判定の枠に 1 行、「すべての欄」に 2 行。口座 2 つなら口座の 1 行の前', () => {
+    const TWO = [defaultAccount(1_000_000), account('accB', '口座 B', 200_000)];
+    const tree = detailTree(L1, { state: detailWith(L1, TWO) });
+    expect(all(tree, hasClass('verdict__sizing')).map(text)).toEqual([
+      '数量 10000 · 提案の数量 20000（0.5 倍）',
+    ]);
+    const verdict = all(tree, hasClass('verdict'))[0] as El;
+    const order = verdict.children
+      .filter((c): c is El => typeof c !== 'string')
+      .map((c) => cls(c).split(' ').at(-1));
+    expect(order.indexOf('verdict__account')).toBe(order.indexOf('verdict__sizing') + 1);
+    const rows = all(tree, hasClass('fields__row')).map(text);
+    expect(rows).toContain('提案の数量20000');
+    expect(rows).toContain('許容リスクに対する数量0.5 倍');
+    // 区切りの中は折らない（「数量 10000 ·」「提案の数量 20000（0.5 倍）」の 2 つ）
+    expect(all(tree, hasClass('verdict__seg')).map(text)).toEqual([
+      '数量 10000 ·',
+      '提案の数量 20000（0.5 倍）',
+    ]);
+  });
+
+  it('資金が未設定の取引は 1 行も 2 行も出さない', () => {
+    const t = { ...L1, snapshot: { ...L1.snapshot, capitalYen: null } };
+    const tree = detailTree(t);
+    expect(all(tree, hasClass('verdict__sizing'))).toEqual([]);
+    expect(all(tree, hasClass('fields__row')).map(text).join('')).not.toContain(
+      '許容リスクに対する数量',
+    );
+  });
+});

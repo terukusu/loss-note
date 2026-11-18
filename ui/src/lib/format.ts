@@ -52,9 +52,23 @@ export function formatAmountYen(yen: number): string {
  */
 export function formatPct(p: number): string {
   if (!Number.isFinite(p)) return 'リスクなし';
-  const v = Math.ceil((p - 1e-9) * 10) / 10;
-  // −0 を「-0.0」にしない（toFixed は −0 を "0.0" にする）
-  return `${(v === 0 ? 0 : v).toFixed(1)}%`;
+  return `${ceil1(p)}%`;
+}
+
+/** 小数 1 桁へ切り上げた文字（1e-9 を引いてから。−0 を「-0.0」にしない） */
+function ceil1(x: number): string {
+  const v = Math.ceil((x - 1e-9) * 10) / 10;
+  return (v === 0 ? 0 : v).toFixed(1);
+}
+
+/**
+ * 数量の比の数の部分（「提案の数量 4000（2.5 倍）」の 2.5。#67 R3）。リスク（%）と同じ小数 1 桁への切り上げ（許容をわずかに超えた取引が
+ * 「1.0 倍」に見えないように。比 × 許容リスク = リスク（%）なので、許容 1% の口座ではリスク（%）の表示と同じ数になる）。
+ * 有限でないときは「比なし」
+ */
+export function formatTimes(ratio: number): string {
+  if (!Number.isFinite(ratio)) return '比なし';
+  return ceil1(ratio);
 }
 
 /**

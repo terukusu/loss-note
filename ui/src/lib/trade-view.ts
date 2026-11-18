@@ -11,7 +11,15 @@ import { hasManyAccounts, tradeAccountName } from './accounts';
 import { type BadgeModel, badgeModel } from './badge';
 import { CHART_SLOT_TEXT, CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
 import { formatDate, formatDateTime } from './datetime';
-import { formatAmountYen, formatPct, formatPlain, formatPrice, formatR, formatYen } from './format';
+import {
+  formatAmountYen,
+  formatPct,
+  formatPlain,
+  formatPrice,
+  formatR,
+  formatTimes,
+  formatYen,
+} from './format';
 import { TIMEFRAME_NAME, widenVerb } from './reasons';
 import { RISK_NOTE, type Summary, summarize } from './record-form';
 
@@ -260,6 +268,20 @@ export function timeframeNote(t: StoredTrade): string | null {
   return `あなたの答えは「${TIMEFRAME_CHANGE_TEXT[r.timeframeChange]}」、チャートは ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`;
 }
 
+/** 提案の数量が数量の刻み 1 つにも満たないときの言葉（#67 R2） */
+export const SIZING_OVER_STEP = '最小の数量でも許容リスクを超えます';
+
+/** 数量の比の文字（「2.5 倍」。小数 1 桁へ切り上げ。#67 R3） */
+export function timesText(ratio: number): string {
+  return `${formatTimes(ratio)} 倍`;
+}
+
+/** 詳細の「すべての欄」の提案の数量・数量の比の行の名前（#67。記録したときの資金・許容リスクは上の 2 行が言う） */
+export const SIZING_LABEL = {
+  suggested: '提案の数量',
+  ratio: '許容リスクに対する数量',
+} as const;
+
 export interface FieldRow {
   readonly label: string;
   readonly value: string;
@@ -292,8 +314,20 @@ export function recordFields(
     { label: 'イン', value: formatPrice(e.price) },
     { label: '決済', value: formatPrice(x.price) },
     { label: '数量', value: formatPlain(e.quantity) },
-    { label: '決済の時刻', value: formatDateTime(x.time) },
   ];
+  // 提案の数量と数量の比（#67。記録したときの資金・許容リスクで。数量どうしを隣に並べる。出ないときは行ごと出さない）
+  const sizing = summarize(t).sizing;
+  if (sizing !== undefined) {
+    if (sizing.suggestedQuantity !== undefined) {
+      const q = sizing.suggestedQuantity;
+      rows.push({
+        label: SIZING_LABEL.suggested,
+        value: q === 0 ? `0（${SIZING_OVER_STEP}）` : formatPlain(q),
+      });
+    }
+    rows.push({ label: SIZING_LABEL.ratio, value: timesText(sizing.ratio) });
+  }
+  rows.push({ label: '決済の時刻', value: formatDateTime(x.time) });
   if (e.time !== undefined) rows.push({ label: '建てた時刻', value: formatDateTime(e.time) });
   rows.push({ label: 'LC', value: r.lc === undefined ? 'なし' : formatPrice(r.lc) });
   if (r.brokenCondition) rows.push({ label: '崩れの条件の一言', value: r.brokenCondition });

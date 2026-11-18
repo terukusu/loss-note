@@ -585,11 +585,11 @@ Cloud Run（1 つのサービス）
 | 費用の見張り | 請求先に、このプロジェクトだけを対象にした月の予算（既定 3,000 円）。50 / 90 / 100% で請求先の管理者に通知する（止めはしない） | 想定外の利用（暴走・誤設定）に気づく。12 章の費用の目安の上の方に置き、想定外のときだけ鳴らす |
 | CI / CD | GitHub Actions、Workload Identity Federation、Environment `prod` の承認 | |
 | Cloud Run のインスタンス | 最小 0・最大 2（変数で 1〜10）。実行用 SA（`sa-loss-note`。データのロールは `roles/datastore.user` だけ）で動き、イメージは digest で指す。未認証の呼び出しを受ける（ログイン前の画面は公開。記録の API はトークン必須） | 費用優先。利用者はオーナー 1 人で、公開の URL への想定外の要求でも費用の上限が効く |
-| 配信 | 画面のビルド成果物と API を 1 つのイメージ・1 つの Cloud Run で配る（同じオリジン）。`/api`・`/api/…` は API だけ（無い入口は API の 404 の JSON）、`/assets/…` はビルド成果物だけ（無ければ 404・`immutable`）、それ以外の GET / HEAD は `index.html`（`no-cache`）。戻しは 404 の扱いの中で行う（ADR-0009） | 1 つの URL で画面も API も動き、どの画面の URL を直接開いても同じ画面に着く |
+| 配信 | 画面のビルド成果物と API を 1 つのイメージ・1 つの Cloud Run で配る（同じオリジン）。`/api`・`/api/…` は API だけ（無い入口は API の 404 の JSON）、`/assets/…` はビルド成果物だけ（無ければ 404・`immutable`）、直下のアイコン（`/favicon.ico`・`/favicon.svg`・`/apple-touch-icon.png`）は置き場のファイルだけ（1 日のキャッシュ。無ければ 404 の JSON。#52）、それ以外の GET / HEAD は `index.html`（`no-cache`）。戻しは 404 の扱いの中で行う（ADR-0009） | 1 つの URL で画面も API も動き、どの画面の URL を直接開いても同じ画面に着く |
 | 配信のヘッダ | すべての応答に CSP の土台（`default-src 'none'`・`script-src`・`style-src`・`img-src`・`connect-src` は `'self'`・`base-uri`・`form-action`・`frame-ancestors` は `'none'`）と `nosniff`・`no-referrer`。署名を検証する起動で authDomain（`FIREBASE_AUTH_DOMAIN`）があれば、Google ログインのポップアップの 4 つ（`script-src https://apis.google.com`・`connect-src` の Identity Toolkit と Secure Token・`frame-src https://<authDomain>`）を足す（C40） | XSS の被害を抑える層を本番に出す時点で持つ |
 | デプロイ | main へのマージ → CI の check の成功 → plan → 差分があるときだけ Environment `prod` の承認 → イメージのビルド・検査・push → digest で apply（`.github/workflows/deploy.yml`）。apply は 1 度に 1 つ | 承認者が赤いビルドを承認しても本番に出ない。変えた物だけを出す |
 | 切り戻し | 前のリビジョンへトラフィックを 100% 戻す。GitHub から Environment `prod` の承認つき（`.github/workflows/rollback.yml`）か手元の gcloud。データには触れない。次の deploy で最新に戻る（`infra/README.md`「切り戻し」） | オーナーはスマホから使うので、手元の gcloud が無い場面でも戻せる |
-| 画面の URL | History API（`/trades/<id>` の形）。本番の静的配信は `/api` 以外の知らないパスに `index.html` を返す | どの画面にも URL があり、戻る・再読み込み・直接開くで迷わない（ADR-0002・C35） |
+| 画面の URL | History API（`/trades/<id>` の形）。本番の静的配信は `/api`・`/assets` の配下と直下のアイコン以外の知らないパスに `index.html` を返す | どの画面にも URL があり、戻る・再読み込み・直接開くで迷わない（ADR-0002・C35） |
 
 ### 10.1 セキュリティとプライバシー
 
@@ -629,7 +629,7 @@ Cloud Run（1 つのサービス）
 
 ### 13.1 技術の決定（C10）
 
-記録は API 経由 / ログインは Google + メールのリンク / AI は Anthropic API のキー / 計算の規則は TypeScript と Python の両方で例の表を通す / アプリの名前は当面 `loss-note`（ドメインは公開前に決める）/ オーナー以外の受け入れは縦切り 2 のあと、規約・ポリシーを用意してから / Cloud Run の最小インスタンス 0。
+記録は API 経由 / ログインは Google + メールのリンク / AI は Anthropic API のキー / 計算の規則は TypeScript と Python の両方で例の表を通す / 画面に出すアプリの名前は「損失ノート」、識別子（リポジトリ・コード・URL・保存の鍵）は `loss-note`（#52。ドメインは公開前に決める）/ オーナー以外の受け入れは縦切り 2 のあと、規約・ポリシーを用意してから / Cloud Run の最小インスタンス 0。
 
 ### 13.2 仮定（外れたら何を変えるか）
 

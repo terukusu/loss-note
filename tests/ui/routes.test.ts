@@ -103,9 +103,9 @@ describe('parseRoute / hrefOf', () => {
     for (const r of routes) expect(parseRoute(hrefOf(r), DEV)).toEqual(r);
   });
 
-  it('画面の名前（document.title）は「<名前> — loss-note」', () => {
-    expect(titleOf({ name: 'trades' })).toBe('取引の一覧 — loss-note');
-    expect(titleOf({ name: 'trade', id: 'x' })).toBe('取引の詳細 — loss-note');
+  it('画面の名前（document.title）は「<名前> — 損失ノート」', () => {
+    expect(titleOf({ name: 'trades' })).toBe('取引の一覧 — 損失ノート');
+    expect(titleOf({ name: 'trade', id: 'x' })).toBe('取引の詳細 — 損失ノート');
   });
 });
 
@@ -280,7 +280,7 @@ describe('直すの URL（Issue #9。/trades/<id>/edit）', () => {
       id: 't-1',
     });
     expect(safeNext('/trades/abc/edit', PROD)).toEqual({ name: 'tradeEdit', id: 'abc' });
-    expect(titleOf({ name: 'tradeEdit', id: 'x' })).toBe('取引を直す — loss-note');
+    expect(titleOf({ name: 'tradeEdit', id: 'x' })).toBe('取引を直す — 損失ノート');
   });
 
   it.each([

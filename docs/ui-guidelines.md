@@ -105,7 +105,7 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 
 - する: 画面ごとの URL（`/`・`/record`・`/trades`・`/trades/<id>`・`/trades/<id>/edit`・`/settings`・`/login`。開発の時だけ `/dev/parts`）。行き来は History API（ADR-0002）。アプリの中のリンクは `Link`（左クリックだけを横取りし、新しいタブで開く等はブラウザに任せる）
 - する: 知らない URL は履歴を **置き換えて** ホームへ（戻るで知らない URL に戻らない）。詳細の ID が無い取引は、詳細の画面に「この取引は見つかりません」と一覧へのリンク
-- する: 画面が変わったら見出し（`h1`、`tabindex="-1"`）にフォーカスを移し（フォーカスでスクロールさせない）、`document.title` を「<画面の名前> — loss-note」にする
+- する: 画面が変わったら見出し（`h1`、`tabindex="-1"`）にフォーカスを移し（フォーカスでスクロールさせない）、`document.title` を「<画面の名前> — 損失ノート」にする（画面に出すアプリの名前は「損失ノート」。識別子は loss-note のまま。#52）
 - する: 新しい画面へ進んだ（push）ときだけ先頭へスクロールし、戻る・進むではブラウザが元の位置を戻す（`history.scrollRestoration` の既定）。一覧をスクロールして詳細を開き、戻ったら同じ位置
 - しない: ハッシュ（`#/trades`）の URL。画面の状態を端末に保存して URL と食い違わせる
 - 検査: `routes.test.ts`（V1〜V6・`safeNext`・行き来の種類 push / pop）、`ui:check` の V1〜V6・S1（長い画面でスクロール → 進む → 先頭、戻る → 元の位置）
@@ -122,6 +122,7 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 
 - する: 押せるもの（リンク・ボタン・選択肢・入力欄・行き先）の当たりは 44×44px 以上（`--tap`）。セグメントの radio は項目の全面に透明で重ね、当たり = 項目
 - する: フォーカスの輪は `:focus-visible` で `--focus`。数値の入力欄は文字 16px 以上（iOS の自動拡大を避ける）
+- する: 外側の枠がフォーカスを示す欄（数・文字・日時の欄の `.numfield`・選択の `.select`）は、枠の色と角丸に沿う光（box-shadow）だけで示し、内側の要素に共通の輪（outline）を重ねない（角丸の枠の外に四角い枠がずれて出る。#52。`ui:check` の FOC1）
 - する: 入力の部品（入力欄・セグメント）の枠（`--field-line`）とフォーカスの輪（`--focus`）は、面に対して両テーマで 3:1 以上（WCAG 1.4.11）
 - する: 選んだ選択肢は面の濃さ・強調の枠・文字の前のチェックの記号の 3 つで示す（遠目・屋外でも分かる。色だけに頼らない。記号は項目の中に収め、文字に重ねない）
 - する: 文字のトークン（`--ink`・`--ink-2`・`--ink-3`）× 面（`--bg`・`--s1`〜`--s3`）、`--on-accent` × `--accent`、バッジの文字 × 地、`--danger` × 面は両テーマで 4.5:1 以上
@@ -168,6 +169,7 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 |---|---|---|
 | Nielsen | Nielsen Norman Group「10 Usability Heuristics for User Interface Design」（Jakob Nielsen、1994 / 2024 改訂）。<https://www.nngroup.com/articles/ten-usability-heuristics/> | H1 状態の見える化、H2 現実世界との一致、H3 主導権と自由、H7 柔軟性と効率、H8 美的で最小限 |
 | M3 | Google「Material Design 3」<https://m3.material.io/> | Snackbar（取り消し付きの短い知らせ）、Navigation bar、Motion、Accessibility |
+| GSI | Google「Sign in with Google branding guidelines」<https://developers.google.com/identity/branding-guidelines> | Google でログインするボタン（公式の 4 色の G・ライト / ダークの配色・1px の枠・14/20・余白 12 / 10 / 12・公式の日本語の文言「Google でログイン」。#52） |
 | HIG | Apple「Human Interface Guidelines」<https://developer.apple.com/design/human-interface-guidelines/> | Layout、Tab bars、Undo and redo、Accessibility（当たりの最小 44pt） |
 | Android | Android Developers「Back navigation」 | 戻るは前の画面へ |
 | WCAG | W3C「Web Content Accessibility Guidelines (WCAG) 2.2」（2023）<https://www.w3.org/TR/WCAG22/> | 4.2 の表の達成基準 |

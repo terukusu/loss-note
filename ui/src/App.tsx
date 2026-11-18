@@ -22,7 +22,7 @@ import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
 import { Trades } from './pages/Trades';
 
-export const APP_NAME = 'loss-note';
+export { APP_NAME } from './lib/app-name';
 
 export interface AppProps {
   readonly nav: Navigator;

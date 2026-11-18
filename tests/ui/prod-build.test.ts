@@ -34,5 +34,10 @@ describe('本番のビルド', () => {
       for (const w of FORBIDDEN) if (text.includes(w)) found.push(`${f.fileName}: ${w}`);
     }
     expect(found).toEqual([]);
+    // 画面の名前（ブラウザーのタブ。Issue #52 AC-6）
+    const html = files.find((f) => f.fileName === 'index.html');
+    expect(html && html.type === 'asset' ? String(html.source) : '').toContain(
+      '<title>損失ノート</title>',
+    );
   }, 60_000);
 });

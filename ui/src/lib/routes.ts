@@ -1,5 +1,6 @@
 // 画面の URL と行き来の純関数（Issue #3 R4・契約 C-5。ADR-0002）。DOM・history を触らない
 import type { IconName } from '../components/Icon';
+import { APP_NAME } from './app-name';
 
 export type Route =
   | { readonly name: 'login' }
@@ -80,7 +81,7 @@ const NAMES: Readonly<Record<RouteName, string>> = {
 
 /** document.title（読み上げ・タブ・履歴の一覧に出る） */
 export function titleOf(route: Route): string {
-  return `${NAMES[route.name]} — loss-note`;
+  return `${NAMES[route.name]} — ${APP_NAME}`;
 }
 
 export interface NavItem {

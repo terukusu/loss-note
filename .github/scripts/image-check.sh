@@ -65,12 +65,13 @@ found=$(docker run --rm --entrypoint sh "$img" -c '
     -o -name "conftest.py" \) -print 2>/dev/null
   true')
 [ -z "$found" ] || fail "イメージに入れてはいけないものがある: $(printf '%s\n' "$found" | wc -l) 件"$'\n'"$found"
-# /app は同梱の dist（static）だけ。static は index.html と assets/ だけ
+# /app は同梱の dist（static）だけ。static は index.html と assets/ と直下のアイコン 3 つ（ui/public/。#52）だけ
 top=$(docker run --rm --entrypoint ls "$img" -A /app | tr '\n' ' ')
 [ "$top" = "static " ] || fail "/app に static 以外がある: ${top}"
 static_ls=$(docker run --rm --entrypoint ls "$img" -A /app/static | tr '\n' ' ')
-[ "$static_ls" = "assets index.html " ] || fail "/app/static に index.html・assets 以外がある: ${static_ls}"
-echo "ok: 除外物 0 件・/app/static は index.html と assets/ だけ"
+[ "$static_ls" = "apple-touch-icon.png assets favicon.ico favicon.svg index.html " ] ||
+  fail "/app/static に index.html・assets・アイコン以外がある（または欠けている）: ${static_ls}"
+echo "ok: 除外物 0 件・/app/static は index.html と assets/ とアイコンだけ"
 
 # 5. 同梱の index.html と assets/ が ci.yml と同じ CSP の検査（と鍵の形の検査）を通ること。開発の時だけの値・部品の見本が無いこと（KEEP-4）
 cid=$(docker create "$img")
@@ -128,6 +129,15 @@ case "$(header asset content-type)" in
   *) fail "${asset} の Content-Type が JS でない" ;;
 esac
 check /assets/missing-0000.js 404 missing
+# 直下のアイコン（#52）: /favicon.ico は index.html でなく同梱のアイコン
+check /favicon.ico 200 favicon
+cmp -s "$work/favicon.body" "$work/static/favicon.ico" || fail "/favicon.ico が同梱の favicon.ico でない"
+case "$(header favicon content-type)" in
+  image/vnd.microsoft.icon* | image/x-icon*) ;;
+  *) fail "/favicon.ico の Content-Type がアイコンでない" ;;
+esac
+check /apple-touch-icon.png 200 touchicon
+cmp -s "$work/touchicon.body" "$work/static/apple-touch-icon.png" || fail "/apple-touch-icon.png が同梱のものでない"
 cmp -s "$work/missing.body" "$work/static/index.html" && fail "/assets/missing-0000.js が index.html を返す"
 check /api/nope 404 nope
 grep -q '"error":"not_found"' "$work/nope.body" || fail "/api/nope が API の 404 の JSON でない"

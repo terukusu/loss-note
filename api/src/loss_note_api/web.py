@@ -50,6 +50,11 @@ _AUTH_DOMAIN = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
 INDEX_CACHE = "no-cache"
 ASSET_CACHE = "public, max-age=31536000, immutable"
 
+# 置き場の直下で配るアイコン（ui/public/ から dist の直下に入る。名前にハッシュが無いので 1 日だけ持たせる。#52）。
+# ブラウザ・iOS は link が無くても /favicon.ico・/apple-touch-icon.png を取りに来るので、index.html に戻さない
+ROOT_FILES = ("favicon.ico", "favicon.svg", "apple-touch-icon.png")
+ROOT_FILE_CACHE = "public, max-age=86400"
+
 # ヘッダの区切り（; ,）・改行・空白を値に入れない（指示を足す・壊すことを防ぐ）
 _FORBIDDEN_IN_VALUE = (";", ",", "\n", "\r", " ", "\t")
 
@@ -98,11 +103,11 @@ def security_headers(csp: str) -> dict[str, str]:
 
 
 def is_spa_path(path: str) -> bool:
-    """index.html に戻してよいパスか（/api・/assets の配下は戻さない）"""
+    """index.html に戻してよいパスか（/api・/assets の配下と、直下のアイコンは戻さない）"""
     for prefix in ("/api", "/assets"):
         if path == prefix or path.startswith(prefix + "/"):
             return False
-    return True
+    return path.lstrip("/") not in ROOT_FILES
 
 
 class StaticSite:
@@ -130,5 +135,14 @@ def register_static(app: Flask, static_dir: str) -> StaticSite:
         res = send_from_directory(assets, name)
         res.headers["Cache-Control"] = ASSET_CACHE
         return res
+
+    def root_file(name: str):
+        # 名前は ROOT_FILES の決まった値だけ。置き場に無ければ NotFound（→ 404 の JSON。index.html に戻さない）
+        res = send_from_directory(root, name)
+        res.headers["Cache-Control"] = ROOT_FILE_CACHE
+        return res
+
+    for name in ROOT_FILES:
+        app.add_url_rule(f"/{name}", f"root_file_{name}", root_file, methods=["GET"], defaults={"name": name})
 
     return StaticSite(root)

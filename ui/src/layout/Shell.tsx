@@ -2,6 +2,7 @@
 // 幅 720px 未満は下部に固定（親指で届く）、それ以上は上の帯の中に横並び。ログイン画面には行き先を出さない
 import type { ComponentChildren } from 'preact';
 import { Icon } from '../components/Icon';
+import { APP_NAME } from '../lib/app-name';
 import { Link } from '../lib/router';
 import { hrefOf, NAV_ITEMS, type Route } from '../lib/routes';
 
@@ -22,7 +23,7 @@ function Brand() {
       <span class="brand__mark">
         <Icon name="mark" />
       </span>
-      <span class="brand__name">loss-note</span>
+      <span class="brand__name">{APP_NAME}</span>
     </span>
   );
 }

@@ -281,8 +281,50 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       const hits = [...src.matchAll(/["'`(\s:=]#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/g)].map(
         (m) => m[0],
       );
+      // 例外は Google の G のロゴだけ（ガイドラインが色を変えることを禁じる。公式の 4 色に限る。Issue #52）
+      if (path.endsWith('/components/GoogleLogo.tsx')) {
+        const official = new Set(['#4285F4', '#EA4335', '#FBBC05', '#34A853']);
+        const colors = hits.map((h) => h.slice(1));
+        expect(colors.length, path).toBeGreaterThan(0);
+        expect(
+          colors.filter((c) => !official.has(c)),
+          path,
+        ).toEqual([]);
+        expect(new Set(colors), path).toEqual(official);
+        continue;
+      }
       expect(hits, path).toEqual([]);
     }
+  });
+
+  it('Google でログインするボタン: 配色はガイドラインの値（ダーク / ライト）、1px の枠、14/20・500、余白 12 / 10 / 12、ロゴ 20px、角丸の四角（Issue #52 AC-2・AC-3）', () => {
+    const blockOf = (bs: Block[], sel: string) => bs.find((b) => b.selector === sel)?.body ?? '';
+    const gsi = (d: Map<string, string>) => [
+      d.get('--gsi-bg'),
+      d.get('--gsi-line'),
+      d.get('--gsi-ink'),
+    ];
+    expect(gsi(darkDecls)).toEqual(['#131314', '#8e918f', '#e3e3e3']);
+    expect(gsi(lightDecls)).toEqual(['#ffffff', '#747775', '#1f1f1f']);
+    const css = blocks(stripComments(files[COMPONENTS] ?? ''));
+    const btn = decls(blockOf(css, '.gsi'));
+    expect(btn.get('border')).toBe('1px solid var(--gsi-line)');
+    expect(btn.get('background')).toBe('var(--gsi-bg)');
+    expect(btn.get('color')).toBe('var(--gsi-ink)');
+    expect(btn.get('font-size')).toBe('14px');
+    expect(btn.get('line-height')).toBe('20px');
+    expect(btn.get('font-weight')).toBe('var(--fw-medium)');
+    expect(btn.get('font-family')).toMatch(/^"Google Sans"/);
+    expect(btn.get('padding')).toBe('0 12px');
+    expect(btn.get('min-height')).toBe('var(--tap)');
+    expect(btn.get('border-radius')).toBe('var(--radius-md)');
+    expect(decls(blockOf(css, '.gsi__contents')).get('gap')).toBe('10px');
+    const logo = decls(blockOf(css, '.gsi-logo'));
+    expect([logo.get('width'), logo.get('height')]).toEqual(['20px', '20px']);
+    // 押している間は中身だけを薄くする（地・枠の宣言は変えない）
+    const disabled = decls(blockOf(css, '.gsi:disabled .gsi__contents'));
+    expect(disabled.get('opacity')).toBe('0.38');
+    expect(decls(blockOf(css, '.gsi:disabled')).has('background')).toBe(false);
   });
 
   it('(c) var(--x) で使う名前はすべて定義済み', () => {

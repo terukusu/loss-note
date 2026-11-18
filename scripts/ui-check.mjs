@@ -1797,7 +1797,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 使えないアカウント F1〜F2 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -2090,6 +2090,75 @@ async function runFlows(browser, base, signedIn) {
         if (s.includes('取引の一覧')) throw new Error('一覧の中身が一度描かれた');
         return '一覧の URL → /login?next=%2Ftrades、一覧の中身は出ない';
       });
+      // G1（Issue #52）: Google でログインするボタン。ダーク / ライト × 幅 360 / 1440 で、読み上げの名前で見つかり、
+      // 当たり 44 以上・はみ出さない・配色はガイドラインの値（地・1px の枠・文字）・ロゴは 20px の 4 色・ロゴが文字の左
+      await check('G1', async () => {
+        const want = {
+          dark: { bg: 'rgb(19, 19, 20)', line: 'rgb(142, 145, 143)', ink: 'rgb(227, 227, 227)' },
+          light: { bg: 'rgb(255, 255, 255)', line: 'rgb(116, 119, 117)', ink: 'rgb(31, 31, 31)' },
+        };
+        const seenSizes = [];
+        for (const theme of ['dark', 'light']) {
+          for (const w of [360, 1440]) {
+            await p.setViewportSize({ width: w, height: 800 });
+            await p.evaluate(([k, t]) => localStorage.setItem(k, t), [THEME_KEY, theme]);
+            await p.goto(`${base}/login`);
+            await waitReady(p, 'ログイン');
+            const btn = p.getByRole('button', { name: 'Google でログイン', exact: true });
+            expectEq(await btn.count(), 1, `${theme} ${w}: ボタンの数`);
+            const m = await btn.evaluate((el) => {
+              const cs = getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              const logo = el.querySelector('svg');
+              const text = el.querySelector('.gsi__text');
+              const lr = logo?.getBoundingClientRect();
+              const tr = text?.getBoundingClientRect();
+              return {
+                w: r.width,
+                h: r.height,
+                right: r.right,
+                vw: document.documentElement.clientWidth,
+                scroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                bg: cs.backgroundColor,
+                line: cs.borderTopColor,
+                lineW: cs.borderTopWidth,
+                ink: cs.color,
+                fs: cs.fontSize,
+                lh: cs.lineHeight,
+                fills: [...(logo?.querySelectorAll('path') ?? [])].map((x) =>
+                  x.getAttribute('fill'),
+                ),
+                logo: lr ? [lr.width, lr.height] : null,
+                logoLeft: lr && tr ? lr.right <= tr.left : false,
+                gap: lr && tr ? Math.round(tr.left - lr.right) : null,
+              };
+            });
+            const label = `${theme} ${w}`;
+            if (m.h < TAP || m.w < TAP) throw new Error(`${label}: 当たり ${m.w}×${m.h}`);
+            if (m.right > m.vw + 0.5 || m.scroll > 0) throw new Error(`${label}: はみ出し`);
+            expectEq(m.bg, want[theme].bg, `${label}: 地`);
+            expectEq(m.line, want[theme].line, `${label}: 枠の色`);
+            expectEq(m.lineW, '1px', `${label}: 枠の太さ`);
+            expectEq(m.ink, want[theme].ink, `${label}: 文字の色`);
+            expectEq(`${m.fs}/${m.lh}`, '14px/20px', `${label}: 文字`);
+            expectEq(
+              [...m.fills].sort().join(','),
+              ['#34A853', '#4285F4', '#EA4335', '#FBBC05'].join(','),
+              `${label}: ロゴの色`,
+            );
+            expectEq(m.logo?.join('x'), '20x20', `${label}: ロゴの大きさ`);
+            if (!m.logoLeft) throw new Error(`${label}: ロゴが文字の左に無い`);
+            expectEq(m.gap, 10, `${label}: ロゴと文字の間`);
+            seenSizes.push(`${label} ${Math.round(m.w)}×${Math.round(m.h)}`);
+          }
+        }
+        await p.setViewportSize({ width: 390, height: 844 });
+        await p.evaluate((k) => localStorage.removeItem(k), THEME_KEY);
+        // 続く L6・L2 のため、L1 と同じ状態（/login?next=%2Ftrades）に戻す
+        await p.goto(`${base}/trades`);
+        await waitReady(p, 'ログイン');
+        return `Google のボタン: ガイドラインの配色・1px の枠・14/20・ロゴ 20px の 4 色・間 10px（${seenSizes.join(' / ')}）`;
+      });
       await check('L6', async () => {
         const before = apiCalls.length;
         const r = await callApi();
@@ -2278,6 +2347,70 @@ async function runFlows(browser, base, signedIn) {
     p.on('pageerror', (e) => errors.push(e.message));
     return { c, p, fake, errors };
   };
+
+  // FOC1（#52）: 幅 360 で、外側の枠がフォーカスを示す欄（数・文字・日時の欄 = .numfield の中の入力）と選択（.select）に
+  // キーでフォーカスしたとき、内側の要素に共通の輪（outline）が出ず、外側の枠の光（box-shadow）だけが出る
+  // （角丸の枠の外に四角い枠がずれて重ならない）。--shots なら LC の欄にフォーカスした状態を撮る
+  await check('FOC1', async () => {
+    const { c, p, errors } = await recordContext();
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await openRecord(p, base);
+      const targets = p.locator('.numfield input:not([disabled]), select.select:not([disabled])');
+      const n = await targets.count();
+      if (n < 3) throw new Error(`欄の数 ${n}`);
+      const bad = [];
+      let checked = 0;
+      let visible = 0;
+      for (let i = 0; i < n; i++) {
+        const t = targets.nth(i);
+        if (!(await t.isVisible())) continue;
+        visible++;
+        await t.focus();
+        // キーで来たフォーカスにする（:focus-visible を確かに当てる）
+        await p.keyboard.press('Shift+Tab');
+        await p.keyboard.press('Tab');
+        const m = await t.evaluate((el) => {
+          const cs = getComputedStyle(el);
+          const frame = el.closest('.numfield') ?? el;
+          // 輪は透明（forced-colors のときだけ見える）。見える輪の色・幅が無いこと
+          const invisible =
+            cs.outlineStyle === 'none' ||
+            cs.outlineWidth === '0px' ||
+            cs.outlineColor === 'rgba(0, 0, 0, 0)' ||
+            cs.outlineColor === 'transparent';
+          return {
+            id: el.id || el.tagName,
+            focused: document.activeElement === el,
+            focusVisible: el.matches(':focus-visible'),
+            outline: invisible,
+            ring: getComputedStyle(frame).boxShadow !== 'none',
+          };
+        });
+        if (!m.focused) {
+          bad.push(`${m.id}: フォーカスが移らない`);
+          continue;
+        }
+        if (!m.focusVisible) bad.push(`${m.id}: :focus-visible が当たらない`);
+        if (!m.outline) bad.push(`${m.id}: 内側に見える outline`);
+        if (!m.ring) bad.push(`${m.id}: 外側の枠の光が無い`);
+        checked++;
+      }
+      if (checked === 0 || checked !== visible) bad.push(`見た欄 ${checked} / 見える欄 ${visible}`);
+      if (bad.length) throw new Error(bad.join(' / '));
+      if (opts.shots) {
+        await p.locator('#record-lc').focus();
+        await p.keyboard.press('Shift+Tab');
+        await p.keyboard.press('Tab');
+        await p.locator('#record-lc').scrollIntoViewIfNeeded();
+        await p.screenshot({ path: join(opts.shots, '360x780-dark-record-focus-viewport.png') });
+      }
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `幅 360: ${checked} 個の欄・選択（:focus-visible）で、内側の見える outline 0・外側の枠の光あり`;
+    } finally {
+      await c.close();
+    }
+  });
 
   await check('R1', async () => {
     const { c, p, errors } = await recordContext();

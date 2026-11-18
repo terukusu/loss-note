@@ -83,7 +83,8 @@ describe('Forbidden（使えないアカウントの画面）', () => {
     expect(text).toContain(FORBIDDEN_TITLE_TAIL);
     expect(text).toContain(FORBIDDEN_LEAD);
     expect(text).toContain(FORBIDDEN_REASON);
-    expect(text).toContain('loss-note');
+    expect(text).toContain('損失ノート');
+    expect(text).not.toContain('loss-note');
     expect(FORBIDDEN_TITLE).toBe('このアカウントでは使えません');
     expect(FORBIDDEN_LEAD).toBe('ほかのアカウントでログインし直してください。');
     expect(FORBIDDEN_REASON).toBe('使えるのは登録されたアカウントだけです。');

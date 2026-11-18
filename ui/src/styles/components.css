@@ -213,6 +213,14 @@
   color: var(--ink-3);
 }
 
+/* フォーカスは外側の枠（.numfield:focus-within の角丸の枠と光）だけで示す。内側の入力に共通の輪（base.css の
+   :focus-visible）を重ねると、角丸でない四角い枠がずれて二重に出る（スマホで目立つ。#52）。
+   輪は透明にして残す（通常は見えず、ハイコントラスト表示（forced-colors）では box-shadow が消えるので輪が出る） */
+.numfield__input:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 0;
+}
+
 /* 空の数の欄の見本の文字は、入れた値より小さく細く（入力済みに見せない。Phase 4b 指摘 4） */
 .numfield--lg .numfield__input::placeholder {
   font-size: var(--fs-md);
@@ -272,7 +280,11 @@
 }
 
 .select:focus-visible {
+  /* 数の欄と同じ見せ方: 共通の輪（外へ 2px 離れた outline）を重ねず、枠の色と角丸に沿う光で示す（#52） */
+  outline: 2px solid transparent;
+  outline-offset: 0;
   border-color: var(--focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 25%, transparent);
 }
 
 /* 読み上げだけに出す */
@@ -1434,6 +1446,7 @@
   letter-spacing: -0.01em;
 }
 
+/* 印はテーマに依らず藍の地に白い線（帯・favicon と同じ。判定の段の色は使わない。#52） */
 .login__mark {
   display: grid;
   flex: none;
@@ -1441,18 +1454,40 @@
   width: 48px;
   height: 48px;
   border-radius: var(--radius-lg);
-  color: var(--on-accent);
-  background: linear-gradient(
-    135deg,
-    var(--accent),
-    color-mix(in srgb, var(--accent) 55%, var(--tier-plan-ink))
-  );
+  color: var(--mark-ink);
+  background: linear-gradient(135deg, var(--mark-from), var(--mark-to));
+  box-shadow: inset 0 0 0 1px var(--mark-edge);
 }
 
 .login__mark .icon {
   width: 28px;
   height: 28px;
   stroke-width: 2.2;
+}
+
+/* ログインの画面の見出し: 印 + アプリの名前を主役に（#52 のデザインレビュー）。「ログイン」は小さな添え書き */
+.login__mark--lg {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+}
+
+.login__mark--lg .icon {
+  width: 32px;
+  height: 32px;
+}
+
+.login__brand--hero {
+  gap: var(--sp-4);
+  margin-bottom: 0;
+}
+
+.login__kicker {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
 }
 
 .login__title {
@@ -1504,6 +1539,70 @@
   margin-top: var(--sp-3);
 }
 
+/*
+ * Google でログインするボタン（Sign in with Google のブランドガイドライン（Web）。Issue #52）。
+ * 地・1px の枠・文字はテーマの --gsi-*（ライト / ダークのガイドラインの値）。文字は Google Sans Medium 14/20
+ * （端末に無ければ本文の書体。外から読み込まない）、余白はロゴの左 12・ロゴの後 10・文字の後 12、ロゴは 20px 四方、
+ * 形は角丸の四角（rectangular）。見本の高さは 40px だが、当たり 44px のため比率を保って高さだけ足す（ロゴの大きさは変えない）
+ */
+.gsi {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 12px;
+  border: 1px solid var(--gsi-line);
+  /* ガイドラインの rectangular（角丸の四角）。アプリのほかのボタンと同じ角丸（#52 のデザインレビュー） */
+  border-radius: var(--radius-md);
+  background: var(--gsi-bg);
+  color: var(--gsi-ink);
+  font-family: "Google Sans", Roboto, var(--font);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  line-height: 20px;
+  letter-spacing: 0.25px;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.gsi:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--gsi-bg) 92%, var(--gsi-ink));
+}
+
+.gsi:active:not(:disabled) {
+  background: color-mix(in srgb, var(--gsi-bg) 88%, var(--gsi-ink));
+}
+
+.gsi__contents {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* 押している間・押せない間: 中身（ロゴと文字）だけを薄くする。地・枠・ロゴの色と形は変えない */
+.gsi:disabled {
+  cursor: progress;
+}
+
+.gsi:disabled .gsi__contents {
+  opacity: 0.38;
+}
+
+.gsi-logo {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+.gsi__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .login__error {
   padding: var(--sp-3) var(--sp-4);
   border: 1px solid var(--danger);
@@ -1514,10 +1613,11 @@
   font-weight: var(--fw-bold);
 }
 
+/* 手元だけの注記（カードの外・小さく・中央。#52） */
 .login__env {
-  padding-top: var(--sp-4);
-  border-top: 1px solid var(--line);
-  font-size: var(--fs-sm);
+  padding: 0 var(--sp-4);
+  font-size: var(--fs-xs);
+  text-align: center;
   color: var(--ink-3);
 }
 

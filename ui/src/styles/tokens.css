@@ -101,6 +101,19 @@
   /* 入力の誤り（判定の色とは別の役割） */
   --danger: #ff8f8f;
 
+  /* Google でログインするボタン（Sign in with Google のブランドガイドラインのダークの配色。Issue #52）。値を変えない */
+  --gsi-bg: #131314;
+  --gsi-line: #8e918f;
+  --gsi-ink: #e3e3e3;
+
+  /* アプリの印（ログインの画面・帯・favicon で同じ「藍の地に白い線」。テーマで変えない。判定の段の色を使わない。#52）。
+     値は ui/public/favicon.svg と同じ。ダークの面では 1px の明るい縁で浮かせる */
+  --mark-from: #6573f2;
+  --mark-to: #3d4fd6;
+  --mark-ink: #ffffff;
+  --mark-edge: #ffffff2e;
+  --mark-glow: #6573f224;
+
   --shadow-1: 0 1px 0 #ffffff08 inset, 0 1px 2px #00000066;
   --shadow-2: 0 1px 0 #ffffff0a inset, 0 12px 32px #00000080;
   --scrim: #0a0c10cc;
@@ -141,6 +154,17 @@
   --tier-neutral-line: #cbd0d9;
 
   --danger: #b4232f;
+
+  /* Google でログインするボタン（ガイドラインのライトの配色。Issue #52）。値を変えない */
+  --gsi-bg: #ffffff;
+  --gsi-line: #747775;
+  --gsi-ink: #1f1f1f;
+
+  --mark-from: #6573f2;
+  --mark-to: #3d4fd6;
+  --mark-ink: #ffffff;
+  --mark-edge: #ffffff00;
+  --mark-glow: #3d4fd61a;
 
   --shadow-1: 0 1px 2px #0f12180f, 0 1px 1px #0f12180a;
   --shadow-2: 0 2px 4px #0f12180d, 0 16px 40px #0f121814;

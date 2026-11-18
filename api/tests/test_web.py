@@ -19,6 +19,8 @@ PROD = "example-prod"
 INDEX = b"<!doctype html><html><head><title>t</title></head><body><div id=app></div>INDEX-MARK-7c1</body></html>\n"
 ASSET = b"console.log('ASSET-MARK-2b9');\n"
 ASSET_PATH = "/assets/app-0000aaaa.js"
+# 直下のアイコン（#52）。中身は架空の印（ICO の頭の 4 バイト + 印）
+ICON = b"\x00\x00\x01\x00ICON-MARK-4e2"
 EMULATOR_VARS = (AUTH_EMULATOR, FIRESTORE_EMULATOR, "FIREBASE_STORAGE_EMULATOR_HOST", "STORAGE_EMULATOR_HOST")
 
 R3 = {
@@ -39,6 +41,7 @@ def static_dir(tmp_path: Path) -> Path:
     (root / "assets").mkdir(parents=True)
     (root / "index.html").write_bytes(INDEX)
     (root / "assets" / "app-0000aaaa.js").write_bytes(ASSET)
+    (root / "favicon.ico").write_bytes(ICON)
     # 置き場の外のファイル（S8: これを返さない）
     (tmp_path / "secret.txt").write_bytes(b"OUTSIDE-MARK-5d3\n")
     return root
@@ -103,6 +106,34 @@ def test_spa_s7_missing_asset_is_404_json(client, path):
     assert res.status_code == 404
     assert not is_index(res)
     assert res.get_json() == {"error": "not_found"}
+
+
+# ── 直下のアイコン（#52）: /favicon.ico は index.html でなくアイコンを返し、無いアイコンは 404 の JSON
+def test_root_icon_is_served_not_index(client):
+    res = client.get("/favicon.ico")
+    assert res.status_code == 200
+    assert res.data == ICON
+    assert not is_index(res)
+    assert res.mimetype in ("image/vnd.microsoft.icon", "image/x-icon")
+    assert res.headers["Cache-Control"] == web.ROOT_FILE_CACHE
+    assert "img-src 'self'" in csp_directives(res)
+    head = client.head("/favicon.ico")
+    assert head.status_code == 200
+    assert head.data == b""
+
+
+@pytest.mark.parametrize("path", ["/apple-touch-icon.png", "/favicon.svg"])
+def test_root_icon_missing_is_404_json(client, path):
+    res = client.get(path)
+    assert res.status_code == 404
+    assert not is_index(res)
+    assert res.get_json() == {"error": "not_found"}
+
+
+def test_root_icon_rejects_post(client):
+    res = client.post("/favicon.ico")
+    assert res.status_code == 405
+    assert not is_index(res)
 
 
 @pytest.mark.parametrize(
@@ -339,5 +370,8 @@ def test_is_spa_path():
     assert web.is_spa_path("/")
     assert web.is_spa_path("/trades/abc123")
     assert web.is_spa_path("/apix")
+    assert web.is_spa_path("/favicon.icox")
+    for p in ("/favicon.ico", "/favicon.svg", "/apple-touch-icon.png"):
+        assert not web.is_spa_path(p), p
     for p in ("/api", "/api/", "/api/nope", "/assets/", "/assets/a.js"):
         assert not web.is_spa_path(p), p

@@ -12,6 +12,7 @@ import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { Verdict } from '../components/Verdict';
+import { APP_NAME } from '../lib/app-name';
 import type { ChartSlot } from '../lib/charts';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import { editBlock } from '../lib/edit-form';
@@ -78,7 +79,7 @@ function TradeDetailScreen({
   // 取引が読めたら、タブ・履歴の名前も見出しと同じにする
   const heading = state.phase === 'ready' ? detailHeading(state.trade, state.instrumentName) : null;
   useEffect(() => {
-    if (heading) document.title = `${heading.title} ${heading.sub} — loss-note`;
+    if (heading) document.title = `${heading.title} ${heading.sub} — ${APP_NAME}`;
     else document.title = titleOf({ name: 'trade', id });
   }, [heading?.title, heading?.sub, id]);
   return (

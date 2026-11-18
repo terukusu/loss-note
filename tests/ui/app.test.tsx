@@ -18,8 +18,8 @@ function pageTree(route: Route): string {
 }
 
 describe('App', () => {
-  it('アプリの名前', () => {
-    expect(APP_NAME).toBe('loss-note');
+  it('アプリの名前（画面に出す名前。Google のログインの画面の名前とそろえる。#52 AC-6）', () => {
+    expect(APP_NAME).toBe('損失ノート');
   });
 
   it.each([
@@ -48,7 +48,7 @@ describe('App', () => {
     const base = { onSignIn: () => {}, busy: false, error: null, emulator: false };
     const plain = JSON.stringify(Login(base));
     expect(plain).toContain('ログイン');
-    expect(plain).toContain('Google でログイン');
+    // ボタンの中身（「Google でログイン」）は tests/ui/google-sign-in.test.ts が展開して見る（#52）
     expect(plain).not.toContain('"role":"alert"');
     expect(plain).not.toContain('エミュレーター');
     const failed = JSON.stringify(
@@ -59,8 +59,7 @@ describe('App', () => {
     expect(failed).toContain('エミュレーター');
     expect(plain).toContain('記録は本人だけが見られます。');
     expect(failed).toContain('記録は本人だけが見られます。');
-    // 入口の画面にアプリの名前（#43 のデザインレビュー）
-    expect(plain).toContain('loss-note');
+    // 入口の画面のアプリの名前（#43・#52 で「損失ノート」に）は tests/ui/google-sign-in.test.ts が展開して見る
   });
 });
 

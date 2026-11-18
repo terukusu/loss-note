@@ -296,11 +296,16 @@ def _parallel(c: LimitClient, n: int) -> list[int]:
     return codes
 
 
-def test_concurrent_L8(limited, sdk):
+def test_concurrent_L8(limited, sdk, store_kind):
     c = limited()
     c.ledger.seed(A, D1118, count=29)
     codes = _parallel(c, 2)
-    assert sorted(codes) == [200, 429]
+    if store_kind == "memory":
+        assert sorted(codes) == [200, 429]
+    else:
+        # エミュレーターが混むと、残りの 1 本は数える場所の時間切れで 503（閉じる側）になりうる。
+        # どちらでも送るのは 1 本だけ（下で確かめる）
+        assert sorted(codes) in ([200, 429], [200, 503])
     assert len(sdk.calls) == 1
     assert c.ledger.count(A, D1118) == 30
 
@@ -319,8 +324,9 @@ def test_concurrent_many(limited, sdk, store_kind):
         assert sent == 5 and codes.count(429) == 5
     else:
         # エミュレーターは同じ文書を読んで書くトランザクションが多く重なると、競合で再試行を使い切って 503
-        # （数える場所が使えない = 閉じる側）を返しうる。そのときも越えて送らない
-        assert codes.count(503) == 0 or sent < 5
+        # （数える場所が使えない = 閉じる側）を返しうる。503 は上限に届いた後にも出うる（時間切れは届いたかどうかと
+        # 関係しない）ので、件数の組み合わせは決めない。守るのは上の「越えて送らない・送った数 = 増えた回数」
+        assert codes.count(429) + codes.count(503) == 10 - sent
 
 
 def test_concurrent_spend(limited, sdk, store_kind):

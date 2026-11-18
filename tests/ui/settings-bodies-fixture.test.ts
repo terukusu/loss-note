@@ -1,17 +1,30 @@
-// 設定の画面が作る本文の、共有の合成の fixture（Issue #5 AC-1・AC-2・AC-4・AC-5・AC-6・KEEP-4）。値はすべて架空。
+// 設定の画面が作る本文の、共有の合成の fixture（Issue #5 AC-1・AC-2・AC-4・AC-5・AC-6・KEEP-4、#47 の口座）。
+// 値・名前はすべて架空。口座は設定の画面の足す・直す欄と、記録する画面のその場で足す 2 欄が作る本文。
+// 設定（/api/settings）の場面は表示の単位を保つ 1 つだけ（画面はもう送らない。KEEP-6）。
 // API のテスト（api/tests/test_settings_screen_examples.py）が同じ fixture を本物の API に通し、受けた値が
 // 画面の予想と同じことを確かめる（偽の API とのずれを塞ぐ）。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/settings-bodies-fixture.test.ts` で書き直す
 import { describe, expect, it } from 'vitest';
-import type { InstrumentBody, InstrumentRecord, SettingsBody } from '../../core/record';
+import type {
+  AccountBody,
+  AccountPut,
+  InstrumentBody,
+  InstrumentRecord,
+  SettingsBody,
+} from '../../core/record';
+import {
+  type AccountDraft,
+  type NewAccountDraft,
+  readAccountDraft,
+  readNewAccountDraft,
+} from '../../ui/src/lib/accounts';
 import {
   type InstrumentDraft,
   instrumentDraftOf,
   readInstrumentDraft,
   readNewInstrumentName,
-  readSettingsDraft,
-  type SettingsDraft,
 } from '../../ui/src/lib/settings-form';
+import { defaultAccount } from './helpers/accounts';
 
 const node = (
   globalThis as unknown as {
@@ -27,8 +40,9 @@ const node = (
 const fs = node.getBuiltinModule('node:fs');
 const FIXTURE = new URL('../fixtures/records/settings-bodies.json', import.meta.url);
 
-const UNSET: SettingsBody = { capitalYen: null, riskTolerancePct: 1, performanceUnit: 'R' };
 const SET_1M: SettingsBody = { capitalYen: 1_000_000, riskTolerancePct: 1, performanceUnit: 'R' };
+/** 移し替えた直後の既定の口座（設定の資金 1,000,000・1%） */
+const ONE = defaultAccount(1_000_000);
 
 /** 自動で足されたままの銘柄（名前だけで足した既定） */
 const AUTO: InstrumentRecord = {
@@ -50,6 +64,13 @@ interface SettingsItem {
   readonly body: SettingsBody;
 }
 
+interface AccountItem {
+  readonly name: string;
+  /** create = POST /api/accounts（設定の足す欄・記録する画面の 2 欄）、update = PUT /api/accounts/default */
+  readonly kind: 'create' | 'update';
+  readonly body: AccountBody | AccountPut;
+}
+
 interface InstrumentItem {
   readonly name: string;
   /** 直す前の銘柄（API に名前だけで足す。null = 足す本文そのもの） */
@@ -57,10 +78,22 @@ interface InstrumentItem {
   readonly body: InstrumentBody;
 }
 
-function settingsItem(name: string, before: SettingsBody, d: SettingsDraft): SettingsItem {
-  const r = readSettingsDraft(d, before);
+function addItem(name: string, d: AccountDraft): AccountItem {
+  const r = readAccountDraft(d, [ONE], null, null);
   if (!r.body) throw new Error(`${name} が保存できる下書きでない`);
-  return { name, before, body: r.body };
+  return { name, kind: 'create', body: r.body };
+}
+
+function editItem(name: string, d: AccountDraft): AccountItem {
+  const r = readAccountDraft(d, [ONE], ONE.id, ONE.capitalYen);
+  if (!r.body) throw new Error(`${name} が保存できる下書きでない`);
+  return { name, kind: 'update', body: r.body };
+}
+
+function recordAddItem(name: string, d: NewAccountDraft): AccountItem {
+  const r = readNewAccountDraft(d, [ONE]);
+  if (!r.body) throw new Error(`${name} が足せる下書きでない`);
+  return { name, kind: 'create', body: r.body };
 }
 
 function instrumentItem(name: string, over: Partial<InstrumentDraft>): InstrumentItem {
@@ -69,20 +102,29 @@ function instrumentItem(name: string, over: Partial<InstrumentDraft>): Instrumen
   return { name, before: { name: AUTO.name }, body: r.body };
 }
 
-function build(): { settings: SettingsItem[]; instruments: InstrumentItem[] } {
+function build(): {
+  settings: SettingsItem[];
+  accounts: AccountItem[];
+  instruments: InstrumentItem[];
+} {
   const gold = readNewInstrumentName('GOLD', [AUTO]);
   if (!gold.ok) throw new Error('GOLD が足せない');
   return {
+    // 表示の単位を円にしてある利用者の設定の PUT（画面は送らないが、API の形を保つ。KEEP-6）
     settings: [
-      settingsItem('E1', UNSET, { capital: '1,000,000', risk: '1' }),
-      settingsItem('E2', UNSET, { capital: '１２０００００', risk: '1' }),
-      settingsItem('E3b', UNSET, { capital: '', risk: '1.5' }),
-      settingsItem('E7', SET_1M, { capital: '1,000,000', risk: '2.5' }),
-      settingsItem(
-        'KEEP-2',
-        { ...SET_1M, performanceUnit: 'yen' },
-        { capital: '800000', risk: '1' },
-      ),
+      {
+        name: 'KEEP-6',
+        before: { ...SET_1M, performanceUnit: 'yen' },
+        body: { ...SET_1M, capitalYen: 800_000, performanceUnit: 'yen' },
+      },
+    ],
+    accounts: [
+      addItem('E1', { name: '口座 A', capital: '1,000,000', risk: '1' }),
+      addItem('E2', { name: '口座 B', capital: '１２０００００', risk: '1' }),
+      addItem('E3b', { name: '口座 C', capital: '', risk: '1.5' }),
+      addItem('A7', { name: '口座 E', capital: '1,000,000', risk: '2.5' }),
+      editItem('edit', { name: '口座 1 改', capital: '800,000', risk: '1' }),
+      recordAddItem('B5', { name: '口座 F', capital: '300,000' }),
     ],
     instruments: [
       instrumentItem('E9', { underlyingKind: 'index', priceCurrency: 'USD', quantityStep: '0.1' }),
@@ -108,13 +150,15 @@ describe('設定の画面が作る本文の fixture（AC-1・AC-5・AC-6）', ()
     expect(JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))).toEqual(built);
   });
 
-  it('例の値（E1 = 1,000,000・E2 = 1,200,000・E3b = 資金 null・E12 = USD・E13 = 名前だけ）', () => {
+  it('例の値（E1 = 1,000,000・E2 = 1,200,000・E3b = 資金 null・B5 = 名前と資金だけ・E12 = USD・E13 = 名前だけ）', () => {
     const b = build();
-    const s = Object.fromEntries(b.settings.map((x) => [x.name, x.body]));
-    expect(s.E1?.capitalYen).toBe(1_000_000);
-    expect(s.E2?.capitalYen).toBe(1_200_000);
-    expect(s.E3b).toEqual({ capitalYen: null, riskTolerancePct: 1.5, performanceUnit: 'R' });
-    expect(s['KEEP-2']?.performanceUnit).toBe('yen');
+    const a = Object.fromEntries(b.accounts.map((x) => [x.name, x.body]));
+    expect(a.E1?.capitalYen).toBe(1_000_000);
+    expect(a.E2?.capitalYen).toBe(1_200_000);
+    expect(a.E3b).toEqual({ name: '口座 C', capitalYen: null, riskTolerancePct: 1.5 });
+    expect(a.A7?.riskTolerancePct).toBe(2.5);
+    expect(a.B5).toEqual({ name: '口座 F', capitalYen: 300_000 });
+    expect(b.settings.map((x) => x.body.performanceUnit)).toEqual(['yen']);
     const i = Object.fromEntries(b.instruments.map((x) => [x.name, x.body]));
     expect(i.E12?.priceCurrency).toBe('USD');
     expect(i.E13).toEqual({ name: 'GOLD' });

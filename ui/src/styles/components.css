@@ -28,6 +28,23 @@
   color: var(--ink-2);
 }
 
+/* 見出しの行の右端に控えめなボタン（記録する画面の「取引」の [＋ 口座を足す]。#47 U5）。当たりは 44px のまま、
+   上下の余白を見出しの行の高さへ食い込ませて、枠の高さを増やさない（口座 1 つの形の全長。U1） */
+.section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 var(--sp-2);
+  margin-block: calc((var(--tap) - var(--fs-lg) * var(--lh-tight)) / -2);
+}
+
+.section__action {
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
 .loading {
   color: var(--ink-3);
 }
@@ -254,6 +271,24 @@
   cursor: not-allowed;
 }
 
+/* 選ぶ欄の ▼（.select と、候補つきの文字の欄 = 銘柄）。1 つの形（幅 12・高さ 6px）・右の余白 var(--sp-4)・縦の中央に
+   そろえる（再レビュー N3）。銘柄の欄のブラウザの ▼ は透明にして押せるまま残す（押すと候補が開く） */
+.select,
+.textfield:has(.textfield__input[list]) {
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-2) 50%),
+    linear-gradient(135deg, var(--ink-2) 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--sp-4) - 6px) 50%,
+    calc(100% - var(--sp-4)) 50%;
+  background-size: 6px 6px;
+  background-repeat: no-repeat;
+}
+
+.textfield__input[list]::-webkit-calendar-picker-indicator {
+  opacity: 0;
+}
+
 /* 文字・日時の欄（見た目は数値の欄と同じ枠。文字は本文のフォント） */
 .textfield__input {
   font-family: var(--font);
@@ -266,17 +301,21 @@
   cursor: pointer;
 }
 
-/* 4 択以上の選択（決済の理由）。2〜3 択は Segment */
+/* 4 択以上の選択（決済の理由・口座が 4 つ以上）。2〜3 択は Segment。銘柄の欄（.numfield）と同じ背（52px）・
+   右端の ▼ にそろえる（ブラウザ既定の矢印は消す。▼ は 2 つの半分の正方形のグラデーションで描く。CSP の img-src が
+   'self' だけなので data: の画像を使わない。#47 Phase 4b 指摘 3） */
 .select {
   width: 100%;
-  min-height: var(--tap);
-  padding: 0 var(--sp-4);
-  background: var(--s2);
+  min-height: 52px;
+  padding: 0 calc(var(--sp-4) * 2 + 10px) 0 var(--sp-4);
+  appearance: none;
+  background-color: var(--s2);
   border: 1px solid var(--field-line);
   border-radius: var(--radius-md);
   color: var(--ink);
   font: inherit;
   font-size: var(--fs-md);
+  cursor: pointer;
 }
 
 .select:focus-visible {
@@ -401,6 +440,48 @@
 .seg__item .icon {
   width: 18px;
   height: 18px;
+}
+
+/* 長い名前を 1 行の「…」で省略するセグメント（口座。#47 U4）。✓ の幅はどの項目にも先に取る（選んでいない項目は
+   見えない ✓。選ぶたびに境目が動かない。再レビュー N2）。既定は等分。長い名前が 1 つだけあるとき（seg--fit）は、
+   ほかの項目を名前の幅にして、残りを全部その項目に回す（再レビュー 2）。チェックの記号は切らずに文字だけを省略する */
+.seg--truncate {
+  flex-wrap: nowrap;
+}
+
+.seg--truncate .seg__item {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.seg--fit .seg__item {
+  flex: 0 1 auto;
+}
+
+.seg--fit .seg__item--grow {
+  flex: 1 1 0;
+}
+
+.seg__item .seg__check--off.icon {
+  visibility: hidden;
+}
+
+/* 見出しの右の「選択中: 〈名前〉」（長い名前の口座があるとき。行を足さない。1 行・省略・全文は title） */
+.seg__note {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.seg__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ── 判定のバッジ（段の色はトークン。文字・記号・色の 3 つ） ── */
@@ -898,6 +979,16 @@
 
 .reasons + .verdict__aside {
   margin-top: calc(var(--sp-1) * -1);
+}
+
+/* どの口座の資金で割ったかの 1 行（#47 U10・U17。数の段のすぐ下。無色） */
+.verdict__account {
+  margin-top: calc(var(--sp-2) * -1);
+  /* 語の途中・1 語だけを次の行へ落とさない。2 行になるときは 2 行に均す（「に対して」だけが落ちない。
+     長い名前はそれでも折る。#47 Phase 4b 指摘 7・再レビュー 7） */
+  overflow-wrap: break-word;
+  word-break: auto-phrase;
+  text-wrap: balance;
 }
 
 .verdict__caption {
@@ -1633,43 +1724,7 @@
   white-space: nowrap;
 }
 
-/* ── 設定（Issue #5。資金と許容リスク・資金の履歴・銘柄）。色はトークンだけ。数字は無色 ── */
-.settings__now {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--sp-3);
-}
-
-.settings__stat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 0;
-  padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: var(--s2);
-}
-
-.settings__stat dt {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  color: var(--ink-2);
-}
-
-.settings__value {
-  font-size: var(--fs-xl);
-  font-weight: var(--fw-bold);
-  letter-spacing: -0.01em;
-  overflow-wrap: anywhere;
-}
-
-.settings__value--unset {
-  color: var(--ink-3);
-}
-
-.settings__form,
-.settings__fields,
+/* ── 設定（Issue #5・#47。口座・資金の履歴・銘柄）。色はトークンだけ。数字は無色 ── */
 .instedit,
 .instedit__fields,
 .instlist__add {
@@ -1720,6 +1775,14 @@
 .settings__subtitle {
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
+}
+
+/* 口座の直す欄の畳んだ「資金の履歴（n 件）」（#47 U14。当たり 44px） */
+summary.settings__subtitle {
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  cursor: pointer;
 }
 
 .settings__history {
@@ -1808,6 +1871,102 @@
   flex-shrink: 0;
 }
 
+/* 口座の行の 2 行目（「1,000,000円 · 許容 1%」。数は無色。#47 U12） */
+.accountlist__line {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: break-word;
+  word-break: auto-phrase;
+  text-wrap: pretty;
+}
+
+/* 口座の行の 3 行目（1 回の負けの額・未設定の案内）。語の途中で折らない（#47 Phase 4b 指摘 7） */
+.accountlist__summary {
+  word-break: auto-phrase;
+  text-wrap: pretty;
+}
+
+/* [＋ 口座を足す]（一覧の下・行の全幅。U15） */
+.accountlist__add {
+  justify-content: flex-start;
+}
+
+/* 記録する画面のその場で足す 2 欄（見出しのすぐ下。設定の直す欄と同じ左 1 辺の線。内枠は作らない。3.2） */
+.accountadd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+  margin: 0;
+  padding: 0 0 0 var(--sp-3);
+  border: 0;
+  border-left: 3px solid var(--accent);
+}
+
+/* [＋ 口座を足す] の開閉（開いている間は押した面・＋ を 45° 回して ×。Phase 4b 指摘 5） */
+.accountadd__toggle[aria-expanded="true"] {
+  color: var(--ink);
+  background: var(--s2);
+}
+
+.accountadd__plus {
+  display: inline-block;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.accountadd__toggle[aria-expanded="true"] .accountadd__plus {
+  transform: rotate(45deg);
+}
+
+/* その場で開いた感じ（高さは測らず、不透明度と少しの位置だけ。動きを減らす設定では付けない） */
+@keyframes accountadd-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .accountadd {
+    animation: accountadd-in 150ms var(--ease);
+  }
+}
+
+/* 幅 720 以上: 口座の欄を横に並べる（名前 / 資金 / 許容リスク。780px の全幅に伸ばさない。Phase 4b 指摘 6）。
+   知らせ・[足す] [やめる] は全幅の行 */
+@media (min-width: 720px) {
+  .accountadd {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr);
+    align-items: start;
+    column-gap: var(--sp-4);
+  }
+
+  .accountadd > :not(.field) {
+    grid-column: 1 / -1;
+  }
+
+  .accountedit__fields {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr);
+    align-items: start;
+    column-gap: var(--sp-4);
+  }
+}
+
+/* 直す画面で口座を替えたときの 1 行（語の途中で次の行へ落とさない。Phase 4b 指摘 7） */
+.accountfield .field__hint {
+  word-break: auto-phrase;
+  text-wrap: pretty;
+}
+
+.accountadd__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
 /* ── 取引の一覧・ホームの行（#9）。行全体が詳細へのリンク。1 行目 = 判定・R・リスク、2 行目 = 銘柄・L / S・日付 ── */
 .home__record {
   display: flex;
@@ -1838,10 +1997,11 @@
 
 .traderow {
   display: grid;
-  /* 列の幅は行ごとに変えない（日付・R・リスクが縦に揃う） */
+  /* 列の幅は行ごとに変えない（日付・R・リスクが縦に揃う）。口座の名前（2 つ以上のとき）は幅 720 未満では 1 行目の
+     判定の札のセルの中、札の後ろの空き（R の手前）に置く（#47 Phase 4b 指摘 1） */
   grid-template-columns: minmax(0, 1fr) 5.75rem 4.75rem;
   grid-template-areas:
-    "badge badge r"
+    "badge badge badge"
     "inst date risk";
   align-items: center;
   gap: var(--sp-2) var(--sp-3);
@@ -1891,13 +2051,49 @@
   color: var(--ink-2);
 }
 
+/* 口座の名前（口座が 2 つ以上のときだけ。1 行・省略あり。#47 U16）。幅 720 未満は 1 行目の -top だけ、
+   720 以上は銘柄・L / S の後ろに「·」で区切った方だけを見せる */
+.traderow__account,
+.traderow__account-top {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+}
+
+.traderow__account {
+  display: none;
+}
+
+.traderow__account::before {
+  content: "·";
+  margin-right: var(--sp-2);
+}
+
+.traderow__account-top {
+  flex: 1 1 auto;
+  text-align: right;
+  font-size: var(--fs-sm);
+}
+
 .traderow__badge {
   grid-area: badge;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
   min-width: 0;
 }
 
+.traderow__badge > .badge {
+  flex: none;
+}
+
+/* 幅 720 未満: R はセルの右端（右揃え。下の行のリスクと同じ右の線）。口座は札と R の間の余りを全部使う */
 .traderow__r {
   grid-area: r;
+  flex: none;
+  margin-left: auto;
   justify-self: end;
   font-size: var(--fs-lg);
   font-weight: var(--fw-bold);
@@ -1943,6 +2139,28 @@
     grid-template-columns: 6.5rem minmax(0, 1fr) 10rem 6.5ch 5.5ch;
     grid-template-areas: "date inst badge r risk";
     column-gap: var(--sp-4);
+  }
+
+  .traderow__account {
+    display: inline;
+  }
+
+  .traderow__account-top {
+    display: none;
+  }
+
+  /* 判定・R はそれぞれの列（セルは並びの箱をやめる） */
+  .traderow__badge {
+    display: contents;
+  }
+
+  .traderow__badge > .badge {
+    grid-area: badge;
+    justify-self: start;
+  }
+
+  .traderow__r {
+    margin-left: 0;
   }
 
   .traderow {

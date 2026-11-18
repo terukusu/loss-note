@@ -1,9 +1,12 @@
 // 直す画面が作る PUT の本文（Issue #9 AC-4・KEEP-1）を、共有の合成の fixture `tests/fixtures/records/edit-bodies.json` に書く。
 // API のテスト（api/tests/test_edit_bodies_fixture.py）が同じ fixture を本物の API の PUT に通し、200・写した資金が変わらない・
 // E2 のチャートの無い枠の時間足が消える・読み戻した判定が例の期待どおり、を確かめる。値はすべて架空。
+// #47（口座）: accountScenes = 口座が 2 個のときの直しの本文（A4 = 口座 A から口座 B へ付け替え、B7 = 口座の付いていない
+// 取引を口座を変えずに保存）。口座の ID は API が決めるので、fixture では ACCOUNT_A・ACCOUNT_B の印（既定の口座は default）。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/edit-bodies-fixture.test.ts` で書き直す
 import { describe, expect, it } from 'vitest';
 import type {
+  AccountRecord,
   InstrumentBody,
   InstrumentRecord,
   SettingsBody,
@@ -11,7 +14,7 @@ import type {
   TradeRecord,
   TradeSnapshot,
 } from '../../core/record';
-import { draftFromStored, editContext, mergeEdit } from '../../ui/src/lib/edit-form';
+import { draftFromStored, editContext, editSnapshot, mergeEdit } from '../../ui/src/lib/edit-form';
 import {
   applyDraft,
   DEFAULT_INSTRUMENT,
@@ -19,6 +22,7 @@ import {
   readDraft,
   summarize,
 } from '../../ui/src/lib/record-form';
+import { account, defaultAccount } from './helpers/accounts';
 import { E1, E2 } from './helpers/trade-examples';
 
 const node = (
@@ -103,9 +107,133 @@ function item(name: string, base: StoredTrade, actions: readonly DraftAction[]):
   };
 }
 
-function build(): { trades: Item[] } {
+interface AccountSpec {
+  /** default = 既定の口座（「口座 1」）、ほかは API が決める ID の印 */
+  readonly key: 'default' | 'ACCOUNT_A' | 'ACCOUNT_B';
+  readonly name: string;
+  readonly capitalYen: number | null;
+  readonly riskTolerancePct: number;
+}
+
+interface AccountScene {
+  readonly name: string;
+  readonly instrument: InstrumentBody;
+  /** 記録したときの口座（API に先に作る） */
+  readonly accounts: readonly AccountSpec[];
+  /** 直すときの今の口座（記録の後に直した値） */
+  readonly accountsNow: readonly AccountSpec[];
+  /** 元の記録（B7 は口座の付いていない移す前の取引） */
+  readonly original: TradeRecord;
+  /** 記録したときに写した値 */
+  readonly snapshot: TradeSnapshot;
+  /** 直す画面が送る PUT の本文 */
+  readonly body: TradeRecord;
+  /** 保存の後の snapshot の資金と判定（付け替え = 付け替え先の今の値、付け替えない = 写した値のまま） */
+  readonly expect: {
+    readonly capitalYen: number | null;
+    readonly grade: string;
+    readonly riskPct: number | null;
+  };
+}
+
+const asRecord = (a: AccountSpec): AccountRecord =>
+  a.key === 'default'
+    ? { ...defaultAccount(a.capitalYen, a.riskTolerancePct), name: a.name }
+    : account(a.key, a.name, a.capitalYen, a.riskTolerancePct);
+
+function accountScene(
+  name: string,
+  base: StoredTrade,
+  recordedIn: AccountSpec['key'] | null,
+  accounts: readonly AccountSpec[],
+  accountsNow: readonly AccountSpec[],
+  actions: readonly DraftAction[],
+): AccountScene {
+  const instrument = { ...INSTRUMENT, name: `架空指数${name}` };
+  const at = accounts.find((a) => a.key === (recordedIn ?? 'default')) as AccountSpec;
+  const snapshot: TradeSnapshot = {
+    instrument: DEFAULT_INSTRUMENT,
+    capitalYen: at.capitalYen,
+    riskTolerancePct: at.riskTolerancePct,
+  };
+  const { charts: _none, ...rest } = base;
+  const { accountId: _old, ...plain } = base.record;
+  const original: TradeRecord = {
+    ...plain,
+    instrumentId: PLACEHOLDER,
+    ...(recordedIn === null ? {} : { accountId: recordedIn }),
+  };
+  const trade: StoredTrade = { ...rest, snapshot, record: original };
+  const now = accountsNow.map(asRecord);
+  const initial = draftFromStored(trade, [instrument]);
+  let draft = initial;
+  for (const a of actions) draft = applyDraft(draft, a);
+  const ctx = editContext(trade, [instrument], now);
+  const read = readDraft(draft, ctx);
+  if (!read.body) throw new Error(`${name}: 本文が作れない`);
+  const body = mergeEdit(original, initial, draft, read.body, PLACEHOLDER);
+  const after = editSnapshot(read, ctx, draft);
+  const s = summarize({ record: body, snapshot: after });
   return {
-    trades: [item('E1', E1, [{ type: 'set', field: 'lcMove', value: 'none' }]), item('E2', E2, [])],
+    name,
+    instrument: { name: instrument.name },
+    accounts,
+    accountsNow,
+    original,
+    snapshot,
+    body,
+    expect: {
+      capitalYen: after.capitalYen,
+      grade: s.judgment?.grade ?? '',
+      riskPct: s.riskPct ?? null,
+    },
+  };
+}
+
+const ONE: AccountSpec = {
+  key: 'default',
+  name: '口座 1',
+  capitalYen: 1_000_000,
+  riskTolerancePct: 1,
+};
+const ACC_A: AccountSpec = {
+  key: 'ACCOUNT_A',
+  name: '口座 A',
+  capitalYen: 1_000_000,
+  riskTolerancePct: 1,
+};
+const ACC_B: AccountSpec = {
+  key: 'ACCOUNT_B',
+  name: '口座 B',
+  capitalYen: 200_000,
+  riskTolerancePct: 1,
+};
+/** E1 を「そのまま」に直した取引（L 100.00 / LC 99.50 / 数量 10,000 / 損益 −5,000 → 1R 5,000 円） */
+const FIXED = { type: 'set', field: 'lcMove', value: 'none' } as const;
+
+function build(): { trades: Item[]; accountScenes: AccountScene[] } {
+  return {
+    trades: [item('E1', E1, [FIXED]), item('E2', E2, [])],
+    accountScenes: [
+      // A4: 口座 A で記録 → 口座 A の資金を 500,000 に直した後、口座 B へ付け替え → 2.5%・B（過剰リスク）
+      accountScene(
+        'A4',
+        E1,
+        'ACCOUNT_A',
+        [ONE, ACC_A, ACC_B],
+        [ONE, { ...ACC_A, capitalYen: 500_000 }, ACC_B],
+        [FIXED, { type: 'set', field: 'accountId', value: 'ACCOUNT_B' }],
+      ),
+      // B7: 口座の付いていない取引（移す前）を、口座 1 の資金を直した後に口座を変えずに保存 → 写した値のまま
+      accountScene(
+        'B7',
+        E1,
+        null,
+        [ONE, ACC_B],
+        [{ ...ONE, capitalYen: 2_000_000 }, ACC_B],
+        [FIXED],
+      ),
+    ],
   };
 }
 
@@ -115,6 +243,18 @@ describe('直す画面の本文の fixture（AC-4・KEEP-1）', () => {
     const json = `${JSON.stringify(built, null, 2)}\n`;
     if (node.env.UPDATE_FIXTURES === '1') fs.writeFileSync(FIXTURE, json);
     expect(JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))).toEqual(built);
+  });
+
+  it('#47 A4・B7: 付け替え = 付け替え先の今の資金で 2.5%・B、付け替えない = 写した資金のまま 0.5%・A', () => {
+    const [a4, b7] = build().accountScenes;
+    expect(a4?.body.accountId).toBe('ACCOUNT_B');
+    expect(a4?.expect).toEqual({ capitalYen: 200_000, grade: 'B', riskPct: 2.5 });
+    expect(b7?.original.accountId).toBeUndefined();
+    // 口座が 2 個なので本文には口座 1（既定）が入るが、付け替えではない
+    expect(b7?.body.accountId).toBe('default');
+    expect(b7?.expect.capitalYen).toBe(1_000_000);
+    expect(b7?.expect.grade).toBe('A');
+    expect(b7?.expect.riskPct).toBeCloseTo(0.5, 12);
   });
 
   it('例の期待: E1 = B → A・−1.0R・0.5%、E2 = B → A（時間足が外れる）', () => {

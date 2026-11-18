@@ -89,7 +89,7 @@ export function TradesView(p: TradesViewProps) {
   if (state.phase !== 'ready') return <LoadState {...p} />;
   const trades = sortTrades(visibleTrades(state.trades, p.hidden));
   if (trades.length === 0) return p.empty;
-  const rows = trades.map((t) => tradeRow(t, state.instruments));
+  const rows = trades.map((t) => tradeRow(t, state.instruments, state.accounts));
   return (
     <section class="card tradelist-card" aria-labelledby="trades-count">
       <p class="tradelist-card__count" id="trades-count">

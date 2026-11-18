@@ -9,13 +9,17 @@
 //   「窓・滑りでしたか」の答え（聞かない場面でも開いたときのまま）、LC なしの取引の「決めていたか」「動かしたか」
 // - チャートの無い枠の時間足（#12 より前の形）は本文に入れない（保存の前に orphanTimeframes をその旨として出す）
 // - 建てが複数・建てごとの LC の取引は下書きで表せない（直すと判定が変わる）ので直せない（editBlock）
+// - 口座（#47）: 下書きの口座は取引の口座（accountId の無い取引は既定の口座）。口座が元と同じなら写した資金・許容リスク、
+//   付け替えたら付け替え先の今の値で計算する（API と同じ）。本文の口座は、口座が 2 つ以上なら下書きの口座、
+//   1 つなら元の値（元に無ければ入れない）
 import type {
+  AccountRecord,
   InstrumentRecord,
   StoredTrade,
   TradeRecord,
   TradeSnapshot,
 } from '../../../core/record';
-import { feesTotalYen } from '../../../core/record';
+import { accountIdOf, feesTotalYen } from '../../../core/record';
 import type { Timeframe } from '../../../core/trade';
 import { badgeModel } from './badge';
 import { CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
@@ -80,22 +84,25 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
     stopOrderPlaced: r.stopOrderPlaced,
     entryChartTimeframe: r.entryChartTimeframe ?? null,
     exitChartTimeframe: r.exitChartTimeframe ?? null,
+    accountId: accountIdOf(r),
   };
 }
 
-/** 直すときの読みの文脈: 銘柄の一覧、写した資金・許容リスク、チャートのある枠、元の銘柄と写した値 */
+/** 直すときの読みの文脈: 銘柄と口座の一覧、チャートのある枠、元の銘柄・口座と写した値 */
 export function editContext(
   t: StoredTrade,
   instruments: readonly InstrumentRecord[],
+  accounts: readonly AccountRecord[] = [],
 ): DraftContext {
   return {
     instruments,
-    settings: {
-      capitalYen: t.snapshot.capitalYen,
-      riskTolerancePct: t.snapshot.riskTolerancePct,
-    },
+    accounts,
     charts: { entry: t.charts?.entry !== undefined, exit: t.charts?.exit !== undefined },
-    base: { instrumentId: t.record.instrumentId, snapshot: t.snapshot },
+    base: {
+      instrumentId: t.record.instrumentId,
+      accountId: accountIdOf(t.record),
+      snapshot: t.snapshot,
+    },
   };
 }
 
@@ -159,6 +166,11 @@ export function mergeEdit(
     status: original.status,
     source: original.source,
     instrumentId,
+    ...(body.accountId !== undefined
+      ? { accountId: body.accountId }
+      : original.accountId !== undefined
+        ? { accountId: original.accountId }
+        : {}),
     side: body.side,
     ...(body.lc === undefined ? {} : { lc: body.lc }),
     ...(body.brokenCondition === undefined ? {} : { brokenCondition: body.brokenCondition }),
@@ -199,13 +211,20 @@ export function mergeEdit(
   };
 }
 
-/** 直しの読みの銘柄の値（同じ銘柄 = 写した値、別の銘柄 = 今の値、一覧に無い名前 = 既定。資金・許容リスクは写した値） */
-export function editSnapshot(read: DraftReading, ctx: DraftContext): TradeSnapshot {
+/**
+ * 直しの読みの銘柄の値（同じ銘柄 = 写した値、別の銘柄 = 今の値、一覧に無い名前 = 既定）と資金・許容リスク
+ * （同じ口座 = 写した値、付け替えた口座 = その口座の今の値）
+ */
+export function editSnapshot(
+  read: DraftReading,
+  ctx: DraftContext,
+  draft: Pick<Draft, 'accountId'>,
+): TradeSnapshot {
   const matched =
     read.instrument.matchedId === undefined
       ? findInstrument(read.instrument.name, ctx.instruments)
       : ctx.instruments.find((i) => i.id === read.instrument.matchedId);
-  return snapshotOf(ctx, matched);
+  return snapshotOf(ctx, matched, draft.accountId);
 }
 
 /**

@@ -19,6 +19,11 @@
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
 // 文字の前にあって項目の中に収まるかも、部品のはみ出しと一緒に数える。
+// 口座（Issue #47 PR-1）: 記録する画面の口座 2 つ（Segment）・3 つ（長い名前の「…」）・4 つ（select）・その場で足す欄・足す欄の誤り、
+// 設定の口座の一覧（2 つ・資金が未設定の行）・直す欄・足す欄・誤り、一覧と詳細（口座 2 つ）を同じ幅とテーマで測り、
+// 手順 ACC1（口座 2 つで 1 タップで替わる・判定の枠の 1 行がその場で変わる）・ACC2（その場で足す: Enter で足す・Esc で閉じて
+// フォーカスを戻す・足した口座が選ばれる・入れていた欄が残る）・SET5（設定で口座を足す → 名前の順・知らせ・新しい行の [直す] へ）を流す。
+// R12 は口座 1 つの形の全長 2,550px に加えて、口座 2 つ・3 つの形に 2,646px（欄 1 つ分 96px まで）の上限を見る。
 // 記録する画面の密度と階層（Issue #33）: 全状態で枠の入れ子（線か、最も近い面と違う面の色を持つ箱の祖先）が 3 段以上の要素を
 // 数え、幅 360 の記録する画面の全状態で貼り付きの帯の高さ（64px まで）と状態の文の行数（1 行まで）・切れ（scrollWidth）、直す画面の帯の高さ
 // （変える前の 161.1px まで）を測る。手順 R11（最後のタップの直後に判定のバッジと R が見える）・R12（開いた直後の 1 画面・
@@ -117,6 +122,8 @@ const TAP = 44;
 const BAR_MAX = 64;
 /** 記録する画面の全長の上限（360×780 の開いた直後。Issue #33 AC-4） */
 const TOTAL_MAX = 2550;
+/** 口座が 2 つ以上の形の全長の上限（口座の欄 1 つ分 = 96px まで増える。Issue #47 の画面の決定 2.7） */
+const TOTAL_MAX_ACCOUNTS = 2646;
 /** 直す画面の貼り付きの帯の高さの上限（幅 360。Issue #33 KEEP-7: 変える前に測った値 161.1px） */
 const EDIT_BAR_MAX = 161.1;
 const THEME_KEY = 'loss-note.theme';
@@ -508,6 +515,9 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
  * PUT /api/instruments/<id> は本文に無い欄を既定に戻し、名前が自分以外と同じなら 409。設定・銘柄の書き込みは api.writes に残す
  * POST /api/statement-reads は api.read（{ status, rows, holdMs }。後から書き換えてよい）で答え、要求の
  * Content-Type と本文のバイト列を api.reads に残す（このスクリプトの記憶の中だけ）
+ * 口座（Issue #47）: api.accounts（opts.accounts。書き換えてよい）。既定の口座 default（「口座 1」）が無ければ、口座を読む・使う
+ * 入口で api.settings から作る（本物の移し替えと同じ）。取引の snapshot の資金・許容リスクは取引の口座から写し、PUT で口座を
+ * 付け替えたときだけ付け替え先の今の値で写し直す。opts.failAccounts は PUT /api/accounts/<id> の状態
  */
 async function installFakeApi(context, opts = {}) {
   const api = {
@@ -530,12 +540,34 @@ async function installFakeApi(context, opts = {}) {
       capitalHistory: [],
     },
     writes: [],
+    accounts: [...(opts.accounts ?? [])],
   };
   let seq = 0;
   let clock = 1800000000000;
   const settings = () => api.settings;
   /** 名前の同一視（API の name_key と同じ） */
   const nameKey = (n) => n.normalize('NFKC').toUpperCase().toLowerCase().trim();
+  const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  /** 既定の口座が無ければ設定から作る（移し替え） */
+  const ensureDefault = () => {
+    if (api.accounts.some((a) => a.id === 'default')) return;
+    const s = api.settings;
+    api.accounts.push({
+      id: 'default',
+      name: '口座 1',
+      capitalYen: s.capitalYen,
+      riskTolerancePct: s.riskTolerancePct,
+      capitalHistory: [...s.capitalHistory],
+      createdAt: clock,
+      updatedAt: clock,
+    });
+  };
+  const sortedAccounts = () =>
+    [...api.accounts].sort(
+      (a, b) => cmp(nameKey(a.name), nameKey(b.name)) || cmp(a.name, b.name) || cmp(a.id, b.id),
+    );
+  const okCap = (cap) => cap === null || (typeof cap === 'number' && cap > 0);
+  const okRisk = (risk) => typeof risk === 'number' && risk >= 0.5 && risk <= 3;
   const json = (route, status, body) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await context.route('**/api/**', async (route) => {
@@ -620,26 +652,103 @@ async function installFakeApi(context, opts = {}) {
             return json(route, 400, { error: 'invalid', issues: [{ kind: 'noChart' }] });
           }
         }
+        // 口座を付け替えたときだけ、付け替え先の今の資金・許容リスクで写し直す（本文に口座が無ければ前の口座のまま）
+        const prevAcc = prev.record.accountId || 'default';
+        let moved = null;
+        if (body.accountId !== undefined && body.accountId !== prevAcc) {
+          ensureDefault();
+          moved = api.accounts.find((a) => a.id === body.accountId);
+          if (!moved) return json(route, 400, { error: 'invalid' });
+        }
         clock += 1;
         const changed = inst.id !== prev.record.instrumentId;
+        const snap = changed
+          ? {
+              ...prev.snapshot,
+              instrument: {
+                multiplier: inst.multiplier,
+                quantityStep: inst.quantityStep,
+                priceCurrency: inst.priceCurrency,
+                underlyingKind: inst.underlyingKind,
+                productForm: inst.productForm,
+              },
+            }
+          : prev.snapshot;
         const next = {
           ...prev,
           updatedAt: clock,
-          snapshot: changed
-            ? {
-                ...prev.snapshot,
-                instrument: {
-                  multiplier: inst.multiplier,
-                  quantityStep: inst.quantityStep,
-                  priceCurrency: inst.priceCurrency,
-                  underlyingKind: inst.underlyingKind,
-                  productForm: inst.productForm,
-                },
-              }
-            : prev.snapshot,
-          record: body,
+          snapshot: moved
+            ? { ...snap, capitalYen: moved.capitalYen, riskTolerancePct: moved.riskTolerancePct }
+            : snap,
+          record:
+            body.accountId === undefined && prev.record.accountId !== undefined
+              ? { ...body, accountId: prev.record.accountId }
+              : body,
         };
         api.trades[idx] = next;
+        return json(route, 200, next);
+      }
+    }
+    if (key === 'GET /api/accounts') {
+      ensureDefault();
+      return json(route, 200, { items: sortedAccounts() });
+    }
+    if (key === 'POST /api/accounts') {
+      api.writes.push({ key, body });
+      ensureDefault();
+      const name = typeof body.name === 'string' ? body.name.trim() : '';
+      const cap = body.capitalYen ?? null;
+      const risk = body.riskTolerancePct ?? 1;
+      if (name === '' || !okCap(cap) || !okRisk(risk))
+        return json(route, 400, { error: 'invalid' });
+      if (api.accounts.some((a) => nameKey(a.name) === nameKey(name))) {
+        return json(route, 409, { error: 'conflict', reason: 'duplicateName' });
+      }
+      clock += 1;
+      const acc = {
+        id: `acc-${++seq}`,
+        name,
+        capitalYen: cap,
+        riskTolerancePct: risk,
+        capitalHistory: cap === null ? [] : [{ valueYen: cap, at: clock }],
+        createdAt: clock,
+        updatedAt: clock,
+      };
+      api.accounts.push(acc);
+      return json(route, 201, acc);
+    }
+    const accountM = /^\/api\/accounts\/([^/]+)$/.exec(path);
+    if (accountM) {
+      ensureDefault();
+      const id = decodeURIComponent(accountM[1]);
+      const idx = api.accounts.findIndex((a) => a.id === id);
+      if (idx < 0) return json(route, 404, { error: 'not_found' });
+      const prev = api.accounts[idx];
+      if (req.method() === 'GET') return json(route, 200, prev);
+      if (req.method() === 'PUT') {
+        api.writes.push({ key, body });
+        if (opts.failAccounts) return json(route, opts.failAccounts, { error: 'unavailable' });
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (name === '' || !okCap(body.capitalYen) || !okRisk(body.riskTolerancePct)) {
+          return json(route, 400, { error: 'invalid' });
+        }
+        if (api.accounts.some((a) => a.id !== id && nameKey(a.name) === nameKey(name))) {
+          return json(route, 409, { error: 'conflict', reason: 'duplicateName' });
+        }
+        clock += 1;
+        const next = {
+          id,
+          name,
+          capitalYen: body.capitalYen,
+          riskTolerancePct: body.riskTolerancePct,
+          capitalHistory:
+            body.capitalYen === prev.capitalYen
+              ? prev.capitalHistory
+              : [...prev.capitalHistory, { valueYen: body.capitalYen, at: clock }],
+          createdAt: prev.createdAt,
+          updatedAt: clock,
+        };
+        api.accounts[idx] = next;
         return json(route, 200, next);
       }
     }
@@ -721,8 +830,11 @@ async function installFakeApi(context, opts = {}) {
       if (opts.failTrades) return json(route, opts.failTrades, { error: 'unavailable' });
       const inst = api.instruments.find((i) => i.id === body.instrumentId);
       if (!inst) return json(route, 400, { error: 'invalid' });
+      // 資金・許容リスクは取引の口座（無ければ既定の口座）から写す（#47）
+      ensureDefault();
+      const s = api.accounts.find((a) => a.id === (body.accountId || 'default'));
+      if (!s) return json(route, 400, { error: 'invalid' });
       clock += 1;
-      const s = settings();
       const stored = {
         id: `trade-${++seq}`,
         schemaVersion: 1,
@@ -1028,6 +1140,27 @@ function imageInfoOf(b) {
 }
 
 /** 記録する画面の状態（幅 × テーマで測る）。fn は開いた画面をその状態にする（api は偽の API。読み取りの応答を決める） */
+/** 口座の例（Issue #47。名前・値はすべて架空） */
+const acct = (id, name, capitalYen, riskTolerancePct = 1) => ({
+  id,
+  name,
+  capitalYen,
+  riskTolerancePct,
+  capitalHistory: capitalYen === null ? [] : [{ valueYen: capitalYen, at: 1799000000000 }],
+  createdAt: 1799000000000,
+  updatedAt: 1799000000000,
+});
+const ACC_ONE = acct('default', '口座 1', 1000000);
+const ACC_B = acct('acc-b', '口座 B', 200000);
+const ACC_C = acct('acc-c', '口座 C', null);
+const ACC_D = acct('acc-d', '口座 D', 500000);
+const ACC_LONG = acct('acc-long', '架空の長い名前の口座 B（長期の積み立てと短期の売買）', 200000);
+const ACCOUNTS_2 = [ACC_ONE, ACC_B];
+const ACCOUNTS_3_LONG = [ACC_ONE, ACC_LONG, ACC_C];
+const ACCOUNTS_4 = [ACC_ONE, ACC_B, ACC_C, ACC_D];
+/** 偽の API の口座を入れ替える（空 = 既定の口座を設定から作り直す） */
+const setAccounts = (api, list) => api.accounts.splice(0, api.accounts.length, ...list);
+
 const RECORD_STATES = [
   { slug: 'record-1-open', name: '開いた直後', fn: async () => {} },
   { slug: 'record-2-typing', name: '入力の途中', fn: (p) => fillRecord(p, EX_E1, false) },
@@ -1156,6 +1289,101 @@ const RECORD_STATES = [
     },
   },
   {
+    slug: 'record-15-accounts-2',
+    name: '口座 2 つ',
+    prep: (api) => setAccounts(api, ACCOUNTS_2),
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await seg(p, '口座', '口座 B').click();
+      await p
+        .locator('.verdict__account', { hasText: '口座 B の資金 200,000円 に対して' })
+        .waitFor();
+    },
+  },
+  {
+    // 口座 2 つの「取引」の枠（Segment の位置。Phase 4b で撮れていなかった）
+    slug: 'record-15b-accounts-2-top',
+    name: '口座 2 つ（取引の枠）',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, ACCOUNTS_2),
+    fn: async (p) => {
+      await seg(p, '口座', '口座 B').click();
+      await p
+        .locator('.seg--truncate .seg__input:checked[value="acc-b"]')
+        .waitFor({ state: 'attached' });
+    },
+  },
+  {
+    // 口座 2 つで選択を替えた 2 枚目（✓ の幅を先に取り、境目が動かないこと。再レビュー N2）
+    slug: 'record-15c-accounts-2-top-default',
+    name: '口座 2 つ（取引の枠・口座 1）',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, ACCOUNTS_2),
+    fn: async (p) => {
+      await seg(p, '口座', '口座 B').click();
+      await seg(p, '口座', '口座 1').click();
+      await p
+        .locator('.seg--truncate .seg__input:checked[value="default"]')
+        .waitFor({ state: 'attached' });
+    },
+  },
+  {
+    // 「ほかの欄（任意）」を開いた形（決済の理由の .select の見た目。再レビュー）
+    slug: 'record-20-more-open',
+    name: 'ほかの欄を開いた',
+    anchor: 'details.more',
+    fn: async (p) => {
+      await p.locator('details.more > summary').click();
+      await p.locator('#record-exit-reason').waitFor();
+      await p.locator('#record-exit-reason').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    slug: 'record-16-accounts-3-long',
+    name: '口座 3 つ・長い名前',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, ACCOUNTS_3_LONG),
+    fn: async (p) => {
+      await p.locator('.seg--truncate .seg__text', { hasText: '架空の長い名前' }).waitFor();
+      await p.locator('.seg--truncate .seg__item', { hasText: '架空の長い名前' }).click();
+    },
+  },
+  {
+    slug: 'record-17-accounts-4',
+    name: '口座 4 つ（select）',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, ACCOUNTS_4),
+    fn: async (p) => {
+      await p.locator('select#record-account').selectOption('acc-c');
+      await fillRecord(p, EX_E1);
+      await p.locator('.verdict__account', { hasText: '口座 C（資金は未設定）' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-18-add-open',
+    name: '口座を足す欄',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    fn: async (p) => {
+      await p.locator('#record-account-add').click();
+      await p.locator('#record-account-new-name').fill('口座 C');
+      await p.locator('#record-account-new-capital').fill('300,000');
+    },
+  },
+  {
+    slug: 'record-19-add-error',
+    name: '口座を足す欄の誤り',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    fn: async (p) => {
+      await p.locator('#record-account-add').click();
+      await p.locator('#record-account-new-name').fill('口座 1');
+      await p.locator('#record-account-new-capital').fill('0');
+      await p.locator('.accountadd').getByRole('button', { name: '足す', exact: true }).click();
+      await p
+        .locator('#record-account-new-name-error', { hasText: '同じ名前の口座があります' })
+        .waitFor();
+    },
+  },
+  {
     slug: 'record-10-read-failed',
     name: '読み取りの失敗',
     anchor: '.statement',
@@ -1187,8 +1415,9 @@ const FAKE_XAU = {
 /** 自動で足されたままの銘柄（仮の値） */
 const FAKE_US30_AUTO = { ...FAKE_US30, underlyingKind: 'other' };
 
-/** 資金 1,000,000円（履歴 3 件）・銘柄 3 件にする */
+/** 資金 1,000,000円（履歴 3 件。移し替えで「口座 1」へ）・銘柄 3 件にする */
 function seedSettings(api) {
+  setAccounts(api, []);
   api.instruments.splice(0, api.instruments.length, FAKE_US30_AUTO, FAKE_N225, FAKE_XAU);
   api.settings = {
     capitalYen: 1000000,
@@ -1202,11 +1431,11 @@ function seedSettings(api) {
   };
 }
 
-/** 設定の画面を開き、資金の欄が出るまで待つ */
+/** 設定の画面を開き、口座の一覧（[＋ 口座を足す]）が出るまで待つ */
 async function openSettings(page, base) {
   await page.goto(`${base}/settings`);
   await waitReady(page, '設定');
-  await page.locator('#settings-capital').waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('#settings-account-add').waitFor({ state: 'visible', timeout: 15000 });
 }
 
 /** 設定の画面の状態（幅 × テーマで測る）。prep は開く前に偽の API を整え、fn は開いた画面をその状態にする */
@@ -1216,6 +1445,47 @@ const SETTINGS_STATES = [
     name: '開いた直後',
     prep: seedSettings,
     fn: async () => {},
+  },
+  {
+    slug: 'settings-5-accounts',
+    name: '口座 2 つ（未設定の行）',
+    prep: (api) => {
+      seedSettings(api);
+      setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_C]);
+    },
+    fn: async (p) => {
+      await p.locator('.instlist__item', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
+    },
+  },
+  {
+    slug: 'settings-6-account-edit',
+    name: '口座を直している',
+    prep: (api) => {
+      seedSettings(api);
+      setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_B]);
+    },
+    fn: async (p) => {
+      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.locator('#settings-account-name').waitFor();
+      await p.locator('summary', { hasText: '資金の履歴（3 件）' }).click();
+    },
+  },
+  {
+    slug: 'settings-7-account-add',
+    name: '口座を足す欄',
+    prep: (api) => {
+      seedSettings(api);
+      setAccounts(api, ACCOUNTS_2);
+    },
+    fn: async (p) => {
+      await p.locator('#settings-account-add').click();
+      await p.locator('#settings-account-name').fill('口座 Ｂ');
+      await p.locator('#settings-account-capital').fill('300,000');
+      await p.locator('#settings-account-save').click();
+      await p
+        .locator('#settings-account-name-error', { hasText: '同じ名前の口座があります' })
+        .waitFor();
+    },
   },
   {
     slug: 'settings-2-editing',
@@ -1233,8 +1503,9 @@ const SETTINGS_STATES = [
     name: '誤りと警告',
     prep: seedSettings,
     fn: async (p) => {
-      await p.locator('#settings-capital').fill('1000.5');
-      await p.locator('#settings-risk').fill('2.5');
+      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.locator('#settings-account-capital').fill('1000.5');
+      await p.locator('#settings-account-risk').fill('2.5');
       await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
       await p.getByRole('button', { name: 'US30 を直す' }).click();
       await p.locator('#settings-inst-name').fill('日経２２５ ');
@@ -1250,7 +1521,9 @@ const SETTINGS_STATES = [
       api.instruments.splice(0, api.instruments.length, FAKE_US30_AUTO);
     },
     fn: async (p) => {
-      await p.getByText('資金を設定すると、記録した取引にリスク（%）が出ます').waitFor();
+      await p
+        .locator('.instlist__item', { hasText: '資金を入れるとリスク（%）が出ます' })
+        .waitFor();
     },
   },
 ];
@@ -1341,7 +1614,9 @@ async function measure(page, withTargets, tap) {
           clipped.push(`${name} 縦 ${el.scrollHeight}>${el.clientHeight}`);
         }
         const r = el.getBoundingClientRect();
-        const parent = el.parentElement;
+        // display: contents の親は箱を持たない（子は祖先の並びに入る）ので、箱を持つ祖先と比べる（#47 一覧の 1 行目）
+        let parent = el.parentElement;
+        while (parent && getComputedStyle(parent).display === 'contents') parent = parent.parentElement;
         if (parent) {
           const pr = parent.getBoundingClientRect();
           if (r.left < pr.left - 1 || r.right > pr.right + 1) {
@@ -1683,6 +1958,9 @@ async function main() {
         for (const st of RECORD_STATES) {
           const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`/record（${st.name}）`, 22)}`;
           try {
+            // 口座は状態ごとに入れ替える（無い状態 = 既定の口座 1 つ。設定から作り直す）
+            setAccounts(recApi, []);
+            st.prep?.(recApi);
             await openRecord(recPage, base);
             await st.fn(recPage, recApi);
             // --inject-clip: 帯の見本（長い文・改行・背の高い要素）を足し、帯の測りが見逃さないことを確かめる
@@ -1755,6 +2033,7 @@ async function main() {
               performanceUnit: 'R',
               capitalHistory: [],
             };
+            setAccounts(recApi, []);
             st.prep(recApi);
             await openSettings(recPage, base);
             await st.fn(recPage, recApi);
@@ -1789,6 +2068,68 @@ async function main() {
             problems.push(`${label}: 開けない ${msg}`);
           }
         }
+        // 一覧・ホーム・詳細・直す（口座 2 つ。Issue #47 D1・U16・U17・U19）。測った後に口座を戻す。
+        // 直す画面は口座を替えて、欄の下の 1 行（今の資金で計算し直す）が出た形を測る
+        const ACCOUNT_ROW = '.traderow__account:visible, .traderow__account-top:visible';
+        for (const [path, h1, wait, slug, after] of [
+          ['/trades', '取引の一覧', ACCOUNT_ROW, 'trades-accounts'],
+          ['/', 'ホーム', ACCOUNT_ROW, 'home-accounts'],
+          ['/trades/x-d1', 'US30 · L', '.verdict__account', 'trade-x-d1-accounts'],
+          [
+            '/trades/x-d1/edit',
+            '取引を直す',
+            '#record-account-field',
+            'trade-x-d1-edit-accounts',
+            async (pg) => {
+              await seg(pg, '口座', '口座 B').click();
+              await pg.locator('#record-account-hint').waitFor();
+              await pg.locator('#record-account-field').scrollIntoViewIfNeeded();
+            },
+          ],
+        ]) {
+          const tp = pageFor.get(false);
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`${path}（口座 2 つ）`, 22)}`;
+          try {
+            setAccounts(recApi, ACCOUNTS_2);
+            await tp.goto(base + path);
+            await waitReady(tp, h1);
+            await tp.locator(wait).first().waitFor({ timeout: 15000 });
+            if (after) await after(tp);
+            // 前の状態のタップの位置に行が来ると :hover の面が付き、枠として数えてしまう。ポインタを外してから測る
+            await tp.mouse.move(0, 0);
+            const m = await measure(tp, w === 360, TAP);
+            states++;
+            worstH = Math.max(worstH, m.h);
+            smallTotal += m.small.length;
+            clippedTotal += m.clipped.length;
+            const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+            const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+            console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+            if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            for (const x of m.clipped) {
+              console.log(`    はみ出し: ${x}`);
+              problems.push(`${label}: はみ出し ${x}`);
+            }
+            for (const x of m.small) {
+              console.log(`    当たり<44: ${x}`);
+              problems.push(`${label}: 当たり<44 ${x}`);
+            }
+            checkNest(label, m);
+            for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+            if (opts.shots) {
+              await tp.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-${slug}.png`),
+                fullPage: true,
+              });
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            console.log(`${label} 開けない  NG`);
+            problems.push(`${label}: 開けない ${msg}`);
+          } finally {
+            setAccounts(recApi, []);
+          }
+        }
         for (const c of contexts) await c.close();
       }
     }
@@ -1797,7 +2138,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -2901,55 +3242,64 @@ async function runFlows(browser, base, signedIn) {
 
   await check('R12', async () => {
     const out = [];
-    for (const theme of THEMES) {
-      const c = await browser.newContext({
-        viewport: { width: 360, height: 780 },
-        storageState: signedIn,
-      });
-      try {
-        await setupContext(c, theme);
-        await installFakeApi(c);
-        const p = await c.newPage();
-        await openRecord(p, base);
-        const m = await p.evaluate(() => {
-          const vh = window.innerHeight;
-          const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
-          const nav = document.querySelector('.appnav')?.getBoundingClientRect().top ?? vh;
-          const bar = document.querySelector('.record__submit')?.getBoundingClientRect().top ?? vh;
-          const bottom = Math.min(nav, bar, vh);
-          const seen = (sel) => {
-            const r = document.querySelector(sel)?.getBoundingClientRect();
-            return !!r && r.height > 0 && r.top >= top - 0.5 && r.bottom <= bottom + 0.5;
-          };
-          const notice = document.querySelector('.statement__notice');
-          const cs = notice ? getComputedStyle(notice) : null;
-          const lines = notice
-            ? Math.round(notice.getBoundingClientRect().height / Number.parseFloat(cs.lineHeight))
-            : 0;
-          return {
-            scrollY: window.scrollY,
-            pick: seen('label[for="record-statement-file"]'),
-            instrument: seen('#record-instrument'),
-            noticeText: notice?.textContent ?? '',
-            lines,
-            hidden: !!notice?.closest('details, dialog'),
-            total: document.documentElement.scrollHeight,
-          };
+    // 口座 1 つの形は 2,550px、口座 2 つ・3 つの形は 2,646px まで（#47）。どの形でも開いた直後の 1 画面に
+    // [スクショを選ぶ] と銘柄の欄
+    const shapes = [
+      { label: '口座 1', accounts: undefined, max: TOTAL_MAX },
+      { label: '口座 2', accounts: ACCOUNTS_2, max: TOTAL_MAX_ACCOUNTS },
+      { label: '口座 3', accounts: ACCOUNTS_3_LONG, max: TOTAL_MAX_ACCOUNTS },
+    ];
+    for (const theme of THEMES)
+      for (const shape of shapes) {
+        const c = await browser.newContext({
+          viewport: { width: 360, height: 780 },
+          storageState: signedIn,
         });
-        if (m.scrollY !== 0) throw new Error(`開いた直後のスクロール ${m.scrollY}px`);
-        if (!m.pick) throw new Error(`${theme}: [スクショを選ぶ] が見える範囲に無い`);
-        if (!m.instrument) throw new Error(`${theme}: 銘柄の欄が見える範囲に無い`);
-        for (const t of ['AI の提供元（Anthropic）に送', '切り取って', '保存しません'])
-          if (!m.noticeText.includes(t)) throw new Error(`${theme}: 注意に「${t}」が無い`);
-        if (m.lines > 3) throw new Error(`${theme}: 注意が ${m.lines} 行（3 行まで）`);
-        if (m.hidden) throw new Error(`${theme}: 注意が畳まれている`);
-        if (m.total > TOTAL_MAX)
-          throw new Error(`${theme}: 全長 ${m.total}px（${TOTAL_MAX}px まで）`);
-        out.push(`${theme} 注意 ${m.lines} 行・全長 ${m.total}px`);
-      } finally {
-        await c.close();
+        try {
+          await setupContext(c, theme);
+          await installFakeApi(c, shape.accounts ? { accounts: shape.accounts } : {});
+          const p = await c.newPage();
+          await openRecord(p, base);
+          const m = await p.evaluate(() => {
+            const vh = window.innerHeight;
+            const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+            const nav = document.querySelector('.appnav')?.getBoundingClientRect().top ?? vh;
+            const bar =
+              document.querySelector('.record__submit')?.getBoundingClientRect().top ?? vh;
+            const bottom = Math.min(nav, bar, vh);
+            const seen = (sel) => {
+              const r = document.querySelector(sel)?.getBoundingClientRect();
+              return !!r && r.height > 0 && r.top >= top - 0.5 && r.bottom <= bottom + 0.5;
+            };
+            const notice = document.querySelector('.statement__notice');
+            const cs = notice ? getComputedStyle(notice) : null;
+            const lines = notice
+              ? Math.round(notice.getBoundingClientRect().height / Number.parseFloat(cs.lineHeight))
+              : 0;
+            return {
+              scrollY: window.scrollY,
+              pick: seen('label[for="record-statement-file"]'),
+              instrument: seen('#record-instrument'),
+              noticeText: notice?.textContent ?? '',
+              lines,
+              hidden: !!notice?.closest('details, dialog'),
+              total: document.documentElement.scrollHeight,
+            };
+          });
+          if (m.scrollY !== 0) throw new Error(`開いた直後のスクロール ${m.scrollY}px`);
+          if (!m.pick) throw new Error(`${theme}: [スクショを選ぶ] が見える範囲に無い`);
+          if (!m.instrument) throw new Error(`${theme}: 銘柄の欄が見える範囲に無い`);
+          for (const t of ['AI の提供元（Anthropic）に送', '切り取って', '保存しません'])
+            if (!m.noticeText.includes(t)) throw new Error(`${theme}: 注意に「${t}」が無い`);
+          if (m.lines > 3) throw new Error(`${theme}: 注意が ${m.lines} 行（3 行まで）`);
+          if (m.hidden) throw new Error(`${theme}: 注意が畳まれている`);
+          if (m.total > shape.max)
+            throw new Error(`${theme} ${shape.label}: 全長 ${m.total}px（${shape.max}px まで）`);
+          out.push(`${theme} ${shape.label} 注意 ${m.lines} 行・全長 ${m.total}px`);
+        } finally {
+          await c.close();
+        }
       }
-    }
     return `360×780 の開いた直後に [スクショを選ぶ] と銘柄の欄が見える、${out.join(' / ')}`;
   });
 
@@ -3177,24 +3527,38 @@ async function runFlows(browser, base, signedIn) {
     }
   });
 
-  // ── 設定（SET1〜SET3。Issue #5）。偽の記録の API で流す
+  // ── 設定（SET1〜SET5。Issue #5・#47 の口座）。偽の記録の API で流す
   await check('SET1', async () => {
     const { c, p, fake, errors } = await recordContext();
     try {
       // 円建ての銘柄にしておく（1R・リスク（%）を価格から出せる。5.1）
       fake.instruments[0] = { ...FAKE_US30, priceCurrency: 'JPY' };
       await openSettings(p, base);
-      await p.getByText('未設定', { exact: true }).waitFor();
-      await p.locator('#settings-capital').fill('1,000,000');
+      await p.locator('.instlist__item', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
+      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.locator('#settings-account-capital').fill('1,000,000');
       await p.getByText('1 回の負けは 10,000円 までです').waitFor();
-      await p.locator('#settings-form button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '保存しました' }).waitFor({ timeout: 5000 });
-      expectEq(fake.settings.capitalYen, 1000000, '保存した資金');
+      await p.locator('#settings-account-save').click();
+      await p
+        .getByRole('status')
+        .filter({ hasText: '口座 1 を保存しました' })
+        .waitFor({ timeout: 5000 });
+      expectEq(fake.accounts.find((a) => a.id === 'default')?.capitalYen, 1000000, '保存した資金');
+      expectEq(
+        fake.writes.some((x) => x.key === 'PUT /api/settings'),
+        false,
+        '設定の API に書かない',
+      );
       await p.reload();
       await openSettings(p, base);
-      await p.locator('.settings__stat dd', { hasText: '1,000,000円' }).waitFor();
-      expectEq(await p.locator('#settings-history li').count(), 1, '履歴の件数');
-      expectEq(await p.locator('#settings-capital').inputValue(), '1,000,000', '開き直した欄');
+      await p.locator('.instlist__item', { hasText: '1,000,000円 · 許容 1%' }).waitFor();
+      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.locator('summary', { hasText: '資金の履歴（1 件）' }).waitFor();
+      expectEq(
+        await p.locator('#settings-account-capital').inputValue(),
+        '1,000,000',
+        '開き直した欄',
+      );
       // 記録する画面で 5.1 の例（L・イン 100.00・LC 99.50・数量 10,000・決済 99.40）→ リスク 0.5%
       await openRecord(p, base);
       await fillRecord(p, {
@@ -3281,17 +3645,23 @@ async function runFlows(browser, base, signedIn) {
       await row.filter({ hasText: 'その他 · 現物・CFD · 通貨 未設定 · 乗数 1 · 刻み 1' }).waitFor();
       const post = fake.writes.find((x) => x.key === 'POST /api/instruments');
       expectEq(JSON.stringify(post?.body), JSON.stringify({ name: 'GOLD' }), '足す本文');
-      // E7: 許容リスク 2.5 → 警告を出して保存できる
-      await p.locator('#settings-risk').fill('2.5');
+      // E7（A7）: 口座 1 の許容リスク 2.5 → 警告を出して保存できる
+      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.locator('#settings-account-risk').fill('2.5');
       await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
-      await p.locator('#settings-form button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '保存しました' }).waitFor();
-      expectEq(fake.settings.riskTolerancePct, 2.5, '保存した許容リスク');
+      await p.locator('#settings-account-save').click();
+      await p.getByRole('status').filter({ hasText: '口座 1 を保存しました' }).waitFor();
+      expectEq(
+        fake.accounts.find((a) => a.id === 'default')?.riskTolerancePct,
+        2.5,
+        '保存した許容リスク',
+      );
       // E8: 3.1 は送らない
       const before = fake.writes.length;
-      await p.locator('#settings-risk').fill('3.1');
-      await p.locator('#settings-form button[type="submit"]').click();
-      await p.locator('#settings-risk-error').waitFor();
+      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.locator('#settings-account-risk').fill('3.1');
+      await p.locator('#settings-account-save').click();
+      await p.locator('#settings-account-risk-error').waitFor();
       expectEq(fake.writes.length, before, '範囲外のときの書き込み');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
@@ -3302,27 +3672,44 @@ async function runFlows(browser, base, signedIn) {
 
   await check('SET4', async () => {
     const focused = (p) => p.evaluate(() => document.activeElement?.id ?? '');
-    // 誤りのまま [保存] → 最初の誤りの欄へフォーカス、誤りのある欄を role="alert" で知らせる
+    // 誤りのまま [保存] → 最初の誤りの欄へフォーカス。口座の欄は欄の下の文言だけで、要約の知らせは出さない
+    // （記録する画面の足す欄と同じ。#47 再レビュー 4）
     {
-      const { c, p, fake, errors } = await recordContext({ failSettings: 503 });
+      const { c, p, fake, errors } = await recordContext({ failAccounts: 503 });
       try {
         seedSettings(fake);
         await openSettings(p, base);
-        await p.locator('#settings-risk').fill('3.1');
-        await p.locator('#settings-capital').fill('0');
-        await p.locator('#settings-save').click();
-        await p
-          .getByRole('alert')
-          .filter({ hasText: '誤りのある欄があります（資金・許容リスク）' })
-          .waitFor();
-        await expectPollAsync(async () => (await focused(p)) === 'settings-capital', '誤りの欄へ');
+        await p.getByRole('button', { name: '口座 1 を直す' }).click();
+        await p.locator('#settings-account-risk').fill('3.1');
+        await p.locator('#settings-account-capital').fill('0');
+        await p.locator('#settings-account-save').click();
+        await p.locator('form.instedit .field--error').nth(1).waitFor();
+        expectEq(
+          await p.getByRole('alert').filter({ hasText: '誤りのある欄があります' }).count(),
+          0,
+          '口座の欄の要約の知らせ',
+        );
+        await expectPollAsync(
+          async () => (await focused(p)) === 'settings-account-capital',
+          '誤りの欄へ',
+        );
         // 保存に失敗して戻った → 押した [保存] へ
-        await p.locator('#settings-capital').fill('1000000');
-        await p.locator('#settings-risk').fill('1');
-        await p.locator('#settings-save').click();
+        await p.locator('#settings-account-capital').fill('1000000');
+        await p.locator('#settings-account-risk').fill('1');
+        await p.locator('#settings-account-save').click();
         await p.getByRole('alert').filter({ hasText: '保存できませんでした' }).waitFor();
-        await expectPollAsync(async () => (await focused(p)) === 'settings-save', '[保存] へ');
+        await expectPollAsync(
+          async () => (await focused(p)) === 'settings-account-save',
+          '[保存] へ',
+        );
+        // やめると口座の [直す] へ戻る
+        await p.locator('form.instedit').getByRole('button', { name: 'やめる' }).click();
+        await expectPollAsync(
+          async () => (await focused(p)) === 'settings-account-edit-default',
+          'やめた後のフォーカス',
+        );
         // 銘柄: 誤りのまま [保存] → 最初の誤りの欄（価格の通貨）
+
         await p.getByRole('button', { name: 'US30 を直す' }).click();
         await p.locator('#settings-inst-multiplier').fill('0');
         await p.locator('#settings-inst-currency').fill('US');
@@ -3351,6 +3738,123 @@ async function runFlows(browser, base, signedIn) {
       }
     }
     return '誤りのまま押す → 最初の誤りの欄・知らせ、保存の失敗 → 押したボタン（設定の [保存]・記録する画面の [記録する]）';
+  });
+
+  // ── 口座（Issue #47 PR-1。ACC1・ACC2・SET5）。幅 360 で、偽の記録の API で流す
+  await check('ACC1', async () => {
+    const { c, p, fake, errors } = await recordContext({ accounts: ACCOUNTS_2 });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      // 円建ての銘柄（リスク（%）を価格から出せる）
+      fake.instruments[0] = { ...FAKE_US30, priceCurrency: 'JPY' };
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1);
+      await p
+        .locator('.verdict__account', { hasText: '口座 1 の資金 1,000,000円 に対して' })
+        .waitFor();
+      const riskOf = () =>
+        p.locator('.verdict__stat', { hasText: 'リスク' }).locator('.num').textContent();
+      expectEq(await riskOf(), '0.5%', '口座 1 のリスク');
+      // 1 タップで口座 B へ → リスク・1 行がその場で変わる（1R 5,000 ÷ 200,000 = 2.5%）
+      await seg(p, '口座', '口座 B').click();
+      await p
+        .locator('.verdict__account', { hasText: '口座 B の資金 200,000円 に対して' })
+        .waitFor();
+      expectEq(await riskOf(), '2.5%', '口座 B のリスク');
+      await p.locator('.reasons__item', { hasText: '過剰リスク（2.5%）' }).waitFor();
+      const h = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expectEq(h, 0, '横スクロール');
+      await p.locator('#record-submit').click();
+      await p
+        .getByRole('status')
+        .filter({ hasText: '口座 B に記録しました' })
+        .waitFor({ timeout: 10000 });
+      expectEq(fake.posts.at(-1)?.accountId, 'acc-b', '本文の口座');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '口座 2 つ: Segment の 1 タップで口座 B → リスク 0.5% → 2.5%・過剰リスクの理由・判定の枠の 1 行がその場で変わる、横スクロール 0、「口座 B に記録しました」';
+  });
+
+  await check('ACC2', async () => {
+    const { c, p, fake, errors } = await recordContext({ capitalYen: 1000000 });
+    const focused = () => p.evaluate(() => document.activeElement?.id ?? '');
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1, false);
+      const before = await p.locator('#record-entry').inputValue();
+      // 口座 1 つ: 口座の欄は無く、[＋ 口座を足す] だけ
+      expectEq(await p.locator('[role="radiogroup"][aria-label="口座"]').count(), 0, '口座の欄');
+      await p.locator('#record-account-add').click();
+      await expectPollAsync(
+        async () => (await focused()) === 'record-account-new-name',
+        '名前の欄へ',
+      );
+      // Esc で閉じて [＋ 口座を足す] へ戻る
+      await p.keyboard.press('Escape');
+      await expectPollAsync(async () => (await focused()) === 'record-account-add', 'Esc の後');
+      expectEq(await p.locator('.accountadd').count(), 0, '閉じた欄');
+      // もう一度開き、Enter で足す（記録の送信にならない）
+      await p.locator('#record-account-add').click();
+      await p.locator('#record-account-new-name').fill('口座 C');
+      await p.locator('#record-account-new-capital').fill('300,000');
+      await p.locator('#record-account-new-capital').press('Enter');
+      await p.locator('[role="radiogroup"][aria-label="口座"]').waitFor();
+      await expectPollAsync(
+        async () =>
+          (await p.evaluate(() => document.activeElement?.getAttribute('name'))) ===
+          'record-account',
+        '選ばれた口座へ',
+      );
+      const checked = await p
+        .locator('input[name="record-account"]:checked')
+        .evaluate((e) => e.closest('label')?.textContent ?? '');
+      expectEq(checked.trim(), '口座 C', '選ばれた口座');
+      expectEq(fake.posts.length, 0, '記録の送信');
+      const post = fake.writes.find((x) => x.key === 'POST /api/accounts');
+      expectEq(
+        JSON.stringify(post?.body),
+        JSON.stringify({ name: '口座 C', capitalYen: 300000 }),
+        '足す本文',
+      );
+      expectEq(await p.locator('#record-entry').inputValue(), before, '入れていた欄');
+      expectEq(new URL(p.url()).pathname, '/record', '画面を移らない');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'その場で足す: 開くと名前の欄へ・Esc で閉じて [＋ 口座を足す] へ・Enter で足す（記録しない）→ 口座 C が選ばれた Segment が出てフォーカス、本文は名前と資金だけ、入れていた欄はそのまま';
+  });
+
+  await check('SET5', async () => {
+    const { c, p, fake, errors } = await recordContext({ accounts: [ACC_ONE, ACC_D] });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await openSettings(p, base);
+      await p.locator('#settings-account-add').click();
+      await p.locator('#settings-account-name').fill('口座 C');
+      await p.locator('#settings-account-save').click();
+      await p.getByRole('status').filter({ hasText: '口座 C を足しました' }).waitFor();
+      const names = await p.locator('.instlist__name').allTextContents();
+      expectEq(
+        names.filter((n) => n.startsWith('口座')).join(' / '),
+        '口座 1 / 口座 C / 口座 D',
+        '名前の順',
+      );
+      const added = fake.accounts.find((a) => a.name === '口座 C');
+      await expectPollAsync(
+        async () =>
+          (await p.evaluate(() => document.activeElement?.id)) ===
+          `settings-account-edit-${added?.id}`,
+        '新しい行の [直す] へ',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '設定で「口座 C」を足す → 名前の順の位置に入り、「口座 C を足しました」、フォーカスは新しい行の [直す]';
   });
 
   // ── 取引の一覧・詳細・直す・消す（Issue #9 の例の表 L4・H1・D1・D2・E1・E2・X1・X2）。偽の記録の API で流す
@@ -3556,7 +4060,12 @@ async function runFlows(browser, base, signedIn) {
       await more.locator('summary').click();
       await more.locator('.fields__row').first().waitFor({ state: 'visible' });
       const labels = await more.locator('.fields__label').allTextContents();
-      if (labels[0] !== '銘柄' || !labels.includes('時間足を変えたか'))
+      // 先頭は口座の 3 行（口座の数によらない。#47 U18）、その後に記録する画面の欄の順
+      if (
+        labels.slice(0, 4).join(' / ') !==
+          '口座 / 口座の資金（記録したとき） / 許容リスク（記録したとき） / 銘柄' ||
+        !labels.includes('時間足を変えたか')
+      )
         throw new Error(`すべての欄: ${labels.join(' / ')}`);
       expectEq(errors.length, 0, 'ページのエラー');
       return `物差しの一覧 5 行・図は読み上げから外す・数の段 → 物差し → 理由 → 札、広げた区間・越えた区間・目盛り、札の外れは 2 つ、「すべての欄」は閉じて開く（物差しの段の高さ ${Math.round(rulerH)}px @360）`;

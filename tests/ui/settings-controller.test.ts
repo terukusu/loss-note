@@ -1,10 +1,15 @@
 // 設定の画面の通信と状態（Issue #5 契約・AC-1〜AC-6・KEEP-2）。偽の API（tests/ui/helpers/fake-api.ts）で確かめる。
 // 値はすべて架空
 import { describe, expect, it } from 'vitest';
-import type { InstrumentRecord } from '../../core/record';
+import type { AccountRecord, InstrumentRecord } from '../../core/record';
+import { ACCOUNT_MSG } from '../../ui/src/lib/accounts';
 import { NotSignedIn } from '../../ui/src/lib/api';
 import { AUTH_EXPIRED } from '../../ui/src/lib/request';
 import {
+  ACCOUNT_ADD_NETWORK_FAILED,
+  ACCOUNT_NOT_FOUND,
+  accountAdded,
+  accountSaved,
   createSettingsController,
   focusAfter,
   INSTRUMENT_NOT_FOUND,
@@ -13,10 +18,10 @@ import {
   SETTINGS_LOAD_FAILED,
   SETTINGS_NETWORK_FAILED,
   SETTINGS_SAVE_FAILED,
-  SETTINGS_SAVED,
   type SettingsController,
 } from '../../ui/src/lib/settings-controller';
 import { SETTINGS_MSG } from '../../ui/src/lib/settings-form';
+import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeApi, type FakeOptions } from './helpers/fake-api';
 
 function inst(id: string, name: string, over: Partial<InstrumentRecord> = {}): InstrumentRecord {
@@ -45,30 +50,33 @@ async function open(opts: FakeOptions = {}): Promise<{ fake: FakeApi; c: Setting
   return { fake, c };
 }
 
-const puts = (fake: FakeApi, path = '/api/settings') =>
+const posts = (fake: FakeApi, path: string) =>
+  fake.calls.filter((x) => x.method === 'POST' && x.path === path);
+const puts = (fake: FakeApi, path: string) =>
   fake.calls.filter((x) => x.method === 'PUT' && x.path === path);
 
 describe('読み込み', () => {
-  it('設定と銘柄を並行に読み、銘柄は名前の順、下書きは保存値', async () => {
+  it('口座と銘柄を並行に読み（設定は読まない）、口座・銘柄は名前の順', async () => {
     const { c, fake } = await open({ capitalYen: 1_000_000 });
     const s = c.getState();
     expect(s.phase).toBe('ready');
     expect(s.instruments.map((i) => i.name)).toEqual(['US30', 'XAU', '日経225']);
-    expect(s.draft).toEqual({ capital: '1,000,000', risk: '1' });
+    // 移し替え: 既定の口座「口座 1」が設定の資金で 1 つ
+    expect(s.accounts.map((a) => [a.name, a.capitalYen])).toEqual([['口座 1', 1_000_000]]);
     expect(fake.calls.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
+      'GET /api/accounts',
       'GET /api/instruments',
-      'GET /api/settings',
     ]);
   });
 
-  it('AC-4: 未設定の利用者には許容リスク 1 が出る', async () => {
+  it('AC-4: 未設定の利用者の口座は許容リスク 1・資金 未設定', async () => {
     const { c } = await open();
-    expect(c.getState().settings?.riskTolerancePct).toBe(1);
-    expect(c.getState().draft.risk).toBe('1');
+    expect(c.getState().accounts[0]?.riskTolerancePct).toBe(1);
+    expect(c.getState().accounts[0]?.capitalYen).toBeNull();
   });
 
   it.each([
-    ['500', { 'GET /api/settings': 500 }],
+    ['500', { 'GET /api/accounts': 500 }],
     ['通信の失敗', { 'GET /api/instruments': 'throw' as const }],
   ])('読み込みの失敗（%s）は決まった文言で、保存を送らない', async (_n, fail) => {
     const { c, fake } = await open({ fail });
@@ -76,14 +84,14 @@ describe('読み込み', () => {
     expect(s.phase).toBe('loadFailed');
     expect(s.error).toBe(SETTINGS_LOAD_FAILED);
     expect(JSON.stringify(s)).not.toContain('偽物');
-    c.setField('capital', '1000000');
-    await c.saveSettings();
+    c.openAccount(null);
+    await c.saveAccount();
     await c.addInstrument();
     expect(fake.calls.filter((x) => x.method !== 'GET')).toEqual([]);
   });
 
   it('401 はログインが切れた', async () => {
-    const { c } = await open({ fail: { 'GET /api/settings': 401 } });
+    const { c } = await open({ fail: { 'GET /api/accounts': 401 } });
     expect(c.getState().error).toBe(AUTH_EXPIRED);
     expect(c.getState().errorKind).toBe('auth');
   });
@@ -108,152 +116,171 @@ describe('読み込み', () => {
   });
 });
 
-describe('資金と許容リスク', () => {
-  it('AC-1 E1: 未設定で 1,000,000 を保存 → 保存値・履歴 1 件、開き直しても同じ', async () => {
-    const { c, fake } = await open();
-    c.setField('capital', '1,000,000');
-    await c.saveSettings();
-    const s = c.getState();
-    expect(puts(fake)).toHaveLength(1);
-    expect(puts(fake)[0]?.body).toEqual({
-      capitalYen: 1_000_000,
-      riskTolerancePct: 1,
-      performanceUnit: 'R',
-    });
-    expect(s.settings?.capitalYen).toBe(1_000_000);
-    expect(s.settings?.capitalHistory).toHaveLength(1);
-    expect(s.notice).toEqual({ area: 'settings', kind: 'ok', text: SETTINGS_SAVED });
-    expect(s.draft.capital).toBe('1,000,000');
-
-    const again = createSettingsController({ api: fake.api });
-    await again.load();
-    expect(again.getState().settings?.capitalYen).toBe(1_000_000);
-    expect(again.getState().draft.capital).toBe('1,000,000');
-  });
-
-  it('AC-1 E2: 全角の １２０００００ → 1,200,000', async () => {
-    const { c, fake } = await open();
-    c.setField('capital', '１２０００００');
-    await c.saveSettings();
-    expect(fake.settings().capitalYen).toBe(1_200_000);
-  });
-
-  it.each(['0', '-5', '1000.5', '百万', ''])(
-    'AC-2 E3: 1,000,000 が保存済みで %j → PUT 0 回・欄に誤り・保存値は変わらない',
-    async (raw) => {
-      const { c, fake } = await open({ capitalYen: 1_000_000 });
-      c.setField('capital', raw);
-      expect(c.getState().reading.errors.capital).toBeTruthy();
-      await c.saveSettings();
-      expect(puts(fake)).toHaveLength(0);
-      expect(fake.settings().capitalYen).toBe(1_000_000);
-      expect(c.getState().settings?.capitalYen).toBe(1_000_000);
-    },
-  );
-
-  it('AC-2 E3b: 未設定で資金は空、許容リスク 1.5 → 資金 null のまま、履歴 0 件', async () => {
-    const { c, fake } = await open();
-    c.setField('risk', '1.5');
-    await c.saveSettings();
-    expect(puts(fake)[0]?.body).toEqual({
-      capitalYen: null,
-      riskTolerancePct: 1.5,
-      performanceUnit: 'R',
-    });
-    expect(fake.settings().riskTolerancePct).toBe(1.5);
-    expect(fake.settings().capitalHistory).toEqual([]);
-    expect(c.getState().settings?.capitalYen).toBeNull();
-  });
-
-  it('AC-3 E4・E5: 同じ値では増えず、1,000,000 → 800,000 → 900,000 は新しい順に 3 件', async () => {
-    const { c } = await open();
-    for (const v of ['1000000', '1000000', '800000', '900000']) {
-      c.setField('capital', v);
-      await c.saveSettings();
+describe('口座（#47 AC-1・AC-2・U14・U15）', () => {
+  it('AC-1: 「口座 B」「口座 A」を足すと名前の順に並び、口座 A の資金を直すと値が変わり履歴が 1 件増える', async () => {
+    const { c, fake } = await open({ capitalYen: 1_000_000 });
+    for (const [name, capital] of [
+      ['口座 B', '200,000'],
+      ['口座 A', ''],
+    ] as const) {
+      c.openAccount(null);
+      c.updateAccount('name', name);
+      c.updateAccount('capital', capital);
+      await c.saveAccount();
+      expect(c.getState().notice).toEqual({
+        area: 'accounts',
+        kind: 'ok',
+        text: accountAdded(name),
+      });
     }
-    const h = c.getState().settings?.capitalHistory ?? [];
-    expect(h.map((x) => x.valueYen)).toEqual([1_000_000, 800_000, 900_000]);
-    expect(c.getState().history.map((x) => x.valueYen)).toEqual([900_000, 800_000, 1_000_000]);
-    expect(c.getState().history.every((x) => typeof x.at === 'number')).toBe(true);
+    expect(c.getState().accounts.map((a) => a.name)).toEqual(['口座 1', '口座 A', '口座 B']);
+    expect(posts(fake, '/api/accounts').map((x) => x.body)).toEqual([
+      { name: '口座 B', capitalYen: 200_000, riskTolerancePct: 1 },
+      { name: '口座 A', capitalYen: null, riskTolerancePct: 1 },
+    ]);
+    const a = c.getState().accounts.find((x) => x.name === '口座 A') as AccountRecord;
+    expect(a.capitalHistory).toHaveLength(0);
+    c.openAccount(a.id);
+    expect(c.getState().account?.draft).toEqual({ name: '口座 A', capital: '', risk: '1' });
+    c.updateAccount('capital', '500000');
+    await c.saveAccount();
+    const after = c.getState().accounts.find((x) => x.id === a.id) as AccountRecord;
+    expect(after.capitalYen).toBe(500_000);
+    expect(after.capitalHistory).toHaveLength(1);
+    expect(c.getState().account).toBeNull();
+    expect(c.getState().notice?.text).toBe(accountSaved('口座 A'));
+    // 資金が同じなら履歴は増えない
+    c.openAccount(a.id);
+    c.updateAccount('risk', '1.5');
+    await c.saveAccount();
+    expect(
+      (c.getState().accounts.find((x) => x.id === a.id) as AccountRecord).capitalHistory,
+    ).toHaveLength(1);
+    // 設定（/api/settings）は送らない（KEEP-6）
+    expect(fake.calls.some((x) => x.path === '/api/settings')).toBe(false);
   });
 
-  it.each([
-    ['2', 2, false],
-    ['2.5', 2.5, true],
-  ])('AC-4 E6・E7: 許容リスク %s は保存され、警告は %s', async (raw, want, warn) => {
+  it('AC-2 A6: 「口座 A」があるときに「口座 Ａ」・「 口座 a 」は送らず重複の文言', async () => {
+    const { c, fake } = await open({
+      accounts: [defaultAccount(null), account('accA', '口座 A', null)],
+    });
+    for (const name of ['口座 Ａ', ' 口座 a ']) {
+      c.openAccount(null);
+      c.updateAccount('name', name);
+      await c.saveAccount();
+      expect(c.getState().account?.reading.errors.name, name).toBe(ACCOUNT_MSG.duplicateName);
+    }
+    expect(posts(fake, '/api/accounts')).toHaveLength(0);
+  });
+
+  it('AC-2 A7: 3.5 / 0.4 は送らない。2.5 は警告つきで足せる', async () => {
+    const { c, fake } = await open();
+    c.openAccount(null);
+    c.updateAccount('name', '口座 E');
+    for (const risk of ['3.5', '0.4']) {
+      c.updateAccount('risk', risk);
+      await c.saveAccount();
+      expect(c.getState().account?.reading.errors.risk).toBe(SETTINGS_MSG.risk);
+    }
+    expect(posts(fake, '/api/accounts')).toHaveLength(0);
+    c.updateAccount('risk', '2.5');
+    expect(c.getState().account?.reading.warning).toBe(SETTINGS_MSG.riskWarning);
+    await c.saveAccount();
+    expect(c.getState().accounts.find((a) => a.name === '口座 E')?.riskTolerancePct).toBe(2.5);
+  });
+
+  it('API が 409 を返した（ほかの端末で同じ名前）→ 一覧を取り直して重複の文言', async () => {
+    const { c, fake } = await open();
+    c.openAccount(null);
+    c.updateAccount('name', '口座 Z');
+    fake.accounts.push(account('accZ', '口座 Z', null));
+    await c.saveAccount();
+    expect(c.getState().account?.reading.errors.name).toBe(ACCOUNT_MSG.duplicateName);
+    expect(c.getState().accounts.map((a) => a.name)).toContain('口座 Z');
+  });
+
+  it('通信の失敗の後にもう一度押して 409 なら、届いていたものとして扱う（二重に足さない）', async () => {
+    const { c, fake } = await open({ failOnce: { 'POST /api/accounts': 'throw' } });
+    c.openAccount(null);
+    c.updateAccount('name', '口座 B');
+    await c.saveAccount();
+    expect(c.getState().notice?.text).toBe(ACCOUNT_ADD_NETWORK_FAILED);
+    // 届いていた（偽の API に先に足す）
+    fake.accounts.push(account('accB', '口座 B', null));
+    await c.saveAccount();
+    expect(c.getState().account).toBeNull();
+    expect(c.getState().notice?.text).toBe(accountAdded('口座 B'));
+    expect(c.getState().addedAccountId).toBe('accB');
+  });
+
+  it('同時に開けるのは 1 つ（直す欄を開くと足す欄は閉じる）。やめると閉じる', async () => {
+    const { c } = await open();
+    c.openAccount(null);
+    c.updateAccount('name', '口座 X');
+    c.openAccount('default');
+    expect(c.getState().account?.id).toBe('default');
+    expect(c.getState().account?.draft.name).toBe('口座 1');
+    c.closeAccount();
+    expect(c.getState().account).toBeNull();
+  });
+
+  it('設定済みの資金を空にすると送らない（未設定には戻せない）', async () => {
     const { c, fake } = await open({ capitalYen: 1_000_000 });
-    c.setField('risk', raw);
-    expect(c.getState().reading.warning !== null).toBe(warn);
-    await c.saveSettings();
-    expect(fake.settings().riskTolerancePct).toBe(want);
-    expect(c.getState().reading.warning !== null).toBe(warn);
-  });
-
-  it.each(['0.4', '3.1', ''])('AC-4 E8: 許容リスク %j は保存しない', async (raw) => {
-    const { c, fake } = await open({ capitalYen: 1_000_000 });
-    c.setField('risk', raw);
-    await c.saveSettings();
-    expect(puts(fake)).toHaveLength(0);
-    expect(c.getState().reading.errors.risk).toBe(SETTINGS_MSG.risk);
-  });
-
-  it('KEEP-2: 円にしてある利用者が資金を保存しても performanceUnit は yen のまま', async () => {
-    const { c, fake } = await open({ performanceUnit: 'yen' });
-    c.setField('capital', '1000000');
-    await c.saveSettings();
-    expect(puts(fake)[0]?.body).toMatchObject({ performanceUnit: 'yen' });
-    expect(fake.settings().performanceUnit).toBe('yen');
+    c.openAccount('default');
+    c.updateAccount('capital', '');
+    await c.saveAccount();
+    expect(c.getState().account?.reading.errors.capital).toBe(SETTINGS_MSG.capitalRequired);
+    expect(fake.calls.filter((x) => x.method === 'PUT')).toHaveLength(0);
   });
 
   it('二度押しでも PUT は 1 回', async () => {
     const { c, fake } = await open();
-    c.setField('capital', '1000000');
+    c.openAccount('default');
+    c.updateAccount('capital', '1000000');
     fake.hold();
-    const a = c.saveSettings();
-    const b = c.saveSettings();
-    expect(c.getState().savingSettings).toBe(true);
+    const a = c.saveAccount();
+    const b = c.saveAccount();
+    expect(c.getState().account?.saving).toBe(true);
     fake.release();
     await Promise.all([a, b]);
-    expect(puts(fake)).toHaveLength(1);
-    expect(c.getState().savingSettings).toBe(false);
+    expect(fake.calls.filter((x) => x.method === 'PUT')).toHaveLength(1);
   });
 
   it.each([
     ['500', 500, SETTINGS_SAVE_FAILED],
-    ['400', 400, SETTINGS_SAVE_FAILED],
     ['通信の失敗', 'throw' as const, SETTINGS_NETWORK_FAILED],
   ])('保存の失敗（%s）は決まった文言で、入力は残る', async (_n, f, text) => {
-    const { c } = await open({ failOnce: { 'PUT /api/settings': f } });
-    c.setField('capital', '1000000');
-    await c.saveSettings();
+    const { c } = await open({ failOnce: { 'PUT /api/accounts/default': f } });
+    c.openAccount('default');
+    c.updateAccount('capital', '1000000');
+    await c.saveAccount();
     const s = c.getState();
-    expect(s.notice).toEqual({ area: 'settings', kind: 'error', text });
-    expect(s.draft.capital).toBe('1000000');
+    expect(s.notice).toEqual({ area: 'accounts', kind: 'error', text });
+    expect(s.account?.draft.capital).toBe('1000000');
     expect(JSON.stringify(s)).not.toContain('偽物');
-    // もう一度押せば保存できる（PUT は同じ本文の置き換えなので二重にならない）
-    await c.saveSettings();
-    expect(c.getState().settings?.capitalYen).toBe(1_000_000);
+    await c.saveAccount();
+    expect(c.getState().accounts[0]?.capitalYen).toBe(1_000_000);
   });
 
   it('保存の 401 はログインが切れた（ログインし直す案内）', async () => {
-    const { c } = await open({ fail: { 'PUT /api/settings': 401 } });
-    c.setField('capital', '1000000');
-    await c.saveSettings();
+    const { c } = await open({ fail: { 'PUT /api/accounts/default': 401 } });
+    c.openAccount('default');
+    c.updateAccount('capital', '1000000');
+    await c.saveAccount();
     expect(c.getState().notice).toEqual({
-      area: 'settings',
+      area: 'accounts',
       kind: 'error',
       text: AUTH_EXPIRED,
       auth: true,
     });
   });
 
-  it('打ち直すと前の知らせは消える', async () => {
-    const { c } = await open();
-    c.setField('capital', '1000000');
-    await c.saveSettings();
-    expect(c.getState().notice).not.toBeNull();
-    c.setField('capital', '1000001');
-    expect(c.getState().notice).toBeNull();
+  it('無い口座（404）は決まった文言', async () => {
+    const { c } = await open({ fail: { 'PUT /api/accounts/default': 404 } });
+    c.openAccount('default');
+    c.updateAccount('capital', '1000000');
+    await c.saveAccount();
+    expect(c.getState().notice?.text).toBe(ACCOUNT_NOT_FOUND);
   });
 });
 
@@ -452,19 +479,20 @@ describe('銘柄を足す', () => {
 });
 
 describe('誤りのまま押したときの知らせ（レビュー指摘 5）', () => {
-  it('資金・許容リスク: 送らず、誤りのある欄を role="alert" の知らせで出す', async () => {
+  it('口座: 送らず、誤りのある欄を role="alert" の知らせで出す', async () => {
     const { c, fake } = await open({ capitalYen: 1_000_000 });
-    c.setField('capital', '0');
-    c.setField('risk', '3.1');
-    await c.saveSettings();
-    expect(puts(fake)).toHaveLength(0);
+    c.openAccount('default');
+    c.updateAccount('capital', '0');
+    c.updateAccount('risk', '3.1');
+    await c.saveAccount();
+    expect(fake.calls.filter((x) => x.method === 'PUT')).toHaveLength(0);
     expect(c.getState().notice).toEqual({
-      area: 'settings',
+      area: 'accounts',
       kind: 'error',
       text: '誤りのある欄があります（資金・許容リスク）。直してから、もう一度押してください。',
     });
     // 直し始めたら消える
-    c.setField('capital', '1000000');
+    c.updateAccount('capital', '1000000');
     expect(c.getState().notice).toBeNull();
   });
 
@@ -486,20 +514,28 @@ describe('誤りのまま押したときの知らせ（レビュー指摘 5）',
 });
 
 describe('focusAfter（押した後のフォーカスの移し先。レビュー指摘 5・6）', () => {
-  it('資金と許容リスク: 誤り → 最初の誤りの欄、失敗 → [保存]、成功 → 移さない', async () => {
-    const { c } = await open({ failOnce: { 'PUT /api/settings': 503 } });
-    c.setField('risk', '3.1');
-    await c.saveSettings();
-    expect(focusAfter('settings', c.getState())).toBe('settings-risk');
-    c.setField('capital', '-1');
-    expect(focusAfter('settings', c.getState())).toBe('settings-capital');
-    c.setField('capital', '1000000');
-    c.setField('risk', '1');
-    await c.saveSettings();
+  it('口座: 誤り → 最初の誤りの欄、失敗 → [保存]、保存できた → 移さない、足せた → 新しい行の [直す]（U15）', async () => {
+    const { c } = await open({ failOnce: { 'PUT /api/accounts/default': 503 } });
+    c.openAccount('default');
+    c.updateAccount('risk', '3.1');
+    await c.saveAccount();
+    expect(focusAfter('account', c.getState())).toBe('settings-account-risk');
+    c.updateAccount('capital', '-1');
+    expect(focusAfter('account', c.getState())).toBe('settings-account-capital');
+    c.updateAccount('capital', '1000000');
+    c.updateAccount('risk', '1');
+    await c.saveAccount();
     expect(c.getState().notice?.kind).toBe('error');
-    expect(focusAfter('settings', c.getState())).toBe('settings-save');
-    await c.saveSettings();
-    expect(focusAfter('settings', c.getState())).toBeNull();
+    expect(focusAfter('account', c.getState())).toBe('settings-account-save');
+    await c.saveAccount();
+    expect(focusAfter('account', c.getState())).toBeNull();
+    c.openAccount(null);
+    await c.saveAccount();
+    expect(focusAfter('account', c.getState())).toBe('settings-account-name');
+    c.updateAccount('name', '口座 C');
+    await c.saveAccount();
+    const added = c.getState().addedAccountId as string;
+    expect(focusAfter('account', c.getState())).toBe(`settings-account-edit-${added}`);
   });
 
   it('銘柄: 誤り → 最初の誤りの欄、409 → 名前、失敗 → [保存]、閉じた → 移さない', async () => {

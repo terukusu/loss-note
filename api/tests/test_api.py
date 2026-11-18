@@ -391,6 +391,32 @@ def test_aborted_transaction_is_store_unavailable():
     assert MARKER not in str(e.value) and "users/" not in str(e.value)
 
 
+def test_exhausted_commit_retries_are_store_unavailable():
+    """commit の再試行を使い切った（SDK は Aborted を原因にした ValueError を上げる）も 503 の側。
+    原因が Aborted でない ValueError は写さない（こちらの誤りを隠さない）"""
+    from google.api_core import exceptions as gexc
+
+    from loss_note_api.store import StoreUnavailable, _guard
+
+    @_guard
+    def exhausted():
+        try:
+            raise gexc.Aborted(f"{MARKER} contention")
+        except gexc.Aborted as last:
+            raise ValueError("Failed to commit transaction in 5 attempts.") from last
+
+    with pytest.raises(StoreUnavailable) as e:
+        exhausted()
+    assert MARKER not in str(e.value)
+
+    @_guard
+    def bug():
+        raise ValueError("bug")
+
+    with pytest.raises(ValueError):
+        bug()
+
+
 def _race_once(api, inst_id: str, moved_id: str) -> dict:
     """取引の作成・付け替え・銘柄の削除を同時に走らせ、それぞれの状態を返す"""
     import threading

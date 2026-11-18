@@ -1,6 +1,7 @@
 // 取引を直す画面の純関数（Issue #9 契約 P-2・AC-4）。値はすべて架空。
 // 往復の性質: 記録する画面が作った取引（manual-entry・statement-entry・chart-entry）・全項目の取引（full-record）・
 // 設計書 5.6 の全場面（design-table）を開いて何も変えずに保存した記録が、元の記録と等しい（決まった正規化を除く）
+
 import { describe, expect, it } from 'vitest';
 import type {
   InstrumentBody,
@@ -28,6 +29,7 @@ import {
   snapshotOf,
   summarize,
 } from '../../ui/src/lib/record-form';
+import { defaultAccount } from './helpers/accounts';
 import { CAPITAL_NOW, D1, E1, E2, L1, L3, SNAP_1M, stored, US30 } from './helpers/trade-examples';
 
 const node = (
@@ -154,9 +156,9 @@ describe('snapshotOf の 3 通り（D5。API の update_trade と同じ）', () 
   };
   const ctx = editContext({ ...E1, snapshot: SNAP_1M }, [US30, XAU]);
   it('同じ銘柄 → 写した値のまま', () => {
-    expect(snapshotOf(ctx, US30)).toBe(SNAP_1M);
+    expect(snapshotOf(ctx, US30)).toEqual(SNAP_1M);
     // 銘柄の今の値が変わっていても写した値（C36）
-    expect(snapshotOf(ctx, { ...US30, multiplier: 5 })).toBe(SNAP_1M);
+    expect(snapshotOf(ctx, { ...US30, multiplier: 5 })).toEqual(SNAP_1M);
   });
   it('別の銘柄 → その銘柄の今の値 + 写した資金・許容リスク', () => {
     expect(snapshotOf(ctx, XAU)).toEqual({
@@ -181,7 +183,7 @@ describe('snapshotOf の 3 通り（D5。API の update_trade と同じ）', () 
   it('base が無い（記録する画面）→ 今の設定（変更前と同じ）', () => {
     const plain = {
       instruments: [US30],
-      settings: { capitalYen: CAPITAL_NOW, riskTolerancePct: 2 },
+      accounts: [defaultAccount(CAPITAL_NOW, 2)],
     };
     expect(snapshotOf(plain, US30).capitalYen).toBe(CAPITAL_NOW);
     expect(snapshotOf(plain, US30).riskTolerancePct).toBe(2);
@@ -197,7 +199,7 @@ describe('AC-4: 例 E1・E2', () => {
     expect(initial.lcAfter).toBe('99.2');
     const ctx = editContext(E1, instruments);
     // 今の設定の資金は文脈に入らない（写した資金だけ）
-    expect(ctx.settings.capitalYen).toBe(1_000_000);
+    expect(ctx.base?.snapshot.capitalYen).toBe(1_000_000);
     const draft = applyDraft(initial, { type: 'set', field: 'lcMove', value: 'none' });
     const read = readDraft(draft, ctx);
     expect(read.canSave).toBe(true);
@@ -208,7 +210,7 @@ describe('AC-4: 例 E1・E2', () => {
       read.body as NonNullable<typeof read.body>,
       US30.id,
     );
-    const preview = editPreview(read, merged, editSnapshot(read, ctx));
+    const preview = editPreview(read, merged, editSnapshot(read, ctx, draft));
     expect(preview.judgment?.grade).toBe('A');
     expect(preview.r).toBeCloseTo(-1, 12);
     expect(preview.riskPct).toBeCloseTo(0.5, 12);
@@ -371,7 +373,7 @@ describe('往復の性質: 何も変えずに保存した記録 = 元の記録�
         const preview = editPreview(
           read,
           merged,
-          editSnapshot(read, editContext(trade, instruments)),
+          editSnapshot(read, editContext(trade, instruments), { accountId: '' }),
         );
         const before = summarize({ record: want, snapshot: trade.snapshot });
         expect(preview.judgment?.grade, what).toBe(before.judgment?.grade);

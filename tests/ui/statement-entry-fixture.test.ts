@@ -2,10 +2,12 @@
 // API のテスト（api/tests/test_statement_entry_fixture.py）が同じ fixture を本物の API に通し、201 で受けて
 // 送った本文のまま保存すること（出どころ「明細」・注文の種類「逆指値 / 成行 / 不明」・逆指値を入れた）を確かめる。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/statement-entry-fixture.test.ts` で書き直す
+
 import { describe, expect, it } from 'vitest';
 import type { InstrumentBody, SettingsBody, TradeRecord, TradeSnapshot } from '../../core/record';
 import { DEFAULT_INSTRUMENT, EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
 import { fillFromRow, type ReadRow } from '../../ui/src/lib/statement-fill';
+import { accountsOf } from './helpers/accounts';
 import { ROW_E1, ROW_E7, ROW_E8 } from './helpers/statement-rows';
 
 const node = (
@@ -44,7 +46,7 @@ function item(name: string, row: ReadRow): Item {
     lcMove: 'none' as const,
     timeframeChange: 'none' as const,
   };
-  const read = readDraft(draft, { instruments: [], settings });
+  const read = readDraft(draft, { instruments: [], accounts: accountsOf(settings) });
   if (!read.body || !read.preview.judgment) throw new Error(`${name} が保存できる下書きでない`);
   return {
     name,

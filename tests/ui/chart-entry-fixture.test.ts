@@ -4,11 +4,13 @@
 // 読み戻した record が送ったものと一致することを確かめる。ここでは fixture の record を保存の形として summarize に通し、
 // 読み戻した取引でも同じ判定・理由になることを見る（判定は TS の純関数が正。ADR-0004 決定 6）。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/chart-entry-fixture.test.ts` で書き直す
+
 import { describe, expect, it } from 'vitest';
 import type { Reason } from '../../core/judge';
 import type { InstrumentBody, SettingsBody, TradeRecord, TradeSnapshot } from '../../core/record';
 import { reasonText } from '../../ui/src/lib/reasons';
 import { DEFAULT_INSTRUMENT, readDraft, summarize } from '../../ui/src/lib/record-form';
+import { accountsOf } from './helpers/accounts';
 import { CHART_CASES } from './helpers/chart-drafts';
 
 const node = (
@@ -61,7 +63,11 @@ function texts(record: TradeRecord): { grade: string | undefined; reasons: strin
 function build(): { trades: Item[] } {
   return {
     trades: CHART_CASES.map((c) => {
-      const read = readDraft(c.draft, { instruments: [], settings, charts: c.charts });
+      const read = readDraft(c.draft, {
+        instruments: [],
+        accounts: accountsOf(settings),
+        charts: c.charts,
+      });
       if (!read.body || !read.preview.judgment)
         throw new Error(`${c.name} が保存できる下書きでない`);
       return {
@@ -93,7 +99,11 @@ describe('チャートつきの本文の fixture（Issue #12 AC-4）', () => {
   });
 
   it.each(CHART_CASES)('$name: プレビューの判定と括弧の理由が例の表のとおり', (c) => {
-    const read = readDraft(c.draft, { instruments: [], settings, charts: c.charts });
+    const read = readDraft(c.draft, {
+      instruments: [],
+      accounts: accountsOf(settings),
+      charts: c.charts,
+    });
     expect(read.preview.judgment?.grade).toBe(c.grade);
     expect(shown(read.preview.judgment?.reasons ?? [])).toEqual(c.reasons);
   });

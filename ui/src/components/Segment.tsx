@@ -24,6 +24,21 @@ export interface SegmentProps<V extends string> {
   readonly mark?: string;
   /** 印の要素の ID の元（印を出すときに渡す。空白を含まない） */
   readonly id?: string;
+  /**
+   * 長い項目の名前を 1 行の「…」で省略する（口座の名前。#47 U4）。項目は中身に合わせた幅（短い名前は小さく、
+   * 長い名前が残りを取る。1 つは 60% まで）で、チェックの記号は切らない。全文は項目の文字のまま（読み上げの名前に入る）と
+   * title（ポインタを置くと出る）
+   */
+  readonly truncate?: boolean;
+  /** 部品の下の説明の要素の ID（直す画面で口座を替えたときの 1 行など。#47 U19）。radiogroup の読み上げの説明に結ぶ */
+  readonly describedBy?: string | undefined;
+  /**
+   * truncate のとき、残りの幅を取る項目の位置（長い名前が 1 つだけあるとき。ほかの項目は名前の幅のまま）。
+   * 無ければ等分。どちらでも ✓ の幅はどの項目にも先に取り、選ぶたびに境目が動かない（再レビュー 2・N2）
+   */
+  readonly grow?: number | null | undefined;
+  /** 見出しの右の 1 行（「選択中: 〈名前〉」。1 行・省略・全文は title）。読み上げは radio の名前で足りるので外す */
+  readonly note?: string | null | undefined;
 }
 
 export function Segment<V extends string>(p: SegmentProps<V>) {
@@ -35,27 +50,42 @@ export function Segment<V extends string>(p: SegmentProps<V>) {
         {p.label}
       </span>
     );
+  const note = p.note ? (
+    <span class="seg__note" aria-hidden="true" title={p.note}>
+      {p.note}
+    </span>
+  ) : null;
+  const fit = p.truncate === true && p.grow !== undefined && p.grow !== null;
   return (
     <div class="field">
-      {p.mark ? (
+      {p.mark || note ? (
         <div class="field__head">
           {label}
-          <span id={markId} class="field__mark">
-            {p.mark}
-          </span>
+          {p.mark ? (
+            <span id={markId} class="field__mark">
+              {p.mark}
+            </span>
+          ) : null}
+          {note}
         </div>
       ) : (
         label
       )}
       <div
-        class="seg"
+        class={p.truncate ? (fit ? 'seg seg--truncate seg--fit' : 'seg seg--truncate') : 'seg'}
         role="radiogroup"
         aria-label={p.label}
-        aria-describedby={p.mark ? markId : undefined}
+        aria-describedby={
+          [p.mark ? markId : null, p.describedBy ?? null].filter(Boolean).join(' ') || undefined
+        }
         data-count={p.options.length}
       >
-        {p.options.map((o) => (
-          <label key={o.value} class="seg__item">
+        {p.options.map((o, i) => (
+          <label
+            key={o.value}
+            class={fit && i === p.grow ? 'seg__item seg__item--grow' : 'seg__item'}
+            title={p.truncate ? o.label : undefined}
+          >
             <input
               class="seg__input"
               type="radio"
@@ -64,9 +94,13 @@ export function Segment<V extends string>(p: SegmentProps<V>) {
               checked={o.value === p.value}
               onChange={() => p.onChange(o.value)}
             />
-            {o.value === p.value ? <Icon name="check" class="seg__check" /> : null}
+            {o.value === p.value ? (
+              <Icon name="check" class="seg__check" />
+            ) : p.truncate ? (
+              <Icon name="check" class="seg__check seg__check--off" />
+            ) : null}
             {o.icon ? <Icon name={o.icon} /> : null}
-            <span>{o.label}</span>
+            <span class={p.truncate ? 'seg__text' : undefined}>{o.label}</span>
           </label>
         ))}
       </div>

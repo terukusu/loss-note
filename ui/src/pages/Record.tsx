@@ -9,15 +9,31 @@
 // 判定・R は core/ の結果だけを出す。色は判定の段（バッジと結果の枠）だけ、数字は無色（C34）。
 // 密度と階層（Issue #33）: 判定の枠は 3 つのタップのすぐ後。貼り付きの帯は 1 段（1 行の状態の文 + [記録する]）で、
 // 欄の名前は判定の枠の案内に出す。タップの後に判定が出ていれば、判定の枠を見える範囲へ寄せる（フォーカスは動かさない）
+// 口座（Issue #47 PR-1）: 口座が 2 つ以上なら「取引」の先頭に口座の欄と、判定の枠に「口座 A の資金 … に対して」の 1 行。
+// 「取引」の見出しの行の右端の [＋ 口座を足す] で、その場で名前と資金だけで足せる（設定の画面に移らない）
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Side } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
+import {
+  AccountAddButton,
+  AccountAddForm,
+  ADD_ACCOUNT_BUTTON_ID,
+  NEW_ACCOUNT_NAME_ID,
+} from '../components/AccountAdd';
+import { ACCOUNT_FIELD_ID } from '../components/AccountField';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
 import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
 import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
 import { VERDICT_TITLE_ID, Verdict } from '../components/Verdict';
+import {
+  findAccount,
+  hasManyAccounts,
+  savedText,
+  selectedAccountId,
+  verdictAsideText,
+} from '../lib/accounts';
 import {
   CHART_SLOT_TEXT,
   CHART_SLOTS,
@@ -132,6 +148,15 @@ export function RecordScreen() {
   const focusSoon = (id: string) => {
     setTimeout(() => document.getElementById(id)?.focus(), 0);
   };
+  /** 口座を足せた後: 選ばれた口座の項目（Segment の選ばれた radio か select）へ（U7） */
+  const focusAccount = () => {
+    setTimeout(() => {
+      const el =
+        document.querySelector<HTMLElement>(`input[name="${ACCOUNT_FIELD_ID}"]:checked`) ??
+        document.getElementById(ACCOUNT_FIELD_ID);
+      el?.focus();
+    }, 0);
+  };
 
   /**
    * 3 つのタップ（と LC の「なし」）の後、判定が出ていれば判定のバッジと R の行を見える範囲へ寄せる（AC-3）。見えていれば
@@ -187,6 +212,21 @@ export function RecordScreen() {
         // [外す] の後は枠へフォーカスを戻す（ボタンは消える）
         focusSoon(chartBoxId(slot));
       }}
+      onOpenAddAccount={() => {
+        controller.openAddAccount();
+        focusSoon(NEW_ACCOUNT_NAME_ID);
+      }}
+      onCloseAddAccount={() => {
+        controller.closeAddAccount();
+        focusSoon(ADD_ACCOUNT_BUTTON_ID);
+      }}
+      onNewAccount={controller.setNewAccount}
+      onAddAccount={() => {
+        void controller.addAccount().then(() => {
+          // 足せたら欄は閉じ、選ばれた口座へ。足せなければ欄に残る（誤りの欄・知らせ）
+          if (!controller.getState().addAccount) focusAccount();
+        });
+      }}
       onSkipRow={() => {
         controller.skipRow();
         // 最後の行を飛ばすとボタンは消える（読み取りを終えて空の下書き）。枠の見出しへ
@@ -217,6 +257,11 @@ export interface RecordViewProps {
   readonly onPickChart?: (slot: ChartSlot, file: File) => void;
   /** チャートの [外す] */
   readonly onRemoveChart?: (slot: ChartSlot) => void;
+  /** [＋ 口座を足す]・[やめる]・欄の入力・[足す]（#47） */
+  readonly onOpenAddAccount?: () => void;
+  readonly onCloseAddAccount?: () => void;
+  readonly onNewAccount?: (field: 'name' | 'capital', value: string) => void;
+  readonly onAddAccount?: () => void;
 }
 
 const FIRST_FIELD_ID = 'record-instrument';
@@ -295,7 +340,7 @@ function SavedPanel(p: RecordViewProps) {
       <Verdict
         summary={saved.summary}
         side={r.side}
-        status="記録しました"
+        status={savedText(saved.accountCount, saved.accountName)}
         caption={`${saved.instrumentName} · ${r.side === 'L' ? 'L ロング' : 'S ショート'} · イン ${formatPrice(entry.price)} → 決済 ${formatPrice(r.exit.price)} · 数量 ${formatPrice(entry.quantity)}`}
         {...(charts > 0 ? { note: `チャート ${charts} 枚も保存しました` } : {})}
       />
@@ -328,6 +373,14 @@ function RecordForm(p: RecordViewProps) {
   // 押せない理由（判定の枠の案内。[記録する] の読み上げの説明に結ぶ）と、帯の 1 行の状態の文
   const reason = blockReason(read, errorLabels);
   const describe = !read.canSave && reason !== null ? VERDICT_HINT_ID : undefined;
+  // 口座（#47）: 選んでいる口座と、2 つ以上のときの判定の枠の 1 行（U10）
+  const accountId = selectedAccountId(d.accountId);
+  const account = findAccount(accountId, state.accounts);
+  const accountLine =
+    hasManyAccounts(state.accounts) && account
+      ? verdictAsideText(account.name, account.capitalYen)
+      : undefined;
+  const add = state.addAccount;
 
   return (
     <form
@@ -349,11 +402,35 @@ function RecordForm(p: RecordViewProps) {
           instruments={state.instruments}
           marks={marks}
           onUpdate={onUpdate}
+          accounts={state.accounts}
+          accountId={accountId}
+          accountAction={
+            <AccountAddButton
+              open={add !== undefined}
+              busy={add?.saving === true}
+              onOpen={() => p.onOpenAddAccount?.()}
+              onClose={() => p.onCloseAddAccount?.()}
+            />
+          }
+          {...(add
+            ? {
+                accountAdd: (
+                  <AccountAddForm
+                    state={add}
+                    onField={(f, v) => p.onNewAccount?.(f, v)}
+                    onAdd={() => p.onAddAccount?.()}
+                    onClose={() => p.onCloseAddAccount?.()}
+                    onRelogin={p.onRelogin}
+                  />
+                ),
+              }
+            : {})}
         />
 
         <Verdict
           summary={read.preview}
           side={side ?? 'L'}
+          {...(accountLine === undefined ? {} : { account: accountLine })}
           gapSlip={
             read.preview.showGapSlip ? (
               <Segment

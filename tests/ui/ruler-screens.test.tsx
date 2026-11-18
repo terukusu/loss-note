@@ -104,6 +104,7 @@ function detailState(t: StoredTrade): DetailState {
     phase: 'ready',
     trade: t,
     instruments: INSTRUMENTS,
+    accounts: [],
     instrumentName: 'US30',
     summary: summarize(t),
     charts: {
@@ -135,7 +136,7 @@ function stateFor(d: Draft, ctx: DraftContext, over: Partial<RecordState> = {}):
     phase: 'editing',
     draft: d,
     instruments: ctx.instruments,
-    settings: ctx.settings,
+    accounts: ctx.accounts,
     read: readDraft(d, ctx),
     error: null,
     ...over,
@@ -180,7 +181,13 @@ function savedFrom(d: Draft): RecordState {
   };
   return stateFor(d, CAPITAL_1M, {
     phase: 'saved',
-    saved: { trade, instrumentName: 'US30', summary: summarize(trade) },
+    saved: {
+      trade,
+      instrumentName: 'US30',
+      summary: summarize(trade),
+      accountName: '口座 1',
+      accountCount: 1,
+    },
   });
 }
 
@@ -431,7 +438,7 @@ describe('直す画面のプレビューにも詳細と同じ物差し（Phase 4
       read.body as NonNullable<typeof read.body>,
       t.record.instrumentId,
     );
-    const preview = editPreview(read, merged, editSnapshot(read, ctx));
+    const preview = editPreview(read, merged, editSnapshot(read, ctx, initial));
     expect(preview.ruler).toBeDefined();
     expect(preview.ruler).toEqual(summarize(t).ruler);
   });

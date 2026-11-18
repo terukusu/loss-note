@@ -1,7 +1,8 @@
 // 取引の一覧・ホームの通信と状態（Issue #9 契約 U-1）。DOM を持たず、画面（pages/Trades.tsx・Home.tsx）は購読して描くだけ。
-// 開いたら取引と銘柄を並行に読む（全件。ページ分けは別 Issue）。失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。
+// 開いたら取引・銘柄・口座（#47。行に口座の名前を出すか）を並行に読む（全件。ページ分けは別 Issue）。
+// 失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。
 // 消した印（[元に戻す] を待つ取引）で隠すのは画面の側（deletions.ts の hidden を visibleTrades に通す）
-import type { InstrumentRecord, StoredTrade } from '../../../core/record';
+import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
 import {
   type ApiFn,
   AUTH_EXPIRED,
@@ -23,6 +24,7 @@ export type TradesState =
       readonly phase: 'ready';
       readonly trades: readonly StoredTrade[];
       readonly instruments: readonly InstrumentRecord[];
+      readonly accounts: readonly AccountRecord[];
     };
 
 export interface TradesController {
@@ -58,13 +60,16 @@ export function createTradesController(deps: {
       const my = ++gen;
       set({ phase: 'loading' });
       try {
-        const [t, i] = await Promise.all([
+        const [t, i, a] = await Promise.all([
           request('/api/trades').then((r) => getJson<{ items: StoredTrade[] }>(r, 200)),
           request('/api/instruments').then((r) => getJson<{ items: InstrumentRecord[] }>(r, 200)),
+          request('/api/accounts').then((r) => getJson<{ items: AccountRecord[] }>(r, 200)),
         ]);
-        if (!Array.isArray(t?.items) || !Array.isArray(i?.items)) throw new Failed('other');
+        if (!Array.isArray(t?.items) || !Array.isArray(i?.items) || !Array.isArray(a?.items)) {
+          throw new Failed('other');
+        }
         if (my !== gen) return;
-        set({ phase: 'ready', trades: t.items, instruments: i.items });
+        set({ phase: 'ready', trades: t.items, instruments: i.items, accounts: a.items });
       } catch (e) {
         if (my !== gen) return;
         const kind = kindOf(e);

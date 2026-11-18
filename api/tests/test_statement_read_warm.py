@@ -237,7 +237,8 @@ def test_expired_slot_is_discarded(make, sdk, sys_tmp, capfd, monkeypatch):
     assert res.status_code == 200
     assert [ln["cli"] for ln in read_logs(capfd)] == ["cold"]
     deadline = time.monotonic() + 5
-    while sdk.closed < 2 and time.monotonic() < deadline:
+    # 捨てた先立ては、閉じた後に一時ディレクトリを消す（閉じた数だけを待つと、消す前に確かめて揺れる）
+    while (sdk.closed < 2 or files(sys_tmp)) and time.monotonic() < deadline:
         time.sleep(0.01)
     assert sdk.closed == 2 and files(sys_tmp) == []
     assert sdk.calls[0]["message"] is None  # 捨てた先立てには何も送っていない

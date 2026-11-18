@@ -1,7 +1,10 @@
 // 取引の欄（記録する画面 #13 と直す画面 #9 が共有する。Issue #9 で Record.tsx から出した。id・クラス・文言・順は同じ）。
 // TradeMainFields = 「取引」「LC」「3 つのタップ」の 3 つの枠、TradeMoreFields = 畳んだ「ほかの欄（任意）」。
 // hook を持たない（テストは関数を呼んで木にする）。値はテキストのノードだけ（HTML の文字列を DOM に入れない）
-import type { InstrumentRecord } from '../../../core/record';
+// 口座（#47）: 「取引」の先頭（銘柄の上）に口座の欄（口座が 2 つ以上のとき）。記録する画面は見出しの行の右端に
+// [＋ 口座を足す]（accountAction）と、開いたときの 2 欄（accountAdd。開いている間は口座の欄を隠す）を渡す
+import type { ComponentChildren } from 'preact';
+import type { AccountRecord, InstrumentRecord } from '../../../core/record';
 import type { ExitReason, TimeframeChange } from '../../../core/trade';
 import {
   type Draft,
@@ -12,6 +15,7 @@ import {
   lcMoveLabel,
 } from '../lib/record-form';
 import { MARK_LABEL, type Marks } from '../lib/statement-fill';
+import { AccountField } from './AccountField';
 import { Icon } from './Icon';
 import { NumberField } from './NumberField';
 import { Segment } from './Segment';
@@ -24,6 +28,16 @@ export interface TradeFieldsProps {
   /** 明細の読み取りの印（記録する画面だけ。#15） */
   readonly marks: Marks;
   readonly onUpdate: (action: DraftAction) => void;
+  /** 口座（名前の順。#47。2 つ以上で欄を出す） */
+  readonly accounts?: readonly AccountRecord[];
+  /** 選んでいる口座の ID（空の下書きは既定の口座 / 元の口座に読み替えた値） */
+  readonly accountId?: string;
+  /** 口座の欄の下の 1 行（直す画面で口座を替えたとき。U19） */
+  readonly accountHint?: string | null;
+  /** 「取引」の見出しの行の右端（記録する画面の [＋ 口座を足す]） */
+  readonly accountAction?: ComponentChildren;
+  /** 見出しの下に開く口座を足す欄（開いている間は口座の欄を隠す） */
+  readonly accountAdd?: ComponentChildren;
 }
 
 export const INSTRUMENT_LIST_ID = 'record-instruments';
@@ -68,9 +82,28 @@ export function TradeMainFields(p: TradeFieldsProps) {
   return (
     <>
       <section class="card section" aria-labelledby="record-trade-title">
-        <h2 class="section__title" id="record-trade-title">
-          取引
-        </h2>
+        {p.accountAction ? (
+          <div class="section__head">
+            <h2 class="section__title" id="record-trade-title">
+              取引
+            </h2>
+            {p.accountAction}
+          </div>
+        ) : (
+          <h2 class="section__title" id="record-trade-title">
+            取引
+          </h2>
+        )}
+        {p.accountAdd ? (
+          p.accountAdd
+        ) : p.accounts && p.accountId !== undefined ? (
+          <AccountField
+            accounts={p.accounts}
+            value={p.accountId}
+            onChange={set('accountId')}
+            {...(p.accountHint ? { hint: p.accountHint } : {})}
+          />
+        ) : null}
         <TextField
           id="record-instrument"
           label="銘柄"

@@ -46,7 +46,7 @@ function fakePreviewer() {
 const settle = () => new Promise((ok) => setTimeout(ok, 0));
 
 describe('一覧・ホームの controller', () => {
-  it('取引と銘柄を並行に読み、ready', async () => {
+  it('取引・銘柄・口座を並行に読み、ready', async () => {
     const fake = createFakeApi({ trades: [L1, L2, L3], instruments: [US30] });
     const c = createTradesController({ api: fake.api });
     await c.load();
@@ -56,6 +56,7 @@ describe('一覧・ホームの controller', () => {
     expect(s.trades.map((t) => t.id)).toEqual(['l2', 'l3', 'l1']);
     expect(s.instruments).toEqual([US30]);
     expect(fake.calls.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
+      'GET /api/accounts',
       'GET /api/instruments',
       'GET /api/trades',
     ]);

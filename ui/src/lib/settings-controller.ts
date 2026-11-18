@@ -1,12 +1,25 @@
-// 設定の画面の通信と状態（Issue #5 契約）。DOM を持たず、画面（pages/Settings.tsx）は購読して描くだけ。
-// - 開いたら設定と銘柄を並行に読む。読めていない間は保存を送らない（既定の performanceUnit で上書きしない。KEEP-2）
-// - 資金と許容リスクは 1 つの [保存]（PUT /api/settings は 3 欄を丸ごと。performanceUnit は読んだ値のまま）。
-//   銘柄は 1 件ずつ開いて 7 欄を直し [保存]（PUT /api/instruments/<id>）、名前だけで [足す]（POST。既定は API が埋める。C21）
+// 設定の画面の通信と状態（Issue #5 契約・#47 PR-1）。DOM を持たず、画面（pages/Settings.tsx）は購読して描くだけ。
+// - 開いたら口座と銘柄を並行に読む（GET /api/accounts は既定の口座が無ければ設定から 1 回だけ作る = 移し替え。#47）。
+//   設定（/api/settings）は読まない・送らない（資金・許容リスクは口座に移した。performanceUnit を書き換えない。KEEP-6）
+// - 口座（#47 U12〜U15）: 一覧・1 件だけ開く直す（名前・資金・許容リスク。PUT /api/accounts/<id>）・足す
+//   （POST /api/accounts）。口座の枠で同時に開けるのは 1 つ（直す欄か足す欄）
+// - 銘柄は 1 件ずつ開いて 7 欄を直し [保存]（PUT /api/instruments/<id>）、名前だけで [足す]（POST。既定は API が埋める。C21）
 // - 誤りのある下書きは送らない。実行中は同じ Promise を返す（二重に送らない）
 // - 失敗は決まった文言だけを状態に置く（応答の本文・例外の文字列を持たない）。401・ログインしていない = ログインが切れた
 // - 足す要求が時間切れ・通信の失敗になったときは届いた可能性がある。次に押して 409 なら、届いていたものとして一覧を取り直す
 // - 状態は記憶の中だけ（端末の保存先に書かない）
-import type { InstrumentRecord, SettingsRecord } from '../../../core/record';
+import type { AccountRecord, InstrumentRecord } from '../../../core/record';
+import {
+  ACCOUNT_FIELD_LABEL,
+  ACCOUNT_MSG,
+  type AccountDraft,
+  type AccountField,
+  type AccountReading,
+  accountDraftOf,
+  EMPTY_ACCOUNT_DRAFT,
+  readAccountDraft,
+  sortAccounts,
+} from './accounts';
 import { nameKey } from './instrument-name';
 import {
   type ApiFn,
@@ -23,8 +36,6 @@ import {
   EMPTY_INSTRUMENT_READING,
   errorFieldsOf,
   errorFieldsText,
-  type HistoryRow,
-  historyRows,
   INSTRUMENT_FIELD_LABEL,
   type InstrumentDraft,
   type InstrumentField,
@@ -32,13 +43,7 @@ import {
   instrumentDraftOf,
   readInstrumentDraft,
   readNewInstrumentName,
-  readSettingsDraft,
-  SETTINGS_FIELD_LABEL,
   SETTINGS_MSG,
-  type SettingsDraft,
-  type SettingsField,
-  type SettingsReading,
-  settingsDraftOf,
   sortInstruments,
 } from './settings-form';
 
@@ -52,16 +57,21 @@ export const ADD_FAILED = '足せませんでした。もう一度 [足す] を�
 export const ADD_NETWORK_FAILED =
   'つながりません。もう一度 [足す] を押してください（届いていた銘柄は二重に足しません）。';
 export const INSTRUMENT_NOT_FOUND = 'この銘柄は見つかりません。読み込み直してください。';
-export const SETTINGS_SAVED = '保存しました。これから記録する取引に効きます。';
+export const ACCOUNT_NOT_FOUND = 'この口座は見つかりません。読み込み直してください。';
+export const ACCOUNT_ADD_NETWORK_FAILED =
+  'つながりません。もう一度 [足す] を押してください（届いていた口座は二重に足しません）。';
 export const instrumentSaved = (name: string) =>
   `${name} を保存しました。これから記録する取引に効きます。`;
 export const instrumentAdded = (name: string) => `${name} を足しました。`;
+export const accountSaved = (name: string) =>
+  `${name} を保存しました。これから記録する取引に効きます。`;
+export const accountAdded = (name: string) => `${name} を足しました。`;
 
 export type SettingsPhase = 'loading' | 'loadFailed' | 'ready';
 
 /** 知らせ（どのカードに出すか・成功か失敗か） */
 export interface SettingsNotice {
-  readonly area: 'settings' | 'instruments';
+  readonly area: 'accounts' | 'instruments';
   readonly kind: 'ok' | 'error';
   readonly text: string;
   /** ログインが切れた（[ログインし直す] を出す） */
@@ -75,18 +85,25 @@ export interface EditingInstrument {
   readonly saving: boolean;
 }
 
+/** 口座の直す欄・足す欄（id = null は足す欄） */
+export interface EditingAccount {
+  readonly id: string | null;
+  readonly draft: AccountDraft;
+  readonly reading: AccountReading<unknown>;
+  readonly saving: boolean;
+}
+
 export interface SettingsState {
   readonly phase: SettingsPhase;
   /** 読み込みの失敗の文言 */
   readonly error: string | null;
   readonly errorKind?: FailureKind;
-  /** 読んだ（保存した）設定。読めるまでは null */
-  readonly settings: SettingsRecord | null;
-  /** 資金の履歴（新しい順） */
-  readonly history: readonly HistoryRow[];
-  readonly draft: SettingsDraft;
-  readonly reading: SettingsReading;
-  readonly savingSettings: boolean;
+  /** 口座（名前の順。#47） */
+  readonly accounts: readonly AccountRecord[];
+  /** 開いている口座の直す欄・足す欄（口座の枠で 1 つだけ） */
+  readonly account: EditingAccount | null;
+  /** いま足した口座の ID（フォーカスを新しい行の [直す] へ移す。U15） */
+  readonly addedAccountId: string | null;
   /** 銘柄（名前の順） */
   readonly instruments: readonly InstrumentRecord[];
   readonly editing: EditingInstrument | null;
@@ -101,8 +118,12 @@ export interface SettingsController {
   /** 購読（すぐに今の状態を 1 回知らせる）。やめる関数を返す */
   subscribe(fn: (s: SettingsState) => void): () => void;
   load(): Promise<void>;
-  setField(field: SettingsField, value: string): void;
-  saveSettings(): Promise<void>;
+  /** 口座の [直す]（id）・[＋ 口座を足す]（null）。別の欄を開くと前の下書きは捨てる */
+  openAccount(id: string | null): void;
+  closeAccount(): void;
+  updateAccount(field: AccountField, value: string): void;
+  /** 直す欄なら PUT、足す欄なら POST */
+  saveAccount(): Promise<void>;
   /** 1 件だけ開く（別の行を開くと前の下書きは捨てる） */
   openInstrument(id: string): void;
   closeInstrument(): void;
@@ -112,23 +133,23 @@ export interface SettingsController {
   addInstrument(): Promise<void>;
 }
 
-const EMPTY_DRAFT: SettingsDraft = { capital: '', risk: '1' };
-const EMPTY_READING: SettingsReading = { errors: {}, warning: null, body: null };
+const EMPTY_ACCOUNT_READING: AccountReading<unknown> = { errors: {}, warning: null, body: null };
 
 function saveMessage(kind: FailureKind): Pick<SettingsNotice, 'text' | 'auth'> {
   if (kind === 'auth') return { text: AUTH_EXPIRED, auth: true };
   return { text: kind === 'network' ? SETTINGS_NETWORK_FAILED : SETTINGS_SAVE_FAILED };
 }
 
-function isSettings(v: unknown): v is SettingsRecord {
-  const s = v as SettingsRecord | null;
+function isAccount(v: unknown): v is AccountRecord {
+  const a = v as AccountRecord | null;
   return (
-    s !== null &&
-    typeof s === 'object' &&
-    typeof s.riskTolerancePct === 'number' &&
-    (s.capitalYen === null || typeof s.capitalYen === 'number') &&
-    (s.performanceUnit === 'R' || s.performanceUnit === 'yen') &&
-    Array.isArray(s.capitalHistory)
+    a !== null &&
+    typeof a === 'object' &&
+    typeof a.id === 'string' &&
+    typeof a.name === 'string' &&
+    typeof a.riskTolerancePct === 'number' &&
+    (a.capitalYen === null || typeof a.capitalYen === 'number') &&
+    Array.isArray(a.capitalHistory)
   );
 }
 
@@ -141,11 +162,9 @@ export function createSettingsController(deps: {
   let state: SettingsState = {
     phase: 'loading',
     error: null,
-    settings: null,
-    history: [],
-    draft: EMPTY_DRAFT,
-    reading: EMPTY_READING,
-    savingSettings: false,
+    accounts: [],
+    account: null,
+    addedAccountId: null,
     instruments: [],
     editing: null,
     newName: '',
@@ -153,7 +172,7 @@ export function createSettingsController(deps: {
     adding: false,
     notice: null,
   };
-  let savingSettings: Promise<void> | null = null;
+  let savingAccount: Promise<void> | null = null;
   let savingInstrument: Promise<void> | null = null;
   let adding: Promise<void> | null = null;
   /** [足す] を押した（空の名前の誤りを出す） */
@@ -162,11 +181,36 @@ export function createSettingsController(deps: {
   let uncertainAdd: string | null = null;
   /** API が 409 を返した名前の鍵（直している銘柄） */
   let nameTaken: string | null = null;
+  /** 口座: [保存] / [足す] を押した（空の名前の誤りを出す）・409 の名前の鍵・届いたか分からない足す要求の名前の鍵 */
+  let accountTried = false;
+  let accountTaken: string | null = null;
+  let uncertainAccount: string | null = null;
+
+  /** 口座の欄の読み取り（直す欄は直す前の資金で「未設定に戻せない」を見る。足す欄は資金の空 = 未設定） */
+  const readAccount = (
+    ed: EditingAccount,
+    accounts: readonly AccountRecord[],
+  ): AccountReading<unknown> => {
+    const saved =
+      ed.id === null ? null : (accounts.find((a) => a.id === ed.id)?.capitalYen ?? null);
+    const r = readAccountDraft(ed.draft, accounts, ed.id, saved);
+    const errors: Partial<Record<AccountField, string>> = { ...r.errors };
+    // 足す欄の名前が空の誤りは [足す] を押した後だけ（開いた直後に赤くしない）
+    if (errors.name === ACCOUNT_MSG.nameRequired && !accountTried && ed.id === null) {
+      delete errors.name;
+    }
+    if (!errors.name && accountTaken !== null && nameKey(ed.draft.name) === accountTaken) {
+      errors.name = ACCOUNT_MSG.duplicateName;
+    }
+    return { ...r, errors, body: r.body !== null && !errors.name ? r.body : null };
+  };
 
   /** 状態を更新し、下書きの読み取りを作り直して知らせる */
   const set = (patch: Partial<SettingsState>) => {
     const next = { ...state, ...patch };
-    const reading = next.settings ? readSettingsDraft(next.draft, next.settings) : EMPTY_READING;
+    const account = next.account
+      ? { ...next.account, reading: readAccount(next.account, next.accounts) }
+      : null;
     let editing = next.editing;
     if (editing) {
       let r = readInstrumentDraft(editing.draft, next.instruments, editing.id);
@@ -181,9 +225,8 @@ export function createSettingsController(deps: {
     state = {
       ...rest,
       ...(rest.error === null || errorKind === undefined ? {} : { errorKind }),
-      reading,
+      account,
       editing,
-      history: next.settings ? historyRows(next.settings.capitalHistory) : [],
       newNameError: named && !nn.ok ? nn.error : null,
     };
     for (const fn of listeners) fn(state);
@@ -195,15 +238,24 @@ export function createSettingsController(deps: {
     return sortInstruments(i.items);
   };
 
+  const listAccounts = async (): Promise<AccountRecord[]> => {
+    const a = await getJson<{ items: unknown[] }>(await request('/api/accounts'), 200);
+    if (!Array.isArray(a.items) || !a.items.every(isAccount)) throw new Failed('other');
+    return sortAccounts(a.items);
+  };
+
   const load = async () => {
-    set({ phase: 'loading', error: null, notice: null, editing: null });
+    set({
+      phase: 'loading',
+      error: null,
+      notice: null,
+      editing: null,
+      account: null,
+      addedAccountId: null,
+    });
     try {
-      const [s, items] = await Promise.all([
-        request('/api/settings').then((r) => getJson<unknown>(r, 200)),
-        listInstruments(),
-      ]);
-      if (!isSettings(s)) throw new Failed('other');
-      set({ phase: 'ready', settings: s, draft: settingsDraftOf(s), instruments: items });
+      const [accounts, items] = await Promise.all([listAccounts(), listInstruments()]);
+      set({ phase: 'ready', accounts, instruments: items });
     } catch (e) {
       const kind = kindOf(e);
       set({
@@ -214,36 +266,96 @@ export function createSettingsController(deps: {
     }
   };
 
-  const doSaveSettings = async () => {
-    const body = state.reading.body;
-    if (state.phase !== 'ready' || !state.settings) return;
+  const doSaveAccount = async () => {
+    const ed0 = state.account;
+    if (state.phase !== 'ready' || !ed0 || ed0.saving) return;
+    accountTried = true;
+    set({});
+    const ed = state.account;
+    if (!ed) return;
+    const body = ed.reading.body;
     if (body === null) {
       // 誤りがあれば送らず、どの欄かを知らせる（画面は最初の誤りの欄へフォーカスを移す）
-      const labels = errorFieldsOf(state.reading.errors, SETTINGS_FIELD_LABEL).map(
-        (f) => SETTINGS_FIELD_LABEL[f],
+      const labels = errorFieldsOf(ed.reading.errors, ACCOUNT_FIELD_LABEL).map(
+        (f) => ACCOUNT_FIELD_LABEL[f],
       );
-      set({ notice: { area: 'settings', kind: 'error', text: errorFieldsText(labels) } });
+      set({ notice: { area: 'accounts', kind: 'error', text: errorFieldsText(labels) } });
       return;
     }
-    set({ savingSettings: true, notice: null });
+    const sent = body as { readonly name: string };
+    const key = nameKey(sent.name);
+    set({ account: { ...ed, saving: true }, notice: null });
+    const done = (patch: Partial<SettingsState>) => {
+      const cur = state.account;
+      set({
+        ...(cur && cur.id === ed.id ? { account: { ...cur, saving: false } } : {}),
+        ...patch,
+      });
+    };
+    /** 足せた・保存できた: 欄を閉じて一覧を直す */
+    const finished = (accounts: AccountRecord[], saved: AccountRecord, added: boolean) => {
+      accountTried = false;
+      accountTaken = null;
+      uncertainAccount = null;
+      set({
+        account: null,
+        accounts,
+        addedAccountId: added ? saved.id : null,
+        notice: {
+          area: 'accounts',
+          kind: 'ok',
+          text: added ? accountAdded(saved.name) : accountSaved(saved.name),
+        },
+      });
+    };
     try {
-      const res = await request('/api/settings', {
-        method: 'PUT',
-        headers: JSON_HEADERS,
-        body: JSON.stringify(body),
-      });
-      const saved = await getJson<unknown>(res, 200);
-      if (!isSettings(saved)) throw new Failed('other');
-      set({
-        savingSettings: false,
-        settings: saved,
-        draft: settingsDraftOf(saved),
-        notice: { area: 'settings', kind: 'ok', text: SETTINGS_SAVED },
-      });
+      let res: Response;
+      try {
+        res = await request(
+          ed.id === null ? '/api/accounts' : `/api/accounts/${encodeURIComponent(ed.id)}`,
+          {
+            method: ed.id === null ? 'POST' : 'PUT',
+            headers: JSON_HEADERS,
+            body: JSON.stringify(body),
+          },
+        );
+      } catch (e) {
+        if (ed.id === null && kindOf(e) === 'network') uncertainAccount = key;
+        throw e;
+      }
+      if (res.status === 409) {
+        const wasUncertain = ed.id === null && uncertainAccount === key;
+        uncertainAccount = null;
+        const list = await listAccounts();
+        const hit = list.find((a) => nameKey(a.name) === key);
+        if (wasUncertain && hit) {
+          finished(list, hit, true);
+          return;
+        }
+        accountTaken = key;
+        done({ accounts: list });
+        return;
+      }
+      if (res.status === 404) {
+        done({ notice: { area: 'accounts', kind: 'error', text: ACCOUNT_NOT_FOUND } });
+        return;
+      }
+      const saved = await getJson<unknown>(res, ed.id === null ? 201 : 200);
+      if (!isAccount(saved)) throw new Failed('other');
+      const rest = state.accounts.filter((a) => a.id !== saved.id);
+      finished(sortAccounts([...rest, saved]), saved, ed.id === null);
     } catch (e) {
-      set({
-        savingSettings: false,
-        notice: { area: 'settings', kind: 'error', ...saveMessage(kindOf(e)) },
+      const kind = kindOf(e);
+      done({
+        notice: {
+          area: 'accounts',
+          kind: 'error',
+          ...(ed.id === null && kind === 'network'
+            ? { text: ACCOUNT_ADD_NETWORK_FAILED }
+            : ed.id === null && kind === 'other'
+              ? { text: ADD_FAILED }
+              : saveMessage(kind)),
+        },
       });
     }
   };
@@ -374,17 +486,42 @@ export function createSettingsController(deps: {
       };
     },
     load,
-    setField(field, value) {
-      if (state.phase !== 'ready' || state.savingSettings) return;
-      set({ draft: { ...state.draft, [field]: value }, notice: null });
-    },
-    saveSettings: () =>
-      once(
-        () => savingSettings,
-        (p) => {
-          savingSettings = p;
+    openAccount(id) {
+      if (state.phase !== 'ready' || state.account?.saving) return;
+      const rec = id === null ? undefined : state.accounts.find((a) => a.id === id);
+      if (id !== null && !rec) return;
+      accountTried = false;
+      accountTaken = null;
+      set({
+        account: {
+          id,
+          draft: rec ? accountDraftOf(rec) : EMPTY_ACCOUNT_DRAFT,
+          reading: EMPTY_ACCOUNT_READING,
+          saving: false,
         },
-        doSaveSettings,
+        addedAccountId: null,
+        notice: null,
+      });
+    },
+    closeAccount() {
+      if (!state.account || state.account.saving) return;
+      accountTried = false;
+      accountTaken = null;
+      set({ account: null });
+    },
+    updateAccount(field, value) {
+      const ed = state.account;
+      if (!ed || ed.saving) return;
+      if (field === 'name' && value.trim() === '' && ed.id === null) accountTried = false;
+      set({ account: { ...ed, draft: { ...ed.draft, [field]: value } }, notice: null });
+    },
+    saveAccount: () =>
+      once(
+        () => savingAccount,
+        (p) => {
+          savingAccount = p;
+        },
+        doSaveAccount,
       ),
     openInstrument(id) {
       if (state.phase !== 'ready' || state.editing?.saving) return;
@@ -436,10 +573,13 @@ export function createSettingsController(deps: {
 }
 
 /** 欄の要素の ID（画面の部品と同じ。誤りの欄へフォーカスを移すときに使う） */
-export const SETTINGS_FIELD_ID: Readonly<Record<SettingsField, string>> = {
-  capital: 'settings-capital',
-  risk: 'settings-risk',
+export const ACCOUNT_FIELD_ID: Readonly<Record<AccountField, string>> = {
+  name: 'settings-account-name',
+  capital: 'settings-account-capital',
+  risk: 'settings-account-risk',
 };
+/** 口座の行の [直す] の ID */
+export const accountEditButtonId = (id: string) => `settings-account-edit-${id}`;
 export const INSTRUMENT_FIELD_ID: Readonly<Record<InstrumentField, string>> = {
   name: 'settings-inst-name',
   underlying: 'settings-inst-underlying',
@@ -450,25 +590,31 @@ export const INSTRUMENT_FIELD_ID: Readonly<Record<InstrumentField, string>> = {
   quantityStep: 'settings-inst-step',
 };
 export const SAVE_BUTTON_ID = {
-  settings: 'settings-save',
+  account: 'settings-account-save',
   instrument: 'settings-inst-save',
   add: 'settings-add',
 } as const;
+/** 口座の [＋ 口座を足す] */
+export const ADD_ACCOUNT_ID = 'settings-account-add';
 export const NEW_NAME_ID = 'settings-new-name';
 
 /**
  * 押した操作が終わった後にフォーカスを移す先の ID（null = 移さない）。レビュー指摘 5・6:
  * 誤りで送らなかった・409 で名前が重なった → 最初の誤りの欄、保存に失敗して戻った → 押したボタン
- * （保存中はボタン・欄が無効になり、フォーカスが外れるため）。成功は移さない（銘柄を閉じたときは [直す] へ別に戻す）
+ * （保存中はボタン・欄が無効になり、フォーカスが外れるため）。成功は移さない（銘柄を閉じたときは [直す] へ別に戻す）。
+ * 口座を足せた → 新しい行の [直す]（U15）
  */
 export function focusAfter(action: keyof typeof SAVE_BUTTON_ID, s: SettingsState): string | null {
-  if (action === 'settings') {
-    const first = errorFieldsOf(s.reading.errors, SETTINGS_FIELD_LABEL)[0];
-    if (first !== undefined) return SETTINGS_FIELD_ID[first];
-    return s.notice?.area === 'settings' && s.notice.kind === 'error'
-      ? SAVE_BUTTON_ID.settings
+  if (action === 'account') {
+    if (s.addedAccountId !== null && !s.account) return accountEditButtonId(s.addedAccountId);
+    if (!s.account) return null;
+    const first = errorFieldsOf(s.account.reading.errors, ACCOUNT_FIELD_LABEL)[0];
+    if (first !== undefined) return ACCOUNT_FIELD_ID[first];
+    return s.notice?.area === 'accounts' && s.notice.kind === 'error'
+      ? SAVE_BUTTON_ID.account
       : null;
   }
+
   if (action === 'instrument') {
     if (!s.editing) return null;
     const first = errorFieldsOf(s.editing.reading.errors, INSTRUMENT_FIELD_LABEL)[0];

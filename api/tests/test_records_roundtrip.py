@@ -10,7 +10,7 @@ TS の型と Python の検査の項目がずれたら、ここで 400 か不一�
 import copy
 
 from helpers.charts import chart_png, post_with_charts
-from helpers.records import load_fixture, same_typed
+from helpers.records import load_fixture, put_default_account, same_typed
 
 A = "userA"
 PLACEHOLDER = "INSTRUMENT"
@@ -21,8 +21,7 @@ def roundtrip(api, item: dict) -> tuple[dict, dict]:
     res = api.post("/api/instruments", A, item["instrument"])
     assert res.status_code == 201, (item.get("name") or item.get("scene"), res.get_json())
     iid = res.get_json()["id"]
-    res = api.put("/api/settings", A, item["settings"])
-    assert res.status_code == 200, res.get_json()
+    put_default_account(api, A, item["settings"])
     sent = copy.deepcopy(item["record"])
     assert sent["instrumentId"] == PLACEHOLDER
     sent["instrumentId"] = iid

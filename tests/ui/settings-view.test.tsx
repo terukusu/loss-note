@@ -11,8 +11,9 @@ import {
   type SettingsController,
   type SettingsState,
 } from '../../ui/src/lib/settings-controller';
-import { EFFECT_NOTE, NO_CAPITAL_NOTE, SETTINGS_MSG } from '../../ui/src/lib/settings-form';
+import { EFFECT_NOTE, SETTINGS_MSG } from '../../ui/src/lib/settings-form';
 import { SettingsView, type SettingsViewProps } from '../../ui/src/pages/Settings';
+import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeOptions } from './helpers/fake-api';
 
 interface El {
@@ -83,8 +84,10 @@ async function ready(
 function render(state: SettingsState, over: Partial<SettingsViewProps> = {}): Node[] {
   const props: SettingsViewProps = {
     state,
-    onField: noop,
-    onSave: noop,
+    onOpenAccount: noop,
+    onCloseAccount: noop,
+    onAccount: noop,
+    onSaveAccount: noop,
     onOpen: noop,
     onClose: noop,
     onInstrument: noop,
@@ -100,104 +103,158 @@ function render(state: SettingsState, over: Partial<SettingsViewProps> = {}): No
 
 const byId = (nodes: Node[], id: string) => all(nodes, (e) => e.props.id === id)[0];
 
-describe('資金と許容リスク', () => {
-  it('未設定: 「未設定」と、資金を設定するとリスク（%）が出る説明', async () => {
-    const t = text(render(await ready()));
-    expect(t).toContain('未設定');
-    expect(t).toContain(NO_CAPITAL_NOTE);
-  });
-
-  it('保存済み: 資金 1,000,000円・許容リスク 1%・1 回の負けの上限', async () => {
-    const t = text(render(await ready({ capitalYen: 1_000_000 })));
-    expect(t).toContain('1,000,000円');
-    expect(t).toContain('1%');
-    expect(t).toContain('1 回の負けは 10,000円 までです');
-    expect(t).not.toContain(NO_CAPITAL_NOTE);
-  });
-
-  it('AC-3: 資金の履歴は新しい順に日時と金額', async () => {
+describe('口座（#47 U12〜U15）', () => {
+  it('U12・U13: 「資金と許容リスク」の枠が「口座」の一覧に替わり、大きな数字の 2 枚は無い', async () => {
     const tree = render(
       await ready({
-        capitalYen: 900_000,
-        capitalHistory: [
-          { valueYen: 1_000_000, at: 1_800_000_000_000 },
-          { valueYen: 800_000, at: 1_800_000_100_000 },
-          { valueYen: 900_000, at: 1_800_000_200_000 },
-        ],
+        accounts: [defaultAccount(1_000_000), account('accB', '口座 B', null)],
       }),
     );
-    const list = byId(tree, 'settings-history');
-    expect(list?.type).toBe('ol');
-    const rows = all(list ? [list] : [], (e) => e.type === 'li').map(text);
+    const t = text(tree);
+    expect(t).not.toContain('資金と許容リスク');
+    expect(all(tree, (e) => String(e.props.class ?? '').includes('settings__stat'))).toEqual([]);
+    const rows = all(tree, (e) => e.props.class === 'instlist__row')
+      .map(text)
+      .filter((x) => x.includes('口座'));
+    expect(rows).toEqual([
+      '口座 11,000,000円 · 許容 1%1 回の負けは 10,000円 まで直す',
+      '口座 B資金 未設定 · 許容 1%資金を入れるとリスク（%）が出ます直す',
+    ]);
+    // [直す] の読み上げの名前
+    expect(byId(tree, 'settings-account-edit-accB')?.props['aria-label']).toBe('口座 B を直す');
+  });
+
+  it('移した直後（口座 1 つ・「口座 1」）も 1 行。特別な案内は出さない', async () => {
+    const tree = render(await ready({ capitalYen: 1_000_000 }));
+    expect(
+      all(tree, (e) => String(e.props.id ?? '').startsWith('settings-account-edit-')),
+    ).toHaveLength(1);
+    expect(text(tree)).toContain('口座 1');
+  });
+
+  it('U14: [直す] で行がその場で開く（名前・資金・許容リスク・[保存] [やめる]・効き方・畳んだ資金の履歴）', async () => {
+    const tree = render(
+      await ready(
+        {
+          capitalYen: 900_000,
+          capitalHistory: [
+            { valueYen: 1_000_000, at: 1_800_000_000_000 },
+            { valueYen: 800_000, at: 1_800_000_100_000 },
+            { valueYen: 900_000, at: 1_800_000_200_000 },
+          ],
+        },
+        (c) => c.openAccount('default'),
+      ),
+    );
+    const form = all(
+      tree,
+      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を直す',
+    )[0];
+    expect(form).toBeDefined();
+    const f = form ? [form] : [];
+    for (const id of [
+      'settings-account-name',
+      'settings-account-capital',
+      'settings-account-risk',
+    ]) {
+      expect(byId(f, id)?.type, id).toBe('input');
+    }
+    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['保存', 'やめる']);
+    expect(text(f)).toContain(EFFECT_NOTE);
+    expect(text(f)).toContain('1 回の負けは 9,000円 までです');
+    const details = all(f, (e) => e.type === 'details')[0];
+    expect(details?.props.open).toBeUndefined();
+    expect(text(all(f, (e) => e.type === 'summary'))).toBe('資金の履歴（3 件）');
+    const rows = all(f, (e) => e.type === 'li').map(text);
     expect(rows).toEqual([
       `${formatDateTime(1_800_000_200_000)}900,000円`,
       `${formatDateTime(1_800_000_100_000)}800,000円`,
       `${formatDateTime(1_800_000_000_000)}1,000,000円`,
     ]);
-    const times = all(list ? [list] : [], (e) => e.type === 'time');
-    expect(times).toHaveLength(3);
   });
 
-  it('1 回の負けの上限は入れた値で出し、誤りがある間は出さない（レビュー指摘 1）', async () => {
-    const live = text(
-      render(await ready({ capitalYen: 1_000_000 }, (c) => c.setField('risk', '2.5'))),
+  it('U14: 2% 超の警告（今の文言）・誤りは欄の下に文言と aria-invalid', async () => {
+    const warn = render(
+      await ready({}, (c) => {
+        c.openAccount('default');
+        c.updateAccount('risk', '2.5');
+      }),
     );
-    expect(live).toContain('許容リスク 2.5% なら、1 回の負けは 25,000円 までです');
-    const bad = text(
-      render(
-        await ready({ capitalYen: 1_000_000 }, (c) => {
-          c.setField('capital', '1000.5');
-          c.setField('risk', '2.5');
-        }),
+    const w = all(warn, (e) => text(e.children) === SETTINGS_MSG.riskWarning && e.type === 'p');
+    expect(w).toHaveLength(1);
+    expect(w[0]?.props.role).toBe('status');
+    const bad = render(
+      await ready({ capitalYen: 1_000_000 }, (c) => {
+        c.openAccount('default');
+        c.updateAccount('capital', '0');
+      }),
+    );
+    expect(byId(bad, 'settings-account-capital')?.props['aria-invalid']).toBe('true');
+    expect(text(byId(bad, 'settings-account-capital-error') ?? [])).toBe(
+      SETTINGS_MSG.capitalNotPositive,
+    );
+    expect(text(bad)).not.toContain('1 回の負けは 0円');
+  });
+
+  it('U15: [＋ 口座を足す]（行の全幅）で同じ欄が開き、[足す] [やめる]。開いている間は [＋ 口座を足す] を出さない', async () => {
+    const closed = render(await ready());
+    expect(text(byId(closed, 'settings-account-add') ?? [])).toBe('＋ 口座を足す');
+    const open = render(await ready({}, (c) => c.openAccount(null)));
+    expect(byId(open, 'settings-account-add')).toBeUndefined();
+    const form = all(open, (e) => e.type === 'form' && e.props['aria-label'] === '口座を足す')[0];
+    expect(all(form ? [form] : [], (e) => e.type === 'button').map(text)).toEqual([
+      '足す',
+      'やめる',
+    ]);
+  });
+
+  it('U15: 足せたら名前の順の位置に行が入り、「口座 C を足しました」', async () => {
+    const tree = render(
+      await ready(
+        { accounts: [defaultAccount(null), account('accD', '口座 D', null)] },
+        async (c) => {
+          c.openAccount(null);
+          c.updateAccount('name', '口座 C');
+          await c.saveAccount();
+        },
       ),
     );
-    expect(bad).not.toContain('1 回の負けは');
-    expect(bad).toContain('正しい値を入れると、1 回の負けの上限が出ます');
+    const names = all(tree, (e) => e.props.class === 'instlist__name')
+      .map(text)
+      .filter((x) => x.startsWith('口座'));
+    expect(names).toEqual(['口座 1', '口座 C', '口座 D']);
+    const status = all(tree, (e) => e.props.role === 'status').map(text);
+    expect(status).toContain('口座 C を足しました。');
   });
 
   it('[保存]・[足す] にはフォーカスを戻す先の ID がある（レビュー指摘 6）', async () => {
-    const tree = render(await ready({}, (c) => c.openInstrument(US30.id)));
-    for (const id of ['settings-save', 'settings-inst-save', 'settings-add']) {
+    const tree = render(
+      await ready({}, (c) => {
+        c.openInstrument(US30.id);
+        c.openAccount('default');
+      }),
+    );
+    for (const id of ['settings-account-save', 'settings-inst-save', 'settings-add']) {
       expect(byId(tree, id)?.type, id).toBe('button');
     }
   });
 
-  it('履歴が無ければ「まだありません」', async () => {
-    expect(text(render(await ready()))).toContain('まだありません');
-  });
-
-  it('AC-4: 2.5 は警告の文、2 は出ない（文言で示す）', async () => {
-    const warn = render(await ready({}, (c) => c.setField('risk', '2.5')));
-    const w = all(warn, (e) => text(e.children) === SETTINGS_MSG.riskWarning && e.type === 'p');
-    expect(w).toHaveLength(1);
-    expect(w[0]?.props.role).toBe('status');
-    const ok = render(await ready({}, (c) => c.setField('risk', '2')));
-    expect(text(ok)).not.toContain(SETTINGS_MSG.riskWarning);
-  });
-
-  it('AC-2: 誤りは欄の下に文言、aria-invalid', async () => {
-    const tree = render(await ready({ capitalYen: 1_000_000 }, (c) => c.setField('capital', '0')));
-    const input = byId(tree, 'settings-capital');
-    expect(input?.props['aria-invalid']).toBe('true');
-    expect(text(byId(tree, 'settings-capital-error') ?? [])).toBe(SETTINGS_MSG.capitalNotPositive);
-  });
-
-  it('保存は form の submit（Enter でも押せる）で 1 つの [保存]', async () => {
+  it('保存は form の submit（Enter でも押せる）。保存中は押せない', async () => {
     let saved = 0;
-    const tree = render(await ready(), { onSave: () => saved++ });
-    const form = all(tree, (e) => e.type === 'form' && e.props.id === 'settings-form')[0];
-    const submit = all(form ? [form] : [], (e) => e.type === 'button' && e.props.type === 'submit');
-    expect(submit.map(text)).toEqual(['保存']);
-    if (!form) throw new Error('保存の form が無い');
+    const s = await ready({}, (c) => c.openAccount('default'));
+    const tree = render(s, { onSaveAccount: () => saved++ });
+    const form = all(
+      tree,
+      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を直す',
+    )[0];
+    if (!form) throw new Error('口座の form が無い');
     (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault: noop });
     expect(saved).toBe(1);
-  });
-
-  it('保存中は [保存] を押せない', async () => {
-    const s = await ready();
-    const tree = render({ ...s, savingSettings: true });
-    const submit = all(tree, (e) => e.type === 'button' && e.props.type === 'submit')[0];
-    expect(submit?.props.disabled).toBe(true);
+    const busy = render({
+      ...s,
+      account: { ...(s.account as NonNullable<typeof s.account>), saving: true },
+    });
+    expect(byId(busy, 'settings-account-save')?.props.disabled).toBe(true);
   });
 
   it('R / 円の切り替えは置かない（スコープ外）', async () => {
@@ -208,9 +265,11 @@ describe('資金と許容リスク', () => {
 });
 
 describe('銘柄', () => {
-  it('AC-7: 「記録済みの取引は変わりません」が資金と銘柄の両方にある', async () => {
+  it('AC-7: 「記録済みの取引は変わりません」が銘柄の枠と、口座の直す欄にある', async () => {
     const t = text(render(await ready()));
-    expect(t.split(EFFECT_NOTE).length - 1).toBe(2);
+    expect(t.split(EFFECT_NOTE).length - 1).toBe(1);
+    const open = text(render(await ready({}, (c) => c.openAccount('default'))));
+    expect(open.split(EFFECT_NOTE).length - 1).toBe(2);
   });
 
   it('一覧: 名前・要約・[直す]（読み上げの名前は「US30 を直す」）。仮の値の印', async () => {
@@ -219,9 +278,10 @@ describe('銘柄', () => {
       tree,
       (e) => e.type === 'li' && String(e.props.class ?? '') === 'instlist__item',
     );
-    expect(items.map((i) => text(i).slice(0, 4))).toEqual(['US30', '日経22']);
-    expect(text(items[0] ?? [])).toContain('仮の値');
-    expect(text(items[1] ?? [])).not.toContain('仮の値');
+    const insts = items.filter((i) => !text(i).startsWith('口座'));
+    expect(insts.map((i) => text(i).slice(0, 4))).toEqual(['US30', '日経22']);
+    expect(text(insts[0] ?? [])).toContain('仮の値');
+    expect(text(insts[1] ?? [])).not.toContain('仮の値');
     const edit = all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'US30 を直す');
     expect(edit).toHaveLength(1);
   });
@@ -277,20 +337,21 @@ describe('読み込み・失敗', () => {
   });
 
   it('読み込みの失敗は role="alert" と [もう一度読み込む]', async () => {
-    const tree = render(await ready({ fail: { 'GET /api/settings': 500 } }));
+    const tree = render(await ready({ fail: { 'GET /api/accounts': 500 } }));
     expect(text(tree)).toContain(SETTINGS_LOAD_FAILED);
     expect(all(tree, (e) => e.props.role === 'alert')).toHaveLength(1);
     expect(all(tree, (e) => e.type === 'button').map(text)).toContain('もう一度読み込む');
   });
 
   it('ログインが切れたら [ログインし直す]', async () => {
-    const load = render(await ready({ fail: { 'GET /api/settings': 401 } }));
+    const load = render(await ready({ fail: { 'GET /api/accounts': 401 } }));
     expect(text(load)).toContain(AUTH_EXPIRED);
     expect(all(load, (e) => e.type === 'button').map(text)).toContain('ログインし直す');
     const save = render(
-      await ready({ fail: { 'PUT /api/settings': 401 } }, async (c) => {
-        c.setField('capital', '1000000');
-        await c.saveSettings();
+      await ready({ fail: { 'PUT /api/accounts/default': 401 } }, async (c) => {
+        c.openAccount('default');
+        c.updateAccount('capital', '1000000');
+        await c.saveAccount();
       }),
     );
     expect(text(save)).toContain(AUTH_EXPIRED);

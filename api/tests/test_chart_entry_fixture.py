@@ -10,7 +10,7 @@
 import copy
 
 from helpers.charts import chart_count, chart_png, post_with_charts
-from helpers.records import load_fixture, same_typed
+from helpers.records import load_fixture, put_default_account, same_typed
 
 A = "userA"
 PLACEHOLDER = "INSTRUMENT"
@@ -22,7 +22,7 @@ def test_chart_entry_bodies_round_trip(api):
     inst = api.post("/api/instruments", A, fixture["trades"][0]["instrument"]).get_json()
     total = 0
     for item in fixture["trades"]:
-        assert api.put("/api/settings", A, item["settings"]).status_code == 200
+        put_default_account(api, A, item["settings"])
         sent = copy.deepcopy(item["record"])
         assert sent["instrumentId"] == PLACEHOLDER
         sent["instrumentId"] = inst["id"]

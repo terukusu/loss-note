@@ -1,0 +1,9 @@
+# infra/bootstrap の変数の例。必要ならコピーして infra/bootstrap/local.auto.tfvars を作る
+# （*.tfvars は gitignore 済み。コミットしない）。手順は infra/README.md。
+#
+# 識別子（project_id・billing_account・github_repository・github_repository_id・github_owner_id）は
+# infra/README.md の手順どおり apply のたびに TF_VAR_ で渡し、ここには書かない
+# （*.auto.tfvars は環境変数より優先されるので、書くと TF_VAR_ の値が効かなくなる）。
+
+# 月の予算（円）。既定は 3000
+# budget_amount_jpy = 3000

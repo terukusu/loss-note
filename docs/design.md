@@ -569,6 +569,10 @@ Cloud Run（1 つのサービス）
 | チャート画像 | API が中継する（作成は取引と 1 要求、差し替え・外す・読み戻しはチャートの入口）。バイト列は `users/{uid}/charts/{tradeId}-{slot}` に取引と同じトランザクションで置く。画面から Firestore・Storage は直接読めない（ルールは全部拒否） | 画像は利用者の個人の情報。エミュレーターは署名付き URL の署名を検査しないので守りを手元で確かめられない（C22）・取引と原子的に書ける（ADR-0006） |
 | 計算 | TypeScript の純関数が正。API は同じ例の表を Python で通す | 入力中の即時の表示と、集計を同じ規則に |
 | インフラ | Terraform（`infra/bootstrap` = 所有者が apply、`infra/prod` = CI が apply） | option-simulator と同じ分け方 |
+| GCP プロジェクト | loss-note 専用のプロジェクト（ID・番号・請求先はリポジトリに書かない）。プロジェクトの作成と請求先の紐付けは gcloud、中身は `infra/bootstrap`（ADR-0008・`infra/README.md`） | 権限・費用・データの境界をプロジェクト単位で切る。プロジェクトを Terraform の管理に入れず、誤った destroy でプロジェクトごと消えないようにする |
+| リージョン | 東京（asia-northeast1）。Artifact Registry・state のバケット・後の Cloud Run | 利用者が日本から使う |
+| CI の権限 | CI の SA は plan 用（run.viewer と、state・イメージの読み取り）と apply 用（run.admin・実行用 SA の serviceAccountUser と、state・イメージの書き込み）だけ。apply 用は Environment `prod` の job だけが借用できる。owner・editor・viewer・IAM の管理は付けず、鍵は作らない。API の有効化は所有者の bootstrap で行う | 利用者の売買の記録が入る場所なので、本番を変えられる主体を絞る |
+| 費用の見張り | 請求先に、このプロジェクトだけを対象にした月の予算（既定 3,000 円）。50 / 90 / 100% で請求先の管理者に通知する（止めはしない） | 想定外の利用（暴走・誤設定）に気づく。12 章の費用の目安の上の方に置き、想定外のときだけ鳴らす |
 | CI / CD | GitHub Actions、Workload Identity Federation、Environment `prod` の承認 | |
 | Cloud Run の最小インスタンス | 0 | 費用優先 |
 | 画面の URL | History API（`/trades/<id>` の形）。本番の静的配信は `/api` 以外の知らないパスに `index.html` を返す | どの画面にも URL があり、戻る・再読み込み・直接開くで迷わない（ADR-0002・C35） |
@@ -601,7 +605,7 @@ Cloud Run（1 つのサービス）
 |---|---|
 | 画面の応答 | 入力に対する再計算・再描画 16 ms 以内。最初の表示は 4G のスマホで 2 秒以内 |
 | API | 通常の読み書き 300 ms 以内（コールドスタートを除く） |
-| 費用 | 利用者が少ない間は月数百円〜数千円（AI を除く）。AI は 8.2 の上限で抑える |
+| 費用 | 利用者が少ない間は月数百円〜数千円（AI を除く）。AI は 8.2 の上限で抑える。想定外の費用は月の予算の通知で気づく（10 章「費用の見張り」） |
 | バックアップ | Firestore の日次の書き出し |
 
 ---

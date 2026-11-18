@@ -94,6 +94,9 @@ class Store(Protocol):
     # 一覧の 1 ページ（#87・ADR-0016）: 並び order（"exit" / "created"。trade_pages.py）で after（並びの鍵の値。
     # None = 先頭）より後の取引を最大 limit + 1 件読む（続きがあるかを見分ける 1 件を含む）。全件を読まない
     def list_trades_page(self, uid: str, order: str, after: tuple | None, limit: int) -> list[tuple[str, Doc]]: ...
+    # 決済の時刻が [start, end) の取引を、決済の新しい順に最大 limit 件（#88・C44）。並べ直すのは呼ぶ側。
+    # 単一フィールドの索引（record.exit.time）で読む
+    def list_trades_in_exit_range(self, uid: str, start: int, end: int, limit: int) -> list[tuple[str, Doc]]: ...
     def get_trade(self, uid: str, trade_id: str) -> Doc | None: ...
     # 銘柄・口座の読みと取引の書き込みを 1 つのトランザクションで行う（銘柄の削除と同時でも、
     # 無い銘柄を指す取引を残さない）。銘柄が無ければ MissingInstrument、口座が無ければ MissingAccount
@@ -245,6 +248,17 @@ class FirestoreStore:
             log_event(event="trades_page_fallback", reason=f"index_{order}")
             items = [(s.id, s.to_dict()) for s in col.stream()]
             return trade_pages.page_of(items, order, after, limit)
+
+    @_guard
+    def list_trades_in_exit_range(self, uid, start, end, limit):
+        from google.cloud import firestore
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        # 同じフィールドの範囲 2 つと同じフィールドの並び = 自動の単一フィールドの索引で足りる（複合の索引は要らない）
+        q = self._user(uid).collection("trades").where(filter=FieldFilter("record.exit.time", ">=", start))
+        q = q.where(filter=FieldFilter("record.exit.time", "<", end))
+        q = q.order_by("record.exit.time", direction=firestore.Query.DESCENDING).limit(limit)
+        return [(s.id, s.to_dict()) for s in q.stream()]
 
     @_guard
     def get_trade(self, uid, trade_id):

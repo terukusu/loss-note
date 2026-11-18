@@ -519,6 +519,53 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(bad).toEqual([]);
   });
 
+  it('振り返りの段の CSS は判定の段・文字・線のトークンだけ。数字は無色（Issue #88 AC-11）', () => {
+    const allowed =
+      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|bg|line))\)|currentColor|none|transparent)$/;
+    const css = stripComments(files['../../ui/src/styles/review.css'] ?? '');
+    expect(css).not.toBe('');
+    // 強調・誤りの色・面の色を使わない（判定の段の色と混ぜない。P2）
+    expect(
+      /--accent|--danger|--s[0-9]|--bg\b|color-mix|#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(css),
+    ).toBe(false);
+    let seen = 0;
+    const bad: string[] = [];
+    for (const b of blocks(css)) {
+      for (const [name, value] of decls(b.body)) {
+        if (
+          ![
+            'color',
+            'fill',
+            'stroke',
+            'background',
+            'background-color',
+            'border-color',
+            'outline-color',
+            'accent-color',
+          ].includes(name) &&
+          !/^border(-(top|bottom|left|right))?$/.test(name)
+        ) {
+          continue;
+        }
+        seen++;
+        const color = /^border/.test(name) ? (value.match(/var\([^)]*\)/)?.[0] ?? 'none') : value;
+        if (!allowed.test(color)) bad.push(`${b.selector} { ${name}: ${value} }`);
+      }
+      // 数字の部品（.num）に色を付けない（P3）
+      if (/\.num(?![\w-])/.test(b.selector)) {
+        for (const k of ['color', 'fill', 'background', 'background-color']) {
+          expect(decls(b.body).has(k), `${b.selector} の ${k}`).toBe(false);
+        }
+      }
+      // 面の色・四辺の線・影を持たない（カードの中に内枠を作らない。P7）
+      for (const k of ['background', 'background-color', 'box-shadow', 'border']) {
+        expect(decls(b.body).has(k), `${b.selector} の ${k}`).toBe(false);
+      }
+    }
+    expect(seen).toBeGreaterThan(10);
+    expect(bad).toEqual([]);
+  });
+
   it('AI の利用状況のカードの CSS は文字・線のトークンだけ（判定の段の色を使わない。Issue #62 AC-7）', () => {
     const allowed = /^(var\(--(ink|ink-2|ink-3|line|line-2)\)|currentColor|none|transparent)$/;
     const css = files['../../ui/src/styles/ai-usage.css'] ?? '';

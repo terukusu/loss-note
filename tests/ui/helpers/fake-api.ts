@@ -4,6 +4,9 @@
 //   ページ分け（#87）: ?limit=1..100[&cursor=..][&order=created] = { items, next }（並びの鍵のカーソル。本物の trade_pages.py と
 //   同じ並び: created は作った時刻の新しい順 → ID の降順）。形の違うパラメータは 400。fail / failOnce の鍵 'GET /api/trades' は
 //   パラメータつきの読みにも効く
+//   決済の時刻の範囲（#88）: ?exitFrom=<ms>&exitTo=<ms> = { items }（範囲の中の全件・一覧と同じ並び。本物の trade_range.py と
+//   同じ検査: 両方そろう・整数・開始 < 終了・367 日まで・ページの引数と同時は 400）。失敗させる鍵は 'GET /api/trades?range'
+//   （直近の判定の読みと分けて、振り返りだけを失敗させられる。KEEP-4）
 //   （snapshot = 銘柄の 5 項目 + 資金 + 許容リスク。create_trade の build）。自分の銘柄に無い ID は 400
 // - GET /api/instruments = { items }。POST /api/instruments = 201 + 銘柄（省いた欄は既定: other・spotCfd・通貨 null・
 //   乗数 1・刻み 1）。名前が同じ（name_key）なら 409 { error: 'conflict', reason: 'duplicateName' }
@@ -171,6 +174,30 @@ function tradesPage(
   return { items, next };
 }
 
+const DAY_MS = 86_400_000;
+/** 範囲の応答の件数の上限（本物の trade_range.MAX_RANGE_ITEMS） */
+export const RANGE_MAX = 2_000;
+
+/** 決済の時刻の範囲の読み（#88。本物の trade_range.py と同じ検査）。範囲の引数が無ければ undefined、形の違いは null（400） */
+function tradesInRange(
+  trades: readonly StoredTrade[],
+  q: URLSearchParams,
+): { items: StoredTrade[]; truncated: boolean } | null | undefined {
+  const a = q.get('exitFrom');
+  const b = q.get('exitTo');
+  if (a === null && b === null) return undefined;
+  if (a === null || b === null || !/^[0-9]{1,15}$/.test(a) || !/^[0-9]{1,15}$/.test(b)) return null;
+  const from = Number(a);
+  const to = Number(b);
+  if (from >= to || to - from > 367 * DAY_MS) return null;
+  if (q.has('limit') || q.has('order') || q.has('cursor')) return null;
+  const hit = trades
+    .filter((t) => t.record.exit.time >= from && t.record.exit.time < to)
+    .sort(byExit);
+  // 件数の上限（本物の MAX_RANGE_ITEMS）。超えたら先頭と印
+  return { items: hit.slice(0, RANGE_MAX), truncated: hit.length > RANGE_MAX };
+}
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -287,7 +314,12 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     });
     if (gate) await gate;
     // 取引の一覧はパラメータつきでも同じ鍵で失敗させる（#87）
-    const failKey = method === 'GET' && path.startsWith('/api/trades?') ? 'GET /api/trades' : key;
+    const isRange = method === 'GET' && /^\/api\/trades\?(.*&)?exit(From|To)=/.test(path);
+    const failKey = isRange
+      ? 'GET /api/trades?range'
+      : method === 'GET' && path.startsWith('/api/trades?')
+        ? 'GET /api/trades'
+        : key;
     const f = opts.fail?.[failKey] ?? once.get(failKey);
     once.delete(failKey);
     if (f === 'throw')
@@ -312,7 +344,10 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       return json(200, { items: [...trades].sort(byExit) });
     }
     if (method === 'GET' && path.startsWith('/api/trades?')) {
-      const page = tradesPage(trades, new URLSearchParams(path.slice('/api/trades?'.length)));
+      const q = new URLSearchParams(path.slice('/api/trades?'.length));
+      const ranged = tradesInRange(trades, q);
+      if (ranged !== undefined) return ranged ? json(200, ranged) : json(400, { error: 'invalid' });
+      const page = tradesPage(trades, q);
       return page ? json(200, page) : json(400, { error: 'invalid' });
     }
     const chartPath = /^\/api\/trades\/([^/]+)\/charts\/([^/]+)$/.exec(path);

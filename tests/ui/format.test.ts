@@ -8,6 +8,7 @@ import {
   formatPlain,
   formatPrice,
   formatR,
+  formatRate,
   formatTimes,
   formatYen,
 } from '../../ui/src/lib/format';
@@ -276,5 +277,41 @@ describe('formatMoney / formatAmount（口座の通貨。#47 PR-2・U29）', () 
         if (x < 0 && m[1] !== '−') throw new Error(`符号 ${x} → ${s}`);
       },
     );
+  });
+});
+
+describe('formatRate（Issue #88 R3）: 整数の %・四捨五入（0.5 は上へ）', () => {
+  it.each([
+    [4 / 7, '57%'],
+    [5 / 8, '63%'],
+    [5 / 9, '56%'],
+    [4 / 6, '67%'],
+    [1 / 8, '13%'],
+    [0, '0%'],
+    [1, '100%'],
+    [0.005, '1%'],
+    [0.00499, '1%'],
+    [199 / 200, '99%'],
+    [1 / 201, '1%'],
+    [0.996, '99%'],
+  ])('%s → %s', (x, want) => {
+    expect(formatRate(x)).toBe(want);
+  });
+
+  it('範囲の外・有限でないときは「率なし」', () => {
+    for (const x of [Number.NaN, Number.POSITIVE_INFINITY, -0.1, 1.01]) {
+      expect(formatRate(x)).toBe('率なし');
+    }
+  });
+
+  it('性質: 分母 1〜400 のすべての分数で、手で四捨五入した値（100% はそろったときだけ・0% は 0 件のときだけ）と同じ', () => {
+    for (let d = 1; d <= 400; d++) {
+      for (let n = 0; n <= d; n++) {
+        // 100n / d の四捨五入 = floor((200n + d) / 2d)（整数だけで計算）
+        const round = Math.floor((200 * n + d) / (2 * d));
+        const want = n < d && round === 100 ? 99 : n > 0 && round === 0 ? 1 : round;
+        expect(formatRate(n / d)).toBe(`${want}%`);
+      }
+    }
   });
 });

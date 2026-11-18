@@ -20,7 +20,9 @@ export type GlossaryId =
   | 'lcMove'
   | 'timeframeChange'
   | 'ruler'
-  | 'judgment';
+  | 'judgment'
+  | 'planRate'
+  | 'disciplineCost';
 
 export interface GlossaryItem {
   /** 名前（判定の説明では判定のバッジの名前） */
@@ -247,6 +249,35 @@ export const GLOSSARY: readonly GlossaryTerm[] = [
       },
     ],
     design: ['5.3', '5.4'],
+  },
+  {
+    id: 'planRate',
+    group: 'judge',
+    term: '計画どおり率',
+    label: '計画どおり率',
+    summary:
+      '[[judgment]]の出た取引のうち、A いい損失と計画どおりの勝ちの割合で、勝ち負けではなく計画を守れたかを表します。',
+    body: [
+      '判定の出た取引が 5 件未満の期間は、偶然を癖に見せないよう率を出しません。',
+      '取り込んだ取引は、最初は集計に含めません（切り替えで含められます）。',
+      '崩れで失った R は [[disciplineCost]] で見ます。',
+    ],
+    example: '判定の出た 7 件のうち A が 2 件・計画どおりの勝ちが 2 件なら、4 / 7 = 57% です。',
+    design: ['6.1'],
+  },
+  {
+    id: 'disciplineCost',
+    group: 'judge',
+    term: '規律コスト',
+    label: '規律コスト',
+    summary: '計画どおりに [[lc]] で切れていたらの R と、実際の R の差で、崩れで失った R です。',
+    body: [
+      'B 悪い損失・C 極悪な損失で −1.0R より大きく負けた取引だけを −1.0R に置き換えて「守っていれば」の R を出します。',
+      '危ない勝ちはそのまま数え、運として別に示します。',
+      '[[r|R の値]]が出ない取引は入れず、崩れた件数の割合は [[planRate]] で見ます。',
+    ],
+    example: '−1.6R で負けた B 悪い損失は、守っていれば −1.0R なので、規律コストは −0.6R です。',
+    design: ['6.2'],
   },
 ];
 

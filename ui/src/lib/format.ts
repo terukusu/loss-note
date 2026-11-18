@@ -131,3 +131,47 @@ export function formatPlain(n: number): string {
 export function formatPrice(n: number): string {
   return formatPlain(n);
 }
+
+/**
+ * 割合の表示（計画どおり率。Issue #88 R3・C44）。整数の %・四捨五入（0.5 は上へ。2 進の誤差で 0.5 の境が下へ落ちないよう
+ * 1e-9 を足してから丸める）。ただし 100% はすべてそろったとき（ratio = 1）だけ、0% は 1 件も無いとき（ratio = 0）だけ
+ * （199 / 200 は 99%、1 / 201 は 1%。1 件の崩れを丸めで消さない）。0〜1 の外・有限でないときは「率なし」
+ */
+export function formatRate(ratio: number): string {
+  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) return '率なし';
+  const n = Math.round(ratio * 100 + 1e-9);
+  const clamped = ratio < 1 && n >= 100 ? 99 : ratio > 0 && n <= 0 ? 1 : n;
+  return `${clamped}%`;
+}
+
+/**
+ * 日付の短い書き方（振り返りの期間・曲線の両端・「数で見る」の表で 1 つの規則。#88）。端末の時間帯の暦日で、
+ * 今年なら「11/13」、ほかの年なら「2025/11/13」
+ */
+export function formatDay(ms: number, nowMs: number): string {
+  const d = new Date(ms);
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  return d.getFullYear() === new Date(nowMs).getFullYear() ? md : `${d.getFullYear()}/${md}`;
+}
+
+/**
+ * 日付の範囲（「11/13〜11/19」）。両端が今年なら月日だけ、どちらかが今年でなければ両端に年（「2025/12/20〜2026/1/19」）。
+ * 同じ日なら 1 つ
+ */
+export function formatDayRange(firstMs: number, lastMs: number, nowMs: number): string {
+  const a = new Date(firstMs);
+  const b = new Date(lastMs);
+  if (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  ) {
+    return formatDay(firstMs, nowMs);
+  }
+  const year = new Date(nowMs).getFullYear();
+  if (a.getFullYear() === year && b.getFullYear() === year) {
+    return `${formatDay(firstMs, nowMs)}〜${formatDay(lastMs, nowMs)}`;
+  }
+  const full = (d: Date) => `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+  return `${full(a)}〜${full(b)}`;
+}

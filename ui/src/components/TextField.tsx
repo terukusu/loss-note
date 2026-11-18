@@ -5,7 +5,7 @@ export interface TextFieldProps {
   readonly label: string;
   readonly value: string;
   readonly onInput: (raw: string) => void;
-  readonly type?: 'text' | 'datetime-local';
+  readonly type?: 'text' | 'datetime-local' | 'date';
   /** 候補（<datalist> の ID） */
   readonly list?: string;
   readonly maxLength?: number;

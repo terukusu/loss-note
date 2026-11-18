@@ -103,6 +103,8 @@ export function App(props: AppProps) {
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [Parts, setParts] = useState<ComponentType | null>(null);
   const first = useRef(true);
+  /** 前の画面のパス（同じ画面の検索部分だけの置き換え = ホームの期間（#88）ではフォーカスを動かさない） */
+  const lastHref = useRef(hrefOf(route));
   // 取引を消す + [元に戻す]（Issue #9。ADR-0007）: アプリの殻に 1 つ。画面を移っても取り消せる
   const deletions = useMemo(
     () =>
@@ -209,10 +211,15 @@ export function App(props: AppProps) {
     if (g.render === 'loading') return;
     // 画面が変わったら見出しへフォーカスを移す（最初の表示では動かさない。フォーカスでスクロールさせない）。
     // 先頭へ戻すのは新しい画面へ進んだときだけで、戻る・進むではブラウザが元の位置を戻す（P6）
+    const href = hrefOf(route);
+    const samePage = href === lastHref.current;
+    lastHref.current = href;
     if (first.current) {
       first.current = false;
       return;
     }
+    // 同じ画面の中で検索部分だけを置き換えた（ホームの期間を選んだ。#88）: 押した部品にフォーカスを残し、スクロールもしない
+    if (via === 'replace' && samePage) return;
     const undo = focusUndo.current ? document.getElementById(TOAST_UNDO_ID) : null;
     focusUndo.current = false;
     if (undo) undo.focus({ preventScroll: true });

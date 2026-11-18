@@ -10,8 +10,12 @@
 - ヘッダ（R3）: CSP の土台と ``nosniff``・``no-referrer`` をすべての応答に付ける。CSP は指示 → 値の辞書
   （``BASE_CSP``）と純関数 ``build_csp`` で組み立てる。ログインに要る許可（#43）は ``build_csp`` の
   ``extra`` で足す（ここには値を持たない）
+- ログインの許可（#43・ADR-0003「縦切り 2 で決めたこと」）: Google ログインのポップアップが使う 4 つだけを
+  ``login_csp_extra`` で足す（gapi の script・authDomain の iframe・Identity Toolkit と Secure Token の API）。
+  authDomain は環境変数 ``FIREBASE_AUTH_DOMAIN`` から受け、ホスト名の形だけを通す（``valid_auth_domain``）
 """
 
+import re
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -20,6 +24,7 @@ from flask import Flask, Response, send_from_directory
 from loss_note_api.runtime import StartupRefused
 
 STATIC_DIR_VAR = "STATIC_DIR"
+AUTH_DOMAIN_VAR = "FIREBASE_AUTH_DOMAIN"
 
 # R3 の 8 つの指示（順は固定。default-src を先頭に）。画面は同じオリジンの同梱ファイルと /api だけを使う
 BASE_CSP: Mapping[str, tuple[str, ...]] = {
@@ -32,6 +37,15 @@ BASE_CSP: Mapping[str, tuple[str, ...]] = {
     "form-action": ("'none'",),
     "frame-ancestors": ("'none'",),
 }
+
+# Google ログインのポップアップ（signInWithPopup）が使う外部（@firebase/auth の実装で確かめたもの）
+GAPI_ORIGIN = "https://apis.google.com"
+AUTH_API_ORIGINS = ("https://identitytoolkit.googleapis.com", "https://securetoken.googleapis.com")
+
+# 小文字の英数字・ハイフンのラベルを点でつなぐ（点が 1 つ以上・ラベル 63 字・全体 253 字）。
+# スキーム・ポート・ワイルドカード・空白・区切り（; ,）を受けない（CSP のヘッダへの差し込みを塞ぐ）
+_LABEL = r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+_AUTH_DOMAIN = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
 
 INDEX_CACHE = "no-cache"
 ASSET_CACHE = "public, max-age=31536000, immutable"
@@ -55,6 +69,23 @@ def build_csp(
                 if v not in bucket:
                     bucket.append(v)
     return "; ".join(f"{name} {' '.join(values)}" if values else name for name, values in merged.items())
+
+
+def valid_auth_domain(value: str) -> bool:
+    """authDomain としてヘッダに入れてよい形か（ホスト名だけ）"""
+    return len(value) <= 253 and bool(_AUTH_DOMAIN.fullmatch(value))
+
+
+def login_csp_extra(auth_domain: str) -> dict[str, tuple[str, ...]]:
+    """Google ログインのポップアップに要る許可（build_csp の extra）。
+    形の合わない authDomain は ValueError（文言に値を入れない）"""
+    if not valid_auth_domain(auth_domain):
+        raise ValueError(f"{AUTH_DOMAIN_VAR} はホスト名の形で指定する")
+    return {
+        "script-src": (GAPI_ORIGIN,),
+        "connect-src": AUTH_API_ORIGINS,
+        "frame-src": (f"https://{auth_domain}",),
+    }
 
 
 def security_headers(csp: str) -> dict[str, str]:

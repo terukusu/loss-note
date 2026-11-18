@@ -26,7 +26,7 @@ terraform -chdir=infra/bootstrap test                  # モックのプロバ�
 terraform -chdir=infra/prod init -backend=false -input=false
 terraform -chdir=infra/prod validate
 terraform -chdir=infra/prod test                       # モックのプロバイダ
-.github/scripts/tf-required-variables.sh infra/prod project_id image
+.github/scripts/tf-required-variables.sh infra/prod project_id image firebase_auth_domain
 # 本番のイメージ（docker が要る）
 .github/scripts/image.sh loss-note check-dockerignore  # イメージの入力と .dockerignore の許可リストが同じ
 docker build -t loss-note:ci . && .github/scripts/image-check.sh loss-note:ci   # 中身・非 root・CSP・起動して振り分けとヘッダ
@@ -202,12 +202,33 @@ gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[]
 | state | `TF_STATE_BUCKET`（secret） | prod の state のバケット | 出力 `tf_state_bucket` |
 | 借用 | `GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`・`GCP_WIF_PROVIDER`（secret） | plan / apply の SA と WIF のプロバイダ | 出力 `sa_tf_plan_email`・`sa_tf_apply_email`・`wif_provider_name` |
 | 画面のビルド | `FIREBASE_API_KEY`（secret） | Firebase の Web の apiKey（公開の JS に入る値。秘密ではない） | 出力 `firebase_web_config.api_key` |
-| 画面のビルド | `FIREBASE_AUTH_DOMAIN`（secret） | Firebase の Web の authDomain | 出力 `firebase_web_config.auth_domain` |
+| 画面のビルド・Terraform `firebase_auth_domain` | `FIREBASE_AUTH_DOMAIN`（secret） | Firebase の Web の authDomain。Cloud Run の環境変数 `FIREBASE_AUTH_DOMAIN`（API の CSP のヘッダの `frame-src`。#43）にも入る。ホスト名の形だけを受ける | 出力 `firebase_web_config.auth_domain` |
+| Cloud Run の `LOSS_NOTE_ALLOWED_EMAILS` | （Secret Manager の `loss-note-allowed-emails` の `latest`） | 使える利用者の許可リスト（カンマ区切りのメール。#43）。値は GitHub にも Terraform にも置かない | 下の「ログインと使える利用者」 |
 
 - GCP の 4 つ（`GCP_PROJECT_ID`・`TF_STATE_BUCKET`・`GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`）のどれかが無いと、deploy は notice を出して何もせずに成功で終わります（clone しただけのリポジトリで main への push を失敗にしない）
 - GCP の 4 つがあるのに `FIREBASE_API_KEY`・`FIREBASE_AUTH_DOMAIN` が無いと、deploy はビルドの前に足りない secret の名前を出して失敗します
-- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT` だけです（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
+- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT`・`FIREBASE_AUTH_DOMAIN`・`LOSS_NOTE_ALLOWED_EMAILS`（Secret Manager の参照）だけです（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
 - prod の state は plan 用 SA が読めるので、秘密を入れません（資格情報は Secret Manager の参照だけにし、値を変数・リソースに書きません）
+
+## ログインと使える利用者
+
+本番はオーナーだけが使います（docs/design.md 10.1・ADR-0003「縦切り 2 で決めたこと」）。ログインは Firebase Authentication の Google ログイン（ポップアップ）で、API は署名を検証した ID トークンのうち、確かめ済みのメールが許可リストにある利用者だけを通します（ほかは 403。`/api/health` を除く）。許可リストが未設定・空なら誰も使えません（閉じる側）。
+
+- 許可リストの値は Secret Manager の `loss-note-allowed-emails` に置きます（入れ物と実行用 SA の読み取りの付与は `infra/bootstrap/secrets.tf`）。値は Terraform・GitHub・ログに置きません。カンマ区切りで、前後の空白と空の要素は無視し、大文字小文字（ASCII）は同一視します
+- 値を入れる・変える（表示しない。コマンドの文字列に書かず（シェルの履歴に残さない）、`read -rs` で受けて標準入力から渡す）:
+
+  ```sh
+  read -rs ALLOWED   # <メール>[,<メール>...] を打って Enter（画面に出ない）
+  printf '%s' "$ALLOWED" | gcloud secrets versions add loss-note-allowed-emails --project="$P" --data-file=- > /dev/null; echo $?   # 0
+  unset ALLOWED
+  gcloud secrets versions access latest --secret=loss-note-allowed-emails --project="$P" | tr ',' '\n' | grep -c @   # 要素の数だけ
+  ```
+
+  Cloud Run は `latest` をインスタンスの起動時に読むので、新しいインスタンス（最小 0 なので使わない間に入れ替わる）か、次のデプロイから効きます
+- Google のログインの有効化は Firebase のコンソールで行います（Authentication → Sign-in method → Google。OAuth のクライアントはコンソールが作るので Terraform では管理しません）。**許可リストの入った API をデプロイした後に**有効にします（先に有効にすると、許可リストの無い API に誰でもログインできる時間ができます）
+- Cloud Run のホスト（`*.run.app`）を Authentication の許可するドメインに足します（Identity Toolkit の管理の API `projects/<PROJECT_ID>/config` の `authorizedDomains`。Terraform では `authorized_domains` を書かないので差分になりません）
+- 確かめ: 有効なログインの方法が Google だけ・許可するドメインにホストがあること（件数と真偽だけを見る）、許可リストに無いアカウントで `/api/trades` が 403・画面に「このアカウントでは使えません」が出ること
+- 戻すとき: **先に Google のログインを無効にしてから**、許可リストの無いリビジョンへ切り戻します（許可リストの無い API に誰でもログインできる状態を作らない）
 
 ## デプロイの流れと確認
 
@@ -231,9 +252,10 @@ U=$(gcloud run services describe loss-note --region=$L --project="$P" --format='
 for p in / /trades/abc123 /api/health; do curl -s -o /dev/null -w '%{http_code}\n' "$U$p"; done       # 200 200 200
 curl -s -o /dev/null -w '%{http_code}\n' "$U/api/trades"                                             # 401（トークンなし）
 curl -s -o /dev/null -w '%{http_code}\n' "$U/api/nope"                                               # 404
-# CSP の土台の 8 つの指示（8）と nosniff・no-referrer（2）
-curl -sI "$U/" | tr -d '\r' | grep -i '^content-security-policy:' | sed 's/^[^:]*: *//' | tr ';' '\n' | sed 's/^ *//' \
-  | grep -cxE "default-src 'none'|script-src 'self'|style-src 'self'|img-src 'self'|connect-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'"
+# CSP の指示（9）: 土台の 6 つと、Google ログインの許可を足した script-src・connect-src・frame-src（#43。authDomain は伏せる）
+AD=$(mise exec -- terraform -chdir=infra/bootstrap output -json firebase_web_config | jq -r .auth_domain)   # 表示しない
+curl -sI "$U/" | tr -d '\r' | grep -i '^content-security-policy:' | sed 's/^[^:]*: *//' | sed "s/$AD/<AUTH_DOMAIN>/g" | tr ';' '\n' | sed 's/^ *//' \
+  | grep -cxE "default-src 'none'|script-src 'self' https://apis.google.com|style-src 'self'|img-src 'self'|connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com|base-uri 'none'|form-action 'none'|frame-ancestors 'none'|frame-src https://<AUTH_DOMAIN>"
 curl -sI "$U/" | tr -d '\r' | grep -ciE '^(x-content-type-options: nosniff|referrer-policy: no-referrer)$'
 # 100% を受けるリビジョンのイメージの digest の先頭 12 文字（run の Summary と同じ）
 gcloud run services describe loss-note --region=$L --project="$P" --format='value(spec.template.spec.containers[0].image)' | sed -E 's/.*@sha256:(.{12}).*/\1/'
@@ -251,6 +273,14 @@ done
 ## 切り戻し
 
 前のリビジョン（今 100% を受けるリビジョンの直前に作られた、Ready のリビジョン）へトラフィックを 100% 戻します。Cloud Run のトラフィックだけを変え、Firestore のデータには触れません。
+
+**#43（許可リスト）より前のリビジョンへ戻すときは、先に Google のログインを無効にします**（許可リストの無い API に誰でもログインできる時間を作らない。上の「ログインと使える利用者」）:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-user-project: $P" \
+  -H 'Content-Type: application/json' -d '{"enabled":false}' \
+  "https://identitytoolkit.googleapis.com/admin/v2/projects/$P/defaultSupportedIdpConfigs/google.com?updateMask=enabled"   # 200
+```
 
 **GitHub から**（手元に gcloud が無くても行えます）: Actions の画面で `rollback` を main から実行し（`gh workflow run rollback.yml -R "$REPO" --ref main` でも同じ）、Environment `prod` の承認をします。run の Summary に「戻し: <今> → <前>」、`/` と `/api/health` の状態コード、100% のリビジョン名が出ます。戻し先が無い（リビジョンが 1 つしか無い）ときは何も変えずに失敗します。
 

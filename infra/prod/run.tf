@@ -1,10 +1,12 @@
 # Cloud Run（Issue #42・docs/design.md 10 章・ADR-0009）: 画面の静的ファイルと API を 1 つのサービスで配る（同じオリジン）。
-# 誰でも開ける（ログイン前の画面は公開）。記録の API の守りは ID トークンの検証（ADR-0004 の verify）。
+# 誰でも開ける（ログイン前の画面は公開）。記録の API の守りは ID トークンの検証（ADR-0004 の verify）と使える利用者の許可リスト（#43）。
 # 実行用 SA（sa-loss-note）・Firestore・そのデータのロール（roles/datastore.user）は infra/bootstrap（所有者の apply）。
 # ここ（CI の apply SA の roles/run.admin の範囲）はサービスと invoker の付与だけ。出力は持たない（URL をログに出さない）。
 locals {
   # plan SA は SA を読めないので data source にしない（名前は infra/bootstrap の google_service_account.runtime と同じ）
   runtime_sa = "sa-loss-note@${var.project_id}.iam.gserviceaccount.com"
+  # 名前は infra/bootstrap の google_secret_manager_secret.allowed_emails と同じ（#43。読み取りの付与も bootstrap）
+  allowed_emails_secret = "loss-note-allowed-emails"
 }
 
 # ingress は all（run.app の URL で配る。ロードバランサは使わない）。IAM の検査は無効にしない（invoker は下の付与）。
@@ -49,6 +51,25 @@ resource "google_cloud_run_v2_service" "app" {
       env {
         name  = "GOOGLE_CLOUD_PROJECT"
         value = var.project_id
+      }
+
+      # ログイン（#43・ADR-0003「縦切り 2 で決めたこと」）: CSP に Google ログインのポップアップの authDomain を足す
+      # （画面のビルドの VITE_FIREBASE_AUTH_DOMAIN と同じ値。CI は secrets.FIREBASE_AUTH_DOMAIN を TF_VAR_firebase_auth_domain で渡す）
+      env {
+        name  = "FIREBASE_AUTH_DOMAIN"
+        value = var.firebase_auth_domain
+      }
+
+      # 使える利用者の許可リスト（#43）。値は Secret Manager（infra/bootstrap/secrets.tf の入れ物の latest）だけに置き、
+      # Terraform の plan・state には参照だけが入る。値を変えたら新しいインスタンスから効く
+      env {
+        name = "LOSS_NOTE_ALLOWED_EMAILS"
+        value_source {
+          secret_key_ref {
+            secret  = local.allowed_emails_secret
+            version = "latest"
+          }
+        }
       }
 
       # /api/health は記録（Firestore）に触れない

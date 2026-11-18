@@ -81,3 +81,38 @@ describe('gate（ログインの門）', () => {
     }
   });
 });
+
+describe('gate の使えないアカウント（#43 AC-7・R6）', () => {
+  const routes: [Route, string][] = [
+    [{ name: 'home' }, '/'],
+    [{ name: 'record' }, '/record'],
+    [{ name: 'trades' }, '/trades'],
+    [{ name: 'trade', id: 'a' }, '/trades/a'],
+    [{ name: 'tradeEdit', id: 'a' }, '/trades/a/edit'],
+    [{ name: 'settings' }, '/settings'],
+    [{ name: 'parts' }, '/dev/parts'],
+    [{ name: 'login' }, '/login'],
+  ];
+
+  it('ログイン済みで 403 を受けたら、どの画面でも中身を描かず forbidden（URL は置き換えない）', () => {
+    for (const [r, p] of routes) {
+      expect(gate(IN, r, p, '', { dev: true }, true), p).toEqual({ render: 'forbidden' });
+    }
+  });
+
+  it('L4: ログアウトした（signedOut）なら旗があってもログイン画面へ。分かるまでは loading のまま', () => {
+    expect(gate(OUT, trades, '/trades', '', PROD, true)).toEqual(
+      gate(OUT, trades, '/trades', '', PROD),
+    );
+    expect(gate(OUT, login, '/login', '', PROD, true)).toEqual({ render: 'login' });
+    expect(gate(UNKNOWN, trades, '/trades', '', PROD, true)).toEqual({ render: 'loading' });
+  });
+
+  it('旗が無ければ今の表のまま', () => {
+    for (const [r, p] of routes) {
+      expect(gate(IN, r, p, '', { dev: true }, false), p).toEqual(
+        gate(IN, r, p, '', { dev: true }),
+      );
+    }
+  });
+});

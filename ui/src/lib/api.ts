@@ -12,6 +12,8 @@ export interface ApiDeps {
   /** ログイン中の ID トークン（ログインしていなければ null） */
   readonly getIdToken: () => Promise<string | null>;
   readonly fetch: (input: string, init?: RequestInit) => Promise<Response>;
+  /** 応答が 403（このアカウントは使えない。#43）のときに呼ぶ。本文は読まない */
+  readonly onForbidden?: () => void;
 }
 
 const BASE = 'https://api-path.invalid';
@@ -53,5 +55,7 @@ export async function apiFetch(path: string, init: RequestInit, deps: ApiDeps): 
   if (!token) throw new NotSignedIn();
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  return deps.fetch(target, { ...init, headers });
+  const res = await deps.fetch(target, { ...init, headers });
+  if (res.status === 403) deps.onForbidden?.();
+  return res;
 }

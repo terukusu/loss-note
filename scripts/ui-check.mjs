@@ -2,7 +2,7 @@
 // Chromium（Playwright）で全画面を幅 360 / 390 / 768 / 1440px × ダーク / ライトで開き、横スクロールの量（px）と、
 // 幅 360px の押せるものの当たりが 44×44px 未満の件数、折り返さない部品（ボタン・セグメント・バッジなど）の中の
 // はみ出しの件数を数値で出す。行き来（例の表 V1〜V6）とテーマ（T2〜T4）も実ブラウザで流す。
-// 戻るでスクロールの位置が戻ること（S1）、ログインの門（例の表 L1〜L7）も見る。1 つでも外れれば終了コード 1。CI には入れない（手元で流し、出力の要約を PR に貼る）。
+// 戻るでスクロールの位置が戻ること（S1）、ログインの門（例の表 L1〜L7）と、使えないアカウントの画面（Issue #43 の例 L3・L4 = F1・F2。偽の /api がすべて 403）も見る。1 つでも外れれば終了コード 1。CI には入れない（手元で流し、出力の要約を PR に貼る）。
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
 // 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（時間帯の確かめ）・読み取りの失敗の状態を同じ幅とテーマで
@@ -1797,7 +1797,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7 / 使えないアカウント F1〜F2 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET4 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -2143,6 +2143,102 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
+  }
+
+  // ── 使えないアカウント（Issue #43 の例 L3・L4）。ログイン済みの文脈で、偽の /api がすべて 403 を返す
+  //   F1: どの画面を開いても中身を出さず「このアカウントでは使えません」と [別のアカウントでログイン]。幅 360 と 1440 ×
+  //       ダーク / ライトで横スクロール 0・当たり 44 以上・見出しは 2 行まで（--shots なら撮る）。ホームは /api を読まないが、
+  //       ログインの確かめの 1 回で出る
+  //   F2: [別のアカウントでログイン] → ログアウトしてログイン画面に置き換わる
+  {
+    const forbiddenCtx = async (w, hgt, theme) => {
+      const c = await browser.newContext({
+        viewport: { width: w, height: hgt },
+        storageState: signedIn,
+      });
+      await setupContext(c, theme);
+      // 記録の中身（取引の行）が一度でも描かれたかを記録する（画面の見出しは 403 が返るまでの間に出てよい。
+      // 中身は API が 403 を返すので届かない）
+      await c.addInitScript(() => {
+        window.__uiCheckRows = 0;
+        new MutationObserver(() => {
+          window.__uiCheckRows += document.querySelectorAll('.traderow').length;
+        }).observe(document, { childList: true, subtree: true });
+      });
+      await c.route('**/api/**', (route) =>
+        route.fulfill({
+          status: 403,
+          contentType: 'application/json',
+          body: '{"error":"forbidden"}',
+        }),
+      );
+      return c;
+    };
+    const TITLE = 'このアカウントでは使えません';
+    await check('F1', async () => {
+      const notes = [];
+      for (const [w, hgt] of SIZES.filter(([sw]) => sw === 360 || sw === 1440)) {
+        for (const theme of THEMES) {
+          const c = await forbiddenCtx(w, hgt, theme);
+          try {
+            const p = await c.newPage();
+            const errors = [];
+            p.on('pageerror', (e) => errors.push(e.message));
+            for (const at of ['/', '/trades', '/settings']) {
+              await p.goto(`${base}${at}`);
+              await waitReady(p, TITLE);
+              expectEq(path(p), at, `${at} の URL（置き換えない）`);
+              const rows = await p.evaluate(() => window.__uiCheckRows);
+              if (rows > 0) throw new Error(`${at}: 取引の行が描かれた`);
+              if ((await p.locator('nav.appnav').count()) > 0)
+                throw new Error(`${at}: 行き先が出ている`);
+              await p
+                .getByRole('button', { name: '別のアカウントでログイン' })
+                .waitFor({ state: 'visible' });
+            }
+            // 見出しの行数（句の中で折り返さず 2 行まで。デザインレビュー #43）
+            const lines = await p.evaluate(() => {
+              const h = document.querySelector('main h1');
+              if (!h) return 0;
+              const lh = Number.parseFloat(getComputedStyle(h).lineHeight);
+              return Math.round(h.getBoundingClientRect().height / lh);
+            });
+            if (lines > 2) throw new Error(`${w} ${theme}: 見出しが ${lines} 行`);
+            const m = await measure(p, w === 360, TAP);
+            if (m.h > 0) throw new Error(`${w} ${theme}: 横スクロール ${m.h}px`);
+            if (m.small.length > 0)
+              throw new Error(`${w} ${theme}: 当たり<44 ${m.small.join('・')}`);
+            if (m.clipped.length > 0)
+              throw new Error(`${w} ${theme}: はみ出し ${m.clipped.join('・')}`);
+            expectEq(errors.length, 0, 'ページのエラー');
+            if (opts.shots) {
+              await p.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-forbidden.png`),
+                fullPage: true,
+              });
+            }
+            notes.push(`${w}${theme === 'dark' ? 'D' : 'L'} 見出し ${lines} 行`);
+          } finally {
+            await c.close();
+          }
+        }
+      }
+      return `/・/trades・/settings → 使えない旨と [別のアカウントでログイン] だけ（横 0px。${notes.join('・')}）`;
+    });
+    await check('F2', async () => {
+      const c = await forbiddenCtx(390, 844, 'dark');
+      try {
+        const p = await c.newPage();
+        await p.goto(`${base}/trades`);
+        await waitReady(p, TITLE);
+        await p.getByRole('button', { name: '別のアカウントでログイン' }).click();
+        await waitReady(p, 'ログイン');
+        expectEq(path(p), '/login', 'ログアウトの後');
+        return '[別のアカウントでログイン] → ログアウトして /login（ログイン画面）';
+      } finally {
+        await c.close();
+      }
+    });
   }
 
   await check('L7', async () => {

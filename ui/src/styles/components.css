@@ -1420,12 +1420,26 @@
   box-shadow: var(--shadow-2);
 }
 
+/* 印とアプリの名前の行（ログイン・使えないアカウント。#43） */
+.login__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+
+.login__name {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-heavy);
+  letter-spacing: -0.01em;
+}
+
 .login__mark {
   display: grid;
+  flex: none;
   place-items: center;
   width: 48px;
   height: 48px;
-  margin-bottom: var(--sp-2);
   border-radius: var(--radius-lg);
   color: var(--on-accent);
   background: linear-gradient(
@@ -1450,8 +1464,37 @@
   letter-spacing: -0.02em;
 }
 
+/* 状態の画面（使えないアカウント。#43）の見出し: 1 段小さくし、句の中では折り返さない（<wbr> の位置だけ） */
+.login__title--status {
+  font-size: var(--fs-2xl);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* 状態の画面の中立の記号（段の色・強調の色は使わない） */
+.login__status {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  background: var(--s2);
+  color: var(--ink-2);
+}
+
+.login__status .icon {
+  width: 18px;
+  height: 18px;
+}
+
 .login__lead {
   color: var(--ink-2);
+}
+
+/* 添え書き（約束の文言・使えない理由） */
+.login__note {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
 }
 
 .login__action {

@@ -17,6 +17,7 @@ import {
 } from 'firebase/auth';
 import { apiFetch } from '../lib/api';
 import type { AuthConfig } from './config';
+import { createForbiddenFlag, type ForbiddenFlag } from './forbidden';
 import type { AuthState } from './gate';
 import { raceUnreachable, reachable } from './race';
 
@@ -103,10 +104,16 @@ export function signOutActive(): Promise<void> {
   return active?.signOut() ?? Promise.resolve();
 }
 
+/** 使えないアカウントの旗（/api/* の 403 で立つ。アプリの殻が購読する。#43） */
+export const forbiddenFlag: ForbiddenFlag = createForbiddenFlag();
+
 /** 画面から /api への要求（ログイン中の ID トークンを付ける）。最初に使うのは #13 / #4 */
 export function api(path: string, init: RequestInit = {}): Promise<Response> {
+  // 送る前の世代を控え、遅れて届いた前のアカウントの 403 では旗を立てない
+  const generation = forbiddenFlag.generation();
   return apiFetch(path, init, {
     getIdToken: () => active?.getIdToken() ?? Promise.resolve(null),
     fetch: (input, i) => fetch(input, i),
+    onForbidden: () => forbiddenFlag.markFrom(generation),
   });
 }

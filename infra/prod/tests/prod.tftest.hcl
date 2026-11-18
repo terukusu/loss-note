@@ -6,8 +6,9 @@
 mock_provider "google" {}
 
 variables {
-  project_id = "example-project"
-  image      = "asia-northeast1-docker.pkg.dev/example-project/loss-note/loss-note@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  project_id           = "example-project"
+  image                = "asia-northeast1-docker.pkg.dev/example-project/loss-note/loss-note@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  firebase_auth_domain = "auth.example.test"
 }
 
 run "defaults" {
@@ -26,10 +27,24 @@ run "defaults" {
     condition     = google_cloud_run_v2_service.app.template[0].service_account == "sa-loss-note@example-project.iam.gserviceaccount.com"
     error_message = "実行用 SA は sa-loss-note@<project_id>"
   }
-  # R4: 環境変数はプロジェクト ID だけ（値 = project_id）。エミュレーターの接続先は 0 件
+  # R4: 環境変数はプロジェクト ID（値 = project_id）と、#43 のログインの 2 つ（authDomain・許可リスト）だけ。エミュレーターの接続先は 0 件
   assert {
-    condition     = toset([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e.name]) == toset(["GOOGLE_CLOUD_PROJECT"])
-    error_message = "環境変数の名前は GOOGLE_CLOUD_PROJECT だけ"
+    condition     = toset([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e.name]) == toset(["GOOGLE_CLOUD_PROJECT", "FIREBASE_AUTH_DOMAIN", "LOSS_NOTE_ALLOWED_EMAILS"])
+    error_message = "環境変数の名前は GOOGLE_CLOUD_PROJECT・FIREBASE_AUTH_DOMAIN・LOSS_NOTE_ALLOWED_EMAILS だけ"
+  }
+  # #43: authDomain は変数のまま（CSP の frame-src に入る）
+  assert {
+    condition     = one([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e.value if e.name == "FIREBASE_AUTH_DOMAIN"]) == "auth.example.test"
+    error_message = "FIREBASE_AUTH_DOMAIN の値は firebase_auth_domain"
+  }
+  # #43: 許可リストは平文の値を持たず、Secret Manager の入れ物 loss-note-allowed-emails の latest の参照だけ
+  assert {
+    condition     = one([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e.value if e.name == "LOSS_NOTE_ALLOWED_EMAILS"]) == null
+    error_message = "LOSS_NOTE_ALLOWED_EMAILS は平文の value を持たない"
+  }
+  assert {
+    condition     = one(flatten([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : [for v in e.value_source : [for k in v.secret_key_ref : "${k.secret}@${k.version}"]] if e.name == "LOSS_NOTE_ALLOWED_EMAILS"])) == "loss-note-allowed-emails@latest"
+    error_message = "LOSS_NOTE_ALLOWED_EMAILS は Secret Manager の loss-note-allowed-emails の latest の参照"
   }
   assert {
     condition     = one([for e in google_cloud_run_v2_service.app.template[0].containers[0].env : e.value if e.name == "GOOGLE_CLOUD_PROJECT"]) == "example-project"
@@ -138,6 +153,47 @@ run "reject_other_project_image" {
     image = "asia-northeast1-docker.pkg.dev/other-project/loss-note/loss-note@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   }
   expect_failures = [var.image]
+}
+
+# #43: authDomain はホスト名だけ（CSP のヘッダへの差し込み・スキーム・ワイルドカードを受けない）
+run "reject_auth_domain_with_scheme" {
+  command = plan
+  variables {
+    firebase_auth_domain = "https://auth.example.test"
+  }
+  expect_failures = [var.firebase_auth_domain]
+}
+
+run "reject_auth_domain_wildcard" {
+  command = plan
+  variables {
+    firebase_auth_domain = "*.example.test"
+  }
+  expect_failures = [var.firebase_auth_domain]
+}
+
+run "reject_auth_domain_separator" {
+  command = plan
+  variables {
+    firebase_auth_domain = "auth.example.test; script-src *"
+  }
+  expect_failures = [var.firebase_auth_domain]
+}
+
+run "reject_auth_domain_uppercase" {
+  command = plan
+  variables {
+    firebase_auth_domain = "Auth.Example.Test"
+  }
+  expect_failures = [var.firebase_auth_domain]
+}
+
+run "reject_empty_auth_domain" {
+  command = plan
+  variables {
+    firebase_auth_domain = ""
+  }
+  expect_failures = [var.firebase_auth_domain]
 }
 
 run "reject_bad_project_id" {

@@ -12,6 +12,7 @@ import math
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 import firebase_admin
 from firebase_admin import auth as fb_auth
@@ -59,6 +60,14 @@ def check_claims(claims: Mapping[str, object], now_ms: int) -> str:
     return uid
 
 
+@dataclass(frozen=True)
+class Identity:
+    """検証できたトークンの利用者。claims は許可リスト（``allowlist.py``）の判定にだけ使う（ログ・応答に出さない）"""
+
+    uid: str
+    claims: Mapping[str, object]
+
+
 class _NoCredential(credentials.Base):
     """検証に資格情報は要らない（公開鍵は公開の URL から取る）。ADC を探しに行かないための空の資格情報"""
 
@@ -87,6 +96,9 @@ class TokenVerifier:
         return self._client
 
     def verify(self, token: str, now_ms: int) -> str:
+        return self.verify_identity(token, now_ms).uid
+
+    def verify_identity(self, token: str, now_ms: int) -> Identity:
         # firebase-admin は呼ぶたびに環境変数でエミュレーターかを決める。起動の判定と食い違えば受けない
         emulated_now = bool(os.environ.get(AUTH_EMULATOR))
         if emulated_now != (self._mode == "emulator"):
@@ -97,4 +109,4 @@ class TokenVerifier:
             raise AuthUnavailable(type(e).__name__) from None
         except Exception as e:  # noqa: BLE001 - 文言にトークンが入るので型の名前だけを残す
             raise InvalidToken(type(e).__name__) from None
-        return check_claims(claims, now_ms)
+        return Identity(check_claims(claims, now_ms), claims)

@@ -9,6 +9,10 @@
 本番（Issue #42・ADR-0009）はイメージの gunicorn が ``create_app()`` を呼ぶ。環境変数 ``STATIC_DIR``
 （画面のビルド成果物の置き場）があるときだけ画面の静的ファイルも配る（``web.py``）。すべての応答に
 CSP の土台と ``nosniff``・``no-referrer`` を付ける。
+
+ログイン（Issue #43・ADR-0003「縦切り 2 で決めたこと」）: 署名を検証する起動では、``FIREBASE_AUTH_DOMAIN`` が
+あるときだけ CSP に Google ログインのポップアップの許可を足す（形が合わなければ起動しない）。使える利用者の許可リスト
+``LOSS_NOTE_ALLOWED_EMAILS``（``allowlist.py``）は起動時に 1 回読み、記録の API の入口で見る。
 """
 
 import io
@@ -19,10 +23,10 @@ from collections.abc import Callable, Mapping
 from flask import Flask, Request, Response, g, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
-from loss_note_api import logs, schema, statement_read, web
+from loss_note_api import allowlist, logs, schema, statement_read, web
 from loss_note_api.auth import TokenVerifier
 from loss_note_api.routes import error, invalid, make_blueprint, make_unconfigured_blueprint
-from loss_note_api.runtime import decide_runtime
+from loss_note_api.runtime import StartupRefused, decide_runtime
 from loss_note_api.store import FirestoreStore, Store, StoreUnavailable
 
 
@@ -37,6 +41,19 @@ class MemoryOnlyRequest(Request):
 
     def _get_file_stream(self, total_content_length, content_type, filename=None, content_length=None):
         return io.BytesIO()
+
+
+def _login_csp(mode: str, env: Mapping[str, str]) -> dict[str, tuple[str, ...]] | None:
+    """署名を検証する起動で authDomain があるときだけ、Google ログインの許可（手元の画面は Vite が配るので要らない）"""
+    auth_domain = env.get(web.AUTH_DOMAIN_VAR) or ""
+    if mode != "verify" or not auth_domain:
+        return None
+    try:
+        return web.login_csp_extra(auth_domain)
+    except ValueError:
+        raise StartupRefused(
+            f"{web.AUTH_DOMAIN_VAR} はホスト名の形（例: <PROJECT_ID>.firebaseapp.com）で書いてください"
+        ) from None
 
 
 def create_app(
@@ -68,13 +85,14 @@ def create_app(
     else:
         app.register_blueprint(
             make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock,
-                           statement_read.read_config(env, read_timeout))
+                           statement_read.read_config(env, read_timeout),
+                           allowed=allowlist.policy_for(runtime.mode, env))
         )
 
     # 画面の静的ファイル（STATIC_DIR があるときだけ。無ければ今のまま = /api 以外は 404 の JSON）
     static_dir = env.get(web.STATIC_DIR_VAR) or ""
     site = web.register_static(app, static_dir) if static_dir else None
-    headers = web.security_headers(web.build_csp(web.BASE_CSP))
+    headers = web.security_headers(web.build_csp(web.BASE_CSP, _login_csp(runtime.mode, env)))
 
     @app.before_request
     def start_timer():

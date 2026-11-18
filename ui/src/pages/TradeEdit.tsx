@@ -1,4 +1,4 @@
-// 取引を直す（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5）: 記録する画面と同じ欄（TradeFields）と判定の枠（Verdict）を、
+// 取引を編集（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5）: 記録する画面と同じ欄（TradeFields）と判定の枠（Verdict）を、
 // 保存した値が入った状態で出す。直している間も判定・理由・R・リスク（%）はその場で出直し、資金・許容リスクは取引に写した値で
 // 計算する（今の設定を使わない）。明細の枠は出さず、チャートは変えない（チャートのある枠の時間足だけを選び直せる）。
 // チャートの無い枠に記録された時間足は保存で外し、その旨を判定の枠の上に出す。保存できたら詳細へ置き換える。
@@ -34,7 +34,7 @@ export function TradeEdit({ id }: { readonly id: string }) {
   return (
     <>
       <PageHeader
-        title="取引を直す"
+        title="取引を編集"
         description="資金・許容リスクは記録したときの値で計算します。チャートは記録したときのままです（時間足だけ選び直せます）。"
       />
       <TradeEditScreen id={id} notFound={notFoundState()} />
@@ -157,7 +157,7 @@ export function TradeEditView(p: TradeEditViewProps) {
       }}
     >
       <fieldset class="record__fields" disabled={saving}>
-        <legend class="sr-only">取引を直す</legend>
+        <legend class="sr-only">取引を編集</legend>
         <TradeMainFields
           draft={d}
           errors={e}
@@ -173,7 +173,7 @@ export function TradeEditView(p: TradeEditViewProps) {
             <h2 class="section__title" id="edit-charts-title">
               根拠の足のチャートの時間足
             </h2>
-            <p class="section__note">チャートは直すでは変えません。時間足だけを選び直せます。</p>
+            <p class="section__note">編集ではチャートは変えません。時間足だけを選び直せます。</p>
             {charts.map((slot) => {
               const field = CHART_TIMEFRAME_FIELD[slot];
               const fid = `edit-chart-${slot}-tf`;

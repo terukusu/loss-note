@@ -117,11 +117,11 @@ describe('口座（#47 U12〜U15）', () => {
       .map(text)
       .filter((x) => x.includes('口座'));
     expect(rows).toEqual([
-      '口座 11,000,000円 · 許容 1%1 回の負けは 10,000円 まで直す',
-      '口座 B資金 未設定 · 許容 1%資金を入れるとリスク（%）が出ます直す',
+      '口座 11,000,000円 · 許容 1%1 回の負けは 10,000円 まで編集',
+      '口座 B資金 未設定 · 許容 1%資金を入れるとリスク（%）が出ます編集',
     ]);
     // [直す] の読み上げの名前
-    expect(byId(tree, 'settings-account-edit-accB')?.props['aria-label']).toBe('口座 B を直す');
+    expect(byId(tree, 'settings-account-edit-accB')?.props['aria-label']).toBe('口座 B を編集');
   });
 
   it('移した直後（口座 1 つ・「口座 1」）も 1 行。特別な案内は出さない', async () => {
@@ -148,7 +148,7 @@ describe('口座（#47 U12〜U15）', () => {
     );
     const form = all(
       tree,
-      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を直す',
+      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を編集',
     )[0];
     expect(form).toBeDefined();
     const f = form ? [form] : [];
@@ -245,7 +245,7 @@ describe('口座（#47 U12〜U15）', () => {
     const tree = render(s, { onSaveAccount: () => saved++ });
     const form = all(
       tree,
-      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を直す',
+      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を編集',
     )[0];
     if (!form) throw new Error('口座の form が無い');
     (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault: noop });
@@ -282,7 +282,7 @@ describe('銘柄', () => {
     expect(insts.map((i) => text(i).slice(0, 4))).toEqual(['US30', '日経22']);
     expect(text(insts[0] ?? [])).toContain('仮の値');
     expect(text(insts[1] ?? [])).not.toContain('仮の値');
-    const edit = all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'US30 を直す');
+    const edit = all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'US30 を編集');
     expect(edit).toHaveLength(1);
   });
 

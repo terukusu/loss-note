@@ -126,10 +126,10 @@ export function Verdict(v: VerdictProps) {
       </div>
       {v.before ? (
         <p class="verdict__before">
-          <span class="verdict__label">直す前</span>
+          <span class="verdict__label">編集前</span>
           <JudgeBadge grade={v.before.judgment?.grade ?? null} />
           {v.before.r !== undefined ? <RNum value={v.before.r} /> : null}
-          <span class="verdict__label">→ 直した後（下）</span>
+          <span class="verdict__label">→ 編集後（下）</span>
         </p>
       ) : null}
       {lead ? <p class="verdict__lead">{lead}</p> : null}

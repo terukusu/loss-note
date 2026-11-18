@@ -599,7 +599,7 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
     c.update({ type: 'set', field: 'lcMove', value: 'none' });
     expect(change()).toBe('判定: B 悪い損失 −1.0R → A いい損失 −1.0R');
     const before = all(view(), hasClass('verdict__before'))[0] as El;
-    expect(text(before)).toContain('直す前');
+    expect(text(before)).toContain('編集前');
     expect(text(before)).toContain('B 悪い損失');
   });
 });

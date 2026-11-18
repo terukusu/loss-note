@@ -102,7 +102,7 @@ const PAGES = [
   { path: '/trades', h1: '取引の一覧', wait: '.traderow' },
   { path: '/trades/no-such-trade', h1: '取引の詳細' },
   { path: '/trades/x-d1', h1: 'US30 · L', wait: 'canvas.chartview__canvas >> nth=1' },
-  { path: '/trades/x-e1/edit', h1: '取引を直す', wait: '#edit-submit' },
+  { path: '/trades/x-e1/edit', h1: '取引を編集', wait: '#edit-submit' },
   // Issue #34: 物差しの場面（危ない勝ちで LC を下げていた・TP を入れた・ショート）
   { path: '/trades/x-r1', h1: 'US30 · L', wait: '.ruler__plot' },
   { path: '/trades/x-r2', h1: 'US30 · L', wait: '.ruler__plot' },
@@ -1465,7 +1465,7 @@ const SETTINGS_STATES = [
       setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_B]);
     },
     fn: async (p) => {
-      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await p.locator('#settings-account-name').waitFor();
       await p.locator('summary', { hasText: '資金の履歴（3 件）' }).click();
     },
@@ -1492,7 +1492,7 @@ const SETTINGS_STATES = [
     name: '銘柄を直している',
     prep: seedSettings,
     fn: async (p) => {
-      await p.getByRole('button', { name: 'US30 を直す' }).click();
+      await p.getByRole('button', { name: 'US30 を編集' }).click();
       await p.locator('#settings-inst-name').waitFor();
       await p.locator('#settings-inst-kind').selectOption('index');
       await p.locator('#settings-inst-currency').fill('USD');
@@ -1503,11 +1503,11 @@ const SETTINGS_STATES = [
     name: '誤りと警告',
     prep: seedSettings,
     fn: async (p) => {
-      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await p.locator('#settings-account-capital').fill('1000.5');
       await p.locator('#settings-account-risk').fill('2.5');
       await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
-      await p.getByRole('button', { name: 'US30 を直す' }).click();
+      await p.getByRole('button', { name: 'US30 を編集' }).click();
       await p.locator('#settings-inst-name').fill('日経２２５ ');
       await p.locator('#settings-inst-currency').fill('US');
       await p.locator('#settings-inst-multiplier').fill('0');
@@ -2078,7 +2078,7 @@ async function main() {
           ['/trades/x-d1', 'US30 · L', '.verdict__account', 'trade-x-d1-accounts'],
           [
             '/trades/x-d1/edit',
-            '取引を直す',
+            '取引を編集',
             '#record-account-field',
             'trade-x-d1-edit-accounts',
             async (pg) => {
@@ -3536,7 +3536,7 @@ async function runFlows(browser, base, signedIn) {
       fake.instruments[0] = { ...FAKE_US30, priceCurrency: 'JPY' };
       await openSettings(p, base);
       await p.locator('.instlist__item', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
-      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await p.locator('#settings-account-capital').fill('1,000,000');
       await p.getByText('1 回の負けは 10,000円 までです').waitFor();
       await p.locator('#settings-account-save').click();
@@ -3553,7 +3553,7 @@ async function runFlows(browser, base, signedIn) {
       await p.reload();
       await openSettings(p, base);
       await p.locator('.instlist__item', { hasText: '1,000,000円 · 許容 1%' }).waitFor();
-      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await p.locator('summary', { hasText: '資金の履歴（1 件）' }).waitFor();
       expectEq(
         await p.locator('#settings-account-capital').inputValue(),
@@ -3584,7 +3584,7 @@ async function runFlows(browser, base, signedIn) {
       seedSettings(fake);
       await openSettings(p, base);
       // E9: [直す] → 名前の欄にフォーカス → 株価指数・usd・刻み 0.1 → 保存
-      await p.getByRole('button', { name: 'US30 を直す' }).click();
+      await p.getByRole('button', { name: 'US30 を編集' }).click();
       await p.locator('#settings-inst-name').waitFor();
       // フォーカスは描き直しの後の effect で移る（待つ）
       await expectPollAsync(
@@ -3609,7 +3609,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('.instlist__item', { hasText: want }).waitFor();
       // E10・E11: 重複の名前・乗数 0 → 送らずに欄の誤り
       const before = fake.writes.length;
-      await p.getByRole('button', { name: 'XAU を直す' }).click();
+      await p.getByRole('button', { name: 'XAU を編集' }).click();
       await p.locator('#settings-inst-name').fill('日経２２５ ');
       await p.locator('#settings-inst-multiplier').fill('0');
       await p.locator('form.instedit button[type="submit"]').click();
@@ -3647,7 +3647,7 @@ async function runFlows(browser, base, signedIn) {
       const post = fake.writes.find((x) => x.key === 'POST /api/instruments');
       expectEq(JSON.stringify(post?.body), JSON.stringify({ name: 'GOLD' }), '足す本文');
       // E7（A7）: 口座 1 の許容リスク 2.5 → 警告を出して保存できる
-      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await p.locator('#settings-account-risk').fill('2.5');
       await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
       await p.locator('#settings-account-save').click();
@@ -3659,7 +3659,7 @@ async function runFlows(browser, base, signedIn) {
       );
       // E8: 3.1 は送らない
       const before = fake.writes.length;
-      await p.getByRole('button', { name: '口座 1 を直す' }).click();
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await p.locator('#settings-account-risk').fill('3.1');
       await p.locator('#settings-account-save').click();
       await p.locator('#settings-account-risk-error').waitFor();
@@ -3680,7 +3680,7 @@ async function runFlows(browser, base, signedIn) {
       try {
         seedSettings(fake);
         await openSettings(p, base);
-        await p.getByRole('button', { name: '口座 1 を直す' }).click();
+        await p.getByRole('button', { name: '口座 1 を編集' }).click();
         await p.locator('#settings-account-risk').fill('3.1');
         await p.locator('#settings-account-capital').fill('0');
         await p.locator('#settings-account-save').click();
@@ -3711,7 +3711,7 @@ async function runFlows(browser, base, signedIn) {
         );
         // 銘柄: 誤りのまま [保存] → 最初の誤りの欄（価格の通貨）
 
-        await p.getByRole('button', { name: 'US30 を直す' }).click();
+        await p.getByRole('button', { name: 'US30 を編集' }).click();
         await p.locator('#settings-inst-multiplier').fill('0');
         await p.locator('#settings-inst-currency').fill('US');
         await p.locator('#settings-inst-save').click();
@@ -4081,10 +4081,10 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/trades/x-e1`);
       await waitReady(p, 'US30 · L');
       await p.locator('a[href="/trades/x-e1/edit"]').click();
-      await waitReady(p, '取引を直す');
+      await waitReady(p, '取引を編集');
       await p.locator('#edit-submit').waitFor();
       expectEq(await p.locator('#record-lc').inputValue(), '99.5', 'LC の欄');
-      expectEq((await verdictOf(p)).badge, 'B 悪い損失', '直す前');
+      expectEq((await verdictOf(p)).badge, 'B 悪い損失', '編集前');
       await seg(p, 'LC を動かしたか', 'そのまま').click();
       expectEq(
         await p.locator('#edit-change').textContent(),
@@ -4119,10 +4119,10 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'US30 · L');
       await p.locator('.verdict .badge').first().waitFor();
       const before = await verdictOf(p);
-      expectEq(before.badge, 'B 悪い損失', '直す前');
+      expectEq(before.badge, 'B 悪い損失', '編集前');
       if (!before.reasons.some((r) => r.includes('チャートから'))) throw new Error('直す前の理由');
       await p.goto(`${base}/trades/x-e2/edit`);
-      await waitReady(p, '取引を直す');
+      await waitReady(p, '取引を編集');
       const notice = await p.locator('#edit-orphans').textContent();
       if (
         !notice?.includes('エントリー時: 4 時間足・決済時: 日足') ||

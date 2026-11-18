@@ -1,4 +1,4 @@
-// 取引を直す画面の純関数（Issue #9 契約 P-2。設計書 4 章の冒頭・C36・7.5、ADR-0004 決定 5・ADR-0006 決定 7）。
+// 取引を編集画面の純関数（Issue #9 契約 P-2。設計書 4 章の冒頭・C36・7.5、ADR-0004 決定 5・ADR-0006 決定 7）。
 // DOM・通信・現在時刻に触れない。
 // - 保存した取引 → 記録する画面と同じ下書き（draftFromStored）と読みの文脈（editContext）。判定・R・リスクは記録する画面と
 //   同じ readDraft → summarize の道で出し、資金・許容リスクは取引に写した値（base）で計算する（今の設定を使わない）。
@@ -39,7 +39,7 @@ import {
 } from './record-form';
 
 export const EDIT_BLOCKED =
-  '建てが複数（または建てごとの LC）の取引は、まだ直せません。消して記録し直すことはできます。';
+  '建てが複数（または建てごとの LC）の取引は、まだ編集できません。消して記録し直すことはできます。';
 
 /** 直せない理由（直せるなら null） */
 export function editBlock(t: Pick<StoredTrade, 'record'>): string | null {
@@ -248,7 +248,7 @@ function verdictText(s: Pick<Summary, 'judgment' | 'r'>): string {
 /** 保存の帯に出す、直す前 → 直した後の判定（変わらなければその旨） */
 export function changeText(before: Summary, after: Summary): string {
   const a = verdictText(before);
-  if (after.judgment === undefined) return `直す前: ${a}（直した後の判定は、欄をそろえると出ます）`;
+  if (after.judgment === undefined) return `編集前: ${a}（編集後の判定は、欄をそろえると出ます）`;
   const b = verdictText(after);
   return a === b ? `判定は変わりません: ${a}` : `判定: ${a} → ${b}`;
 }

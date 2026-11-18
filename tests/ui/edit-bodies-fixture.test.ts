@@ -76,6 +76,7 @@ function item(name: string, base: StoredTrade, actions: readonly DraftAction[]):
     instrument: DEFAULT_INSTRUMENT,
     capitalYen: settings.capitalYen,
     riskTolerancePct: settings.riskTolerancePct,
+    accountCurrency: 'JPY',
   };
   const { charts: _none, ...rest } = base;
   const trade: StoredTrade = {
@@ -109,10 +110,12 @@ function item(name: string, base: StoredTrade, actions: readonly DraftAction[]):
 
 interface AccountSpec {
   /** default = 既定の口座（「口座 1」）、ほかは API が決める ID の印 */
-  readonly key: 'default' | 'ACCOUNT_A' | 'ACCOUNT_B';
+  readonly key: 'default' | 'ACCOUNT_A' | 'ACCOUNT_B' | 'ACCOUNT_D';
   readonly name: string;
   readonly capitalYen: number | null;
   readonly riskTolerancePct: number;
+  /** 口座の通貨（#47 PR-2。省けば JPY） */
+  readonly currency?: string;
 }
 
 interface AccountScene {
@@ -131,6 +134,7 @@ interface AccountScene {
   /** 保存の後の snapshot の資金と判定（付け替え = 付け替え先の今の値、付け替えない = 写した値のまま） */
   readonly expect: {
     readonly capitalYen: number | null;
+    readonly accountCurrency: string;
     readonly grade: string;
     readonly riskPct: number | null;
   };
@@ -139,7 +143,9 @@ interface AccountScene {
 const asRecord = (a: AccountSpec): AccountRecord =>
   a.key === 'default'
     ? { ...defaultAccount(a.capitalYen, a.riskTolerancePct), name: a.name }
-    : account(a.key, a.name, a.capitalYen, a.riskTolerancePct);
+    : account(a.key, a.name, a.capitalYen, a.riskTolerancePct, {
+        ...(a.currency === undefined ? {} : { currency: a.currency }),
+      });
 
 function accountScene(
   name: string,
@@ -155,6 +161,7 @@ function accountScene(
     instrument: DEFAULT_INSTRUMENT,
     capitalYen: at.capitalYen,
     riskTolerancePct: at.riskTolerancePct,
+    accountCurrency: 'JPY',
   };
   const { charts: _none, ...rest } = base;
   const { accountId: _old, ...plain } = base.record;
@@ -184,6 +191,7 @@ function accountScene(
     body,
     expect: {
       capitalYen: after.capitalYen,
+      accountCurrency: after.accountCurrency ?? 'JPY',
       grade: s.judgment?.grade ?? '',
       riskPct: s.riskPct ?? null,
     },
@@ -207,6 +215,13 @@ const ACC_B: AccountSpec = {
   name: '口座 B',
   capitalYen: 200_000,
   riskTolerancePct: 1,
+};
+const ACC_D: AccountSpec = {
+  key: 'ACCOUNT_D',
+  name: '口座 D',
+  capitalYen: 10_000,
+  riskTolerancePct: 1,
+  currency: 'USD',
 };
 /** E1 を「そのまま」に直した取引（L 100.00 / LC 99.50 / 数量 10,000 / 損益 −5,000 → 1R 5,000 円） */
 const FIXED = { type: 'set', field: 'lcMove', value: 'none' } as const;
@@ -233,6 +248,21 @@ function build(): { trades: Item[]; accountScenes: AccountScene[] } {
         [{ ...ONE, capitalYen: 2_000_000 }, ACC_B],
         [FIXED],
       ),
+      // #47 PR-2 A9: 口座 A（JPY）の取引（明細の損益・手数料あり）を口座 D（USD）へ付け替える。直す画面は損益・手数料を
+      // 空に戻す（edit-controller。ここでは同じ操作を下書きに当てる）→ 本文に損益も手数料も無く、snapshot は口座 D の値
+      accountScene(
+        'A9',
+        { ...E1, record: { ...E1.record, fees: [{ label: '手数料', amountYen: 100 }] } },
+        'ACCOUNT_A',
+        [ONE, ACC_A, ACC_D],
+        [ONE, ACC_A, ACC_D],
+        [
+          FIXED,
+          { type: 'set', field: 'accountId', value: 'ACCOUNT_D' },
+          { type: 'set', field: 'pnlYen', value: '' },
+          { type: 'set', field: 'feeYen', value: '' },
+        ],
+      ),
     ],
   };
 }
@@ -246,9 +276,21 @@ describe('直す画面の本文の fixture（AC-4・KEEP-1）', () => {
   });
 
   it('#47 A4・B7: 付け替え = 付け替え先の今の資金で 2.5%・B、付け替えない = 写した資金のまま 0.5%・A', () => {
-    const [a4, b7] = build().accountScenes;
+    const [a4, b7, a9] = build().accountScenes;
     expect(a4?.body.accountId).toBe('ACCOUNT_B');
-    expect(a4?.expect).toEqual({ capitalYen: 200_000, grade: 'B', riskPct: 2.5 });
+    expect(a4?.expect).toEqual({
+      capitalYen: 200_000,
+      accountCurrency: 'JPY',
+      grade: 'B',
+      riskPct: 2.5,
+    });
+    // A9（#47 PR-2）: 損益・手数料が本文に無く、口座 D の USD・資金 10,000 で写し直す
+    expect(a9?.original.statementPnlYen).toBe(-5_000);
+    expect(a9?.body.statementPnlYen).toBeUndefined();
+    expect(a9?.body.fees).toEqual([]);
+    expect(a9?.body.accountId).toBe('ACCOUNT_D');
+    expect(a9?.expect.capitalYen).toBe(10_000);
+    expect(a9?.expect.accountCurrency).toBe('USD');
     expect(b7?.original.accountId).toBeUndefined();
     // 口座が 2 個なので本文には口座 1（既定）が入るが、付け替えではない
     expect(b7?.body.accountId).toBe('default');

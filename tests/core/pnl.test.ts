@@ -39,7 +39,7 @@ describe('損益（円）E1〜E5', () => {
     // (40,100 − 40,000) × 2 × 1 × 150 = +30,000
     const t = closedAt(
       trade({
-        instrument: { multiplier: 1, quantityStep: 1, isJpy: false },
+        instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: false },
         entries: [{ price: 40_000, quantity: 2 }],
         lc: 39_900,
       }),
@@ -53,7 +53,7 @@ describe('損益（円）E1〜E5', () => {
     // (37,900 − 38,000) × 1 × 100 × 1 = −10,000
     const t = closedAt(
       trade({
-        instrument: { multiplier: 100, quantityStep: 1, isJpy: true },
+        instrument: { multiplier: 100, quantityStep: 1, priceInAccountCurrency: true },
         entries: [{ price: 38_000, quantity: 1 }],
         lc: 37_800,
       }),
@@ -103,7 +103,7 @@ describe('1R（円）E5・E9〜E11', () => {
     // |−9,000| × |100.00 − 99.50| ÷ |99.40 − 100.00| = 9,000 × 0.50 ÷ 0.60 = 7,500
     const t = closedAt(
       trade({
-        instrument: { multiplier: 1, quantityStep: 1, isJpy: false },
+        instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: false },
         statementPnlYen: -9_000,
       }),
       99.4,
@@ -118,7 +118,7 @@ describe('1R（円）E5・E9〜E11', () => {
 
   it('E11 1R: 外貨建てで為替が分からないと 1R とリスクを出さない（R は 0R）', () => {
     const t = closedAt(
-      trade({ instrument: { multiplier: 1, quantityStep: 1, isJpy: false } }),
+      trade({ instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: false } }),
       100,
     );
     expect(oneRYen(t)).toBeUndefined();

@@ -63,6 +63,8 @@ class InvalidRecord(Exception):
         self.issues = issues
 
 
+# 口座の直し: (今の文書, 取引があるか（呼んだときだけ読む）) -> 新しい文書（Conflict を投げれば何も書かない）
+MutateAccount = Callable[[Doc, Callable[[], bool]], Doc]
 # 取引の作成: (銘柄, 口座) -> 保存する文書
 BuildTrade = Callable[[Doc, Doc], Doc]
 # 取引の直し: (今の文書, 付け替え先の銘柄 or None, 付け替え先の口座 or None) -> 新しい文書
@@ -124,7 +126,10 @@ class Store(Protocol):
     def get_account(self, uid: str, account_id: str, build_default: BuildDefault) -> Doc | None: ...
     # 名前が重複すれば Conflict("duplicateName")
     def create_account(self, uid: str, doc: Doc, build_default: BuildDefault) -> str: ...
-    def update_account(self, uid: str, account_id: str, mutate: Mutate, build_default: BuildDefault) -> Doc | None: ...
+    # mutate の 2 つ目の引数を呼ぶと、その口座の取引があるかを同じトランザクションの中で読む（既定の口座は
+    # accountId の無い取引も数える）
+    def update_account(self, uid: str, account_id: str, mutate: MutateAccount,
+                       build_default: BuildDefault) -> Doc | None: ...  # fmt: skip
 
     def get_settings(self, uid: str) -> Doc | None: ...
     def update_settings(self, uid: str, mutate: Callable[[Doc | None], Doc]) -> Doc: ...
@@ -410,13 +415,28 @@ class FirestoreStore:
             prev = self._read_account(tx, uid, account_id)
             if prev is None:
                 return None
-            new = mutate(prev)
+            new = mutate(prev, lambda: self._account_in_use(tx, uid, account_id))
             if self._name_taken(tx, uid, new["nameKey"], except_id=account_id, collection="accounts"):
                 raise Conflict("duplicateName")
             tx.set(ref, new)
             return new
 
         return self._with_default(uid, build_default, body)
+
+    def _account_in_use(self, tx, uid, account_id) -> bool:
+        """その口座の取引が 1 件でもあるか。既定の口座は accountId の無い取引も数える（Firestore は「欄が無い」を
+        問い合わせられないので、accountId だけの射影で取引を流して見る。通貨を変えるときだけ呼ぶ）"""
+        from google.cloud.firestore_v1.base_query import FieldFilter
+
+        trades = self._user(uid).collection("trades")
+        if account_id == DEFAULT_ACCOUNT_ID:
+            q = trades.select(["record.accountId"])
+            return any(
+                accounts.account_id_of((s.to_dict() or {}).get("record") or {}) == DEFAULT_ACCOUNT_ID
+                for s in q.get(transaction=tx)
+            )
+        q = trades.where(filter=FieldFilter("record.accountId", "==", account_id)).limit(1)
+        return bool(list(q.get(transaction=tx)))
 
     # ── 銘柄 ──
     def _name_taken(self, tx, uid, key, except_id=None, collection="instruments") -> bool:

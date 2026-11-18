@@ -22,6 +22,7 @@ import {
   isTimeframe,
   TIMEFRAME_CHOICES,
 } from '../lib/charts';
+import { CURRENCY_CLEARED_NOTE, CURRENCY_FX_CLEARED_NOTE, currencyView } from '../lib/currency';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import { createEditController, type EditState } from '../lib/edit-controller';
 import { changeText } from '../lib/edit-form';
@@ -162,7 +163,13 @@ export function TradeEditView(p: TradeEditViewProps) {
   // 口座（#47）: 開いたときは取引の口座（付いていない取引は既定の口座）。替えたら欄の下に 1 行（U19）
   const original = state.trade ? accountIdOf(state.trade.record) : DEFAULT_ACCOUNT_ID;
   const accountId = selectedAccountId(d.accountId, original);
-  const accountHint = switchHint(findAccount(accountId, state.accounts), accountId !== original);
+  const switched = switchHint(findAccount(accountId, state.accounts), accountId !== original);
+  // 通貨の違う口座へ替えたら、損益・手数料を空に戻した旨を同じ 1 行に足し、「ほかの欄」を開く（#47 PR-2・U33）
+  const accountHint =
+    state.currencyCleared && switched !== null
+      ? `${switched}。${state.fxCleared ? CURRENCY_FX_CLEARED_NOTE : CURRENCY_CLEARED_NOTE}`
+      : switched;
+  const currency = read.currency ? currencyView(read.currency, state.preview.derivedFx) : undefined;
   // 記録したときの値と今の値（#31）: 違うときだけ。資金が空でリスク（%）が出せるなら、判定の枠の注記のそばにも
   const offer = state.offer;
   const refresh = state.refresh && offer !== null;
@@ -186,6 +193,7 @@ export function TradeEditView(p: TradeEditViewProps) {
           accounts={state.accounts}
           accountId={accountId}
           accountHint={accountHint}
+          {...(currency ? { currency } : {})}
         />
         {charts.length > 0 ? (
           <section class="card section" aria-labelledby="edit-charts-title">
@@ -265,7 +273,8 @@ export function TradeEditView(p: TradeEditViewProps) {
           instruments={state.instruments}
           marks={{}}
           onUpdate={p.onUpdate}
-          open={optionalError}
+          {...(currency ? { currency } : {})}
+          open={optionalError || state.currencyCleared}
         />
       </fieldset>
 

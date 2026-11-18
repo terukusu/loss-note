@@ -11,13 +11,17 @@
 //   C36）。違いが無くなったら（口座・銘柄を付け替えた等）選択も戻す。保存の前に口座・銘柄を読み直し、開いてから今の値が
 //   変わっていたら保存せずに知らせる（見せた値と違う値で保存しない）
 // - 失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。下書きは記憶の中だけ（端末の保存先・URL・履歴に書かない）
-import type {
-  AccountRecord,
-  InstrumentRecord,
-  StoredTrade,
-  TradeRecord,
+// - 通貨の違う口座へ付け替えたら損益・手数料を空に戻し（currencyCleared）、元の通貨の口座へ戻したら開いたときの値に戻す
+//   （#47 PR-2・A9・U33。保存済みの値は元の口座の通貨の金額なので、別の通貨の口座に持ち込まない）
+import {
+  type AccountRecord,
+  accountCurrencyOf,
+  type InstrumentRecord,
+  type StoredTrade,
+  type TradeRecord,
 } from '../../../core/record';
 import { sortAccounts } from './accounts';
+import { accountCurrencyIn } from './currency';
 import {
   draftFromStored,
   editBlock,
@@ -36,8 +40,13 @@ import {
   type DraftContext,
   type DraftReading,
   EMPTY_DRAFT,
+  type FxPair,
+  fxPairOf,
+  fxStale,
+  fxVisibleOf,
   type Preview,
   readDraft,
+  refineFxBasis,
   type Summary,
   summarize,
 } from './record-form';
@@ -57,6 +66,7 @@ import {
   RESNAPSHOT_QUERY,
   type ResnapshotOffer,
   resnapshotOffer,
+  withoutStaleFx,
 } from './resnapshot';
 import { tradePath } from './trade-detail-controller';
 
@@ -100,6 +110,10 @@ export interface EditState {
   readonly offer: ResnapshotOffer | null;
   /** 今の値で計算し直すを選んでいる（offer があるときだけ効く） */
   readonly refresh: boolean;
+  /** 通貨の違う口座へ付け替えて、損益・手数料を空に戻した（U33 の知らせと「ほかの欄」を開く） */
+  readonly currencyCleared: boolean;
+  /** そのとき打ってあった為替も空に戻した（知らせに「為替」を足す） */
+  readonly fxCleared: boolean;
   readonly error: string | null;
   readonly errorKind?: FailureKind;
 }
@@ -124,10 +138,41 @@ function mergedOf(
   draft: Draft,
   read: DraftReading,
   instrumentId: string,
+  ctx: DraftContext,
 ): TradeRecord | undefined {
   return read.body === undefined
     ? undefined
-    : mergeEdit(trade.record, initial, draft, read.body, instrumentId);
+    : mergeEdit(
+        trade.record,
+        initial,
+        draft,
+        read.body,
+        instrumentId,
+        fxOpts(read, ctx, initial, draft),
+      );
+}
+
+/** 為替の保ち方: 欄が出ていれば下書き、出ていなければ為替が意味を失っていないとき（fxStale でない）だけ元の為替を保つ */
+function fxOpts(read: DraftReading, ctx: DraftContext, initial: Draft, draft: Draft) {
+  return {
+    fxShown: fxVisibleOf(editSnapshot(read, ctx, draft)),
+    keepOriginalFx: !fxStale(fxPairOf(initial, ctx), fxPairOf(draft, ctx)),
+  };
+}
+
+/** 2 つの組が同じか（価格の通貨と口座の通貨） */
+const samePair = (a: FxPair, b: FxPair) => a.price === b.price && a.account === b.account;
+
+/** 下書きの口座の通貨（元の口座なら取引に写した通貨、付け替えたら付け替え先の今の通貨） */
+function draftCurrency(
+  trade: StoredTrade,
+  accounts: readonly AccountRecord[],
+  draft: Pick<Draft, 'accountId'>,
+): string {
+  const ctx = editContext(trade, [], accounts);
+  const id = draft.accountId === '' ? ctx.base?.accountId : draft.accountId;
+  if (id === ctx.base?.accountId) return accountCurrencyOf(trade.snapshot);
+  return accountCurrencyIn(accounts, id ?? '');
 }
 
 export function createEditController(deps: {
@@ -152,6 +197,8 @@ export function createEditController(deps: {
     block: null,
     offer: null,
     refresh: false,
+    currencyCleared: false,
+    fxCleared: false,
     error: null,
   };
   let inflight: Promise<void> | null = null;
@@ -184,11 +231,16 @@ export function createEditController(deps: {
       read = readDraft(draft, ctx);
     }
     const id = read.instrument.matchedId ?? trade.record.instrumentId;
-    const merged = mergedOf(trade, initial, draft, read, id);
+    const merged = mergedOf(trade, initial, draft, read, id, ctx);
     const stored = editSnapshot(read, ctx, draft);
     const offer = resnapshotOffer(stored, currentSnapshot(read, ctx, draft), merged);
     const snapshot = refresh && offer !== null ? offer.snapshot : stored;
-    return { draft, read, offer, preview: editPreview(read, merged, snapshot) };
+    // 今の値で通貨の組（価格の通貨 / 口座の通貨）が変わるなら、打った為替は今の組では意味を失うので外して計算する（#47 PR-2）
+    const forPreview =
+      refresh && offer !== null && merged !== undefined
+        ? withoutStaleFx(merged, stored, snapshot)
+        : merged;
+    return { draft, read, offer, preview: editPreview(read, forPreview, snapshot) };
   };
 
   const set = (patch: Partial<EditState>) => {
@@ -202,6 +254,10 @@ export function createEditController(deps: {
     }
     emit();
   };
+
+  /** 為替の基準の組（開いたときの組 → 為替を打ったときの組）と、規則で空にしたか（#47 PR-2） */
+  let fxBasis: FxPair = { price: null, account: 'JPY', matched: false };
+  let fxAutoCleared = false;
 
   const load = async () => {
     const my = ++gen;
@@ -234,6 +290,8 @@ export function createEditController(deps: {
         return;
       }
       const initial = draftFromStored(trade, inst.items);
+      fxBasis = fxPairOf(initial, editContext(trade, inst.items, accounts));
+      fxAutoCleared = false;
       const next = withDraft(trade, inst.items, accounts, initial, initial, false);
       set({
         phase: 'editing',
@@ -246,6 +304,8 @@ export function createEditController(deps: {
         orphans: orphanTimeframes(trade),
         block: null,
         refresh: false,
+        currencyCleared: false,
+        fxCleared: false,
         error: null,
       });
     } catch (e) {
@@ -300,7 +360,21 @@ export function createEditController(deps: {
       );
       // 足した銘柄は保存に失敗しても一覧に残す（次に押したときに同じ名前を足し直さない）
       if (inst.instruments !== state.instruments) set({ instruments: inst.instruments });
-      const record = mergeEdit(trade.record, initial, draft, body, inst.id);
+      const ctx = editContext(trade, state.instruments, state.accounts);
+      const record0 = mergeEdit(
+        trade.record,
+        initial,
+        draft,
+        body,
+        inst.id,
+        fxOpts(read, ctx, initial, draft),
+      );
+      // 今の値で写し直す（#31）とき、通貨の組が変わるなら為替を外して送る（#47 PR-2。為替は組に縛られた値）
+      const offer = state.offer;
+      const record =
+        refresh && offer !== null
+          ? withoutStaleFx(record0, editSnapshot(read, ctx, draft), offer.snapshot)
+          : record0;
       const res = await request(`${tradePath(deps.id)}${refresh ? RESNAPSHOT_QUERY : ''}`, {
         method: 'PUT',
         headers: JSON_HEADERS,
@@ -342,16 +416,66 @@ export function createEditController(deps: {
     update(action) {
       const trade = state.trade;
       if (state.phase !== 'editing' || trade === null) return;
+      let draft = applyDraft(state.draft, action);
+      let currencyCleared = state.currencyCleared;
+      let fxCleared = state.fxCleared;
+      if (action.type === 'set' && action.field === 'accountId') {
+        const original = accountCurrencyOf(trade.snapshot);
+        const before = draftCurrency(trade, state.accounts, state.draft);
+        const after = draftCurrency(trade, state.accounts, draft);
+        if (after !== before && after !== original) {
+          // 通貨の違う口座へ: 損益・手数料を空に戻す（A9・U33）。付け替えた後に手で打った値も、通貨が変われば
+          // その口座の通貨の金額ではなくなるので空にする（為替と同じ規則。再レビュー 3）
+          draft = { ...draft, pnlYen: '', feeYen: '' };
+          currencyCleared = true;
+          fxCleared = state.draft.fxRate !== '';
+        } else if (after === original && before !== original) {
+          // 元の通貨へ戻した: 開いたときの値に戻す（保存の前なら取り消せる）
+          draft = { ...draft, pnlYen: state.initial.pnlYen, feeYen: state.initial.feeYen };
+          currencyCleared = false;
+          fxCleared = false;
+        }
+      }
+      // 為替: 意味を失う移り（口座の通貨が変わる・決まった価格の通貨どうしが違う。fxStale）なら空にし、開いたときの組へ
+      // 戻したら開いたときの値に戻す（為替は組に縛られた値。#47 PR-2 のレビュー block）。銘柄の名前を打っている途中
+      // （一覧に当たらない）では空にしない（再レビュー 2）
+      const ctx = editContext(trade, state.instruments, state.accounts);
+      const now = fxPairOf(draft, ctx);
+      const initialPair = fxPairOf(state.initial, ctx);
+      if (action.type === 'set' && action.field === 'fxRate') {
+        fxBasis = now;
+        fxAutoCleared = false;
+      } else if (
+        now.matched &&
+        samePair(now, initialPair) &&
+        (fxAutoCleared || fxStale(fxBasis, now))
+      ) {
+        // 開いたときの組へ戻した: 規則で空にした為替も、別の組で打った為替も、開いたときの値に戻す（3 回目の再レビュー 2）
+        draft = { ...draft, fxRate: state.initial.fxRate };
+        fxBasis = initialPair;
+        fxAutoCleared = false;
+      } else if (draft.fxRate !== '' && fxStale(fxBasis, now)) {
+        draft = { ...draft, fxRate: '' };
+        fxAutoCleared = true;
+      } else {
+        fxBasis = refineFxBasis(fxBasis, now);
+      }
       const next = withDraft(
         trade,
         state.instruments,
         state.accounts,
-        applyDraft(state.draft, action),
+        draft,
         state.initial,
         state.refresh,
       );
       // 違いが無くなったら選択も戻す（付け替えて戻したときに、押した覚えの無い「今の値」にならない。N-8）
-      set({ ...next, ...(next.offer === null ? { refresh: false } : {}), error: null });
+      set({
+        ...next,
+        ...(next.offer === null ? { refresh: false } : {}),
+        currencyCleared,
+        fxCleared,
+        error: null,
+      });
     },
     setRefresh(on) {
       const trade = state.trade;

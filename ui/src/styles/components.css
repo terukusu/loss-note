@@ -565,6 +565,17 @@
   letter-spacing: -0.02em;
 }
 
+/* 外貨の金額（#47 PR-2・U29）: 数は .num、通貨の 3 文字は .num の外で小さく */
+.num-money {
+  white-space: nowrap;
+}
+
+.num-unit {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular, 400);
+  color: var(--ink-2);
+}
+
 /* ── 空の状態 ─────────────────────── */
 .empty {
   display: flex;
@@ -649,6 +660,18 @@
 /* イン・決済は幅 360px でも 2 列（対で読む値。画面の全長を詰める。Issue #33 AC-4） */
 .record__pair--prices {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* 2 列の下に通しで出す 1 行（為替の「1 USD = ? 円」・損益と手数料の注記。#47 PR-2）。列の欄に寄せる */
+.record__pairnote {
+  margin-top: calc(var(--sp-2) - var(--sp-4));
+  overflow-wrap: anywhere;
+}
+
+/* 銘柄の下の建ての通貨の 1 行（#47 PR-2・U22）。欄に寄せて詰め、記録する画面の全長（R12）を増やしすぎない */
+#record-instrument-hint {
+  margin-top: calc(-1 * var(--sp-1));
+  line-height: var(--lh-tight);
 }
 
 /* [記録する] は親指の届く所に。スマホでは下部の行き先の上に貼り付ける */
@@ -946,6 +969,13 @@
   flex-direction: column;
   gap: var(--sp-1);
   min-width: 0;
+}
+
+/* 外貨の口座の損益（「−50.00 USD」は長い）は、狭い幅では値の長さによらずいつも 2 段目の左に置く（#47 PR-2 デザイン 3） */
+@media (max-width: 479px) {
+  .verdict__stat--pnl-row {
+    flex-basis: 100%;
+  }
 }
 
 .verdict__label {
@@ -2016,11 +2046,16 @@ summary.settings__subtitle {
     grid-column: 1 / -1;
   }
 
+  /* 名前は 1 段目の全幅、2 段目に 通貨（狭い列）| 資金 | 許容リスク（#47 PR-2 デザイン 4） */
   .accountedit__fields {
     display: grid;
-    grid-template-columns: minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr);
+    grid-template-columns: minmax(8ch, 10ch) minmax(0, 1.5fr) minmax(0, 1fr);
     align-items: start;
-    column-gap: var(--sp-4);
+    gap: var(--sp-4);
+  }
+
+  .accountedit__fields > legend + * {
+    grid-column: 1 / -1;
   }
 }
 

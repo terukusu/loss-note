@@ -16,13 +16,20 @@ export interface NumberFieldProps {
   readonly size?: 'lg';
   readonly disabled?: boolean;
   readonly inputMode?: 'decimal' | 'text';
+  /** 欄の外にある説明の要素の ID（2 列の下に通しで出す 1 行など。読み上げの説明に足す） */
+  readonly describedBy?: string;
 }
 
 export function NumberField(p: NumberFieldProps) {
   const hintId = `${p.id}-hint`;
   const errorId = `${p.id}-error`;
   const markId = `${p.id}-mark`;
-  const describedBy = [p.mark ? markId : '', p.hint ? hintId : '', p.error ? errorId : '']
+  const describedBy = [
+    p.mark ? markId : '',
+    p.hint ? hintId : '',
+    p.describedBy ?? '',
+    p.error ? errorId : '',
+  ]
     .filter(Boolean)
     .join(' ');
   const label = (

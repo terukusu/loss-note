@@ -50,6 +50,7 @@ import {
   isTimeframe,
   TIMEFRAME_CHOICES,
 } from '../lib/charts';
+import { currencyView, statementFillsMoney, statementMoneyNote } from '../lib/currency';
 import { formatPrice } from '../lib/format';
 import {
   createRecordController,
@@ -395,9 +396,20 @@ function RecordForm(p: RecordViewProps) {
   const account = findAccount(accountId, state.accounts);
   const accountLine =
     hasManyAccounts(state.accounts) && account
-      ? verdictAsideText(account.name, account.capitalYen)
+      ? verdictAsideText(account.name, account.capitalYen, {
+          ...(account.currency ? { currency: account.currency } : {}),
+        })
       : undefined;
   const add = state.addAccount;
+  // 通貨と為替（#47 PR-2）: 外貨の口座で明細を貼ったら、損益・手数料の下に「明細から入りません」（U28）
+  const accountCurrency = read.currency?.account ?? 'JPY';
+  const moneyNote =
+    state.statement?.phase === 'ready' && !statementFillsMoney(accountCurrency)
+      ? statementMoneyNote(accountCurrency)
+      : undefined;
+  const currency = read.currency
+    ? currencyView(read.currency, read.preview.derivedFx, moneyNote)
+    : undefined;
 
   return (
     <form
@@ -421,6 +433,7 @@ function RecordForm(p: RecordViewProps) {
           onUpdate={onUpdate}
           accounts={state.accounts}
           accountId={accountId}
+          {...(currency ? { currency } : {})}
           accountAction={
             <AccountAddButton
               open={add !== undefined}
@@ -477,6 +490,7 @@ function RecordForm(p: RecordViewProps) {
           instruments={state.instruments}
           marks={marks}
           onUpdate={onUpdate}
+          {...(currency ? { currency } : {})}
           open={optionalError || hasReadMarks}
         />
       </fieldset>

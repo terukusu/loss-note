@@ -1,4 +1,4 @@
-// R・円の数字の表示（Issue #3 R3・契約 C-1。設計書 6.3・C29）。色は付けず、符号と単位で読ませる。
+// R・円・口座の通貨の数字の表示（Issue #3 R3・契約 C-1・#47 PR-2。設計書 6.3・C29）。色は付けず、符号と単位で読ませる。
 // 丸めは 0 から遠い側（四捨五入）。2 進の誤差（1.15 × 10 = 11.4999…）で 0 に近い側へ落ちないよう、
 // 小さな寄せ（1e-9）を足してから丸める（|R| < 1e6 の範囲で安全）。丸めて 0 になっても元の符号を残す
 
@@ -43,6 +43,41 @@ export function formatAmountYen(yen: number): string {
   if (!Number.isFinite(yen)) return '金額なし';
   const n = roundAway(Math.abs(yen), 1);
   return `${yen < 0 && n !== 0 ? MINUS : ''}${group(n.toFixed(0))}円`;
+}
+
+/** 円の口座か（JPY は小数 0 桁・「円」。#47 PR-2） */
+function isYen(currency: string): boolean {
+  return currency === 'JPY';
+}
+
+/** 0 から遠い側へ小数 2 桁に丸め、3 桁区切りで書く（外貨の金額） */
+function twoDecimals(abs: number): { text: string; zero: boolean } {
+  const n = roundAway(abs, 100);
+  const int = Math.floor(n / 100);
+  const frac = String(n % 100).padStart(2, '0');
+  return { text: `${group(String(int))}.${frac}`, zero: n === 0 };
+}
+
+/**
+ * 口座の通貨の損益の表示（#47 PR-2・U29）。JPY は formatYen と同じ（−8,000円）。
+ * ほかの通貨は「−50.00 USD」（小数 2 桁・3 桁区切り・半角の空き・3 文字・符号は U+2212・ちょうど 0 は ±）。
+ * 有限でないときは「損益なし」
+ */
+export function formatMoney(value: number, currency: string): string {
+  if (isYen(currency)) return formatYen(value);
+  if (!Number.isFinite(value)) return '損益なし';
+  return `${signOf(value)}${twoDecimals(Math.abs(value)).text} ${currency}`;
+}
+
+/**
+ * 口座の通貨の符号の無い金額（資金・1R・1 回の負けの上限）。JPY は formatAmountYen と同じ（1,000,000円）。
+ * ほかの通貨は「10,000.00 USD」。有限でないときは「金額なし」
+ */
+export function formatAmount(value: number, currency: string): string {
+  if (isYen(currency)) return formatAmountYen(value);
+  if (!Number.isFinite(value)) return '金額なし';
+  const { text, zero } = twoDecimals(Math.abs(value));
+  return `${value < 0 && !zero ? MINUS : ''}${text} ${currency}`;
 }
 
 /**

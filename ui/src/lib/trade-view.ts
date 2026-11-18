@@ -4,21 +4,29 @@
 // 並びは API の trade_sort_key と同じ（決済の時刻の新しい順 → 作った時刻の新しい順 → ID の昇順）
 // 口座（#47）: 口座が 2 つ以上のときだけ行・詳細の見出しに口座の名前（口座の付いていない取引は既定の口座）。
 // 詳細の「すべての欄」には口座の数によらず口座と、記録したときの資金・許容リスクを出す（U16〜U18）
+// 通貨（#47 PR-2）: 金額は取引の口座の通貨（snapshot の accountCurrency。無い = JPY）。「すべての欄」に 1R・建ての通貨・為替
+// （通貨が違う取引だけ）を出す（U32・D2・D3）
 import type { Grade, Judgment } from '../../../core/judge';
-import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
+import {
+  type AccountRecord,
+  accountCurrencyOf,
+  type InstrumentRecord,
+  type StoredTrade,
+} from '../../../core/record';
 import { isLongerTimeframe } from '../../../core/trade';
 import { hasManyAccounts, tradeAccountName } from './accounts';
 import { type BadgeModel, badgeModel } from './badge';
 import { CHART_SLOT_TEXT, CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
+import { formatFxDerived, fxFieldVisible, withUnit } from './currency';
 import { formatDate, formatDateTime } from './datetime';
 import {
-  formatAmountYen,
+  formatAmount,
+  formatMoney,
   formatPct,
   formatPlain,
   formatPrice,
   formatR,
   formatTimes,
-  formatYen,
 } from './format';
 import { TIMEFRAME_NAME, widenVerb } from './reasons';
 import { RISK_NOTE, type Summary, summarize } from './record-form';
@@ -129,7 +137,7 @@ export function tradeRow(
 
 /**
  * 一覧の上に 1 回だけ出す「—」の理由（行ごとに繰り返さない）。同じ理由は件数にまとめ、R とリスクが同じ理由なら
- * 「R・リスク」とまとめる。例: 「リスクの「—」: 資金を設定すると出ます（1 件）」
+ * 「R・リスク」とまとめる。例: 「リスクの「—」: 資金を設定すると表示されます（1 件）」
  */
 export function missingNotes(rows: readonly TradeRow[]): string[] {
   const counts = new Map<string, number>();
@@ -302,21 +310,31 @@ export function recordFields(
   const e = r.entries[0];
   const x = r.exit;
   const s = t.snapshot;
+  const currency = accountCurrencyOf(s);
+  const price = s.instrument.priceCurrency;
+  const sum = summarize(t);
   const rows: FieldRow[] = [
     { label: '口座', value: tradeAccountName(t, accounts) },
     {
       label: '口座の資金（記録したとき）',
-      value: s.capitalYen === null ? '未設定' : formatAmountYen(s.capitalYen),
+      value: s.capitalYen === null ? '未設定' : formatAmount(s.capitalYen, currency),
     },
     { label: '許容リスク（記録したとき）', value: `${formatPlain(s.riskTolerancePct)}%` },
     { label: '銘柄', value: instrumentName },
+  ];
+  // 建ての通貨: 口座の通貨と違うときだけ「USD」。未設定は外貨の口座のときだけ「未設定」（U32・F11・J9 の直し。
+  // 名前に「建て」があるので値は 3 文字だけ。デザイン 6）
+  if (price !== null ? price !== currency : currency !== 'JPY') {
+    rows.push({ label: '建ての通貨', value: price ?? '未設定' });
+  }
+  rows.push(
     { label: 'L / S', value: SIDE_TEXT[r.side] },
     { label: 'イン', value: formatPrice(e.price) },
     { label: '決済', value: formatPrice(x.price) },
     { label: '数量', value: formatPlain(e.quantity) },
-  ];
+  );
   // 提案の数量と数量の比（#67。記録したときの資金・許容リスクで。数量どうしを隣に並べる。出ないときは行ごと出さない）
-  const sizing = summarize(t).sizing;
+  const sizing = sum.sizing;
   if (sizing !== undefined) {
     if (sizing.suggestedQuantity !== undefined) {
       const q = sizing.suggestedQuantity;
@@ -327,9 +345,27 @@ export function recordFields(
     }
     rows.push({ label: SIZING_LABEL.ratio, value: timesText(sizing.ratio) });
   }
+  // 為替: 通貨が違う取引だけ。入れた値（1 USD = 150 円）か、明細から逆算した値。どちらも無ければ行なし（U32）
+  if (price !== null && fxFieldVisible(price, currency)) {
+    // 「1 USD = 150円」/「1 USD = 150.00円（明細から）」（値を 2 度書かない。デザイン 6）
+    if (x.fxRate !== undefined) {
+      rows.push({
+        label: '為替',
+        value: `1 ${price} = ${withUnit(formatPlain(x.fxRate), currency)}`,
+      });
+    } else if (sum.derivedFx !== undefined) {
+      rows.push({
+        label: '為替',
+        value: `1 ${price} = ${withUnit(formatFxDerived(sum.derivedFx), currency)}（明細から）`,
+      });
+    }
+  }
   rows.push({ label: '決済の時刻', value: formatDateTime(x.time) });
   if (e.time !== undefined) rows.push({ label: '建てた時刻', value: formatDateTime(e.time) });
   rows.push({ label: 'LC', value: r.lc === undefined ? 'なし' : formatPrice(r.lc) });
+  if (sum.oneRYen !== undefined) {
+    rows.push({ label: '1R', value: formatAmount(sum.oneRYen, currency) });
+  }
   if (r.brokenCondition) rows.push({ label: '崩れの条件の一言', value: r.brokenCondition });
   if (r.lc !== undefined) {
     rows.push({
@@ -340,11 +376,15 @@ export function recordFields(
   }
   rows.push({ label: '時間足を変えたか', value: timeframeChangeText(t, judgment) });
   if (r.statementPnlYen !== undefined) {
-    rows.push({ label: '損益（明細の値）', value: formatYen(r.statementPnlYen) });
+    rows.push({ label: '損益（明細の値）', value: formatMoney(r.statementPnlYen, currency) });
   }
   if (r.fees.length > 0) {
-    const total = r.fees.reduce((sum, f) => sum + f.amountYen, 0);
-    rows.push({ label: '手数料', value: `${formatPlain(total)}円` });
+    const total = r.fees.reduce((acc, f) => acc + f.amountYen, 0);
+    // 手数料は今の表記（丸めない。円の口座は「200.5円」のまま）。外貨の口座は通貨の 3 文字を後ろに
+    rows.push({
+      label: '手数料',
+      value: currency === 'JPY' ? `${formatPlain(total)}円` : `${formatPlain(total)} ${currency}`,
+    });
   }
   rows.push({ label: 'LC の根拠', value: LC_BASIS_TEXT[r.lcBasis] });
   rows.push({ label: '決済の理由', value: EXIT_REASON_TEXT[x.reason] });

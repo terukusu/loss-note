@@ -27,6 +27,7 @@ import {
   READ_MSG,
   READING_NOTICE,
   readFailureOf,
+  refillMoney,
   rowLabel,
   TZ_MISSING,
 } from '../../ui/src/lib/statement-fill';
@@ -494,5 +495,66 @@ describe('文字の欄への貼り付けは横取りしない（レビュー指�
   ])('%o: 文字の欄でなければ画像を受ける', (target) => {
     expect(isTextTarget(target)).toBe(false);
     expect(imageFileFromClipboard(both, target)).toBe('png');
+  });
+});
+
+describe('外貨の口座での流し込み（#47 PR-2・R7・F13・AC-17）', () => {
+  it('F13: USD の口座 → 損益・手数料は空・印なし、ほかの 7 欄は読み取りの値と印', () => {
+    const jpy = fillFromRow(OPENED, ROW_E1, NONE);
+    const usd = fillFromRow(OPENED, ROW_E1, NONE, { accountCurrency: 'USD' });
+    expect(usd.draft.pnlYen).toBe('');
+    expect(usd.draft.feeYen).toBe('');
+    expect(usd.marks.pnlYen).toBeUndefined();
+    expect(usd.marks.feeYen).toBeUndefined();
+    for (const f of READ_FIELDS) {
+      if (f === 'pnlYen' || f === 'feeYen') continue;
+      expect(usd.draft[f], f).toBe(jpy.draft[f]);
+      expect(usd.marks[f], f).toBe(jpy.marks[f]);
+    }
+    expect(usd.draft.source).toBe('statement');
+  });
+
+  it('KEEP-5: JPY の口座（既定）は今と同じ 9 欄', () => {
+    expect(fillFromRow(OPENED, ROW_E1, NONE, { accountCurrency: 'JPY' })).toEqual(
+      fillFromRow(OPENED, ROW_E1, NONE),
+    );
+    const f = fillFromRow(OPENED, ROW_E1, NONE);
+    expect(f.draft.pnlYen).toBe('-2000');
+    expect(f.draft.feeYen).toBe('150');
+  });
+
+  it('口座を替えた: JPY → USD は読み取りの値だけ空に戻し、USD → JPY は今の行から入れ直す', () => {
+    const jpy = fillFromRow(OPENED, ROW_E1, NONE);
+    const toUsd = refillMoney(jpy, ROW_E1, NONE, 'USD');
+    expect(toUsd.draft.pnlYen).toBe('');
+    expect(toUsd.draft.feeYen).toBe('');
+    expect(toUsd.marks.pnlYen).toBeUndefined();
+    expect(toUsd.marks.feeYen).toBeUndefined();
+    expect(toUsd.marks.instrumentName).toBe('read');
+    const back = refillMoney(toUsd, ROW_E1, NONE, 'JPY');
+    expect(back.draft.pnlYen).toBe('-2000');
+    expect(back.draft.feeYen).toBe('150');
+    expect(back.marks.pnlYen).toBe('read');
+    expect(back).toEqual(jpy);
+  });
+
+  it('手で打った値・触った欄は残す（ux 5.5）', () => {
+    const usd = fillFromRow(OPENED, ROW_E1, NONE, { accountCurrency: 'USD' });
+    // USD の口座で損益を手で打った（触った欄）
+    const typed = { ...usd, draft: { ...usd.draft, pnlYen: '-13.5' } };
+    const touched = new Set<DraftField>(['pnlYen']);
+    const toJpy = refillMoney(typed, ROW_E1, touched, 'JPY');
+    expect(toJpy.draft.pnlYen).toBe('-13.5');
+    expect(toJpy.draft.feeYen).toBe('150');
+    // JPY で読み取りの値を直した（印「直した」）→ USD へ替えても残す
+    const jpy = fillFromRow(OPENED, ROW_E1, NONE);
+    const edited = {
+      draft: { ...jpy.draft, feeYen: '120' },
+      marks: markEdited(jpy.marks, 'feeYen'),
+    };
+    const toUsd = refillMoney(edited, ROW_E1, new Set<DraftField>(['feeYen']), 'USD');
+    expect(toUsd.draft.feeYen).toBe('120');
+    expect(toUsd.marks.feeYen).toBe('edited');
+    expect(toUsd.draft.pnlYen).toBe('');
   });
 });

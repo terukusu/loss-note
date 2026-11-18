@@ -144,3 +144,21 @@ def test_other_users_trade_is_404(api):
     assert res.status_code == 404
     assert api.get(f"/api/trades/{created['id']}", A).get_json() == created
     assert api.put("/api/trades/nonexistent?snapshot=current", A, trade_body(inst["id"])).status_code == 404
+
+
+def test_current_writes_account_currency(api):
+    """#47 PR-2 との合わせ直し: ?snapshot=current は口座の今の通貨も写す（USD の口座の取引は USD・今の資金）。
+    口座の通貨を写していない移す前の形でも、写し直した後は accountCurrency を持つ"""
+    inst = index_instrument(api)
+    d = api.post("/api/accounts", A, {"name": "口座 D", "currency": "USD", "capitalYen": 10_000}).get_json()
+    created = api.post("/api/trades", A, trade_body(inst["id"], d["id"])).get_json()
+    assert created["snapshot"]["accountCurrency"] == "USD"
+    put = api.put(f"/api/accounts/{d['id']}", A, {"name": "口座 D", "capitalYen": 20_000, "riskTolerancePct": 1})
+    assert put.status_code == 200
+    got = api.put(f"/api/trades/{created['id']}?snapshot=current", A, trade_body(inst["id"], d["id"])).get_json()
+    assert got["snapshot"]["accountCurrency"] == "USD"
+    assert got["snapshot"]["capitalYen"] == 20_000
+    # 既定の口座（JPY）の取引も写し直すと JPY を持つ
+    jp = api.post("/api/trades", A, trade_body(inst["id"])).get_json()
+    got = api.put(f"/api/trades/{jp['id']}?snapshot=current", A, trade_body(inst["id"])).get_json()
+    assert got["snapshot"]["accountCurrency"] == "JPY"

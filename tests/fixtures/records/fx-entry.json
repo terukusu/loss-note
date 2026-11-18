@@ -1,0 +1,251 @@
+{
+  "trades": [
+    {
+      "name": "F1",
+      "instrument": {
+        "name": "架空指数F1",
+        "priceCurrency": "USD"
+      },
+      "account": {
+        "name": "口座 F1",
+        "currency": "JPY",
+        "capitalYen": 1000000
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "accountId": "ACCOUNT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 100
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.5,
+          "fxRate": 150,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": "USD",
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1,
+        "oneR": 7500,
+        "riskPct": 0.75,
+        "derivedFx": null
+      }
+    },
+    {
+      "name": "F3",
+      "instrument": {
+        "name": "架空指数F3",
+        "priceCurrency": "USD"
+      },
+      "account": {
+        "name": "口座 F3",
+        "currency": "JPY",
+        "capitalYen": 1000000
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "accountId": "ACCOUNT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 100
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.4,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -9100,
+        "fees": [
+          {
+            "amountYen": 100
+          }
+        ],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": "USD",
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "B",
+        "r": -1.1999999999999886,
+        "oneR": 7500.000000000071,
+        "riskPct": 0.7500000000000071,
+        "derivedFx": 150.00000000000142
+      }
+    },
+    {
+      "name": "F9",
+      "instrument": {
+        "name": "架空指数F9",
+        "priceCurrency": "USD"
+      },
+      "account": {
+        "name": "口座 F9",
+        "currency": "USD",
+        "capitalYen": 10000
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "accountId": "ACCOUNT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 100
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": "USD",
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 10000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "USD"
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1,
+        "oneR": 50,
+        "riskPct": 0.5,
+        "derivedFx": null
+      }
+    },
+    {
+      "name": "F10",
+      "instrument": {
+        "name": "架空指数F10",
+        "priceCurrency": "EUR"
+      },
+      "account": {
+        "name": "口座 F10",
+        "currency": "USD",
+        "capitalYen": 10000
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "accountId": "ACCOUNT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 100
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.5,
+          "fxRate": 1.1,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": "EUR",
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 10000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "USD"
+      },
+      "expect": {
+        "grade": "A",
+        "r": -1,
+        "oneR": 55.00000000000001,
+        "riskPct": 0.55,
+        "derivedFx": null
+      }
+    }
+  ]
+}

@@ -65,14 +65,22 @@ export interface VerdictNotes {
   /** 理由の一覧に出す理由 */
   readonly reasons: readonly Reason[];
   /**
-   * R・リスクの段を出さない（LC が無い取引。「—」を 2 つ並べず、注記の 1 行「LC が無いので R・リスクは出ません」にする。
+   * R・リスクの段を出さない（LC が無い取引。「—」を 2 つ並べず、注記の 1 行「LC が無いので R・リスクは表示されません」にする。
    * 判定を待つ間は出す）
    */
   readonly hideRisk: boolean;
+  /**
+   * 外貨建てで為替も損益も無いので 1R が出ない（#47 PR-2）。注記は「リスク・損益の「—」」の 1 行にまとめ、
+   * 脇の理由は「為替が無いので過剰リスクは見ていない」と書く（利用者が直せる原因の言葉。デザインレビュー 2）
+   */
+  readonly fxMissing: boolean;
 }
 
+/** 外貨建てで為替も損益も無いときの脇の理由の文（「1R が出ないので…」の代わり） */
+export const FX_NOT_CHECKED = '為替が無いので過剰リスクは見ていない';
+
 /** LC が無い取引の注記（R・リスクの段の代わりの 1 行） */
-export const NO_LC_NOTE = 'LC が無いので R・リスクは出ません';
+export const NO_LC_NOTE = 'LC が無いので R・リスクは表示されません';
 
 /** 判定の枠の注記・脇の 1 行・理由の一覧 */
 export function verdictNotes(
@@ -99,6 +107,8 @@ export function verdictNotes(
     );
     if (noCapitalAside && riskWhy === RISK_NOTE.noCapital) riskWhy = null;
     if (hideRisk) notes.push(NO_LC_NOTE);
+    else if (riskWhy === RISK_NOTE.noOneRFx && rWhy === null)
+      notes.push(`リスク・損益の「${MISSING}」: ${riskWhy}`);
     else if (rWhy !== null && rWhy === riskWhy) notes.push(`R・リスクの「${MISSING}」: ${rWhy}`);
     else {
       if (rWhy !== null) notes.push(`R の「${MISSING}」: ${rWhy}`);
@@ -112,6 +122,7 @@ export function verdictNotes(
     aside: opts.pending ? [] : aside,
     reasons: opts.pending ? [] : reasons,
     hideRisk,
+    fxMissing: !opts.pending && summary.riskNote === RISK_NOTE.noOneRFx,
   };
 }
 

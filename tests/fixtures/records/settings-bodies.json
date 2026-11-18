@@ -20,6 +20,7 @@
       "kind": "create",
       "body": {
         "name": "口座 A",
+        "currency": "JPY",
         "capitalYen": 1000000,
         "riskTolerancePct": 1
       }
@@ -29,6 +30,7 @@
       "kind": "create",
       "body": {
         "name": "口座 B",
+        "currency": "JPY",
         "capitalYen": 1200000,
         "riskTolerancePct": 1
       }
@@ -38,6 +40,7 @@
       "kind": "create",
       "body": {
         "name": "口座 C",
+        "currency": "JPY",
         "capitalYen": null,
         "riskTolerancePct": 1.5
       }
@@ -47,8 +50,19 @@
       "kind": "create",
       "body": {
         "name": "口座 E",
+        "currency": "JPY",
         "capitalYen": 1000000,
         "riskTolerancePct": 2.5
+      }
+    },
+    {
+      "name": "F9",
+      "kind": "create",
+      "body": {
+        "name": "口座 D",
+        "currency": "USD",
+        "capitalYen": 10000.5,
+        "riskTolerancePct": 1
       }
     },
     {
@@ -56,6 +70,7 @@
       "kind": "update",
       "body": {
         "name": "口座 1 改",
+        "currency": "JPY",
         "capitalYen": 800000,
         "riskTolerancePct": 1
       }

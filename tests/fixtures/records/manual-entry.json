@@ -48,7 +48,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": null,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "B",
@@ -103,7 +104,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": 1000000,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "A",
@@ -158,7 +160,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": null,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "B",
@@ -211,7 +214,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": 1000000,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "C",
@@ -272,7 +276,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": 1000000,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "B",
@@ -326,7 +331,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": null,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "riskyWin",
@@ -380,7 +386,8 @@
           "productForm": "spotCfd"
         },
         "capitalYen": null,
-        "riskTolerancePct": 1
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
       },
       "expect": {
         "grade": "B",

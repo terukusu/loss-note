@@ -97,14 +97,17 @@ def _with_ids(record: dict, iid: str, ids: dict[str, str]) -> dict:
 
 
 def test_account_scenes_resnapshot_only_when_reassigned(api):
-    """#47 A4・B7: 付け替え → 付け替え先の今の資金を写す。付け替えない（口座 1 を付けただけ）→ 写した値のまま"""
+    """#47 A4・B7・A9: 付け替え → 付け替え先の今の資金・通貨を写す。付け替えない（口座 1 を付けただけ）→ 写した値。
+    A9（PR-2）: 通貨の違う口座へ付け替えた本文（損益・手数料なし）を本文のまま保存し、snapshot は USD"""
     scenes = load_fixture("edit-bodies.json")["accountScenes"]
-    assert [x["name"] for x in scenes] == ["A4", "B7"]
+    assert [x["name"] for x in scenes] == ["A4", "B7", "A9"]
     for i, item in enumerate(scenes):
         uid = f"userAcc{i}"
         ids = {"default": "default"}
         for acc in item["accounts"]:
             body = {"name": acc["name"], "capitalYen": acc["capitalYen"], "riskTolerancePct": acc["riskTolerancePct"]}
+            if "currency" in acc:
+                body["currency"] = acc["currency"]
             if acc["key"] == "default":
                 assert api.put("/api/accounts/default", uid, body).status_code == 200
             else:
@@ -128,6 +131,7 @@ def test_account_scenes_resnapshot_only_when_reassigned(api):
         got = res.get_json()
         assert got["record"] == sent, item["name"]
         assert got["snapshot"]["capitalYen"] == item["expect"]["capitalYen"], item["name"]
+        assert got["snapshot"]["accountCurrency"] == item["expect"]["accountCurrency"], item["name"]
         assert got["snapshot"]["instrument"] == item["snapshot"]["instrument"], item["name"]
         if item["name"] == "B7":
             assert got["snapshot"] == item["snapshot"]

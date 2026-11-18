@@ -25,7 +25,7 @@ export interface StoredScene {
 export function fromTradeInput(t: TradeInput, name = 'TEST'): StoredScene {
   if (t.exit === undefined)
     throw new Error('決済の無い取引は保存の形に写せません（この Issue は決済済みだけ）');
-  const priceCurrency = t.instrument.isJpy ? 'JPY' : 'USD';
+  const priceCurrency = t.instrument.priceInAccountCurrency ? 'JPY' : 'USD';
   const instrument: InstrumentBody = {
     name,
     underlyingKind: 'index',

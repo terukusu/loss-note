@@ -1,6 +1,6 @@
 // 取引の一覧・ホーム・詳細の表示の形（Issue #9 契約 P-1・AC-1・AC-7）。値はすべて架空
 import { describe, expect, it } from 'vitest';
-import type { StoredTrade } from '../../core/record';
+import type { AccountRecord, StoredTrade } from '../../core/record';
 import { formatDate, formatDateTime } from '../../ui/src/lib/datetime';
 import { RISK_NOTE, summarize } from '../../ui/src/lib/record-form';
 import {
@@ -20,6 +20,7 @@ import {
   UNKNOWN_INSTRUMENT,
   visibleTrades,
 } from '../../ui/src/lib/trade-view';
+import { account } from './helpers/accounts';
 import {
   D1,
   D2,
@@ -67,32 +68,32 @@ describe('AC-1: 一覧の行（例 L1〜L4）', () => {
     expect(r.href).toBe('/trades/l1');
   });
 
-  it('L2: 計画どおりの勝ち・+2.0R・リスクは「—」で理由は「資金を設定すると出ます」', () => {
+  it('L2: 計画どおりの勝ち・+2.0R・リスクは「—」で理由は「資金を設定すると表示されます」', () => {
     const r = tradeRow(L2, INSTRUMENTS);
     expect(r.badge.label).toBe('計画どおりの勝ち');
     expect(r.rText).toBe('+2.0R');
     expect(r.riskText).toBe(MISSING);
     expect(r.riskNote).toBe(RISK_NOTE.noCapital);
-    expect(r.riskNote).toBe('資金を設定すると出ます');
+    expect(r.riskNote).toBe('資金を設定すると表示されます');
     expect(r.sideText).toBe('S');
   });
 
-  it('L3: 危ない勝ち（段は崩れ）・R なし・「LC が無いので出ません」', () => {
+  it('L3: 危ない勝ち（段は崩れ）・R なし・「LC が無いので表示されません」', () => {
     const r = tradeRow(L3, INSTRUMENTS);
     expect(r.badge.label).toBe('危ない勝ち');
     expect(r.badge.tier).toBe('break');
     expect(r.badge.symbol).toBe('triangle');
     expect(r.rText).toBe(MISSING);
-    expect(r.rNote).toBe('LC が無いので出ません');
+    expect(r.rNote).toBe('LC が無いので表示されません');
     expect(r.riskText).toBe(MISSING);
-    expect(r.riskNote).toBe('LC が無いので出ません');
+    expect(r.riskNote).toBe('LC が無いので表示されません');
   });
 
   it('「—」の理由は一覧の上に 1 回だけ（同じ理由は件数にまとめる。R とリスクが同じ理由なら 1 行）', () => {
     const rows = [L1, L2, L3, L3].map((t) => tradeRow(t, INSTRUMENTS));
     expect(missingNotes(rows)).toEqual([
-      'リスクの「—」: 資金を設定すると出ます（1 件）',
-      'R・リスクの「—」: LC が無いので出ません（2 件）',
+      'リスクの「—」: 資金を設定すると表示されます（1 件）',
+      'R・リスクの「—」: LC が無いので表示されません（2 件）',
     ]);
     expect(missingNotes([tradeRow(L1, INSTRUMENTS)])).toEqual([]);
   });
@@ -101,7 +102,7 @@ describe('AC-1: 一覧の行（例 L1〜L4）', () => {
     const r = tradeRow(L1, INSTRUMENTS);
     expect(r.label).toBe(`${formatDate(T_1110)} US30 L ロング A いい損失 R −1.0R リスク 0.5%`);
     expect(tradeRow(L3, INSTRUMENTS).label).toContain(
-      'R LC が無いので出ません リスク LC が無いので出ません',
+      'R LC が無いので表示されません リスク LC が無いので表示されません',
     );
   });
 
@@ -387,5 +388,94 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
     );
     expect(timeframeNote(D2)).toBeNull();
     expect(timeframeNote(E2)).toBeNull();
+  });
+});
+
+describe('recordFields の通貨と為替（#47 PR-2・U32・D2・D3・AC-20）', () => {
+  const MINUS = '−';
+  const snap = (accountCurrency: string | undefined, capitalYen: number, price: string | null) => ({
+    ...SNAP_1M,
+    instrument: { ...SNAP_1M.instrument, priceCurrency: price },
+    capitalYen,
+    ...(accountCurrency === undefined ? {} : { accountCurrency }),
+  });
+  const fields = (t: StoredTrade, accounts: readonly AccountRecord[] = []) =>
+    Object.fromEntries(
+      recordFields(t, '架空指数U', undefined, accounts).map((r) => [r.label, r.value]),
+    );
+  // 場面 P（L・イン 100.00・LC 99.50・決済 99.50・数量 100）
+  const P = { entries: [{ price: 100, quantity: 100 }] } as const;
+
+  it('D2: F1（口座 A・JPY・USD 建て・為替 150）→ 建ての通貨「USD」・為替「1 USD = 150円」・1R「7,500円」', () => {
+    const { statementPnlYen: _s, ...rec } = L1.record;
+    const t: StoredTrade = {
+      ...L1,
+      snapshot: snap('JPY', 1_000_000, 'USD'),
+      record: { ...rec, ...P, accountId: 'accA', exit: { ...rec.exit, fxRate: 150 } },
+    };
+    const f = fields(t, [
+      account('accA', '口座 A', 1_000_000),
+      account('accD', '口座 D', 10_000, 1, { currency: 'USD' }),
+    ]);
+    expect(f.口座).toBe('口座 A');
+    expect(f.建ての通貨).toBe('USD');
+    expect(f.為替).toBe('1 USD = 150円');
+    expect(f['1R']).toBe('7,500円');
+    expect(f['口座の資金（記録したとき）']).toBe('1,000,000円');
+  });
+
+  it('D3: F9（口座 D・USD・USD 建て）→ 建ての通貨・為替の行なし・1R「50.00 USD」・金額は USD', () => {
+    const t: StoredTrade = {
+      ...L1,
+      snapshot: snap('USD', 10_000, 'USD'),
+      record: {
+        ...L1.record,
+        ...P,
+        accountId: 'accD',
+        statementPnlYen: -51.5,
+        fees: [{ amountYen: 1.5 }],
+      },
+    };
+    const f = fields(t, [account('accD', '口座 D', 10_000, 1, { currency: 'USD' })]);
+    expect(f.口座).toBe('口座 D');
+    expect('建ての通貨' in f).toBe(false);
+    expect('為替' in f).toBe(false);
+    // 1R は明細の損益から（C32）: (51.5 − 1.5) × 0.50 ÷ 0.50 = 50
+    expect(f['1R']).toBe('50.00 USD');
+    expect(f['口座の資金（記録したとき）']).toBe('10,000.00 USD');
+    expect(f['損益（明細の値）']).toBe(`${MINUS}51.50 USD`);
+    expect(f.手数料).toBe('1.5 USD');
+  });
+
+  it('為替なし・明細あり → 「1 USD = 150.00円（明細から）」。どちらも無ければ行なし。未設定は外貨の口座だけ「未設定」', () => {
+    const base: StoredTrade = {
+      ...L1,
+      snapshot: snap('JPY', 1_000_000, 'USD'),
+      record: {
+        ...L1.record,
+        ...P,
+        exit: { ...L1.record.exit, price: 99.4 },
+        statementPnlYen: -9_100,
+        fees: [{ amountYen: 100 }],
+      },
+    };
+    expect(fields(base).為替).toBe('1 USD = 150.00円（明細から）');
+    const { statementPnlYen: _s, ...noPnl } = base.record;
+    const plain = fields({ ...base, record: { ...noPnl, fees: [] } });
+    expect('為替' in plain).toBe(false);
+    expect('1R' in plain).toBe(false);
+    const none = fields({ ...base, snapshot: snap('JPY', 1_000_000, null) });
+    expect('建ての通貨' in none).toBe(false);
+    expect('為替' in none).toBe(false);
+    const noneUsd = fields({ ...base, snapshot: snap('USD', 10_000, null) });
+    expect(noneUsd.建ての通貨).toBe('未設定');
+  });
+
+  it('移す前の取引（口座の通貨なし）・円建て: 建ての通貨・為替の行は無く、金額は今の表記', () => {
+    const f = fields({ ...L1, snapshot: snap(undefined, 1_000_000, 'JPY') });
+    expect('建ての通貨' in f).toBe(false);
+    expect('為替' in f).toBe(false);
+    expect(f['損益（明細の値）']).toBe(`${MINUS}5,000円`);
+    expect(f['1R']).toBe('5,000円');
   });
 });

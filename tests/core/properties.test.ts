@@ -2,7 +2,15 @@
 import { describe, it } from 'vitest';
 import { evaluateTrade } from '../../core/evaluate';
 import { REASON_ORDER, REASON_WEIGHT, type Reason } from '../../core/judge';
-import { oneRYen, pnlYen, riskPct, rMultiple } from '../../core/pnl';
+import {
+  isPostSingleEntry,
+  oneRYen,
+  pnlYen,
+  riskPct,
+  rMultiple,
+  statementFxRate,
+} from '../../core/pnl';
+import { type StoredTrade, toTradeInput } from '../../core/record';
 import { reviewSizing, suggestQuantity } from '../../core/sizing';
 import {
   type Entry,
@@ -50,7 +58,7 @@ function genLongTrade(r: Rng, opts: { statement?: boolean } = {}): TradeInput {
     const entry: Entry = { price, quantity: r.int(1, 1_000) / r.pick([1, 10, 100]) };
     entries.push(r.bool(0.3) ? { ...entry, lc: price - r.int(1, 80) } : entry);
   }
-  const isJpy = r.bool();
+  const priceInAccountCurrency = r.bool();
   const exit: Exit = {
     price: base + r.int(-300, 300),
     orderType: r.pick(ORDER_TYPES),
@@ -65,7 +73,7 @@ function genLongTrade(r: Rng, opts: { statement?: boolean } = {}): TradeInput {
   ]);
   const t: TradeInput = {
     side: 'L',
-    instrument: { multiplier: r.pick([1, 10, 100, 0.5]), quantityStep: 1, isJpy },
+    instrument: { multiplier: r.pick([1, 10, 100, 0.5]), quantityStep: 1, priceInAccountCurrency },
     entries: entries as [Entry, ...Entry[]],
     ...(lc === undefined ? {} : { lc }),
     lcBasis: r.pick(['chart', 'amount'] as const),
@@ -324,7 +332,7 @@ describe('性質', () => {
       ({ entry, width, move, qty, mult }) => {
         const base: TradeInput = {
           side: 'L',
-          instrument: { multiplier: mult, quantityStep: 1, isJpy: true },
+          instrument: { multiplier: mult, quantityStep: 1, priceInAccountCurrency: true },
           entries: [{ price: entry, quantity: qty }],
           lc: entry - width,
           lcBasis: 'chart',
@@ -419,7 +427,7 @@ describe('性質', () => {
           instrument: {
             multiplier: r.pick([1, 10, 100, 0.1]),
             quantityStep: r.pick(steps),
-            isJpy: true,
+            priceInAccountCurrency: true,
           },
           entries: [{ price: entry, quantity: r.int(1, 100_000) / r.pick([1, 10, 100]) }],
           lc,
@@ -490,6 +498,210 @@ describe('性質', () => {
         assert(
           large.ratio >= small.ratio * (1 - 1e-9),
           `数量の多い方の比が小さい ${small.ratio} → ${large.ratio}（k ${k}）`,
+        );
+      },
+    );
+  });
+});
+
+// 通貨と為替（#47 PR-2・C43）。金額は口座の通貨
+describe('性質: 通貨と為替', () => {
+  /** 為替（決済・計画）を差し替える */
+  const withFx = (t: TradeInput, exitFx: number | undefined, planFx: number | undefined) => {
+    const { planFxRate: _p, ...rest } = t;
+    let exit = t.exit;
+    if (exit !== undefined) {
+      const { fxRate: _f, ...e } = exit;
+      exit = exitFx === undefined ? e : { ...e, fxRate: exitFx };
+    }
+    return {
+      ...rest,
+      ...(exit === undefined ? {} : { exit }),
+      ...(planFx === undefined ? {} : { planFxRate: planFx }),
+    } as TradeInput;
+  };
+  const withSame = (t: TradeInput, same: boolean): TradeInput => ({
+    ...t,
+    instrument: { ...t.instrument, priceInAccountCurrency: same },
+  });
+
+  it('P1: 価格の通貨 = 口座の通貨なら、為替を何にしても損益・1R・リスク・R が同じ', () => {
+    forAll(
+      401,
+      N,
+      (r) => ({ t: withSame(genLongTrade(r), true), fx: r.int(1, 300) / 7 }),
+      ({ t, fx }) => {
+        const a = evaluateTrade(t);
+        const b = evaluateTrade(withFx(t, fx, fx));
+        assert(
+          JSON.stringify(a) === JSON.stringify(b),
+          `${JSON.stringify(a)} / ${JSON.stringify(b)}`,
+        );
+      },
+    );
+  });
+
+  it('P2: R 倍数は為替・口座の通貨・資金に依らない', () => {
+    forAll(
+      402,
+      N,
+      (r) => ({ t: genLongTrade(r), fx: r.int(1, 300) / 3, cap: r.int(1, 1_000) * 1_000 }),
+      ({ t, fx, cap }) => {
+        const base = rMultiple(t);
+        for (const v of [
+          withSame(t, !t.instrument.priceInAccountCurrency),
+          withFx(t, fx, fx),
+          { ...t, capitalYen: cap },
+        ])
+          assert(rMultiple(v) === base, `R ${rMultiple(v)} / ${base}`);
+      },
+    );
+  });
+
+  it('P3: 明細の損益が無ければ、損益と 1R は為替に比例し、資金も同じ倍ならリスク（%）は同じ', () => {
+    forAll(
+      403,
+      N,
+      (r) => ({
+        t: withSame(genLongTrade(r, { statement: false }), false),
+        fx: r.int(80, 200),
+        k: r.pick([0.01, 0.5, 2, 3, 150]),
+      }),
+      ({ t, fx, k }) => {
+        const a = withFx(t, fx, fx);
+        const b = {
+          ...withFx(t, fx * k, fx * k),
+          ...(t.capitalYen === undefined ? {} : { capitalYen: t.capitalYen * k }),
+        };
+        const pa = pnlYen(a);
+        const oa = oneRYen(a);
+        assert(
+          close(pnlYen(b), pa === undefined ? undefined : pa * k),
+          `損益 ${pnlYen(b)} / ${pa}×${k}`,
+        );
+        assert(
+          close(oneRYen(b), oa === undefined ? undefined : oa * k),
+          `1R ${oneRYen(b)} / ${oa}×${k}`,
+        );
+        assert(close(riskPct(b), riskPct(a)), `リスク ${riskPct(b)} / ${riskPct(a)}`);
+      },
+    );
+  });
+
+  it('P4: 逆算の為替が出るなら、明細を外してその為替で計算した損益 = 手数料を除いた損益、1R も C32 の逆算と一致', () => {
+    let seen = 0;
+    forAll(
+      404,
+      N,
+      (r) => {
+        const t = withSame(genLongTrade(r, { statement: false }), false);
+        return {
+          t: { ...t, statementPnlYen: r.int(-100_000, 100_000), feesTotalYen: r.int(0, 2_000) },
+        };
+      },
+      ({ t }) => {
+        const fx = statementFxRate(t);
+        if (fx === undefined) return;
+        seen++;
+        const { statementPnlYen: st, feesTotalYen: fees, ...rest } = t;
+        const plain = withFx(rest as TradeInput, fx, fx);
+        const net = (st ?? 0) + (fees ?? 0);
+        assert(close(pnlYen(plain), net), `損益 ${pnlYen(plain)} / net ${net}`);
+        if (isPostSingleEntry(t))
+          assert(close(oneRYen(plain), oneRYen(t)), `1R ${oneRYen(plain)} / ${oneRYen(t)}`);
+      },
+    );
+    assert(seen > 100, `逆算が出た件数 ${seen}`);
+  });
+
+  it('P5: 逆算の為替は出るなら正の有限の数。明細なし・net 0・決済 = イン・同じ通貨・1 エントリーでない取引なら出ない', () => {
+    forAll(
+      405,
+      N,
+      (r) => {
+        const t = withSame(genLongTrade(r, { statement: false }), false);
+        return {
+          t: { ...t, statementPnlYen: r.int(-100_000, 100_000), feesTotalYen: r.int(0, 2_000) },
+        };
+      },
+      ({ t }) => {
+        const fx = statementFxRate(t);
+        if (fx !== undefined) assert(Number.isFinite(fx) && fx > 0, `為替 ${fx}`);
+        const { statementPnlYen: _s, ...noStatement } = t;
+        assert(statementFxRate(noStatement as TradeInput) === undefined, '明細なし');
+        assert(
+          statementFxRate({ ...t, statementPnlYen: -(t.feesTotalYen ?? 0) }) === undefined,
+          'net 0',
+        );
+        assert(statementFxRate(withSame(t, true)) === undefined, '同じ通貨');
+        if (!isPostSingleEntry(t))
+          assert(fx === undefined, '2 つ以上のエントリー・計画あり（C32 と同じ）');
+        if (t.exit !== undefined) {
+          const flat: TradeInput = {
+            ...t,
+            entries: t.entries.map((e) => ({ ...e, price: t.exit?.price ?? e.price })) as [
+              Entry,
+              ...Entry[],
+            ],
+          };
+          assert(statementFxRate(flat) === undefined, '決済 = イン');
+        }
+      },
+    );
+  });
+
+  it('P6: snapshot に口座の通貨が無い ≡ JPY（toTradeInput が同じ入力を返す）', () => {
+    forAll(
+      406,
+      N,
+      (r) => ({
+        price: r.pick(['JPY', 'USD', 'EUR', null] as const),
+        cap: r.bool(0.8) ? r.int(1, 1_000) * 1_000 : null,
+        fx: r.bool() ? r.int(80, 200) : undefined,
+        st: r.bool() ? r.int(-10_000, 10_000) : undefined,
+      }),
+      ({ price, cap, fx, st }) => {
+        const t: Pick<StoredTrade, 'record' | 'snapshot'> = {
+          record: {
+            status: 'closed',
+            source: 'manual',
+            instrumentId: 'I',
+            side: 'L',
+            lc: 99.5,
+            lcBasis: 'chart',
+            stopOrderPlaced: 'unanswered',
+            lcDecidedBeforeEntry: true,
+            lcMove: { kind: 'none' },
+            timeframeChange: 'none',
+            entries: [{ price: 100, quantity: 10 }],
+            exit: {
+              time: 1,
+              price: 99,
+              ...(fx === undefined ? {} : { fxRate: fx }),
+              orderType: 'unknown',
+              reason: 'other',
+              gapSlip: 'unanswered',
+            },
+            ...(st === undefined ? {} : { statementPnlYen: st }),
+            fees: [],
+          },
+          snapshot: {
+            instrument: {
+              multiplier: 1,
+              quantityStep: 1,
+              priceCurrency: price,
+              underlyingKind: 'index',
+              productForm: 'spotCfd',
+            },
+            capitalYen: cap,
+            riskTolerancePct: 1,
+          },
+        };
+        const a = toTradeInput(t);
+        const b = toTradeInput({ ...t, snapshot: { ...t.snapshot, accountCurrency: 'JPY' } });
+        assert(
+          JSON.stringify(a) === JSON.stringify(b),
+          `${JSON.stringify(a)} / ${JSON.stringify(b)}`,
         );
       },
     );

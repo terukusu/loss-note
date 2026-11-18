@@ -1,4 +1,4 @@
-// 設定の画面が作る本文の、共有の合成の fixture（Issue #5 AC-1・AC-2・AC-4・AC-5・AC-6・KEEP-4、#47 の口座）。
+// 設定の画面が作る本文の、共有の合成の fixture（Issue #5 AC-1・AC-2・AC-4・AC-5・AC-6・KEEP-4、#47 の口座と口座の通貨）。
 // 値・名前はすべて架空。口座は設定の画面の足す・直す欄と、記録する画面のその場で足す 2 欄が作る本文。
 // 設定（/api/settings）の場面は表示の単位を保つ 1 つだけ（画面はもう送らない。KEEP-6）。
 // API のテスト（api/tests/test_settings_screen_examples.py）が同じ fixture を本物の API に通し、受けた値が
@@ -119,11 +119,13 @@ function build(): {
       },
     ],
     accounts: [
-      addItem('E1', { name: '口座 A', capital: '1,000,000', risk: '1' }),
-      addItem('E2', { name: '口座 B', capital: '１２０００００', risk: '1' }),
-      addItem('E3b', { name: '口座 C', capital: '', risk: '1.5' }),
-      addItem('A7', { name: '口座 E', capital: '1,000,000', risk: '2.5' }),
-      editItem('edit', { name: '口座 1 改', capital: '800,000', risk: '1' }),
+      addItem('E1', { name: '口座 A', currency: 'JPY', capital: '1,000,000', risk: '1' }),
+      addItem('E2', { name: '口座 B', currency: 'JPY', capital: '１２０００００', risk: '1' }),
+      addItem('E3b', { name: '口座 C', currency: 'JPY', capital: '', risk: '1.5' }),
+      addItem('A7', { name: '口座 E', currency: 'JPY', capital: '1,000,000', risk: '2.5' }),
+      // #47 PR-2 F9: 外貨の口座（小文字の通貨は大文字に・資金は小数 2 桁まで）
+      addItem('F9', { name: '口座 D', currency: 'usd', capital: '10,000.50', risk: '1' }),
+      editItem('edit', { name: '口座 1 改', currency: 'JPY', capital: '800,000', risk: '1' }),
       recordAddItem('B5', { name: '口座 F', capital: '300,000' }),
     ],
     instruments: [
@@ -155,7 +157,19 @@ describe('設定の画面が作る本文の fixture（AC-1・AC-5・AC-6）', ()
     const a = Object.fromEntries(b.accounts.map((x) => [x.name, x.body]));
     expect(a.E1?.capitalYen).toBe(1_000_000);
     expect(a.E2?.capitalYen).toBe(1_200_000);
-    expect(a.E3b).toEqual({ name: '口座 C', capitalYen: null, riskTolerancePct: 1.5 });
+    expect(a.E3b).toEqual({
+      name: '口座 C',
+      currency: 'JPY',
+      capitalYen: null,
+      riskTolerancePct: 1.5,
+    });
+    // #47 PR-2 F9: 外貨の口座（小文字は大文字に・小数 2 桁）
+    expect(a.F9).toEqual({
+      name: '口座 D',
+      currency: 'USD',
+      capitalYen: 10_000.5,
+      riskTolerancePct: 1,
+    });
     expect(a.A7?.riskTolerancePct).toBe(2.5);
     expect(a.B5).toEqual({ name: '口座 F', capitalYen: 300_000 });
     expect(b.settings.map((x) => x.body.performanceUnit)).toEqual(['yen']);

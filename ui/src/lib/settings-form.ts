@@ -10,7 +10,7 @@ import type {
   ProductForm,
   UnderlyingKind,
 } from '../../../core/record';
-import { formatAmountYen, formatPlain } from './format';
+import { formatAmount, formatPlain } from './format';
 import { nameKey } from './instrument-name';
 import {
   DEFAULT_INSTRUMENT,
@@ -32,6 +32,8 @@ export const SETTINGS_MSG = {
   capitalNotNumber: '数を入れてください（例: 1,000,000）',
   capitalNotPositive: '0 より大きい数を入れてください',
   capitalNotInteger: '円の整数で入れてください',
+  /** 外貨の口座の資金（#47 PR-2） */
+  capitalTooManyDecimals: '小数 2 桁までで入力してください',
   capitalRequired: '資金を入れてください（未設定には戻せません）',
   tooLarge: MSG.tooLarge,
   risk: `${RISK_MIN} から ${RISK_MAX} までの数を入れてください`,
@@ -54,10 +56,14 @@ export type ReadResult<T> =
   | { readonly ok: false; readonly error: string };
 
 /**
- * 資金（R1）。円の正の整数・1e12 まで。空は、未設定（saved = null）なら未設定のまま（null）、
- * 設定済みなら誤り（未設定には戻せない）
+ * 資金（R1）。円の口座は正の整数、外貨の口座は小数 2 桁まで（#47 PR-2）。1e12 まで。空は、未設定（saved = null）なら
+ * 未設定のまま（null）、設定済みなら誤り（未設定には戻せない）
  */
-export function readCapital(raw: string, saved: number | null): ReadResult<number | null> {
+export function readCapital(
+  raw: string,
+  saved: number | null,
+  currency = 'JPY',
+): ReadResult<number | null> {
   if (raw.trim() === '') {
     return saved === null
       ? { ok: true, value: null }
@@ -66,7 +72,12 @@ export function readCapital(raw: string, saved: number | null): ReadResult<numbe
   const p = parseNum(raw);
   if (!p.ok) return { ok: false, error: SETTINGS_MSG.capitalNotNumber };
   if (!(p.value > 0)) return { ok: false, error: SETTINGS_MSG.capitalNotPositive };
-  if (!Number.isInteger(p.value)) return { ok: false, error: SETTINGS_MSG.capitalNotInteger };
+  if (currency === 'JPY' && !Number.isInteger(p.value)) {
+    return { ok: false, error: SETTINGS_MSG.capitalNotInteger };
+  }
+  if (currency !== 'JPY' && !Number.isInteger(Math.round(p.value * 100 * 1e6) / 1e6)) {
+    return { ok: false, error: SETTINGS_MSG.capitalTooManyDecimals };
+  }
   if (p.value > MAX_ABS) return { ok: false, error: SETTINGS_MSG.tooLarge };
   return { ok: true, value: p.value };
 }
@@ -107,11 +118,24 @@ export function allowanceYen(capitalYen: number, riskPct: number): number {
   return Math.floor((capitalYen * riskPct) / 100 + 1e-6);
 }
 
-/** 資金 × 許容リスク = 1 回の負けの上限の文（資金が無ければ null） */
-export function allowanceText(capitalYen: number | null, riskPct: number): string | null {
+/**
+ * 口座の通貨の 1 回の負けの上限。JPY は allowanceYen（1 円未満を切り捨て）、外貨は 0.01 未満を切り捨て（#47 PR-2。
+ * 例: 10,000.00 USD × 1% = 100.00 USD）
+ */
+export function allowanceIn(capital: number, riskPct: number, currency: string): number {
+  if (currency === 'JPY') return allowanceYen(capital, riskPct);
+  return Math.floor(capital * riskPct + 1e-6) / 100;
+}
+
+/** 資金 × 許容リスク = 1 回の負けの上限の文（資金が無ければ null）。金額は口座の通貨 */
+export function allowanceText(
+  capitalYen: number | null,
+  riskPct: number,
+  currency = 'JPY',
+): string | null {
   if (capitalYen === null) return null;
-  const yen = allowanceYen(capitalYen, riskPct);
-  return `これから記録する取引にリスク（%）が出ます。許容リスク ${formatPlain(riskPct)}% なら、1 回の負けは ${formatAmountYen(yen)} までです`;
+  const v = allowanceIn(capitalYen, riskPct, currency);
+  return `これから記録する取引にリスク（%）が出ます。許容リスク ${formatPlain(riskPct)}% なら、1 回の負けは ${formatAmount(v, currency)} までです`;
 }
 
 export type HistoryRow = CapitalHistoryEntry;
@@ -223,6 +247,14 @@ function readPositive(raw: string): ReadResult<number> {
   return { ok: true, value: p.value };
 }
 
+/** 口座の通貨（#47 PR-2）: 英字 3 文字は大文字に。空も誤り（口座の通貨は未設定にできない） */
+export function readAccountCurrency(raw: string): ReadResult<string> {
+  const c = readCurrency(raw);
+  if (!c.ok) return c;
+  if (c.value === null) return { ok: false, error: SETTINGS_MSG.currency };
+  return { ok: true, value: c.value };
+}
+
 /** 価格の通貨: 空 = 未設定（null）、英字 3 文字は大文字に */
 function readCurrency(raw: string): ReadResult<string | null> {
   const s = raw.normalize('NFKC').trim();
@@ -288,7 +320,8 @@ export function instrumentSummary(rec: InstrumentRecord): string {
   return [
     UNDERLYING_KIND_LABEL[rec.underlyingKind],
     PRODUCT_FORM_LABEL[rec.productForm],
-    `通貨 ${rec.priceCurrency ?? '未設定'}`,
+    // 記録する画面の 1 行と同じ言葉（口座の「通貨」と取り違えない。#47 PR-2 デザイン 5）
+    rec.priceCurrency === null ? '価格の通貨 未設定' : `${rec.priceCurrency} 建て`,
     `乗数 ${formatPlain(rec.multiplier)}`,
     `刻み ${formatPlain(rec.quantityStep)}`,
     ...(rec.underlying ? [`原資産 ${rec.underlying}`] : []),

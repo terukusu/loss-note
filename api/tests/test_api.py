@@ -90,6 +90,7 @@ def test_create_and_read_t1(api):
                        "productForm": "spotCfd"},
         "capitalYen": 1_000_000,
         "riskTolerancePct": 1,
+        "accountCurrency": "JPY",
     }  # fmt: skip
 
 
@@ -473,3 +474,25 @@ def test_zwj_emoji_201_and_bidi_override_400(api):
     assert res.status_code == 400
     assert res.get_json()["issues"] == [{"field": "entryEmotion", "kind": "control"}]
     assert len(api.trades(A)) == 1
+
+
+@pytest.mark.parametrize("fx", [0, -1, "abc", True])
+def test_fx_rate_must_be_positive_number(api, fx):
+    """#47 AC-16（F12）: 為替 0・負・文字・真偽は 400（field exit.fxRate）。取引は作らない"""
+    inst = api.instrument(A, "架空指数U", priceCurrency="USD")
+    body = t1(inst["id"], exit={"time": 1_700_000_000_000, "price": 99.5, "reason": "lc", "fxRate": fx})
+    res = api.post("/api/trades", A, body)
+    assert res.status_code == 400
+    assert [i["field"] for i in res.get_json()["issues"]] == ["exit.fxRate"]
+    assert api.trades(A) == []
+    ok = t1(inst["id"], exit={"time": 1_700_000_000_000, "price": 99.5, "reason": "lc", "fxRate": 150})
+    assert api.post("/api/trades", A, ok).status_code == 201
+
+
+def test_settings_history_rows_have_no_currency(api):
+    """#47 KEEP-6: 設定の資金の履歴の行は {valueYen, at} だけ（口座の通貨は口座の履歴にだけ書く）"""
+    api.put("/api/settings", A, {"capitalYen": 1_000_000, "riskTolerancePct": 1, "performanceUnit": "R"})
+    got = api.put("/api/settings", A, {"capitalYen": 500_000, "riskTolerancePct": 1, "performanceUnit": "yen"})
+    assert got.status_code == 200
+    assert all(set(h) == {"valueYen", "at"} for h in got.get_json()["capitalHistory"])
+    assert got.get_json()["performanceUnit"] == "yen"

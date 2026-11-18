@@ -11,7 +11,7 @@ export interface SizingParams {
   /** % */
   readonly riskTolerancePct: number;
   readonly multiplier: number;
-  /** 計画時の為替（円建ては 1） */
+  /** 計画時の為替（価格の通貨 1 単位 = 口座の通貨。価格の通貨 = 口座の通貨なら 1。C43） */
   readonly fx: number;
   readonly quantityStep: number;
 }
@@ -34,7 +34,7 @@ export function suggestQuantity(p: SizingParams): number | undefined {
   return floorToStep((capitalYen * riskTolerancePct) / 100 / unitRisk, quantityStep);
 }
 
-/** 記録の後の数量の振り返り（#67）。金額は口座の通貨（今は円） */
+/** 記録の後の数量の振り返り（#67）。金額（許容額）は口座の通貨（1R・資金と同じ通貨。#47 PR-2・C43） */
 export interface SizingReview {
   /** 1R ÷ 許容額（= リスク（%）÷ 許容リスク）。1 を超えると許容より多く賭けた */
   readonly ratio: number;

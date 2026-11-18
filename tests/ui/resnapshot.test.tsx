@@ -16,6 +16,7 @@ import {
   RESNAPSHOT_LABEL,
   resnapshotOffer,
   snapshotDiffs,
+  withoutStaleFx,
 } from '../../ui/src/lib/resnapshot';
 import { Link } from '../../ui/src/lib/router';
 import { notFoundState } from '../../ui/src/pages/TradeDetail';
@@ -513,5 +514,116 @@ describe('画面: 枠と、判定の枠の注記のそばのボタン', () => {
     const fold = all(tree, hasClass('resnap'))[0] as El;
     expect(text(fold)).toContain(NO_OUTCOME_CHANGE);
     expect(all([fold], (e) => e.props.id === 'edit-resnapshot-outcomes')).toEqual([]);
+  });
+});
+
+describe('今の値で写し直すと口座の通貨・為替（#47 PR-2 との合わせ直し）', () => {
+  it('資金の行は各々の口座の通貨で書き、口座の通貨が違えば行を足す。無い = JPY は JPY と同じ', () => {
+    const from: TradeSnapshot = { ...SNAP, capitalYen: 10_000, accountCurrency: 'USD' };
+    const to: TradeSnapshot = { ...SNAP, capitalYen: 20_000, accountCurrency: 'USD' };
+    expect(snapshotDiffs(from, to)).toEqual([
+      { label: '資金', from: '10,000.00 USD', to: '20,000.00 USD' },
+    ]);
+    // 移す前の取引（口座の通貨なし）と今の JPY の口座: 通貨の行は出ない
+    expect(
+      snapshotDiffs({ ...SNAP, capitalYen: 1 }, { ...SNAP, capitalYen: 1, accountCurrency: 'JPY' }),
+    ).toEqual([]);
+  });
+
+  it('withoutStaleFx: 通貨の組（価格の通貨 / 口座の通貨）が変わるなら為替を外し、同じなら残す', () => {
+    const usd: TradeSnapshot = {
+      ...SNAP,
+      instrument: { ...SNAP.instrument, priceCurrency: 'USD' },
+      accountCurrency: 'JPY',
+    };
+    const rec = { ...X1.record, exit: { ...X1.record.exit, fxRate: 150 } };
+    expect(withoutStaleFx(rec, usd, usd).exit.fxRate).toBe(150);
+    expect('fxRate' in withoutStaleFx(rec, usd, SNAP).exit).toBe(false);
+    expect('fxRate' in withoutStaleFx(rec, usd, { ...usd, accountCurrency: 'EUR' }).exit).toBe(
+      false,
+    );
+  });
+
+  it('記録したとき USD 建て（為替 150）→ 今は銘柄が円建て: 今の値の計算は為替を使わず、保存の本文に為替なし・?snapshot=current', async () => {
+    // L・イン 38,000・LC 37,800・決済 37,800・数量 1・乗数 100・明細の損益なし。
+    // 記録したとき: 1R = 200 × 1 × 100 × 150 = 3,000,000。今（円建て）: 1R = 200 × 1 × 100 = 20,000
+    const t = stored(
+      'xfx',
+      {
+        ...RECORD,
+        statementPnlYen: undefined,
+        exit: { ...RECORD.exit, fxRate: 150 },
+      } as Parameters<typeof stored>[1],
+      {
+        snapshot: {
+          ...SNAP,
+          capitalYen: 100_000_000,
+          instrument: { ...SNAP.instrument, priceCurrency: 'USD' },
+        },
+      },
+    );
+    const { fake, c } = await open(t, 100_000_000);
+    expect(c.getState().preview.oneRYen).toBeCloseTo(3_000_000, 6);
+    expect(c.getState().offer?.diffs.map((d) => d.label)).toContain('価格の通貨');
+    c.setRefresh(true);
+    expect(c.getState().preview.oneRYen).toBeCloseTo(20_000, 6);
+    await c.save();
+    const call = put(fake)[0];
+    if (call === undefined) throw new Error('PUT が無い');
+    expect(call.path.endsWith('?snapshot=current')).toBe(true);
+    expect('fxRate' in (call.body as { exit: object }).exit).toBe(false);
+  });
+});
+
+describe('再計算で為替を外すのは意味を失う移りだけ（#47 PR-2 の再レビュー block）', () => {
+  const withPrice = (price: string | null, account?: string): TradeSnapshot => ({
+    ...SNAP,
+    capitalYen: 300_000_000,
+    instrument: { ...SNAP.instrument, priceCurrency: price },
+    ...(account === undefined ? {} : { accountCurrency: account }),
+  });
+  const rec = { ...X1.record, exit: { ...X1.record.exit, fxRate: 150 } };
+
+  it('未設定 → USD（口座は JPY のまま）: 為替 150 を保つ', () => {
+    expect(withoutStaleFx(rec, withPrice(null), withPrice('USD')).exit.fxRate).toBe(150);
+    expect(withoutStaleFx(rec, withPrice(null), withPrice('USD', 'JPY')).exit.fxRate).toBe(150);
+  });
+
+  it('USD → EUR（決まった通貨どうし）・口座の通貨が変わる（未設定 → USD でも）: 外す', () => {
+    expect('fxRate' in withoutStaleFx(rec, withPrice('USD'), withPrice('EUR')).exit).toBe(false);
+    expect('fxRate' in withoutStaleFx(rec, withPrice(null), withPrice('USD', 'EUR')).exit).toBe(
+      false,
+    );
+  });
+
+  it('取り込んだ取引の形（価格の通貨が未設定・為替 150・決済 = イン で明細から 1R を逆算できない）→ 銘柄に USD を入れて再計算しても 1R は 3,000,000 円のまま・本文に為替 150', async () => {
+    // L・イン 38,000・LC 37,800・決済 38,000（= イン）・数量 1・乗数 100・明細の損益 −200。
+    // 決済 = イン なので明細から逆算せず、1R = 200 × 1 × 100 × 150 = 3,000,000 円、リスク = 3,000,000 ÷ 300,000,000 = 1.0%
+    const imported = stored(
+      'ximp',
+      {
+        ...RECORD,
+        statementPnlYen: -200,
+        exit: { ...RECORD.exit, price: 38_000, fxRate: 150 },
+      } as Parameters<typeof stored>[1],
+      { snapshot: withPrice(null) },
+    );
+    const usdNow = { ...IDX, priceCurrency: 'USD' };
+    const { fake, c } = await open(imported, 300_000_000, [usdNow]);
+    expect(c.getState().preview.oneRYen).toBeCloseTo(3_000_000, 6);
+    expect(c.getState().offer?.diffs.map((d) => [d.label, d.from, d.to])).toContainEqual([
+      '価格の通貨',
+      '未設定',
+      'USD',
+    ]);
+    expect(c.getState().offer?.after?.oneRYen).toBeCloseTo(3_000_000, 6);
+    c.setRefresh(true);
+    expect(c.getState().preview.oneRYen).toBeCloseTo(3_000_000, 6);
+    expect(c.getState().preview.riskPct).toBeCloseTo(1, 9);
+    await c.save();
+    const call = put(fake)[0];
+    if (call === undefined) throw new Error('PUT が無い');
+    expect(call.path.endsWith('?snapshot=current')).toBe(true);
+    expect((call.body as { exit: { fxRate?: number } }).exit.fxRate).toBe(150);
   });
 });

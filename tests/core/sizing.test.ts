@@ -81,7 +81,7 @@ function z6(step: number): TradeInput {
   return closedAt(
     trade({
       ...A,
-      instrument: { multiplier: 1, quantityStep: step, isJpy: false },
+      instrument: { multiplier: 1, quantityStep: step, priceInAccountCurrency: false },
       entries: [{ price: 100, quantity: 100 }],
       statementPnlYen: -9_100,
       feesTotalYen: 100,
@@ -95,7 +95,7 @@ function index(lc: number, quantity: number): TradeInput {
   return closedAt(
     trade({
       ...A,
-      instrument: { multiplier: 100, quantityStep: 1, isJpy: true },
+      instrument: { multiplier: 100, quantityStep: 1, priceInAccountCurrency: true },
       entries: [{ price: 38_000, quantity }],
       lc,
     }),
@@ -148,7 +148,9 @@ describe('出さない Z11〜Z13（AC-2）・エントリー 2 つ Z14（AC-3）
   });
 
   it('Z13 USD 建てで為替も明細の損益も無いと 1R が出ないので出さない', () => {
-    const t = p(A, { instrument: { multiplier: 1, quantityStep: 1, isJpy: false } });
+    const t = p(A, {
+      instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: false },
+    });
     expect(oneRYen(t)).toBeUndefined();
     expect(reviewSizing(t)).toBeUndefined();
   });
@@ -169,7 +171,9 @@ describe('出さない Z11〜Z13（AC-2）・エントリー 2 つ Z14（AC-3）
   it('許容リスク・資金が 0 以下、数量の刻みが壊れていても例外を投げない', () => {
     expect(reviewSizing(p({ capitalYen: 0, riskTolerancePct: 1 }))).toBeUndefined();
     expect(reviewSizing(p({ capitalYen: 1_000_000, riskTolerancePct: 0 }))).toBeUndefined();
-    const badStep = p(A, { instrument: { multiplier: 1, quantityStep: 0, isJpy: true } });
+    const badStep = p(A, {
+      instrument: { multiplier: 1, quantityStep: 0, priceInAccountCurrency: true },
+    });
     expect(reviewSizing(badStep)?.ratio).toBeCloseTo(0.5, 12);
     expect(reviewSizing(badStep)).not.toHaveProperty('suggestedQuantity');
   });

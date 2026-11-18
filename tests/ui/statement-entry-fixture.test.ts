@@ -53,7 +53,12 @@ function item(name: string, row: ReadRow): Item {
     instrument: { name: read.instrument.name },
     settings,
     record: { ...read.body, instrumentId: PLACEHOLDER },
-    snapshot: { instrument: DEFAULT_INSTRUMENT, capitalYen: null, riskTolerancePct: 1 },
+    snapshot: {
+      instrument: DEFAULT_INSTRUMENT,
+      capitalYen: null,
+      riskTolerancePct: 1,
+      accountCurrency: 'JPY',
+    },
     expect: { grade: read.preview.judgment.grade, r: read.preview.r ?? null },
   };
 }

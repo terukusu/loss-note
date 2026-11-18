@@ -1,7 +1,9 @@
 // C-1 数字の表示（Issue #3 の例の表 N1〜N10・R3）。値はすべて架空
 import { describe, expect, it } from 'vitest';
 import {
+  formatAmount,
   formatAmountYen,
+  formatMoney,
   formatPct,
   formatPlain,
   formatPrice,
@@ -224,6 +226,54 @@ describe('formatTimes（#67 R3）: 数量の比は小数 1 桁へ切り上げ（
       (r) => r.int(1, 1_000_000) / r.pick([1, 10, 100, 1_000, 10_000]),
       (x) => {
         if (`${formatTimes(x)}%` !== formatPct(x)) throw new Error(`${x}`);
+      },
+    );
+  });
+});
+
+describe('formatMoney / formatAmount（口座の通貨。#47 PR-2・U29）', () => {
+  it('外貨: 小数 2 桁・3 桁区切り・半角の空き・3 文字・符号は U+2212・ちょうど 0 は ±', () => {
+    expect(formatMoney(-50, 'USD')).toBe(`${MINUS}50.00 USD`);
+    expect(formatMoney(1234.5, 'USD')).toBe('+1,234.50 USD');
+    expect(formatMoney(0, 'USD')).toBe('±0.00 USD');
+    expect(formatMoney(-0.004, 'USD')).toBe(`${MINUS}0.00 USD`);
+    expect(formatMoney(0.005, 'EUR')).toBe('+0.01 EUR');
+    expect(formatMoney(Number.NaN, 'USD')).toBe('損益なし');
+    expect(formatAmount(10_000, 'USD')).toBe('10,000.00 USD');
+    expect(formatAmount(55, 'USD')).toBe('55.00 USD');
+    expect(formatAmount(1.15, 'USD')).toBe('1.15 USD');
+    expect(formatAmount(Number.POSITIVE_INFINITY, 'USD')).toBe('金額なし');
+  });
+
+  it('JPY は今の formatYen / formatAmountYen と 1 文字も変わらない（D2「7,500円」）', () => {
+    expect(formatAmount(7_500, 'JPY')).toBe('7,500円');
+    expect(formatMoney(-8_000, 'JPY')).toBe(`${MINUS}8,000円`);
+    forAll(
+      472,
+      1_000,
+      (r) => (r.int(-10_000_000, 10_000_000) + r.int(0, 99) / 100) * (r.bool() ? 1 : 1000),
+      (x) => {
+        if (formatMoney(x, 'JPY') !== formatYen(x)) throw new Error(`損益 ${x}`);
+        if (formatAmount(Math.abs(x), 'JPY') !== formatAmountYen(Math.abs(x))) {
+          throw new Error(`金額 ${x}`);
+        }
+      },
+    );
+  });
+
+  it('性質: 外貨の表記を数に読み直すと、元の値と 0.005 以内（符号も同じ）', () => {
+    forAll(
+      473,
+      1_000,
+      (r) => (r.int(-100_000_000, 100_000_000) / 1000) * (r.bool() ? 1 : 7),
+      (x) => {
+        const s = formatMoney(x, 'USD');
+        const m = /^([+−±])([\d,]+\.\d{2}) USD$/.exec(s);
+        if (!m) throw new Error(`形 ${s}`);
+        const v = Number((m[2] ?? '').replace(/,/g, '')) * (m[1] === '−' ? -1 : 1);
+        if (Math.abs(v - x) > 0.005 + 1e-9) throw new Error(`${x} → ${s}`);
+        if (x > 0 && m[1] !== '+') throw new Error(`符号 ${x} → ${s}`);
+        if (x < 0 && m[1] !== '−') throw new Error(`符号 ${x} → ${s}`);
       },
     );
   });

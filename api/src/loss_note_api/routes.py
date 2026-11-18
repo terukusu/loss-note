@@ -250,7 +250,7 @@ def make_blueprint(
                 "schemaVersion": SCHEMA_VERSION,
                 "createdAt": now,
                 "updatedAt": now,
-                # 資金・許容リスクは記録したときのその取引の口座の値（#47。鍵は前と同じ）
+                # 資金・許容リスク・口座の通貨は記録したときのその取引の口座の値（#47。通貨は PR-2）
                 "snapshot": {"instrument": instrument_snapshot(instrument), **accounts.account_snapshot(account)},
                 "record": record,
             }
@@ -302,7 +302,7 @@ def make_blueprint(
             # 銘柄を別の銘柄に変えたときだけ、その銘柄の今の値で写し直す（資金・許容リスクは変えない。C36）
             if new_instrument is not None:
                 snapshot["instrument"] = instrument_snapshot(new_instrument)
-            # 口座を別の口座に付け替えたときだけ、その口座の今の資金・許容リスクで写し直す（#47 A4）
+            # 口座を別の口座に付け替えたときだけ、その口座の今の資金・許容リスク・通貨で写し直す（#47 A4・A9）
             if new_account is not None:
                 snapshot.update(accounts.account_snapshot(new_account))
             new_record = record
@@ -474,7 +474,8 @@ def make_blueprint(
         doc = {
             **value,
             "nameKey": schema.name_key(value["name"]),
-            "capitalHistory": accounts.next_capital_history([], None, value["capitalYen"], now),
+            "capitalHistory": accounts.next_capital_history([], None, value["capitalYen"], now,
+                                                            currency=value["currency"]),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -504,15 +505,22 @@ def make_blueprint(
         if value is None:
             return invalid(issues)
 
-        def mutate(doc: dict) -> dict:
+        def mutate(doc: dict, in_use) -> dict:
             # 直すと以後に記録する取引に効く。記録済みの取引は snapshot のまま（C36 と同じ）
             now = clock()
+            prev_currency = accounts.currency_of(doc)
+            currency = value.get("currency", prev_currency)
+            # 通貨は取引が 1 件でもあれば変えられない（F14。取引を探すのは通貨を変えるときだけ）
+            if currency != prev_currency and in_use():
+                raise Conflict("currencyLocked")
             return {
                 **value,
+                "currency": currency,
                 "nameKey": schema.name_key(value["name"]),
                 "capitalHistory": accounts.next_capital_history(
-                    doc.get("capitalHistory", []), doc.get("capitalYen"), value["capitalYen"], now
-                ),
+                    doc.get("capitalHistory", []), doc.get("capitalYen"), value["capitalYen"], now,
+                    currency=currency, prev_currency=prev_currency,
+                ),  # fmt: skip
                 "createdAt": doc["createdAt"],
                 "updatedAt": next_updated_at(now, doc.get("updatedAt")),
             }

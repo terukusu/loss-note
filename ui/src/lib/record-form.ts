@@ -9,8 +9,11 @@
 // 本文に入れる（プレビューの判定にも同じ本文が効く）。チャートが無いときの本文は今と同じ
 // #47（口座）: 下書きに口座（accountId。空 = 既定の口座）を持ち、資金・許容リスクは選んだ口座の値で計算する。
 // 本文の accountId は口座が 2 つ以上のときだけ入れる（口座 1 つの利用者の本文は今と同じ。KEEP-3）
+// #47 PR-2（通貨と為替）: 為替の欄（fxRate）は銘柄の価格の通貨が決まっていて口座の通貨と違うときだけ読み、本文の
+// exit.fxRate に入れる（欄が出ていなければ入れない）。明細の損益から逆算した為替は Summary.derivedFx で見せるだけ（保存しない）
 import { evaluateTrade } from '../../../core/evaluate';
 import type { Judgment } from '../../../core/judge';
+import { statementFxRate } from '../../../core/pnl';
 import type {
   AccountRecord,
   GapSlip,
@@ -22,7 +25,12 @@ import type {
   TradeRecord,
   TradeSnapshot,
 } from '../../../core/record';
-import { DEFAULT_ACCOUNT_ID, toTradeInput } from '../../../core/record';
+import {
+  accountCurrencyOf,
+  DEFAULT_ACCOUNT_ID,
+  DEFAULT_CURRENCY,
+  toTradeInput,
+} from '../../../core/record';
 import { type Ruler, rulerOf } from '../../../core/ruler';
 import { reviewSizing } from '../../../core/sizing';
 import type {
@@ -33,6 +41,7 @@ import type {
   Timeframe,
   TimeframeChange,
 } from '../../../core/trade';
+import { fxFieldVisible } from './currency';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
 import { widenVerb } from './reasons';
@@ -46,6 +55,8 @@ export interface Draft {
   readonly entryPrice: string;
   readonly exitPrice: string;
   readonly quantity: string;
+  /** 決済の為替（価格の通貨 1 単位 = 口座の通貨。任意。欄が出ているときだけ読む。#47 PR-2） */
+  readonly fxRate: string;
   readonly exitTime: string;
   readonly entryTime: string;
   readonly pnlYen: string;
@@ -83,6 +94,7 @@ export const EMPTY_DRAFT: Draft = {
   entryPrice: '',
   exitPrice: '',
   quantity: '',
+  fxRate: '',
   exitTime: '',
   entryTime: '',
   pnlYen: '',
@@ -146,8 +158,8 @@ export interface DraftContext {
   };
 }
 
-/** 口座が見つからないときの資金・許容リスク（資金なし・1%。API の既定の口座の既定と同じ） */
-const NO_ACCOUNT = { capitalYen: null, riskTolerancePct: 1 } as const;
+/** 口座が見つからないときの資金・許容リスク・通貨（資金なし・1%・JPY。API の既定の口座の既定と同じ） */
+const NO_ACCOUNT = { capitalYen: null, riskTolerancePct: 1, currency: DEFAULT_CURRENCY } as const;
 
 /** 下書きの口座の ID（空 = 直す画面は元の口座、記録する画面は既定の口座） */
 export function draftAccountId(draft: Pick<Draft, 'accountId'>, ctx: DraftContext): string {
@@ -182,6 +194,10 @@ export interface Summary {
     readonly quantity: number;
     readonly suggestedQuantity?: number;
   };
+  /** 金額（損益・1R）の通貨 = 取引の口座の通貨（#47 PR-2。省いたら JPY） */
+  readonly currency?: string;
+  /** 明細の損益から逆算した為替（価格の通貨 ≠ 口座の通貨で出せるときだけ。見せるだけ。R6） */
+  readonly derivedFx?: number;
 }
 
 export interface Preview extends Summary {
@@ -199,6 +215,20 @@ export interface DraftReading {
   readonly body?: TradeBody;
   readonly instrument: { readonly name: string; readonly matchedId?: string };
   readonly preview: Preview;
+  /**
+   * 通貨と為替（#47 PR-2）: 銘柄の価格の通貨（一覧に無い名前は null）・口座の通貨・為替の欄を出すか・読めた為替。
+   * 画面は lib/currency.ts の currencyView で見せ方に直す
+   */
+  readonly currency?: ReadingCurrency;
+}
+
+export interface ReadingCurrency {
+  readonly price: string | null;
+  readonly account: string;
+  /** 銘柄の名前が一覧の銘柄に当たったか（当たらない名前を打っている間は建ての通貨を出さない） */
+  readonly matched: boolean;
+  readonly fxShown: boolean;
+  readonly fxRate?: number;
 }
 
 /** 一覧に無い銘柄を足すときの既定（API の既定と同じ。C21） */
@@ -235,10 +265,11 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   entryPrice: 'イン',
   exitPrice: '決済',
   quantity: '数量',
+  fxRate: '為替',
   exitTime: '決済の時刻',
   entryTime: '建てた時刻',
-  pnlYen: '損益（円）',
-  feeYen: '手数料（円）',
+  pnlYen: '損益（明細の値）',
+  feeYen: '手数料',
   lc: 'LC',
   lcNone: 'LC',
   lcAfter: '下げた後の LC',
@@ -284,9 +315,11 @@ export const MSG = {
 } as const;
 
 export const RISK_NOTE = {
-  noLc: 'LC が無いので出ません',
-  noCapital: '資金を設定すると出ます',
-  noOneR: '損益（円）を入れると出ます',
+  noLc: 'LC が無いので表示されません',
+  noCapital: '資金を設定すると表示されます',
+  noOneR: '損益を入力すると表示されます',
+  /** 価格の通貨が口座の通貨と違い、為替も損益も無い（F2・U26） */
+  noOneRFx: '為替か損益を入力すると表示されます',
   invalid: 'この記録からは計算できません',
 } as const;
 
@@ -327,9 +360,11 @@ export function lengthOf(s: string): number {
 /** 保存した取引（またはその形に写した下書き）の判定・数 */
 export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Summary {
   const noLc = stored.record.lc === undefined;
+  const currency = accountCurrencyOf(stored.snapshot);
   const input = toTradeInput(stored);
   const ev = evaluateTrade(input);
-  if (!ev.ok) return { noLc, invalid: true, riskNote: RISK_NOTE.invalid };
+  if (!ev.ok) return { noLc, invalid: true, riskNote: RISK_NOTE.invalid, currency };
+  const fxApplies = fxFieldVisible(stored.snapshot.instrument.priceCurrency, currency);
   const riskNote =
     ev.riskPct !== undefined
       ? undefined
@@ -337,7 +372,9 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
         ? RISK_NOTE.noLc
         : stored.snapshot.capitalYen === null
           ? RISK_NOTE.noCapital
-          : RISK_NOTE.noOneR;
+          : fxApplies
+            ? RISK_NOTE.noOneRFx
+            : RISK_NOTE.noOneR;
   const ruler = rulerOf(input, stored.record.tp);
   // 取引の LC が無い（エントリーごとの LC だけ）取引は、判定の枠（LC なし）と「すべての欄」を揃えて出さない（#67 R1）
   const sz = noLc ? undefined : reviewSizing(input);
@@ -351,8 +388,11 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
             ? {}
             : { suggestedQuantity: sz.suggestedQuantity }),
         };
+  const derivedFx = statementFxRate(input);
   return {
     noLc,
+    currency,
+    ...(derivedFx === undefined ? {} : { derivedFx }),
     ...(ev.r === undefined ? {} : { r: ev.r }),
     ...(ev.oneRYen === undefined ? {} : { oneRYen: ev.oneRYen }),
     ...(ev.riskPct === undefined ? {} : { riskPct: ev.riskPct }),
@@ -379,13 +419,28 @@ export function snapshotOf(
   const base = ctx.base;
   const acc = draftAccountId({ accountId }, ctx);
   const sameAccount = base !== undefined && acc === base.accountId;
-  const money = sameAccount
-    ? { capitalYen: base.snapshot.capitalYen, riskTolerancePct: base.snapshot.riskTolerancePct }
-    : (() => {
-        const a = ctx.accounts.find((x) => x.id === acc) ?? NO_ACCOUNT;
-        return { capitalYen: a.capitalYen, riskTolerancePct: a.riskTolerancePct };
-      })();
-  if (base && instrument?.id === base.instrumentId) return { ...base.snapshot, ...money };
+  // 口座の通貨も口座と一緒に写す（元の口座のままなら写した値のまま。移す前の取引は鍵が無い = JPY のまま。#47 PR-2）
+  const money: Pick<TradeSnapshot, 'capitalYen' | 'riskTolerancePct' | 'accountCurrency'> =
+    sameAccount
+      ? {
+          capitalYen: base.snapshot.capitalYen,
+          riskTolerancePct: base.snapshot.riskTolerancePct,
+          ...(base.snapshot.accountCurrency === undefined
+            ? {}
+            : { accountCurrency: base.snapshot.accountCurrency }),
+        }
+      : (() => {
+          const a = ctx.accounts.find((x) => x.id === acc) ?? NO_ACCOUNT;
+          return {
+            capitalYen: a.capitalYen,
+            riskTolerancePct: a.riskTolerancePct,
+            accountCurrency: a.currency || DEFAULT_CURRENCY,
+          };
+        })();
+  if (base && instrument?.id === base.instrumentId) {
+    const { capitalYen: _c, riskTolerancePct: _r, accountCurrency: _a, ...rest } = base.snapshot;
+    return { ...rest, ...money };
+  }
   const i = instrument ?? DEFAULT_INSTRUMENT;
   return {
     instrument: {
@@ -515,6 +570,10 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
 
   const instrument = { name, ...(matched ? { matchedId: matched.id } : {}) };
   const snapshot = snapshotOf(ctx, matched, draft.accountId);
+
+  // 為替（任意。価格の通貨 ≠ 口座の通貨のときだけ欄を出し、読む。0 以下・数でない は誤り。F12）
+  const fxShown = fxVisibleOf(snapshot);
+  const fxRate = fxShown ? num('fxRate', draft.fxRate, 'positive') : undefined;
   // 口座が 2 つ以上のときだけ本文に口座を入れる（1 つなら今と同じ本文。KEEP-3）
   const accountId = ctx.accounts.length >= 2 ? draftAccountId(draft, ctx) : undefined;
   const hasErrors = Object.keys(errors).length > 0;
@@ -557,6 +616,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       exit: {
         time: xt,
         price: ex,
+        ...(fxRate === undefined ? {} : { fxRate }),
         orderType: draft.exitOrderType,
         reason: draft.exitReason,
         gapSlip: taps.gapSlip,
@@ -620,6 +680,13 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   }
 
   const canSave = body !== undefined;
+  const currency: ReadingCurrency = {
+    price: snapshot.instrument.priceCurrency,
+    account: accountCurrencyOf(snapshot),
+    matched: matched !== undefined,
+    fxShown,
+    ...(fxRate === undefined ? {} : { fxRate }),
+  };
   return {
     errors,
     missing,
@@ -627,7 +694,75 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     ...(body === undefined ? {} : { body }),
     instrument,
     preview,
+    currency,
   };
+}
+
+/** 為替の意味を決める通貨の組（銘柄の価格の通貨 / 口座の通貨。#47 PR-2）。matched = 銘柄の名前が一覧の銘柄に当たった */
+export interface FxPair {
+  readonly price: string | null;
+  readonly account: string;
+  readonly matched: boolean;
+}
+
+export function fxPairOf(
+  draft: Pick<Draft, 'instrumentName' | 'accountId'>,
+  ctx: DraftContext,
+): FxPair {
+  const name = draft.instrumentName.trim();
+  const inst = name === '' ? undefined : findInstrument(name, ctx.instruments);
+  const snap = snapshotOf(ctx, inst, draft.accountId);
+  return {
+    price: snap.instrument.priceCurrency,
+    account: accountCurrencyOf(snap),
+    matched: inst !== undefined,
+  };
+}
+
+/**
+ * 為替が意味を失う移りか（為替は「価格の通貨 1 単位 = 口座の通貨」）。口座の通貨が変わる、または決まった価格の通貨どうしが
+ * 違う（USD → EUR）ときだけ。価格の通貨が未設定 → 決まった通貨（取り込んだ取引に価格の通貨を入れた）は、未設定の銘柄の為替も
+ * 同じ意味で使っているので失わない。銘柄の名前を打っている途中（一覧に当たらない）では、価格の通貨では判定しない
+ * （#47 PR-2 の再レビュー 1・2。resnapshot.ts の withoutStaleFx と同じ規則）
+ */
+export function fxStale(
+  basis: Pick<FxPair, 'price' | 'account'>,
+  now: Pick<FxPair, 'price' | 'account'> & { readonly matched?: boolean },
+): boolean {
+  if (basis.account !== now.account) return true;
+  if (now.matched === false) return false;
+  return basis.price !== null && now.price !== null && basis.price !== now.price;
+}
+
+/**
+ * 基準の組を当たった銘柄の組で詰める。決まっている価格の通貨を未設定で上書きしない（USD → 未設定の銘柄 → EUR で
+ * USD の為替を EUR に持ち込まない。#47 PR-2 の 3 回目の再レビュー 1）
+ */
+export function refineFxBasis(basis: FxPair, now: FxPair): FxPair {
+  if (!now.matched) return basis;
+  return { ...now, price: now.price ?? basis.price };
+}
+
+/**
+ * 打った為替の基準の組を、今の組に合わせて進める（記録する画面）。basis = 為替を打ったときの組（打っていなければ null）。
+ * 組が意味を失う移りなら為替を空にして基準を外し、そうでなければ当たった銘柄の組で基準を詰める（未設定 → USD など）
+ */
+export function applyFxRule(
+  next: Draft,
+  basis: FxPair | null,
+  now: FxPair,
+): { readonly draft: Draft; readonly basis: FxPair | null } {
+  if (next.fxRate === '' || basis === null)
+    return { draft: next, basis: next.fxRate === '' ? null : basis };
+  if (fxStale(basis, now)) return { draft: { ...next, fxRate: '' }, basis: null };
+  return { draft: next, basis: refineFxBasis(basis, now) };
+}
+
+/** 取引に写す値で、為替の欄を出すか（銘柄の価格の通貨が決まっていて口座の通貨と違う） */
+export function fxVisibleOf(
+  snapshot: Pick<TradeSnapshot, 'instrument' | 'accountCurrency'>,
+): boolean {
+  return fxFieldVisible(snapshot.instrument.priceCurrency, accountCurrencyOf(snapshot));
 }
 
 /** LC を動かしたかの選択肢の文言（S は「上げた」） */

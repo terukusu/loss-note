@@ -8,7 +8,11 @@
 // - 失敗は決まった文言だけを状態に置く（応答の本文・例外の文字列を持たない）。401・ログインしていない = ログインが切れた
 // - 足す要求が時間切れ・通信の失敗になったときは届いた可能性がある。次に押して 409 なら、届いていたものとして一覧を取り直す
 // - 状態は記憶の中だけ（端末の保存先に書かない）
-import type { AccountRecord, InstrumentRecord } from '../../../core/record';
+// - 口座の通貨（#47 PR-2・U30・U31）: 開いたときは取引を読まない。直す欄で通貨を今と違う値にしたときだけ、取引の一覧
+//   （GET /api/trades）を 1 回読んで取引のある口座を知り、その口座なら通貨を元に戻して文字にし（本文に通貨を入れない =
+//   今のまま）知らせる。読めなければ欄のままにし、守りは API の 409 currencyLocked（その口座を取引のある口座に入れ、
+//   下書きの通貨を元に戻して知らせる）
+import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
 import {
   ACCOUNT_FIELD_LABEL,
   ACCOUNT_MSG,
@@ -16,10 +20,12 @@ import {
   type AccountField,
   type AccountReading,
   accountDraftOf,
+  currencyOfAccount,
   EMPTY_ACCOUNT_DRAFT,
   readAccountDraft,
   sortAccounts,
 } from './accounts';
+import { accountsInUse, currencyLockedText } from './currency';
 import { nameKey } from './instrument-name';
 import {
   type ApiFn,
@@ -41,6 +47,7 @@ import {
   type InstrumentField,
   type InstrumentReading,
   instrumentDraftOf,
+  readAccountCurrency,
   readInstrumentDraft,
   readNewInstrumentName,
   SETTINGS_MSG,
@@ -104,6 +111,8 @@ export interface SettingsState {
   readonly account: EditingAccount | null;
   /** いま足した口座の ID（フォーカスを新しい行の [直す] へ移す。U15） */
   readonly addedAccountId: string | null;
+  /** 取引のある口座の ID（通貨を変えられない。null = まだ読んでいない・読めなかった（守りは API の 409）。U31） */
+  readonly accountsInUse: ReadonlySet<string> | null;
   /** 銘柄（名前の順） */
   readonly instruments: readonly InstrumentRecord[];
   readonly editing: EditingInstrument | null;
@@ -124,6 +133,8 @@ export interface SettingsController {
   updateAccount(field: AccountField, value: string): void;
   /** 直す欄なら PUT、足す欄なら POST */
   saveAccount(): Promise<void>;
+  /** 通貨を変える操作の取引の確かめが終わるまで待つ（テスト用） */
+  settled(): Promise<void>;
   /** 1 件だけ開く（別の行を開くと前の下書きは捨てる） */
   openInstrument(id: string): void;
   closeInstrument(): void;
@@ -153,6 +164,11 @@ function isAccount(v: unknown): v is AccountRecord {
   );
 }
 
+/** 通貨を変えられない口座か（取引があると分かった口座。まだ読んでいない = null は欄のまま。U31） */
+export function currencyLocked(inUse: ReadonlySet<string> | null, id: string): boolean {
+  return inUse?.has(id) ?? false;
+}
+
 export function createSettingsController(deps: {
   readonly api: ApiFn;
   readonly timeoutMs?: number;
@@ -165,6 +181,7 @@ export function createSettingsController(deps: {
     accounts: [],
     account: null,
     addedAccountId: null,
+    accountsInUse: null,
     instruments: [],
     editing: null,
     newName: '',
@@ -190,10 +207,14 @@ export function createSettingsController(deps: {
   const readAccount = (
     ed: EditingAccount,
     accounts: readonly AccountRecord[],
+    inUse: ReadonlySet<string> | null,
   ): AccountReading<unknown> => {
-    const saved =
-      ed.id === null ? null : (accounts.find((a) => a.id === ed.id)?.capitalYen ?? null);
-    const r = readAccountDraft(ed.draft, accounts, ed.id, saved);
+    const rec = ed.id === null ? undefined : accounts.find((a) => a.id === ed.id);
+    const saved = rec?.capitalYen ?? null;
+    const r = readAccountDraft(ed.draft, accounts, ed.id, saved, {
+      currencyLocked: ed.id !== null && currencyLocked(inUse, ed.id),
+      ...(rec ? { savedCurrency: currencyOfAccount(rec) } : {}),
+    });
     const errors: Partial<Record<AccountField, string>> = { ...r.errors };
     // 足す欄の名前が空の誤りは [足す] を押した後だけ（開いた直後に赤くしない）
     if (errors.name === ACCOUNT_MSG.nameRequired && !accountTried && ed.id === null) {
@@ -209,7 +230,10 @@ export function createSettingsController(deps: {
   const set = (patch: Partial<SettingsState>) => {
     const next = { ...state, ...patch };
     const account = next.account
-      ? { ...next.account, reading: readAccount(next.account, next.accounts) }
+      ? {
+          ...next.account,
+          reading: readAccount(next.account, next.accounts, next.accountsInUse),
+        }
       : null;
     let editing = next.editing;
     if (editing) {
@@ -242,6 +266,39 @@ export function createSettingsController(deps: {
     const a = await getJson<{ items: unknown[] }>(await request('/api/accounts'), 200);
     if (!Array.isArray(a.items) || !a.items.every(isAccount)) throw new Failed('other');
     return sortAccounts(a.items);
+  };
+
+  /** 取引のある口座（読めなければ null。守りは API の 409） */
+  const listInUse = async (): Promise<ReadonlySet<string> | null> => {
+    try {
+      const t = await getJson<{ items: StoredTrade[] }>(await request('/api/trades'), 200);
+      return Array.isArray(t.items) ? accountsInUse(t.items) : null;
+    } catch {
+      return null;
+    }
+  };
+  /** 通貨を変える操作の最初の 1 回だけ取引を読む（同時に何度呼んでも 1 回） */
+  let inUseLoad: Promise<void> | null = null;
+  const checkInUse = () => {
+    if (inUseLoad || state.accountsInUse !== null) return inUseLoad ?? Promise.resolve();
+    inUseLoad = listInUse().then((inUse) => {
+      inUseLoad = null;
+      if (inUse === null) return;
+      const cur = state.account;
+      // いま直している口座に取引があれば、通貨を元に戻して文字にし、知らせる
+      if (cur && cur.id !== null && inUse.has(cur.id)) {
+        const rec = state.accounts.find((a) => a.id === cur.id);
+        const currency = rec ? currencyOfAccount(rec) : cur.draft.currency;
+        set({
+          accountsInUse: inUse,
+          account: { ...cur, draft: { ...cur.draft, currency } },
+          notice: { area: 'accounts', kind: 'error', text: currencyLockedText(currency) },
+        });
+        return;
+      }
+      set({ accountsInUse: inUse });
+    });
+    return inUseLoad;
   };
 
   const load = async () => {
@@ -322,6 +379,31 @@ export function createSettingsController(deps: {
       } catch (e) {
         if (ed.id === null && kindOf(e) === 'network') uncertainAccount = key;
         throw e;
+      }
+      if (res.status === 409 && ed.id !== null) {
+        let reason: unknown = null;
+        try {
+          reason = ((await res.json()) as { reason?: unknown } | null)?.reason;
+        } catch {
+          reason = null;
+        }
+        if (reason === 'currencyLocked') {
+          // 取引が付いていた: その口座を取引のある口座に入れ、通貨を元に戻して知らせる（U31）
+          const id = ed.id;
+          const rec = state.accounts.find((a) => a.id === id);
+          const currency = rec ? currencyOfAccount(rec) : ed.draft.currency;
+          const inUse = new Set(state.accountsInUse ?? []);
+          inUse.add(id);
+          const cur = state.account;
+          set({
+            accountsInUse: inUse,
+            ...(cur && cur.id === id
+              ? { account: { ...cur, saving: false, draft: { ...cur.draft, currency } } }
+              : {}),
+            notice: { area: 'accounts', kind: 'error', text: currencyLockedText(currency) },
+          });
+          return;
+        }
       }
       if (res.status === 409) {
         const wasUncertain = ed.id === null && uncertainAccount === key;
@@ -514,7 +596,15 @@ export function createSettingsController(deps: {
       if (!ed || ed.saving) return;
       if (field === 'name' && value.trim() === '' && ed.id === null) accountTried = false;
       set({ account: { ...ed, draft: { ...ed.draft, [field]: value } }, notice: null });
+      // 直す欄で通貨を今と違う値にした: 取引のある口座かを 1 回だけ確かめる（開いたときは数えない）
+      if (field === 'currency' && ed.id !== null) {
+        const rec = state.accounts.find((a) => a.id === ed.id);
+        const typed = readAccountCurrency(value);
+        if (rec && typed.ok && typed.value !== currencyOfAccount(rec)) void checkInUse();
+      }
     },
+    /** 取引の確かめが終わるまで待つ（テスト・画面の検査用） */
+    settled: () => inUseLoad ?? Promise.resolve(),
     saveAccount: () =>
       once(
         () => savingAccount,
@@ -575,6 +665,7 @@ export function createSettingsController(deps: {
 /** 欄の要素の ID（画面の部品と同じ。誤りの欄へフォーカスを移すときに使う） */
 export const ACCOUNT_FIELD_ID: Readonly<Record<AccountField, string>> = {
   name: 'settings-account-name',
+  currency: 'settings-account-currency',
   capital: 'settings-account-capital',
   risk: 'settings-account-risk',
 };

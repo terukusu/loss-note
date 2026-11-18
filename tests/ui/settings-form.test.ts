@@ -344,7 +344,9 @@ describe('一覧の表示', () => {
   });
 
   it('要約は利用者の言葉（内部の識別子を出さない）', () => {
-    expect(instrumentSummary(US30)).toBe('その他 · 現物・CFD · 通貨 未設定 · 乗数 1 · 刻み 1');
+    expect(instrumentSummary(US30)).toBe(
+      'その他 · 現物・CFD · 価格の通貨 未設定 · 乗数 1 · 刻み 1',
+    );
     expect(
       instrumentSummary(
         inst('x', 'US30', {
@@ -354,7 +356,7 @@ describe('一覧の表示', () => {
           underlying: 'ダウ平均',
         }),
       ),
-    ).toBe('株価指数 · 現物・CFD · 通貨 USD · 乗数 1 · 刻み 0.1 · 原資産 ダウ平均');
+    ).toBe('株価指数 · 現物・CFD · USD 建て · 乗数 1 · 刻み 0.1 · 原資産 ダウ平均');
     expect(
       instrumentSummary(inst('y', 'F', { productForm: 'future', underlyingKind: 'fx' })),
     ).toContain('FX · 先物');

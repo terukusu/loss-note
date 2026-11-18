@@ -157,49 +157,89 @@ describe('名前・文言', () => {
 
 describe('readAccountDraft（設定の直す欄・足す欄。AC-2）', () => {
   it('開いたときの下書きは保存値（3 桁区切り・未設定は空）', () => {
-    expect(accountDraftOf(A)).toEqual({ name: '口座 A', capital: '1,000,000', risk: '1' });
-    expect(accountDraftOf(C)).toEqual({ name: '口座 C', capital: '', risk: '1' });
+    expect(accountDraftOf(A)).toEqual({
+      name: '口座 A',
+      currency: 'JPY',
+      capital: '1,000,000',
+      risk: '1',
+    });
+    expect(accountDraftOf(C)).toEqual({ name: '口座 C', currency: 'JPY', capital: '', risk: '1' });
   });
   it('直す: 3 欄の本文', () => {
     const got = readAccountDraft(
-      { name: ' 口座 A2 ', capital: '500,000', risk: '1.5' },
+      { name: ' 口座 A2 ', currency: 'JPY', capital: '500,000', risk: '1.5' },
       [A, B],
       'accA',
       1_000_000,
     );
-    expect(got.body).toEqual({ name: '口座 A2', capitalYen: 500_000, riskTolerancePct: 1.5 });
+    expect(got.body).toEqual({
+      name: '口座 A2',
+      currency: 'JPY',
+      capitalYen: 500_000,
+      riskTolerancePct: 1.5,
+    });
     expect(got.errors).toEqual({});
   });
   it('A6: 「口座 A」があるときに「口座 Ａ」・「 口座 a 」は重複', () => {
     for (const name of ['口座 Ａ', ' 口座 a ']) {
-      const got = readAccountDraft({ name, capital: '', risk: '1' }, [A], null, null);
+      const got = readAccountDraft(
+        { name, currency: 'JPY', capital: '', risk: '1' },
+        [A],
+        null,
+        null,
+      );
       expect(got.body, name).toBeNull();
       expect(got.errors.name, name).toBe(ACCOUNT_MSG.duplicateName);
     }
     // 自分自身の名前（大文字小文字の違い）は重複でない
     expect(
-      readAccountDraft({ name: '口座 a', capital: '1', risk: '1' }, [A], 'accA', 1_000_000).body,
+      readAccountDraft(
+        { name: '口座 a', currency: 'JPY', capital: '1', risk: '1' },
+        [A],
+        'accA',
+        1_000_000,
+      ).body,
     ).not.toBeNull();
   });
   it('A7: 3.5 と 0.4 は誤り、2.5 は本文あり + 2% 超の警告', () => {
     for (const risk of ['3.5', '0.4']) {
-      const got = readAccountDraft({ name: '口座 E', capital: '', risk }, [A], null, null);
+      const got = readAccountDraft(
+        { name: '口座 E', currency: 'JPY', capital: '', risk },
+        [A],
+        null,
+        null,
+      );
       expect(got.errors.risk, risk).toBe(SETTINGS_MSG.risk);
       expect(got.body).toBeNull();
     }
-    const ok = readAccountDraft({ name: '口座 E', capital: '', risk: '2.5' }, [A], null, null);
-    expect(ok.body).toEqual({ name: '口座 E', capitalYen: null, riskTolerancePct: 2.5 });
+    const ok = readAccountDraft(
+      { name: '口座 E', currency: 'JPY', capital: '', risk: '2.5' },
+      [A],
+      null,
+      null,
+    );
+    expect(ok.body).toEqual({
+      name: '口座 E',
+      currency: 'JPY',
+      capitalYen: null,
+      riskTolerancePct: 2.5,
+    });
     expect(ok.warning).toBe(SETTINGS_MSG.riskWarning);
   });
   it('設定済みの資金を空にすると誤り（未設定には戻せない）、名前が空も誤り', () => {
-    const got = readAccountDraft({ name: '  ', capital: '', risk: '1' }, [A], 'accA', 1_000_000);
+    const got = readAccountDraft(
+      { name: '  ', currency: 'JPY', capital: '', risk: '1' },
+      [A],
+      'accA',
+      1_000_000,
+    );
     expect(got.errors).toEqual({
       name: ACCOUNT_MSG.nameRequired,
       capital: SETTINGS_MSG.capitalRequired,
     });
   });
   it('欄の名前の順', () => {
-    expect(Object.keys(ACCOUNT_FIELD_LABEL)).toEqual(['name', 'capital', 'risk']);
+    expect(Object.keys(ACCOUNT_FIELD_LABEL)).toEqual(['name', 'currency', 'capital', 'risk']);
   });
 });
 

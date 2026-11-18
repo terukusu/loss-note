@@ -35,6 +35,9 @@ locals {
 
 # ingress は all（run.app の URL で配る。ロードバランサは使わない）。IAM の検査は無効にしない（invoker は下の付与）。
 # 第 1 世代（起動が速い）・CPU 1・1Gi（明細の読み取りの同梱の CLI の子プロセスの分。#44）・リクエスト中だけ CPU。
+# 起動時の CPU ブースト: API は起動の段（gunicorn が create_app() を返すまで要求を受けない間）で保存先の接続・公開鍵の
+# 取得・読み取りの SDK の読み込みを済ませる（#60・api/src/loss_note_api/warmup.py）。最小 1 台・CPU の常時割り当ては
+# 月の予算との兼ね合いで入れていない（設計書 10 章）。
 # 同時実行 8 は gunicorn の --threads 8、タイムアウト 60 秒は gunicorn の --timeout 60 と同じ（画面の待ち 30 秒 = 読み取りの締め切り 20 秒 + 後始末 約 5 秒 より長い）。
 # deletion_protection = false: データは Firestore にありサービスは持たないので、撤去を 1 つの PR で行えるようにする。
 # トラフィックは最新のリビジョンに 100%（切り戻しの後の次の deploy で最新に戻る。R8・infra/README.md「切り戻し」）

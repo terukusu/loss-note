@@ -85,6 +85,11 @@ run "defaults" {
     condition     = google_cloud_run_v2_service.app.template[0].containers[0].resources[0].limits["cpu"] == "1" && google_cloud_run_v2_service.app.template[0].containers[0].resources[0].limits["memory"] == "1Gi" && google_cloud_run_v2_service.app.template[0].containers[0].resources[0].cpu_idle == true
     error_message = "CPU 1・1Gi・リクエスト中だけ CPU"
   }
+  # #60: 起動時の CPU ブースト（API が起動の段で保存先の接続・公開鍵の取得を済ませる。最小 0 台のまま起動を縮める）
+  assert {
+    condition     = google_cloud_run_v2_service.app.template[0].containers[0].resources[0].startup_cpu_boost == true
+    error_message = "起動時の CPU ブーストを有効にする"
+  }
   assert {
     condition     = google_cloud_run_v2_service.app.template[0].containers[0].startup_probe[0].http_get[0].path == "/api/health"
     error_message = "起動の確かめは /api/health（記録に触れない）"

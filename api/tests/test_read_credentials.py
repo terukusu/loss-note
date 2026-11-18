@@ -5,6 +5,8 @@
 保存先は記憶の保存先。実際の AI は呼ばない（偽の claude_agent_sdk）。値はすべて架空。
 """
 
+import json
+
 import pytest
 from helpers import fake_agent_sdk
 from helpers.charts import png
@@ -102,6 +104,20 @@ def test_prod_federation(prod, sdk):
                  "ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_WORKSPACE_ID"):
         assert name not in child
     assert store.spend != {}  # 送った回は数える
+
+
+def test_federation_log_has_token_timing(prod, sdk, capfd):
+    # #60: federation の回は ID トークンの取得の時間（token_ms）も内訳に出る。トークンの値は出さない
+    client, _store = prod(identity_token=lambda: ID_TOKEN, STATEMENT_READ_CREDENTIAL="federation",
+                          ANTHROPIC_FEDERATION_RULE_ID="fdrl_example", ANTHROPIC_ORGANIZATION_ID=ORG)
+    capfd.readouterr()
+    assert post(client, prod_token()).status_code == 200
+    _out, err = capfd.readouterr()
+    lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
+    (read,) = [ln for ln in lines if ln.get("event") == "statement_read"]
+    assert set(read) == {"event", "reason", "rows", "ms", "token_ms", "limit_ms", "read_ms", "api_ms"}
+    assert all(isinstance(read[k], int | float) for k in ("token_ms", "limit_ms", "read_ms", "api_ms"))
+    assert ID_TOKEN not in err and "fdrl_example" not in err and ORG not in err
 
 
 def test_E4_federation_token_failure_not_counted(prod, sdk):

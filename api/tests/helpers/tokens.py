@@ -73,5 +73,10 @@ def patch_certs(monkeypatch, *, forbid: bool = False) -> list[str]:
     return calls
 
 
+def cert_body() -> dict[str, str]:
+    """公開鍵の応答の本文（kid → PEM）。手元の HTTP サーバーで配るとき用（#60）"""
+    return {TEST_KID: _PUBLIC_PEM}
+
+
 def bearer(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}

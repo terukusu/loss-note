@@ -17,8 +17,14 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 
 画像も結果も保存しない（記録の保存先・Storage に触れない。CLI の一時ディレクトリは要求ごとに作って消す）。応答と
 ログに画像の中身・結果の値・資格情報・送り先の文言を出さない（失敗は決まった符号だけ）。
+
+ログの時間の内訳（Issue #60。その段まで進んだときだけ出す）: ``token_ms`` = federation の ID トークンの取得・
+``limit_ms`` = 1 日の上限の予約（Firestore のトランザクション）・``read_ms`` = 送り口の全体（CLI の起動・資格情報の
+交換・AI の API・後始末）・``api_ms`` = CLI が報告する AI の API の時間（``read_ms - api_ms`` がおおよそ CLI の側の
+時間）。
 """
 
+import math
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -117,12 +123,16 @@ def register(
     @bp.post(PATH)
     def read_statement():
         started = time.perf_counter()
+        timings: dict[str, float] = {}  # 段ごとの時間（#60。ログの鍵 → ミリ秒）
+
+        def ms_since(t: float) -> float:
+            return round((time.perf_counter() - t) * 1000, 1)
 
         def elapsed() -> float:
-            return round((time.perf_counter() - started) * 1000, 1)
+            return ms_since(started)
 
         def reply(status: int, body: dict, reason: str, rows: int = 0) -> Response:
-            log_event(event="statement_read", reason=reason, rows=rows, ms=elapsed())
+            log_event(event="statement_read", reason=reason, rows=rows, ms=elapsed(), **timings)
             res = jsonify(body)
             res.status_code = status
             return res
@@ -151,20 +161,26 @@ def register(
         # federation（#55）: 要求ごとに ID トークンを取る。取れなければ AI を呼ばず、数えない（記録は手で続けられる）
         token = None
         if config.credential == FEDERATION and config.identity_token is not None:
+            t = time.perf_counter()
             try:
                 token = config.identity_token()
             except Exception:  # noqa: BLE001 - 理由の文言・トークンを出さない
+                timings["token_ms"] = ms_since(t)
                 return reply(502, {"error": "read_failed"}, "identity_token")
+            timings["token_ms"] = ms_since(t)
 
         # 1 日の上限（#44）: AI へ送る要求だけを数える（ここより前の 401・503・400 は数えない）。
         # 数える場所が使えなければ閉じる側（AI を呼ばない）。理由（回数 / 費用）は応答に出さず、ログの理由だけで分ける
         day = read_limits.jst_day(clock())
         reserve = limits.reserve_micro_usd
+        t = time.perf_counter()
         try:
             decision = store.reserve_read(g.uid, day, lambda count, spent: read_limits.decide(count, spent, limits),
                                           reserve)
         except Exception:  # noqa: BLE001 - つながらない・権限・競合のどれでも閉じる側（例外の文言は出さない）
+            timings["limit_ms"] = ms_since(t)
             return reply(503, {"error": "read_unavailable"}, "limit_unavailable")
+        timings["limit_ms"] = ms_since(t)
         if decision != "ok":
             return reply(429, {"error": "read_limited"}, f"limited_{decision}")
 
@@ -172,7 +188,13 @@ def register(
                         timeout=config.timeout, max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS,
                         identity_token=token)
         del token
+        t = time.perf_counter()
         outcome = reader.read(data, image.media_type_of(data))
+        timings["read_ms"] = ms_since(t)
+        api_seconds = outcome.api_seconds
+        if isinstance(api_seconds, int | float) and not isinstance(api_seconds, bool) and math.isfinite(api_seconds) \
+                and api_seconds >= 0:
+            timings["api_ms"] = round(api_seconds * 1000, 1)
         del data
         # 精算: 使ったトークン・SDK の合計額が取れた回は実額に、取れなかった回は予約額のまま。予約した日の文書へ
         # （0:00 をまたいでも同じ日）。失敗しても応答は変えない（予約額が残る = 多めに数える側）

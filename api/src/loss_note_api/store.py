@@ -12,6 +12,7 @@ uid は ``auth.check_claims`` が形を確かめた値、ID は ``schema.ID_PATT
 資格情報なしでつなぐ）。テストでは同じ約束の記憶の保存先（``api/tests/helpers/memory_store.py``）も使う。
 """
 
+import threading
 from collections.abc import Callable
 from functools import wraps
 from typing import Protocol
@@ -57,6 +58,11 @@ DecideRead = Callable[[int, int], str]
 # 計上の文書の場所（ADR-0010）
 READ_DAYS = "statement_read_days"
 READ_SPEND = "statement_read_spend"
+# 起動の準備（#60）で読む、存在しない決まった文書（書かない。利用者の文書でない）
+WARM_COLLECTION = "warmup"
+WARM_DOC = "ping"
+# 準備の 1 回の読み取りの待ちの上限（秒。起動の確かめ = 3 秒ごと 10 回の内に収める）
+WARM_TIMEOUT_SECONDS = 3.0
 
 
 class Store(Protocol):
@@ -96,6 +102,10 @@ class Store(Protocol):
     # 送った後に全体の金額を delta_micro だけ直す（実額 − 予約額。負もある）
     def settle_read(self, day: str, delta_micro: int) -> None: ...
 
+    # 起動の準備（#60）: 最初の要求が払う初期化（クライアント・接続）を先に済ませる。記録を書かない・利用者の文書を
+    # 読まない。失敗は例外（起動は止めない。最初の要求で作り直す）
+    def warm(self) -> None: ...
+
 
 def _guard(fn):
     """つながらない・時間切れは StoreUnavailable に直す（例外の文言は捨てる。文書のパスが入りうる）"""
@@ -117,13 +127,22 @@ class FirestoreStore:
     def __init__(self, project_id: str):
         self._project_id = project_id
         self._client = None
+        self._client_lock = threading.Lock()
 
     def _db(self):
+        # 起動直後に同時に来た要求でクライアントを 2 度作らない（#60）。作れなければ None のまま = 次の要求で作り直す
         if self._client is None:
-            from google.cloud import firestore
+            with self._client_lock:
+                if self._client is None:
+                    from google.cloud import firestore
 
-            self._client = firestore.Client(project=self._project_id)
+                    self._client = firestore.Client(project=self._project_id)
         return self._client
+
+    def warm(self):
+        """クライアントを作り、存在しない決まった文書を 1 件読む（gRPC の接続・アクセス トークンの取得を先に済ませる）。
+        書かない。再試行しない（起動を長く止めない）"""
+        self._db().collection(WARM_COLLECTION).document(WARM_DOC).get(timeout=WARM_TIMEOUT_SECONDS, retry=None)
 
     def _user(self, uid: str):
         return self._db().collection("users").document(uid)

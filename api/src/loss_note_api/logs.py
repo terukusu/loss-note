@@ -10,8 +10,14 @@ import sys
 
 logger = logging.getLogger("loss_note_api")
 
-# rows = 明細の読み取りで返した行の数（件数だけ。#11）
-_ALLOWED_KEYS = frozenset({"event", "method", "route", "status", "ms", "exc", "reason", "rows"})
+# rows = 明細の読み取りで返した行の数（件数だけ。#11）。
+# *_ms = 時間の内訳（ミリ秒の数だけ。#60）: 起動の準備（warmup）の段ごと（store_ms・auth_ms・sdk_ms）と、
+# 明細の読み取りの段ごと（limit_ms = 上限の予約・token_ms = federation の ID トークン・read_ms = 送り口の全体・
+# api_ms = CLI が報告する AI の API の時間）
+_ALLOWED_KEYS = frozenset(
+    {"event", "method", "route", "status", "ms", "exc", "reason", "rows",
+     "store_ms", "auth_ms", "sdk_ms", "limit_ms", "token_ms", "read_ms", "api_ms"}
+)
 
 
 class _StderrHandler(logging.StreamHandler):

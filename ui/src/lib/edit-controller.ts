@@ -1,12 +1,19 @@
 // 取引を直す画面の通信と状態（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5、ADR-0004 決定 5・ADR-0006 決定 7）。
 // DOM を持たない。画面（pages/TradeEdit.tsx）は購読して描くだけ。
-// - 開いたら取引と銘柄を並行に読み、保存した値の入った下書きを作る（edit-form.ts）。404 = notFound、
+// - 開いたら取引・銘柄・口座を並行に読み、保存した値の入った下書きを作る（edit-form.ts）。404 = notFound、
 //   建てが複数・建てごとの LC の取引 = blocked
-// - 下書きのたびに、写した資金・許容リスクで判定・R・リスクを出し直す（readDraft + editPreview）
+// - 下書きのたびに、写した資金・許容リスク（口座を付け替えたら付け替え先の今の値。#47）で判定・R・リスクを出し直す
+//   （readDraft + editPreview）
 // - 保存は PUT（JSON）。1 回押して 1 件（実行中は同じ Promise）。PUT は冪等なので、時間切れの後に送り直してよい。
 //   チャートは変えない（チャートの無い枠の時間足は本文に入らない。orphanTimeframes をその旨として出す）
 // - 失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。下書きは記憶の中だけ（端末の保存先・URL・履歴に書かない）
-import type { InstrumentRecord, StoredTrade, TradeRecord } from '../../../core/record';
+import type {
+  AccountRecord,
+  InstrumentRecord,
+  StoredTrade,
+  TradeRecord,
+} from '../../../core/record';
+import { sortAccounts } from './accounts';
 import {
   draftFromStored,
   editBlock,
@@ -63,6 +70,8 @@ export interface EditState {
   readonly phase: EditPhase;
   readonly trade: StoredTrade | null;
   readonly instruments: readonly InstrumentRecord[];
+  /** 口座（名前の順。#47） */
+  readonly accounts: readonly AccountRecord[];
   readonly draft: Draft;
   /** 開いたときの下書き（手数料・時刻を変えたかを見る） */
   readonly initial: Draft;
@@ -88,10 +97,7 @@ export interface EditController {
   dispose(): void;
 }
 
-const EMPTY_CTX: DraftContext = {
-  instruments: [],
-  settings: { capitalYen: null, riskTolerancePct: 1 },
-};
+const EMPTY_CTX: DraftContext = { instruments: [], accounts: [] };
 
 /** 保存する記録（足りない欄・誤りがあれば undefined）。銘柄の ID は決まっていなければ仮の値 */
 function mergedOf(
@@ -118,6 +124,7 @@ export function createEditController(deps: {
     phase: 'loading',
     trade: null,
     instruments: [],
+    accounts: [],
     draft: EMPTY_DRAFT,
     initial: EMPTY_DRAFT,
     read: emptyRead,
@@ -139,10 +146,11 @@ export function createEditController(deps: {
   const withDraft = (
     trade: StoredTrade,
     instruments: readonly InstrumentRecord[],
+    accounts: readonly AccountRecord[],
     draft0: Draft,
     initial: Draft,
   ) => {
-    const ctx = editContext(trade, instruments);
+    const ctx = editContext(trade, instruments, accounts);
     let draft = draft0;
     let read = readDraft(draft, ctx);
     // ただし開いたときのまま（触っていない）答えは残す（保存で書き換えない。mergeEdit）
@@ -156,7 +164,7 @@ export function createEditController(deps: {
     }
     const id = read.instrument.matchedId ?? trade.record.instrumentId;
     const merged = mergedOf(trade, initial, draft, read, id);
-    return { draft, read, preview: editPreview(read, merged, editSnapshot(read, ctx)) };
+    return { draft, read, preview: editPreview(read, merged, editSnapshot(read, ctx, draft)) };
   };
 
   const set = (patch: Partial<EditState>) => {
@@ -175,9 +183,10 @@ export function createEditController(deps: {
     const my = ++gen;
     set({ phase: 'loading', error: null });
     try {
-      const [res, inst] = await Promise.all([
+      const [res, inst, acc] = await Promise.all([
         request(tradePath(deps.id)),
         request('/api/instruments').then((r) => getJson<{ items: InstrumentRecord[] }>(r, 200)),
+        request('/api/accounts').then((r) => getJson<{ items: AccountRecord[] }>(r, 200)),
       ]);
       if (my !== gen || disposed) return;
       if (res.status === 404) {
@@ -185,21 +194,28 @@ export function createEditController(deps: {
         return;
       }
       const trade = await getJson<StoredTrade>(res, 200);
-      if (!trade || typeof trade !== 'object' || !Array.isArray(inst?.items)) {
+      if (
+        !trade ||
+        typeof trade !== 'object' ||
+        !Array.isArray(inst?.items) ||
+        !Array.isArray(acc?.items)
+      ) {
         throw new Failed('other');
       }
       if (my !== gen || disposed) return;
+      const accounts = sortAccounts(acc.items);
       const block = editBlock(trade);
       if (block !== null) {
-        set({ phase: 'blocked', trade, instruments: inst.items, block, error: null });
+        set({ phase: 'blocked', trade, instruments: inst.items, accounts, block, error: null });
         return;
       }
       const initial = draftFromStored(trade, inst.items);
-      const next = withDraft(trade, inst.items, initial, initial);
+      const next = withDraft(trade, inst.items, accounts, initial, initial);
       set({
         phase: 'editing',
         trade,
         instruments: inst.items,
+        accounts,
         initial,
         ...next,
         before: summarize(trade),
@@ -279,6 +295,7 @@ export function createEditController(deps: {
       const next = withDraft(
         trade,
         state.instruments,
+        state.accounts,
         applyDraft(state.draft, action),
         state.initial,
       );

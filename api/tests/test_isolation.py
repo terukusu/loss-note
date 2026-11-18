@@ -3,6 +3,8 @@
 保存先 2 つ（記憶・エミュレーターの Firestore）で同じテストを回す。値はすべて架空。
 """
 
+import json
+
 import pytest
 from helpers.records import BROKEN_CONDITION, t1
 
@@ -173,3 +175,40 @@ def test_b_cannot_attach_a_chart_to_own_trade(api):
     assert chart_count(api, B) == 0
     assert api.get(f"/api/trades/{a_tid}", A).get_json() == a_trade
     assert chart_count(api, A) == 1
+
+
+# ---- 口座（Issue #47 PR-1 AC-5・例 A5）----
+
+
+def test_b_cannot_use_or_read_a_account(api):
+    """A5: B が A の口座の ID で記録・付け替え → 400（口座が無い）。
+    B の一覧に A の口座は出ない（自分の「口座 1」だけ）。
+    読む・直すは 404。A の口座は変わらない"""
+    res = api.post("/api/accounts", A, {"name": "口座 A", "capitalYen": 1_000_000})
+    assert res.status_code == 201
+    a_acc = res.get_json()
+    a_default = api.get("/api/accounts/default", A).get_json()
+    b_inst = api.instrument(B, "US30")
+    res = api.post("/api/trades", B, {**t1(b_inst["id"]), "accountId": a_acc["id"]})
+    assert res.status_code == 400
+    assert res.get_json()["issues"] == [{"field": "accountId", "kind": "notFound"}]
+    assert api.trades(B) == []
+    b_trade = api.post("/api/trades", B, t1(b_inst["id"])).get_json()
+    res = api.put(f"/api/trades/{b_trade['id']}", B, {**t1(b_inst["id"]), "accountId": a_acc["id"]})
+    assert res.status_code == 400
+    assert api.get(f"/api/trades/{b_trade['id']}", B).get_json() == b_trade
+    items = api.get("/api/accounts", B).get_json()["items"]
+    assert [x["name"] for x in items] == ["口座 1"]
+    assert "1000000" not in json.dumps(items)
+    ids = [a_acc["id"]] + [c.format(id=a_acc["id"]) for c in CRAFTED_IDS]
+    for aid in ids:
+        path = f"/api/accounts/{aid}"
+        for res in (api.get(path, B), api.put(path, B, {"name": "B が付けた", "capitalYen": 1, "riskTolerancePct": 1})):
+            assert res.status_code == 404, (path, res.status_code)
+            assert res.get_json() == {"error": "not_found"}
+            assert "口座 A" not in res.get_data(as_text=True)
+    assert api.get(f"/api/accounts/{a_acc['id']}", A).get_json() == a_acc
+    # 既定の口座の ID は同じ（default）でも、利用者ごとの場所（B の「口座 1」は A の「口座 1」と別の文書）
+    put = api.put("/api/accounts/default", B, {"name": "口座 1", "capitalYen": 5, "riskTolerancePct": 1})
+    assert put.status_code == 200
+    assert api.get("/api/accounts/default", A).get_json() == a_default

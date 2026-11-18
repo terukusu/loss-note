@@ -1,59 +1,7 @@
 {
   "settings": [
     {
-      "name": "E1",
-      "before": {
-        "capitalYen": null,
-        "riskTolerancePct": 1,
-        "performanceUnit": "R"
-      },
-      "body": {
-        "capitalYen": 1000000,
-        "riskTolerancePct": 1,
-        "performanceUnit": "R"
-      }
-    },
-    {
-      "name": "E2",
-      "before": {
-        "capitalYen": null,
-        "riskTolerancePct": 1,
-        "performanceUnit": "R"
-      },
-      "body": {
-        "capitalYen": 1200000,
-        "riskTolerancePct": 1,
-        "performanceUnit": "R"
-      }
-    },
-    {
-      "name": "E3b",
-      "before": {
-        "capitalYen": null,
-        "riskTolerancePct": 1,
-        "performanceUnit": "R"
-      },
-      "body": {
-        "capitalYen": null,
-        "riskTolerancePct": 1.5,
-        "performanceUnit": "R"
-      }
-    },
-    {
-      "name": "E7",
-      "before": {
-        "capitalYen": 1000000,
-        "riskTolerancePct": 1,
-        "performanceUnit": "R"
-      },
-      "body": {
-        "capitalYen": 1000000,
-        "riskTolerancePct": 2.5,
-        "performanceUnit": "R"
-      }
-    },
-    {
-      "name": "KEEP-2",
+      "name": "KEEP-6",
       "before": {
         "capitalYen": 1000000,
         "riskTolerancePct": 1,
@@ -63,6 +11,61 @@
         "capitalYen": 800000,
         "riskTolerancePct": 1,
         "performanceUnit": "yen"
+      }
+    }
+  ],
+  "accounts": [
+    {
+      "name": "E1",
+      "kind": "create",
+      "body": {
+        "name": "口座 A",
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1
+      }
+    },
+    {
+      "name": "E2",
+      "kind": "create",
+      "body": {
+        "name": "口座 B",
+        "capitalYen": 1200000,
+        "riskTolerancePct": 1
+      }
+    },
+    {
+      "name": "E3b",
+      "kind": "create",
+      "body": {
+        "name": "口座 C",
+        "capitalYen": null,
+        "riskTolerancePct": 1.5
+      }
+    },
+    {
+      "name": "A7",
+      "kind": "create",
+      "body": {
+        "name": "口座 E",
+        "capitalYen": 1000000,
+        "riskTolerancePct": 2.5
+      }
+    },
+    {
+      "name": "edit",
+      "kind": "update",
+      "body": {
+        "name": "口座 1 改",
+        "capitalYen": 800000,
+        "riskTolerancePct": 1
+      }
+    },
+    {
+      "name": "B5",
+      "kind": "create",
+      "body": {
+        "name": "口座 F",
+        "capitalYen": 300000
       }
     }
   ],

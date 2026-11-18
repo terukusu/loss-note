@@ -7,9 +7,12 @@
 // 出どころ・注文の種類・逆指値を入れたかも下書きに持って、同じ readDraft の道で本文を作る。
 // #12（根拠の足のチャート）: 枠ごとの時間足を下書きに持ち、チャートのある枠（DraftContext.charts）の選んだ時間足だけを
 // 本文に入れる（プレビューの判定にも同じ本文が効く）。チャートが無いときの本文は今と同じ
+// #47（口座）: 下書きに口座（accountId。空 = 既定の口座）を持ち、資金・許容リスクは選んだ口座の値で計算する。
+// 本文の accountId は口座が 2 つ以上のときだけ入れる（口座 1 つの利用者の本文は今と同じ。KEEP-3）
 import { evaluateTrade } from '../../../core/evaluate';
 import type { Judgment } from '../../../core/judge';
 import type {
+  AccountRecord,
   GapSlip,
   InstrumentRecord,
   InstrumentSnapshot,
@@ -19,7 +22,7 @@ import type {
   TradeRecord,
   TradeSnapshot,
 } from '../../../core/record';
-import { toTradeInput } from '../../../core/record';
+import { DEFAULT_ACCOUNT_ID, toTradeInput } from '../../../core/record';
 import { type Ruler, rulerOf } from '../../../core/ruler';
 import type {
   ExitOrderType,
@@ -66,6 +69,8 @@ export interface Draft {
   /** チャートの時間足（任意。チャートのある枠でだけ選べ、本文に入る。#12） */
   readonly entryChartTimeframe: Timeframe | null;
   readonly exitChartTimeframe: Timeframe | null;
+  /** 口座の ID（#47。空 = 既定の口座。直す画面では元の取引の口座。口座が 1 つなら欄を出さない） */
+  readonly accountId: string;
 }
 
 export type DraftField = keyof Draft;
@@ -96,6 +101,7 @@ export const EMPTY_DRAFT: Draft = {
   stopOrderPlaced: 'unanswered',
   entryChartTimeframe: null,
   exitChartTimeframe: null,
+  accountId: '',
 };
 
 export type DraftAction =
@@ -121,17 +127,31 @@ export function applyDraft(draft: Draft, action: DraftAction): Draft {
   return next;
 }
 
-/** 読み取りの文脈: 自分の銘柄の一覧と設定（資金・許容リスク） */
+/** 読み取りの文脈: 自分の銘柄の一覧と口座の一覧（資金・許容リスク。#47） */
 export interface DraftContext {
   readonly instruments: readonly InstrumentRecord[];
-  readonly settings: { readonly capitalYen: number | null; readonly riskTolerancePct: number };
+  readonly accounts: readonly AccountRecord[];
   /** チャートのある枠（#12。省けばどちらも無い） */
   readonly charts?: { readonly entry: boolean; readonly exit: boolean };
   /**
-   * 直す取引の元の銘柄と、取引に写した値（#9。直す画面だけが渡す）。あれば資金・許容リスクはこの値で計算し、
-   * 銘柄が元と同じなら銘柄の値も写した値のまま（今の設定・銘柄を引かない。C36。API の update_trade と同じ）
+   * 直す取引の元の銘柄・口座と、取引に写した値（#9・#47。直す画面だけが渡す）。口座が元と同じなら資金・許容リスクは
+   * 写した値のまま、銘柄が元と同じなら銘柄の値も写した値のまま（今の口座・銘柄を引かない。C36。API の update_trade と同じ）。
+   * accountId は元の取引の口座（accountId の無い取引は既定の口座）
    */
-  readonly base?: { readonly instrumentId: string; readonly snapshot: TradeSnapshot };
+  readonly base?: {
+    readonly instrumentId: string;
+    readonly accountId: string;
+    readonly snapshot: TradeSnapshot;
+  };
+}
+
+/** 口座が見つからないときの資金・許容リスク（資金なし・1%。API の既定の口座の既定と同じ） */
+const NO_ACCOUNT = { capitalYen: null, riskTolerancePct: 1 } as const;
+
+/** 下書きの口座の ID（空 = 直す画面は元の口座、記録する画面は既定の口座） */
+export function draftAccountId(draft: Pick<Draft, 'accountId'>, ctx: DraftContext): string {
+  if (draft.accountId !== '') return draft.accountId;
+  return ctx.base?.accountId ?? DEFAULT_ACCOUNT_ID;
 }
 
 /** API に送る取引の本文（銘柄の ID は保存のときに決める） */
@@ -224,6 +244,7 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   stopOrderPlaced: '逆指値を入れたか',
   entryChartTimeframe: 'エントリー時のチャートの時間足',
   exitChartTimeframe: '決済時のチャートの時間足',
+  accountId: '口座',
 };
 
 /** 「ほかの欄（任意）」に畳んだ欄 */
@@ -321,30 +342,28 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
 }
 
 /**
- * 計算に使う銘柄の値・資金・許容リスク。base が無ければ（記録する画面）一覧の銘柄（無い名前は既定）と今の設定。
- * base があれば（直す画面）: 同じ銘柄 → 取引に写した値のまま / 別の銘柄 → その銘柄の今の値 + 写した資金・許容リスク /
- * 一覧に無い名前 → 既定の銘柄 + 写した資金・許容リスク（API が付け替えのときだけ銘柄の値を写し直すのと同じ。C36）
+ * 計算に使う銘柄の値・資金・許容リスク（API の create_trade / update_trade と同じ規則）。
+ * 銘柄: base が無ければ（記録する画面）一覧の銘柄（無い名前は既定）。base があれば（直す画面）同じ銘柄 → 取引に写した値 /
+ * 別の銘柄 → その銘柄の今の値 / 一覧に無い名前 → 既定の銘柄（C36）。
+ * 資金・許容リスク: 選んだ口座（accountId。空 = 既定の口座、直す画面は元の口座）の今の値。直す画面で口座が元と同じなら
+ * 取引に写した値のまま（付け替えたときだけ付け替え先の今の値。#47 A4・B7）。一覧に無い口座は資金なし・1%
  */
 export function snapshotOf(
   ctx: DraftContext,
   instrument: InstrumentRecord | undefined,
+  accountId = '',
 ): TradeSnapshot {
   const base = ctx.base;
-  if (base && instrument?.id === base.instrumentId) return base.snapshot;
+  const acc = draftAccountId({ accountId }, ctx);
+  const sameAccount = base !== undefined && acc === base.accountId;
+  const money = sameAccount
+    ? { capitalYen: base.snapshot.capitalYen, riskTolerancePct: base.snapshot.riskTolerancePct }
+    : (() => {
+        const a = ctx.accounts.find((x) => x.id === acc) ?? NO_ACCOUNT;
+        return { capitalYen: a.capitalYen, riskTolerancePct: a.riskTolerancePct };
+      })();
+  if (base && instrument?.id === base.instrumentId) return { ...base.snapshot, ...money };
   const i = instrument ?? DEFAULT_INSTRUMENT;
-  if (base) {
-    return {
-      instrument: {
-        multiplier: i.multiplier,
-        quantityStep: i.quantityStep,
-        priceCurrency: i.priceCurrency,
-        underlyingKind: i.underlyingKind,
-        productForm: i.productForm,
-      },
-      capitalYen: base.snapshot.capitalYen,
-      riskTolerancePct: base.snapshot.riskTolerancePct,
-    };
-  }
   return {
     instrument: {
       multiplier: i.multiplier,
@@ -353,8 +372,7 @@ export function snapshotOf(
       underlyingKind: i.underlyingKind,
       productForm: i.productForm,
     },
-    capitalYen: ctx.settings.capitalYen,
-    riskTolerancePct: ctx.settings.riskTolerancePct,
+    ...money,
   };
 }
 
@@ -473,7 +491,9 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   const exitChartTimeframe = ctx.charts?.exit ? draft.exitChartTimeframe : null;
 
   const instrument = { name, ...(matched ? { matchedId: matched.id } : {}) };
-  const snapshot = snapshotOf(ctx, matched);
+  const snapshot = snapshotOf(ctx, matched, draft.accountId);
+  // 口座が 2 つ以上のときだけ本文に口座を入れる（1 つなら今と同じ本文。KEEP-3）
+  const accountId = ctx.accounts.length >= 2 ? draftAccountId(draft, ctx) : undefined;
   const hasErrors = Object.keys(errors).length > 0;
 
   // 本文の組み立て（タップは引数で差し替えられる。R の先出しで仮の値を入れるため）
@@ -498,6 +518,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     return {
       status: 'closed',
       source: draft.source,
+      ...(accountId === undefined ? {} : { accountId }),
       side: s,
       ...(lc === undefined ? {} : { lc }),
       ...(brokenCondition === '' ? {} : { brokenCondition }),

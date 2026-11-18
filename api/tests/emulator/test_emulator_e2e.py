@@ -140,18 +140,18 @@ def test_chart_and_trade_are_one_transaction(emulator):
                                   "createdAt": 1, "updatedAt": 1})  # fmt: skip
     iid = store.list_instruments(uid)[0][0]
 
-    def build(_inst, _settings):
+    def build(_inst, _account):
         return {"schemaVersion": 1, "createdAt": 1, "updatedAt": 1, "snapshot": {}, "record": t1(iid)}
 
     huge = {"contentType": "image/png", "data": png(1200, 800, size=1_100_000)}
     small = {"contentType": "image/png", "data": chart_png()}
     with pytest.raises(Exception):  # noqa: B017 — 型は google の InvalidArgument（保存先の上限）
-        store.create_trade(uid, iid, build, {"entry": small, "exit": huge})
+        store.create_trade(uid, iid, "default", build, {"entry": small, "exit": huge})
     assert store.list_trades(uid) == []
     db = store._db().collection("users").document(uid)
     assert list(db.collection("charts").stream()) == []
     # 上限の内なら 2 枚と取引が一緒に書ける
-    tid, _ = store.create_trade(uid, iid, build, {"entry": small, "exit": small})
+    tid, _ = store.create_trade(uid, iid, "default", build, {"entry": small, "exit": small})
     assert len(list(db.collection("charts").stream())) == 2
     assert store.delete_trade(uid, tid)
     assert list(db.collection("charts").stream()) == []

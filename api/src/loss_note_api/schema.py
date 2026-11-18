@@ -191,7 +191,7 @@ def _put(out: dict, key: str, value: Any, default: Any = MISSING) -> None:
 # ── 取引 ─────────────────────────────────────
 
 _TRADE_FIELDS = (
-    "status", "source", "instrumentId", "side", "contractMonth", "optionType", "strike", "timeframe", "lc",
+    "status", "source", "instrumentId", "accountId", "side", "contractMonth", "optionType", "strike", "timeframe", "lc",
     "brokenCondition", "lcBasis", "tp", "thesis", "entryEmotion", "stopOrderPlaced", "planFxRate", "plannedAt",
     "lcDecidedBeforeEntry", "lcMove", "timeframeChange", "entries", "exit", "statementPnlYen", "fees",
     "entryChartTimeframe", "exitChartTimeframe",
@@ -224,6 +224,8 @@ def validate_trade(body: Any) -> tuple[dict | None, list[Issue]]:
     _put(out, "status", c.field(src, "status", "", status, required=True))
     _put(out, "source", c.field(src, "source", "", c.enum(SOURCES), required=True))
     _put(out, "instrumentId", c.field(src, "instrumentId", "", instrument_id, required=True))
+    # 口座（#47。任意。無い = 既定の口座）。形は銘柄の ID と同じ検査
+    _put(out, "accountId", c.field(src, "accountId", "", instrument_id))
     _put(out, "side", c.field(src, "side", "", c.enum(SIDES), required=True))
     _put(out, "contractMonth", c.field(src, "contractMonth", "", c.text(16)))
     _put(out, "optionType", c.field(src, "optionType", "", c.enum(OPTION_TYPES)))
@@ -352,6 +354,25 @@ def _check_lc_direction(t: dict, c: _Checker) -> None:
 
 # ── 銘柄 ─────────────────────────────────────
 
+MAX_NAME = 40
+
+
+def _name_check(c: _Checker) -> Callable[[Any, str], Any]:
+    """銘柄・口座の名前: 40 字まで・制御文字なし・前後の空白を除いて空でない（除いた値を保存する）"""
+
+    def check(v: Any, path: str) -> Any:
+        v = c.text(MAX_NAME)(v, path)
+        if v is INVALID:
+            return INVALID
+        v = v.strip()
+        if not v:
+            c.add(path, "length")
+            return INVALID
+        return v
+
+    return check
+
+
 _INSTRUMENT_FIELDS = ("name", "underlying", "underlyingKind", "productForm", "priceCurrency", "multiplier",
                       "quantityStep")  # fmt: skip
 
@@ -363,16 +384,6 @@ def validate_instrument(body: Any) -> tuple[dict | None, list[Issue]]:
         return None, c.issues
     out: dict = {}
 
-    def name(v: Any, path: str) -> Any:
-        v = c.text(40)(v, path)
-        if v is INVALID:
-            return INVALID
-        v = v.strip()
-        if not v:
-            c.add(path, "length")
-            return INVALID
-        return v
-
     def currency(v: Any, path: str) -> Any:
         if v is None:
             return None
@@ -381,7 +392,7 @@ def validate_instrument(body: Any) -> tuple[dict | None, list[Issue]]:
             return INVALID
         return v
 
-    _put(out, "name", c.field(src, "name", "", name, required=True))
+    _put(out, "name", c.field(src, "name", "", _name_check(c), required=True))
     _put(out, "underlying", c.field(src, "underlying", "", c.text(40)))
     _put(out, "underlyingKind", c.field(src, "underlyingKind", "", c.enum(UNDERLYING_KINDS)), "other")
     _put(out, "productForm", c.field(src, "productForm", "", c.enum(PRODUCT_FORMS)), "spotCfd")
@@ -398,26 +409,63 @@ def validate_instrument(body: Any) -> tuple[dict | None, list[Issue]]:
 RISK_TOLERANCE_RANGE = (0.5, 3)
 
 
-def validate_settings(body: Any) -> tuple[dict | None, list[Issue]]:
-    c = _Checker()
-    src = c.obj(body, "", ("capitalYen", "riskTolerancePct", "performanceUnit"))
-    if src is None:
-        return None, c.issues
-    out: dict = {}
+def _capital_check(c: _Checker) -> Callable[[Any, str], Any]:
+    """資金（円）: 正の数か null（未設定）"""
 
-    def capital(v: Any, path: str) -> Any:
+    def check(v: Any, path: str) -> Any:
         return None if v is None else c.positive(v, path)
 
-    def risk(v: Any, path: str) -> Any:
+    return check
+
+
+def _risk_check(c: _Checker) -> Callable[[Any, str], Any]:
+    """許容リスク（%）: RISK_TOLERANCE_RANGE の中"""
+
+    def check(v: Any, path: str) -> Any:
         v = c.number(v, path)
         if v is not INVALID and not RISK_TOLERANCE_RANGE[0] <= v <= RISK_TOLERANCE_RANGE[1]:
             c.add(path, "range")
             return INVALID
         return v
 
-    _put(out, "capitalYen", c.field(src, "capitalYen", "", capital, required=True))
-    _put(out, "riskTolerancePct", c.field(src, "riskTolerancePct", "", risk, required=True))
+    return check
+
+
+def validate_settings(body: Any) -> tuple[dict | None, list[Issue]]:
+    c = _Checker()
+    src = c.obj(body, "", ("capitalYen", "riskTolerancePct", "performanceUnit"))
+    if src is None:
+        return None, c.issues
+    out: dict = {}
+    _put(out, "capitalYen", c.field(src, "capitalYen", "", _capital_check(c), required=True))
+    _put(out, "riskTolerancePct", c.field(src, "riskTolerancePct", "", _risk_check(c), required=True))
     _put(out, "performanceUnit", c.field(src, "performanceUnit", "", c.enum(PERFORMANCE_UNITS), required=True))
+    if c.issues:
+        return None, c.issues
+    return out, []
+
+
+# ── 口座（#47 PR-1。通貨は持たない = すべて円）──────────────
+
+_ACCOUNT_FIELDS = ("name", "capitalYen", "riskTolerancePct")
+DEFAULT_ACCOUNT_RISK_PCT = 1
+
+
+def validate_account(body: Any, *, create: bool) -> tuple[dict | None, list[Issue]]:
+    """作成: name 必須・capitalYen 任意（既定 null）・riskTolerancePct 任意（既定 1）。直す: 3 欄とも必須。
+    ほかの欄（通貨など）は unknownField"""
+    c = _Checker()
+    src = c.obj(body, "", _ACCOUNT_FIELDS)
+    if src is None:
+        return None, c.issues
+    out: dict = {}
+    _put(out, "name", c.field(src, "name", "", _name_check(c), required=True))
+    if create:
+        _put(out, "capitalYen", c.field(src, "capitalYen", "", _capital_check(c)), None)
+        _put(out, "riskTolerancePct", c.field(src, "riskTolerancePct", "", _risk_check(c)), DEFAULT_ACCOUNT_RISK_PCT)
+    else:
+        _put(out, "capitalYen", c.field(src, "capitalYen", "", _capital_check(c), required=True))
+        _put(out, "riskTolerancePct", c.field(src, "riskTolerancePct", "", _risk_check(c), required=True))
     if c.issues:
         return None, c.issues
     return out, []

@@ -1,13 +1,13 @@
-// 設定の画面の入力の読み取り（Issue #5 R1〜R5。設計書 4.1・4.5・5.1・5.3・C8・C21・C36）。
+// 設定の画面の入力の読み取り（Issue #5 R1〜R5・#47。設計書 4.1・4.5・5.1・5.3・C8・C21・C36）。
+// 資金と許容リスクの規則（readCapital・readRisk・riskWarning・allowanceText）は口座の下書き（accounts.ts）が使う。
 // 下書き（欄ごとの文字列 + 選択）→ 欄ごとの誤り・警告・API に送る本文を返す純関数と、一覧・履歴の表示の整形。
 // DOM・通信・現在時刻に触れない（同じ入力に同じ出力）。数の読み方は記録する画面と同じ parseNum、
 // 名前の同一視は API の name_key と同じ nameKey、文字の規則（字数・制御文字）は record-form.ts と同じものを使う
 import type {
+  CapitalHistoryEntry,
   InstrumentBody,
   InstrumentRecord,
   ProductForm,
-  SettingsBody,
-  SettingsRecord,
   UnderlyingKind,
 } from '../../../core/record';
 import { formatAmountYen, formatPlain } from './format';
@@ -45,12 +45,8 @@ export const SETTINGS_MSG = {
   notPositive: MSG.notPositive,
 } as const;
 
-/** 直したときの効き方（R6・C36。資金と許容リスク・銘柄の両方に出す） */
+/** 直したときの効き方（R6・C36。口座・銘柄の両方に出す） */
 export const EFFECT_NOTE = '直すと、これから記録する取引に効きます。記録済みの取引は変わりません';
-
-/** 資金が未設定のときの説明（設計書 5.1・C36） */
-export const NO_CAPITAL_NOTE =
-  '資金を設定すると、記録した取引にリスク（%）が出ます。設定より前に記録した取引には出ません';
 
 export type ReadResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -88,20 +84,6 @@ export function riskWarning(pct: number): string | null {
   return pct > OVER_RISK_PCT ? SETTINGS_MSG.riskWarning : null;
 }
 
-/** 資金と許容リスクの下書き */
-export interface SettingsDraft {
-  readonly capital: string;
-  readonly risk: string;
-}
-
-export type SettingsField = keyof SettingsDraft;
-
-/** 欄の名前（画面の並びの順。誤りの知らせとフォーカスの移し先に使う） */
-export const SETTINGS_FIELD_LABEL: Readonly<Record<SettingsField, string>> = {
-  capital: '資金',
-  risk: '許容リスク',
-};
-
 /** 誤りのある欄の知らせ（[保存] を押したのに誤りで送らなかったとき） */
 export function errorFieldsText(labels: readonly string[]): string {
   return `誤りのある欄があります（${labels.join('・')}）。直してから、もう一度押してください。`;
@@ -113,40 +95,6 @@ export function errorFieldsOf<F extends string>(
   order: Readonly<Record<F, string>>,
 ): F[] {
   return (Object.keys(order) as F[]).filter((f) => errors[f] !== undefined);
-}
-
-export interface SettingsReading {
-  readonly errors: Readonly<Partial<Record<SettingsField, string>>>;
-  readonly warning: string | null;
-  /** 送る本文（誤りがあれば null）。performanceUnit は読んだ値のまま（KEEP-2） */
-  readonly body: SettingsBody | null;
-}
-
-/** 保存値から下書きを作る（資金は 3 桁区切り、未設定は空） */
-export function settingsDraftOf(s: SettingsBody): SettingsDraft {
-  return {
-    capital: s.capitalYen === null ? '' : formatAmountYen(s.capitalYen).replace('円', ''),
-    risk: formatPlain(s.riskTolerancePct),
-  };
-}
-
-export function readSettingsDraft(draft: SettingsDraft, loaded: SettingsBody): SettingsReading {
-  const errors: Partial<Record<SettingsField, string>> = {};
-  const capital = readCapital(draft.capital, loaded.capitalYen);
-  if (!capital.ok) errors.capital = capital.error;
-  const risk = readRisk(draft.risk);
-  if (!risk.ok) errors.risk = risk.error;
-  const warning = risk.ok ? riskWarning(risk.value) : null;
-  if (!capital.ok || !risk.ok) return { errors, warning, body: null };
-  return {
-    errors,
-    warning,
-    body: {
-      capitalYen: capital.value,
-      riskTolerancePct: risk.value,
-      performanceUnit: loaded.performanceUnit,
-    },
-  };
 }
 
 /**
@@ -165,10 +113,10 @@ export function allowanceText(capitalYen: number | null, riskPct: number): strin
   return `これから記録する取引にリスク（%）が出ます。許容リスク ${formatPlain(riskPct)}% なら、1 回の負けは ${formatAmountYen(yen)} までです`;
 }
 
-export type HistoryRow = SettingsRecord['capitalHistory'][number];
+export type HistoryRow = CapitalHistoryEntry;
 
-/** 資金の履歴を新しい順に（API は古い順に積む） */
-export function historyRows(history: SettingsRecord['capitalHistory']): HistoryRow[] {
+/** 資金の履歴を新しい順に（API は古い順に積む。口座ごと） */
+export function historyRows(history: readonly CapitalHistoryEntry[]): HistoryRow[] {
   return [...history].reverse();
 }
 

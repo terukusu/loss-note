@@ -63,7 +63,7 @@ export function HomeView(p: HomeViewProps) {
   if (state.phase !== 'ready') return <LoadState {...p} />;
   const visible = visibleTrades(state.trades, p.hidden);
   if (visible.length === 0) return p.empty;
-  const rows = recentRows(visible, state.instruments, RECENT_COUNT);
+  const rows = recentRows(visible, state.instruments, RECENT_COUNT, state.accounts);
   return (
     <>
       <div class="home__record">

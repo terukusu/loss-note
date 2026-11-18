@@ -4,6 +4,7 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
 import {
+  type AddAccountState,
   AUTH_EXPIRED,
   LOAD_FAILED,
   type RecordState,
@@ -24,6 +25,7 @@ import {
   type RecordViewProps,
   STATEMENT_NOTICE,
 } from '../../ui/src/pages/Record';
+import { account, defaultAccount } from './helpers/accounts';
 import {
   CAPITAL_1M,
   draft,
@@ -88,7 +90,7 @@ function stateFor(draft: Draft, ctx: DraftContext, over: Partial<RecordState> = 
     phase: 'editing',
     draft,
     instruments: ctx.instruments,
-    settings: ctx.settings,
+    accounts: ctx.accounts,
     read: readDraft(draft, ctx),
     error: null,
     ...over,
@@ -444,7 +446,13 @@ describe('保存の後', () => {
     };
     return stateFor(E1, NO_CAPITAL, {
       phase: 'saved',
-      saved: { trade, instrumentName: 'US30', summary: summarize(trade) },
+      saved: {
+        trade,
+        instrumentName: 'US30',
+        summary: summarize(trade),
+        accountName: '口座 1',
+        accountCount: 1,
+      },
     });
   }
 
@@ -1013,7 +1021,13 @@ describe('チャートの枠（Issue #12）', () => {
         view(
           stateFor(E1, NO_CAPITAL, {
             phase: 'saved',
-            saved: { trade: t, instrumentName: 'US30', summary: summarize(t) },
+            saved: {
+              trade: t,
+              instrumentName: 'US30',
+              summary: summarize(t),
+              accountName: '口座 1',
+              accountCount: 1,
+            },
           }),
         ),
       );
@@ -1113,5 +1127,228 @@ describe('密度と階層（Issue #33）', () => {
     expect(kids.map((k) => k.type)).toEqual(['p', 'button']);
     expect(String(kids[1]?.props.class)).not.toContain('btn--lg');
     expect(String(kids[1]?.props.class)).not.toContain('btn--block');
+  });
+});
+
+// ---- 口座（Issue #47 PR-1。U1〜U11・AC-6・AC-7）。値・名前はすべて架空 ----
+
+describe('口座の欄（#47 U1〜U4・U10）', () => {
+  const ONE_1M = { ...CAPITAL_1M, accounts: [defaultAccount(1_000_000)] };
+  const withAccounts = (n: number, longName = false): DraftContext => {
+    const list = [
+      defaultAccount(1_000_000),
+      account(
+        'accB',
+        longName ? '口座 B（とても長い名前の口座で、幅に入らない）' : '口座 B',
+        200_000,
+      ),
+      account('accC', '口座 C', null),
+      account('accD', '口座 D', 500_000),
+    ];
+    return { ...CAPITAL_1M, accounts: list.slice(0, n) };
+  };
+
+  it('U1・B1・B2: 口座 1 つ → 口座の欄も判定の枠の 1 行も無い。「取引」の見出しの行に [＋ 口座を足す] だけ', () => {
+    const tree = view(stateFor(E11, ONE_1M));
+    expect(all(tree, (e) => e.props['aria-label'] === '口座')).toEqual([]);
+    expect(all(tree, (e) => e.props.id === 'record-account')).toEqual([]);
+    expect(all(tree, hasClass('verdict__account'))).toEqual([]);
+    const add = all(tree, (e) => e.props.id === 'record-account-add')[0];
+    expect(text(add ? [add] : [])).toBe('＋ 口座を足す');
+    expect(add?.props['aria-expanded']).toBe('false');
+    // 見出しの行の中（取引の枠の見出しと同じ行）
+    const head = all(tree, hasClass('section__head'))[0];
+    expect(text(head ? [head] : [])).toBe('取引＋ 口座を足す');
+  });
+
+  it('U2: 口座 2〜3 つ → 「取引」の先頭（銘柄の上）に Segment「口座」。選ばれた項目にチェック', () => {
+    for (const n of [2, 3]) {
+      const d = applyDraft(E11, { type: 'set', field: 'accountId', value: 'accB' });
+      const tree = view(stateFor(d, withAccounts(n)));
+      const group = all(
+        tree,
+        (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '口座',
+      )[0];
+      expect(group, `${n}`).toBeDefined();
+      const radios = all(group ? [group] : [], (e) => e.type === 'input');
+      expect(radios).toHaveLength(n);
+      expect(radios.filter((r) => r.props.checked).map((r) => r.props.value)).toEqual(['accB']);
+      // 銘柄の欄より前
+      const ids = all(
+        tree,
+        (e) => e.props.name === 'record-account' || e.props.id === 'record-instrument',
+      ).map((e) => String(e.props.name ?? e.props.id));
+      expect(ids.indexOf('record-account')).toBeLessThan(ids.indexOf('record-instrument'));
+    }
+  });
+
+  it('U3: 口座 4 つ以上 → select「口座」', () => {
+    const tree = view(stateFor(E11, withAccounts(4)));
+    const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-account')[0];
+    expect(sel).toBeDefined();
+    expect(all(sel ? [sel] : [], (e) => e.type === 'option').map(text)).toEqual([
+      '口座 1',
+      '口座 B',
+      '口座 C',
+      '口座 D',
+    ]);
+  });
+
+  it('U4: 長い名前は省略の印（seg__text）を持つ項目の文字。全文は文字のまま', () => {
+    const tree = view(stateFor(E11, withAccounts(3, true)));
+    const texts = all(tree, hasClass('seg__text')).map(text);
+    expect(texts).toContain('口座 B（とても長い名前の口座で、幅に入らない）');
+    expect(all(tree, hasClass('seg--truncate'))).toHaveLength(1);
+  });
+
+  it('U10: 口座 2 つ以上 → 判定の枠の数の段の下に「口座 B の資金 200,000円 に対して」。未設定は「口座 C（資金は未設定）」', () => {
+    const b = view(
+      stateFor(
+        applyDraft(E11, { type: 'set', field: 'accountId', value: 'accB' }),
+        withAccounts(3),
+      ),
+    );
+    expect(all(b, hasClass('verdict__account')).map(text)).toEqual([
+      '口座 B の資金 200,000円 に対して',
+    ]);
+    const c = view(
+      stateFor(
+        applyDraft(E11, { type: 'set', field: 'accountId', value: 'accC' }),
+        withAccounts(3),
+      ),
+    );
+    expect(all(c, hasClass('verdict__account')).map(text)).toEqual(['口座 C（資金は未設定）']);
+  });
+
+  it('口座の 1 タップで onUpdate に口座が届く（AC-11 の自動の側）', () => {
+    const got: unknown[] = [];
+    const tree = view(stateFor(E11, withAccounts(2)), { onUpdate: (a) => got.push(a) });
+    const radio = all(tree, (e) => e.type === 'input' && e.props.value === 'accB')[0];
+    (radio?.props.onChange as (() => void) | undefined)?.();
+    expect(got).toEqual([{ type: 'set', field: 'accountId', value: 'accB' }]);
+  });
+});
+
+describe('その場で足す（#47 U5〜U9・B5）', () => {
+  const open = (over: Partial<AddAccountState> = {}): RecordState =>
+    stateFor(E11, CAPITAL_1M, {
+      addAccount: {
+        draft: { name: '', capital: '' },
+        errors: {},
+        saving: false,
+        message: null,
+        ...over,
+      },
+    });
+
+  it('U5: 開くと見出しの下に「名前」「資金（任意）」と [足す] [やめる]。口座の欄は隠れる。ダイアログは無い', () => {
+    const ctx = {
+      ...CAPITAL_1M,
+      accounts: [defaultAccount(1_000_000), account('accB', '口座 B', 1)],
+    };
+    const tree = view(
+      stateFor(E11, ctx, {
+        addAccount: { draft: { name: '', capital: '' }, errors: {}, saving: false, message: null },
+      }),
+    );
+    const box = all(tree, hasClass('accountadd'))[0];
+    expect(box?.type).toBe('fieldset');
+    const b = box ? [box] : [];
+    expect(all(b, (e) => e.type === 'label').map(text)).toEqual(['名前', '資金（任意）']);
+    expect(all(b, (e) => e.type === 'button').map(text)).toEqual(['足す', 'やめる']);
+    expect(text(b)).toContain('空でも足せます。資金を入れるとリスク（%）が出ます');
+    expect(
+      all(tree, (e) => e.props['aria-label'] === '口座' && e.props.role === 'radiogroup'),
+    ).toEqual([]);
+    expect(all(tree, (e) => e.type === 'dialog' || e.props.role === 'dialog')).toEqual([]);
+    expect(all(tree, (e) => e.props.id === 'record-account-add')[0]?.props['aria-expanded']).toBe(
+      'true',
+    );
+  });
+
+  it('U6: Enter は [足す]（記録の送信にしない）。Esc は閉じる', () => {
+    let added = 0;
+    let closed = 0;
+    let saved = 0;
+    const tree = view(open(), {
+      onAddAccount: () => added++,
+      onCloseAddAccount: () => closed++,
+      onSave: () => saved++,
+    });
+    const box = all(tree, hasClass('accountadd'))[0];
+    const keydown = box?.props.onKeyDown as (e: unknown) => void;
+    let prevented = 0;
+    keydown({ key: 'Enter', target: { tagName: 'INPUT' }, preventDefault: () => prevented++ });
+    keydown({ key: 'Escape', target: { tagName: 'INPUT' }, preventDefault: () => prevented++ });
+    expect([added, closed, saved, prevented]).toEqual([1, 1, 0, 2]);
+  });
+
+  it('U8: 誤りは欄の下に文言、通信の失敗は欄の中の知らせ（値は残る）', () => {
+    const tree = view(
+      open({
+        draft: { name: '口座 1', capital: '0' },
+        errors: { name: '同じ名前の口座があります', capital: '0 より大きい数を入れてください' },
+        message:
+          'つながりません。もう一度 [足す] を押してください（届いていた口座は二重に足しません）。',
+      }),
+    );
+    expect(text(all(tree, (e) => e.props.id === 'record-account-new-name-error'))).toBe(
+      '同じ名前の口座があります',
+    );
+    expect(all(tree, (e) => e.props.id === 'record-account-new-name')[0]?.props.value).toBe(
+      '口座 1',
+    );
+    const alert = all(tree, (e) => e.props.role === 'alert').map(text);
+    expect(alert.some((t) => t.startsWith('つながりません。もう一度 [足す]'))).toBe(true);
+  });
+
+  it('U9: 送っている間は欄と [足す] が押せない', () => {
+    const tree = view(open({ saving: true, draft: { name: '口座 C', capital: '' } }));
+    const box = all(tree, hasClass('accountadd'))[0];
+    const buttons = all(box ? [box] : [], (e) => e.type === 'button');
+    expect(buttons.map((b) => b.props.disabled)).toEqual([true, true]);
+    expect(text(buttons)).toContain('足しています…');
+  });
+});
+
+describe('保存の後の知らせ（#47 U11）', () => {
+  it('口座 2 つ以上で「口座 B に記録しました」、1 つで「記録しました」', () => {
+    const read = readDraft(E11, CAPITAL_1M);
+    const trade: StoredTrade = {
+      id: 't1',
+      schemaVersion: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      snapshot: {
+        instrument: {
+          multiplier: 1,
+          quantityStep: 1,
+          priceCurrency: null,
+          underlyingKind: 'other',
+          productForm: 'spotCfd',
+        },
+        capitalYen: 200_000,
+        riskTolerancePct: 1,
+      },
+      record: { ...(read.body as NonNullable<typeof read.body>), instrumentId: 'inst-us30' },
+    };
+    const saved = (accountName: string, accountCount: number) =>
+      all(
+        view(
+          stateFor(E11, CAPITAL_1M, {
+            phase: 'saved',
+            saved: {
+              trade,
+              instrumentName: 'US30',
+              summary: summarize(trade),
+              accountName,
+              accountCount,
+            },
+          }),
+        ),
+        hasClass('verdict__status'),
+      ).map(text);
+    expect(saved('口座 B', 2)).toEqual(['口座 B に記録しました']);
+    expect(saved('口座 1', 1)).toEqual(['記録しました']);
   });
 });

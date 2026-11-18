@@ -1,11 +1,15 @@
-"""記録の API（取引・銘柄・設定。Issue #4・設計書 4 章・ADR-0004）と、決済明細の読み取りの入口（#11・ADR-0005。
-``statement_read.py``。同じ認証を通す）。
+"""記録の API（取引・銘柄・口座・設定。Issue #4・#47・設計書 4 章・ADR-0004・ADR-0012）と、
+決済明細の読み取りの入口（#11・ADR-0005。``statement_read.py``。同じ認証を通す）。
 
 入口で ID トークンを検証してから処理する（認証の前に ID の形も存在も見ない → 未認証は常に 401）。
 検証の後に使える利用者の許可リスト（Issue #43・``allowlist.py``）を見て、外れたら 403
 （本文・パス・保存先・AI に触れる前）。
 読み書きは検証できた uid の場所だけ。ほかの利用者の資源は、あるか無いかも分からない 404 にする。
 判定・R・損益は保存しない（4.2 導出。画面が ``core/record.ts`` の ``toTradeInput`` で計算の入力に写す）。
+
+口座（Issue #47・ADR-0012）: 取引は記録したときの口座（``record.accountId``。無い = 既定の口座）の資金・許容リスクを
+``snapshot.capitalYen``・``snapshot.riskTolerancePct`` に写す。既定の口座は口座を読む・使う入口で無ければ設定から
+1 回だけ作る（``accounts.py``）。設定の ``capitalYen`` 等は移し替えの元として形を変えずに残す（KEEP-6）。
 
 根拠の足のチャート画像（Issue #12・ADR-0006）: 作成は ``POST /api/trades`` の multipart（部分 ``record`` = JSON の文字、
 ``entryChart`` / ``exitChart`` = 画像。どちらも任意）で取引と 1 トランザクション。差し替え・外す・読み戻しは
@@ -18,11 +22,18 @@ from collections.abc import Callable
 from flask import Blueprint, Response, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from loss_note_api import allowlist, charts, schema, statement_read
+from loss_note_api import accounts, allowlist, charts, schema, statement_read
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import ReadLimits
-from loss_note_api.store import Conflict, InvalidRecord, MissingInstrument, Store, StoreUnavailable
+from loss_note_api.store import (
+    Conflict,
+    InvalidRecord,
+    MissingAccount,
+    MissingInstrument,
+    Store,
+    StoreUnavailable,
+)
 
 SCHEMA_VERSION = 1
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
@@ -176,6 +187,10 @@ def make_blueprint(
     """allowed は許可リスト（``allowlist.policy_for`` の結果。None = 制限しない）"""
     bp = Blueprint("records", __name__, url_prefix="/api")
 
+    def build_default(settings: dict | None) -> dict:
+        # 既定の口座（移し替え）。設定の資金・許容リスク・資金の履歴から作る
+        return accounts.default_account(settings, clock())
+
     @bp.before_request
     def authenticate():
         token = bearer_token(request.headers.get("Authorization"))
@@ -223,27 +238,27 @@ def make_blueprint(
             return invalid(tf_issues)
         chart_docs = {slot: charts.chart_doc(data) for slot, data in images.items()}
 
-        def build(instrument: dict, stored_settings: dict | None) -> dict:
-            settings = settings_response(stored_settings)
+        def build(instrument: dict, account: dict) -> dict:
             now = clock()
             doc = {
                 "schemaVersion": SCHEMA_VERSION,
                 "createdAt": now,
                 "updatedAt": now,
-                "snapshot": {
-                    "instrument": instrument_snapshot(instrument),
-                    "capitalYen": settings["capitalYen"],
-                    "riskTolerancePct": settings["riskTolerancePct"],
-                },
+                # 資金・許容リスクは記録したときのその取引の口座の値（#47。鍵は前と同じ）
+                "snapshot": {"instrument": instrument_snapshot(instrument), **accounts.account_snapshot(account)},
                 "record": record,
             }
             return with_chart_summary(doc, chart_docs)
 
         try:
-            tid, doc = store.create_trade(g.uid, record["instrumentId"], build, chart_docs or None)
+            tid, doc = store.create_trade(g.uid, record["instrumentId"], accounts.account_id_of(record), build,
+                                          chart_docs or None, build_default=build_default)  # fmt: skip
         except MissingInstrument:
             # 自分の銘柄に無い（ほかの利用者の銘柄も「無い」と同じ）
             return invalid([{"field": "instrumentId", "kind": "notFound"}])
+        except MissingAccount:
+            # 自分の口座に無い（ほかの利用者の口座も「無い」と同じ。A5）
+            return invalid([{"field": "accountId", "kind": "notFound"}])
         res = jsonify(trade_response(tid, doc))
         res.status_code = 201
         return res
@@ -266,7 +281,7 @@ def make_blueprint(
         if record is None:
             return invalid(issues)
 
-        def mutate(doc: dict, new_instrument: dict | None) -> dict:
+        def mutate(doc: dict, new_instrument: dict | None, new_account: dict | None) -> dict:
             # チャートの時間足は、保存済みのチャートがある枠にだけ（トランザクションの中で見る。R4）
             tf_issues = charts.chart_timeframe_issues(record, set(doc.get("charts") or {}))
             if tf_issues:
@@ -275,17 +290,27 @@ def make_blueprint(
             # 銘柄を別の銘柄に変えたときだけ、その銘柄の今の値で写し直す（資金・許容リスクは変えない。C36）
             if new_instrument is not None:
                 snapshot["instrument"] = instrument_snapshot(new_instrument)
+            # 口座を別の口座に付け替えたときだけ、その口座の今の資金・許容リスクで写し直す（#47 A4）
+            if new_account is not None:
+                snapshot.update(accounts.account_snapshot(new_account))
+            new_record = record
+            # 本文に口座が無ければ保存済みの口座を保つ（古い画面が黙って既定の口座へ付け替えない）
+            if "accountId" not in record and "accountId" in doc["record"]:
+                new_record = {**record, "accountId": doc["record"]["accountId"]}
             return {
                 **doc,
                 "updatedAt": next_updated_at(clock(), doc.get("updatedAt")),
                 "snapshot": snapshot,
-                "record": record,
+                "record": new_record,
             }
 
         try:
-            doc = store.update_trade(g.uid, trade_id, record["instrumentId"], mutate)
+            doc = store.update_trade(g.uid, trade_id, record["instrumentId"], record.get("accountId"), mutate,
+                                     build_default=build_default)  # fmt: skip
         except MissingInstrument:
             return invalid([{"field": "instrumentId", "kind": "notFound"}])
+        except MissingAccount:
+            return invalid([{"field": "accountId", "kind": "notFound"}])
         except InvalidRecord as e:
             return invalid(e.issues)
         if doc is None:
@@ -419,6 +444,75 @@ def make_blueprint(
             return error(404, "not_found")
         return Response(status=204)
 
+    # ── 口座（#47）──
+    @bp.get("/accounts")
+    def list_accounts():
+        items = sorted(store.list_accounts(g.uid, build_default), key=accounts.account_sort_key)
+        return {"items": [accounts.account_response(aid, doc) for aid, doc in items]}
+
+    @bp.post("/accounts")
+    def create_account():
+        body, err = read_body()
+        if err:
+            return err
+        value, issues = schema.validate_account(body, create=True)
+        if value is None:
+            return invalid(issues)
+        now = clock()
+        doc = {
+            **value,
+            "nameKey": schema.name_key(value["name"]),
+            "capitalHistory": accounts.next_capital_history([], None, value["capitalYen"], now),
+            "createdAt": now,
+            "updatedAt": now,
+        }
+        try:
+            aid = store.create_account(g.uid, doc, build_default)
+        except Conflict as e:
+            return error(409, "conflict", reason=e.reason)
+        res = jsonify(accounts.account_response(aid, doc))
+        res.status_code = 201
+        return res
+
+    @bp.get("/accounts/<path:account_id>")
+    def get_account(account_id: str):
+        doc = store.get_account(g.uid, account_id, build_default) if valid_id(account_id) else None
+        if doc is None:
+            return error(404, "not_found")
+        return accounts.account_response(account_id, doc)
+
+    @bp.put("/accounts/<path:account_id>")
+    def update_account(account_id: str):
+        if not valid_id(account_id):
+            return error(404, "not_found")
+        body, err = read_body()
+        if err:
+            return err
+        value, issues = schema.validate_account(body, create=False)
+        if value is None:
+            return invalid(issues)
+
+        def mutate(doc: dict) -> dict:
+            # 直すと以後に記録する取引に効く。記録済みの取引は snapshot のまま（C36 と同じ）
+            now = clock()
+            return {
+                **value,
+                "nameKey": schema.name_key(value["name"]),
+                "capitalHistory": accounts.next_capital_history(
+                    doc.get("capitalHistory", []), doc.get("capitalYen"), value["capitalYen"], now
+                ),
+                "createdAt": doc["createdAt"],
+                "updatedAt": next_updated_at(now, doc.get("updatedAt")),
+            }
+
+        try:
+            doc = store.update_account(g.uid, account_id, mutate, build_default)
+        except Conflict as e:
+            return error(409, "conflict", reason=e.reason)
+        if doc is None:
+            return error(404, "not_found")
+        return accounts.account_response(account_id, doc)
+
     # ── 設定 ──
     @bp.get("/settings")
     def get_settings():
@@ -434,12 +528,13 @@ def make_blueprint(
             return invalid(issues)
 
         def mutate(prev: dict | None) -> dict:
+            # 口座ができた後は画面から使わない（移し替えの元。KEEP-6 で形と振る舞いは変えない）
             prev = prev or {}
             now = clock()
-            history = list(prev.get("capitalHistory", []))
-            if value["capitalYen"] != prev.get("capitalYen", DEFAULT_SETTINGS["capitalYen"]):
-                history.append({"valueYen": value["capitalYen"], "at": now})
-                history = history[-schema.MAX_CAPITAL_HISTORY :]
+            history = accounts.next_capital_history(
+                prev.get("capitalHistory", []), prev.get("capitalYen", DEFAULT_SETTINGS["capitalYen"]),
+                value["capitalYen"], now,
+            )  # fmt: skip
             return {**value, "capitalHistory": history, "updatedAt": next_updated_at(now, prev.get("updatedAt"))}
 
         return settings_response(store.update_settings(g.uid, mutate))
@@ -465,6 +560,8 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/trades/<path:_id>/charts/<_slot>", methods=["GET", "PUT", "DELETE"])
     @bp.route("/instruments", methods=["GET", "POST"])
     @bp.route("/instruments/<path:_id>", methods=["GET", "PUT", "DELETE"])
+    @bp.route("/accounts", methods=["GET", "POST"])
+    @bp.route("/accounts/<path:_id>", methods=["GET", "PUT"])
     @bp.route("/settings", methods=["GET", "PUT"])
     @bp.route(statement_read.PATH, methods=["POST"])
     def unavailable(_id: str | None = None, _slot: str | None = None):

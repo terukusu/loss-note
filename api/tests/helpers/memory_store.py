@@ -6,6 +6,9 @@ API のテストはこれとエミュレーターの Firestore の両方で同�
 明細の読み取りの計上（Issue #44）は ``read_days[uid][day]``（Firestore の ``users/{uid}/statement_read_days/{day}``。
 記録の ``users`` と分けて持ち、記録に書き込みが無いことを確かめるテストに混ざらない）と ``spend[day]``。
 ``fail_limits`` を立てると予約が、``fail_settle`` を立てると精算が、何も書かずに StoreUnavailable になる。
+口座（Issue #47）は ``users[uid]["accounts"]``。既定の口座 ``default`` は口座を読む・使う入口で無ければ、ロックの中で
+設定から 1 回だけ作る（FirestoreStore と同じ約束。``default_created`` に作った回数を数える）。取引の作成・直しでは
+取引より先に書く（FirestoreStore と同じく、取引の書き込みが失敗しても既定の口座は残る）。
 """
 
 import copy
@@ -13,9 +16,11 @@ import secrets
 import string
 import threading
 
+from loss_note_api import accounts
+from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.read_limits import effective_user_micro
-from loss_note_api.store import Conflict, MissingInstrument, StoreUnavailable
+from loss_note_api.store import Conflict, MissingAccount, MissingInstrument, StoreUnavailable
 
 _ALNUM = string.ascii_letters + string.digits
 
@@ -37,6 +42,7 @@ class MemoryStore:
         self.spend: dict[str, dict] = {}  # 全体の日の計上（statement_read_spend/{day}）
         self.warm_calls = 0  # 起動の準備の回数（#60）
         self.fail_warm: Exception | None = None  # 起動の準備で投げる例外（#60）
+        self.default_created = 0  # 既定の口座を移し替えで作った回数（#47 M3）
 
     def _col(self, uid, name):
         if self.fail_with is not None:
@@ -61,22 +67,30 @@ class MemoryStore:
         if self.fail_charts:
             raise StoreUnavailable("test")
 
-    def create_trade(self, uid, instrument_id, build, charts=None):
+    def create_trade(self, uid, instrument_id, account_id, build, charts=None,
+                     build_default=accounts.build_default_now):  # fmt: skip
         with self._lock:
             inst = self._col(uid, "instruments").get(instrument_id)
             if inst is None:
                 raise MissingInstrument()
-            doc = build(copy.deepcopy(inst), copy.deepcopy(self._col(uid, "settings").get("current")))
+            account, pending = self._read_account(uid, account_id, build_default)
+            if account is None:
+                raise MissingAccount()
+            # 既定の口座は取引より先に書く（FirestoreStore はトランザクションの外で先に作るので、取引の書き込みが
+            # 失敗しても口座は残る。冪等の 1 文書なので害は無い。2 つの保存先で同じ振る舞いにする）
+            self._write_default(uid, pending)
+            doc = build(copy.deepcopy(inst), copy.deepcopy(account))
             tid = _new_id()
             if charts:
                 self._chart_write()
-            # ここから下は失敗しない（取引とチャートを一緒に書く = トランザクションと同じ）
+            # ここから下は失敗しない（取引・チャートを一緒に書く = トランザクションと同じ）
             self._col(uid, "trades")[tid] = copy.deepcopy(doc)
             for slot, chart in (charts or {}).items():
                 self._col(uid, "charts")[chart_doc_id(tid, slot)] = copy.deepcopy(chart)
             return tid, doc
 
-    def update_trade(self, uid, trade_id, instrument_id, mutate):
+    def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
+                     build_default=accounts.build_default_now):  # fmt: skip
         with self._lock:
             col = self._col(uid, "trades")
             if trade_id not in col:
@@ -87,7 +101,14 @@ class MemoryStore:
                 if inst is None:
                     raise MissingInstrument()
                 instrument = copy.deepcopy(inst)
-            new = mutate(copy.deepcopy(col[trade_id]), instrument)
+            account, pending = None, None
+            if account_id is not None and account_id != accounts.account_id_of(col[trade_id]["record"]):
+                account, pending = self._read_account(uid, account_id, build_default)
+                if account is None:
+                    raise MissingAccount()
+                self._write_default(uid, pending)  # 取引より先（create_trade と同じ）
+                account = copy.deepcopy(account)
+            new = mutate(copy.deepcopy(col[trade_id]), instrument, account)
             col[trade_id] = copy.deepcopy(new)
             return new
 
@@ -131,9 +152,68 @@ class MemoryStore:
             trades[trade_id] = copy.deepcopy(new)
             return new
 
+    # ── 口座（#47）──
+    def _read_account(self, uid, account_id, build_default):
+        """(口座, 作る既定の口座の (設定, 文書) or None)。既定の口座が無ければ設定から作る文書を返す（まだ書かない）"""
+        col = self._col(uid, "accounts")
+        if account_id in col:
+            return col[account_id], None
+        if account_id != DEFAULT_ACCOUNT_ID:
+            return None, None
+        settings = copy.deepcopy(self._col(uid, "settings").get("current"))
+        doc = build_default(copy.deepcopy(settings))
+        return doc, (settings, doc)
+
+    def _write_default(self, uid, pending):
+        if pending is None:
+            return
+        settings, doc = pending
+        self._col(uid, "accounts")[DEFAULT_ACCOUNT_ID] = copy.deepcopy(doc)
+        self.default_created += 1
+        accounts.log_default_created(settings, doc)
+
+    def list_accounts(self, uid, build_default):
+        with self._lock:
+            _acc, pending = self._read_account(uid, DEFAULT_ACCOUNT_ID, build_default)
+            self._write_default(uid, pending)
+            return [(k, copy.deepcopy(v)) for k, v in self._col(uid, "accounts").items()]
+
+    def get_account(self, uid, account_id, build_default):
+        with self._lock:
+            acc, pending = self._read_account(uid, account_id, build_default)
+            self._write_default(uid, pending)
+            return copy.deepcopy(acc)
+
+    def create_account(self, uid, doc, build_default):
+        with self._lock:
+            _acc, pending = self._read_account(uid, DEFAULT_ACCOUNT_ID, build_default)
+            taken = self._name_taken(uid, doc["nameKey"], collection="accounts")
+            if taken or (pending is not None and pending[1]["nameKey"] == doc["nameKey"]):
+                raise Conflict("duplicateName")
+            self._write_default(uid, pending)
+            aid = _new_id()
+            self._col(uid, "accounts")[aid] = copy.deepcopy(doc)
+            return aid
+
+    def update_account(self, uid, account_id, mutate, build_default):
+        with self._lock:
+            prev, pending = self._read_account(uid, account_id, build_default)
+            if prev is None:
+                return None
+            new = mutate(copy.deepcopy(prev))
+            if self._name_taken(uid, new["nameKey"], except_id=account_id, collection="accounts"):
+                raise Conflict("duplicateName")
+            if pending is not None:
+                # 既定の口座を作ってすぐ直す: 作る文書を直した値に置き換える
+                pending = (pending[0], new)
+                self._write_default(uid, pending)
+            else:
+                self._col(uid, "accounts")[account_id] = copy.deepcopy(new)
+            return new
+
     # ── 銘柄 ──
-    def _name_taken(self, uid, key, except_id=None):
-        return any(k != except_id and v["nameKey"] == key for k, v in self._col(uid, "instruments").items())
+    def _name_taken(self, uid, key, except_id=None, collection="instruments"):
+        return any(k != except_id and v["nameKey"] == key for k, v in self._col(uid, collection).items())
 
     def list_instruments(self, uid):
         with self._lock:

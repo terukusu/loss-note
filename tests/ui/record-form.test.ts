@@ -1,4 +1,5 @@
 // 記録する画面の下書きの読み取り readDraft（Issue #13 契約 R-1・AC-2・3・6・7。例の表 E1〜E18）。値はすべて架空
+
 import { describe, expect, it } from 'vitest';
 import { evaluateTrade } from '../../core/evaluate';
 import { type TradeRecord, toTradeInput } from '../../core/record';
@@ -19,6 +20,7 @@ import {
 } from '../../ui/src/lib/record-form';
 import { forAll } from '../core/helpers/prng';
 import { closedAt, trade, without } from '../core/helpers/trade-builder';
+import { defaultAccount, moneyOf } from './helpers/accounts';
 import {
   CAPITAL_1M,
   draft,
@@ -50,13 +52,13 @@ function texts(r: DraftReading): string[] {
 function direct(over: Partial<TradeInput>, exit: number, ctx: DraftContext): TradeInput {
   const t = trade({
     instrument: { multiplier: 1, quantityStep: 1, isJpy: false },
-    riskTolerancePct: ctx.settings.riskTolerancePct,
+    riskTolerancePct: moneyOf(ctx.accounts).riskTolerancePct,
     ...over,
   });
   const withCapital =
-    ctx.settings.capitalYen === null
+    moneyOf(ctx.accounts).capitalYen === null
       ? without(t, 'capitalYen')
-      : { ...t, capitalYen: ctx.settings.capitalYen };
+      : { ...t, capitalYen: moneyOf(ctx.accounts).capitalYen as number };
   return closedAt(withCapital, exit);
 }
 
@@ -474,7 +476,7 @@ describe('銘柄の照合', () => {
   it('一覧の銘柄の値（円建て）で計算する。無い名前は既定（通貨 未設定）', () => {
     const jpy: DraftContext = {
       instruments: [{ ...US30, priceCurrency: 'JPY' }],
-      settings: { capitalYen: 1_000_000, riskTolerancePct: 1 },
+      accounts: [defaultAccount(1_000_000)],
     };
     const known = readDraft(E11, jpy);
     expect(known.preview.pnlYen).toBeCloseTo(-5000, 9);
@@ -543,8 +545,7 @@ describe('性質（種つき乱数の下書き。契約 R-1）', () => {
               record,
               snapshot: {
                 instrument: { ...US30 },
-                capitalYen: ctx.settings.capitalYen,
-                riskTolerancePct: ctx.settings.riskTolerancePct,
+                ...moneyOf(ctx.accounts),
               },
             }),
           );

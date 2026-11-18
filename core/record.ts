@@ -1,6 +1,6 @@
-// 保存の形（記録の API が返す取引・銘柄・設定。設計書 4 章・Issue #4・ADR-0004）と、計算の入力への写し。
-// 取引は記録したときの銘柄の値（乗数・数量の刻み・価格の通貨・原資産の種類・商品の形）と資金・許容リスクを
-// snapshot に写して持つ。後で銘柄・設定を直しても過去の取引は変わらない（C36）。判定・R・損益は保存しない（4.2 導出）。
+// 保存の形（記録の API が返す取引・銘柄・口座・設定。設計書 4 章・Issue #4・#47・ADR-0004・ADR-0012）と、計算の入力への写し。
+// 取引は記録したときの銘柄の値（乗数・数量の刻み・価格の通貨・原資産の種類・商品の形）と、その取引の口座の資金・許容リスクを
+// snapshot に写して持つ。後で銘柄・口座を直しても過去の取引は変わらない（C36・C41）。判定・R・損益は保存しない（4.2 導出）。
 // 価格は銘柄の価格の通貨、金額は円、時点はエポックからのミリ秒（core/trade.ts と同じ）。表示の丸めはしない
 import type {
   Entry,
@@ -46,6 +46,8 @@ export interface TradeRecord {
   readonly status: TradeStatus;
   readonly source: RecordSource;
   readonly instrumentId: string;
+  /** 口座の ID（#47。無い = 既定の口座。移す前の取引・口座 1 つの利用者の取引） */
+  readonly accountId?: string;
   readonly side: Side;
   readonly contractMonth?: string;
   readonly optionType?: 'P' | 'C';
@@ -85,8 +87,9 @@ export interface InstrumentSnapshot {
 /** 記録したときに API が写した値（本文では送らない） */
 export interface TradeSnapshot {
   readonly instrument: InstrumentSnapshot;
-  /** 資金（円）。設定する前に記録した取引は null */
+  /** 記録したときの、その取引の口座の資金（円。#47 PR-1 の口座はすべて円）。資金が未設定の口座で記録した取引は null */
   readonly capitalYen: number | null;
+  /** 記録したときの、その取引の口座の許容リスク（%） */
   readonly riskTolerancePct: number;
 }
 
@@ -137,9 +140,52 @@ export interface SettingsBody {
   readonly performanceUnit: PerformanceUnit;
 }
 
+/** 設定（#47 の後、資金・許容リスク・資金の履歴は既定の口座へ移す元。画面は performanceUnit だけを使う） */
 export interface SettingsRecord extends SettingsBody {
   /** 資金が変わったときの値と時刻（古い順） */
-  readonly capitalHistory: readonly { readonly valueYen: number | null; readonly at: number }[];
+  readonly capitalHistory: readonly CapitalHistoryEntry[];
+}
+
+/** 既定の口座の ID（決まった値。API の accounts.DEFAULT_ACCOUNT_ID と同じ） */
+export const DEFAULT_ACCOUNT_ID = 'default';
+/** 既定の口座の名前（移し替えで作る。設定の画面で直せる） */
+export const DEFAULT_ACCOUNT_NAME = '口座 1';
+
+/** 取引の口座の ID（無ければ既定の口座。API の accounts.account_id_of と同じ） */
+export function accountIdOf(record: Pick<TradeRecord, 'accountId'>): string {
+  return record.accountId || DEFAULT_ACCOUNT_ID;
+}
+
+/** 資金の履歴の 1 件（古い順に積む） */
+export interface CapitalHistoryEntry {
+  readonly valueYen: number | null;
+  readonly at: number;
+}
+
+/** 口座（#47 PR-1。通貨は持たない = すべて円） */
+export interface AccountRecord {
+  readonly id: string;
+  readonly name: string;
+  /** 資金（円）。未設定は null */
+  readonly capitalYen: number | null;
+  readonly riskTolerancePct: number;
+  readonly capitalHistory: readonly CapitalHistoryEntry[];
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+/** 口座を足す本文（省いた資金は未設定・許容リスクは 1） */
+export interface AccountBody {
+  readonly name: string;
+  readonly capitalYen?: number | null;
+  readonly riskTolerancePct?: number;
+}
+
+/** 口座を直す本文（3 欄を丸ごと） */
+export interface AccountPut {
+  readonly name: string;
+  readonly capitalYen: number | null;
+  readonly riskTolerancePct: number;
 }
 
 /** 手数料の欄の合計（円。空なら 0。丸めない） */

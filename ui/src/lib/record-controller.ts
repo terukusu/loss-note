@@ -1,5 +1,9 @@
 // 記録する画面の通信と状態（Issue #13 契約 R-3）。DOM を持たず、画面（pages/Record.tsx）は購読して描くだけ。
-// - 開いたら取引・銘柄・設定を並行に読み、既定（最後に記録した取引の銘柄・数量、決済の時刻 = 開いた時刻）を入れる（AC-9）
+// - 開いたら取引・銘柄・口座を並行に読み、既定（最後に記録した取引の銘柄・数量・口座、決済の時刻 = 開いた時刻）を入れる
+//   （AC-9・#47 R4）
+// - 口座（#47）: 口座が 2 つ以上なら下書きの口座で資金・許容リスクを決める（本文にも入れる）。その場で足す（名前 + 資金の
+//   2 欄。POST /api/accounts）と、足した口座を一覧に足して選ぶ。ほかの欄・明細・チャートは触らない。送っている間は
+//   保存しない（帯の文「口座を足しています」）
 // - 保存は 1 回押して 1 件（実行中は同じ Promise を返す。AC-10）。銘柄は一覧に同じ名前（nameKey）があればその ID、
 //   無ければ名前だけで足す（既定は API が埋める。C21）。409 なら一覧を取り直して照合する
 // - 失敗は決まった文言だけを状態に置く（応答の本文・例外の文字列を持たない = 画面に反射しない）。
@@ -17,12 +21,25 @@
 //   取引と一緒に 1 要求（multipart。時間の上限 30 秒）で送る。描き直し中は保存しない。差し替え・外すとその枠の時間足は
 //   空に戻る（選び直し）。保存の後・明細の次の行・画面を離れたらプレビューを close して捨てる。保存の失敗では残す。
 //   チャートの画像も記憶の中だけ
-import type {
-  InstrumentRecord,
-  SettingsRecord,
-  StoredTrade,
-  TradeRecord,
+import {
+  type AccountRecord,
+  accountIdOf,
+  type InstrumentRecord,
+  type StoredTrade,
+  type TradeRecord,
 } from '../../../core/record';
+import {
+  ACCOUNT_ADDING,
+  ACCOUNT_MSG,
+  type AccountField,
+  type AccountReading,
+  accountNameOf,
+  defaultAccountId,
+  EMPTY_NEW_ACCOUNT,
+  type NewAccountDraft,
+  readNewAccountDraft,
+  sortAccounts,
+} from './accounts';
 import {
   CHART_SLOTS,
   CHART_TIMEFRAME_FIELD,
@@ -32,6 +49,7 @@ import {
 } from './charts';
 import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
+import { nameKey as nameKeyOf } from './instrument-name';
 import { resolveInstrument as resolveInstrumentId } from './instrument-resolve';
 import {
   applyDraft,
@@ -103,6 +121,11 @@ export const CHART_MSG = {
 /** 前の保存が届いたか分からない間は枠を変えない（次の [記録する] は届いた取引を探すので、変えた枠が送られない） */
 export const CHART_LOCKED =
   '前の [記録する] が届いたか確かめるまで、チャートは変えられません。先に [記録する] をもう一度押してください。';
+/** その場で足す口座の失敗（足す欄の中の知らせ。欄の値は残る。U8） */
+export const ACCOUNT_ADD_FAILED = '口座を足せませんでした。もう一度 [足す] を押してください。';
+export const ACCOUNT_ADD_NETWORK_FAILED =
+  'つながりません。もう一度 [足す] を押してください（届いていた口座は二重に足しません）。';
+export { ACCOUNT_ADDING };
 export const READ_BLOCKED = {
   notReady: '記録の準備ができてから、もう一度貼ってください。',
   saving: '記録しています。終わってから、もう一度貼ってください。',
@@ -145,13 +168,31 @@ export interface SavedView {
   readonly trade: StoredTrade;
   readonly instrumentName: string;
   readonly summary: Summary;
+  /** 保存した取引の口座の名前と、保存したときの口座の数（「口座 A に記録しました」。U11） */
+  readonly accountName: string;
+  readonly accountCount: number;
+}
+
+/** その場で足す口座の欄（開いている間だけ。#47 B5・U5〜U9） */
+export interface AddAccountState {
+  readonly draft: NewAccountDraft;
+  /** 欄の誤り（名前が空の誤りは [足す] を押した後だけ） */
+  readonly errors: AccountReading<unknown>['errors'];
+  readonly saving: boolean;
+  /** 通信の失敗の文言（欄の中の知らせ） */
+  readonly message: string | null;
+  /** ログインが切れた */
+  readonly auth?: true;
 }
 
 export interface RecordState {
   readonly phase: RecordPhase;
   readonly draft: Draft;
   readonly instruments: readonly InstrumentRecord[];
-  readonly settings: DraftContext['settings'];
+  /** 口座（名前の順。#47） */
+  readonly accounts: readonly AccountRecord[];
+  /** その場で足す口座の欄（開いているときだけ） */
+  readonly addAccount?: AddAccountState;
   /** 今の下書きの読み取り（誤り・足りない欄・プレビュー） */
   readonly read: DraftReading;
   /** 読み込み・保存の失敗の文言（決まった文言だけ） */
@@ -191,25 +232,38 @@ export interface RecordController {
   setChart(slot: ChartSlot, file: Blob): Promise<void>;
   /** [外す]: 枠の画像と時間足を消す */
   removeChart(slot: ChartSlot): void;
+  /** [＋ 口座を足す]: その場で足す欄を開く（ほかの欄は触らない） */
+  openAddAccount(): void;
+  /** [やめる]・Esc: 足す欄を閉じる（送っている間は閉じない） */
+  closeAddAccount(): void;
+  setNewAccount(field: Extract<AccountField, 'name' | 'capital'>, value: string): void;
+  /** [足す]: POST /api/accounts。足せたら一覧に足して選ぶ（下書きのほかの欄・明細・チャートはそのまま） */
+  addAccount(): Promise<void>;
   /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる（チャートも捨てる） */
   dispose(): void;
 }
 
-/** 開いたときの既定（AC-9）: 最後に記録した取引（作った時刻が最大）の銘柄・数量、決済の時刻 = 今（分まで） */
+/**
+ * 開いたときの既定（AC-9・#47 R4）: 最後に記録した取引（作った時刻が最大）の銘柄・数量・口座（一覧に無い口座は既定の口座）、
+ * 決済の時刻 = 今（分まで）
+ */
 export function defaultsFrom(
   trades: readonly StoredTrade[],
   instruments: readonly InstrumentRecord[],
   now: number,
+  accounts: readonly AccountRecord[] = [],
 ): Partial<Draft> {
   const exitTime = toLocalInput(floorToMinute(now));
+  const accountId = defaultAccountId(trades, accounts);
   let last: StoredTrade | undefined;
   for (const t of trades) if (!last || t.createdAt > last.createdAt) last = t;
-  if (!last) return { exitTime };
+  if (!last) return { exitTime, accountId };
   const name = instruments.find((i) => i.id === last.record.instrumentId)?.name ?? '';
   return {
     instrumentName: name,
     quantity: formatPlain(last.record.entries[0].quantity),
     exitTime,
+    accountId,
   };
 }
 
@@ -246,13 +300,12 @@ export function createRecordController(deps: {
   const timeoutMs = deps.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const readTimeoutMs = deps.readTimeoutMs ?? READ_TIMEOUT_MS;
   const listeners = new Set<(s: RecordState) => void>();
-  const initialSettings = { capitalYen: null, riskTolerancePct: 1 };
   let state: RecordState = {
     phase: 'loading',
     draft: EMPTY_DRAFT,
     instruments: [],
-    settings: initialSettings,
-    read: readDraft(EMPTY_DRAFT, { instruments: [], settings: initialSettings }),
+    accounts: [],
+    read: readDraft(EMPTY_DRAFT, { instruments: [], accounts: [] }),
     error: null,
   };
   let inflight: Promise<void> | null = null;
@@ -265,6 +318,11 @@ export function createRecordController(deps: {
   let touched = new Set<DraftField>();
   /** 空の下書きに戻すときの既定（開いたとき、保存の後は今保存した取引から） */
   let defaults: Partial<Draft> = {};
+  /** その場で足す口座: [足す] を押した（空の名前の誤りを出す）・409 の名前の鍵・届いたか分からない名前 */
+  let addTried = false;
+  let accountTaken: string | null = null;
+  let uncertainAccount: string | null = null;
+  let addingAccount: Promise<void> | null = null;
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -274,9 +332,9 @@ export function createRecordController(deps: {
       ...(clearSaved || saved === undefined ? {} : { saved }),
       ...(merged.error === null || errorKind === undefined ? {} : { errorKind }),
     };
-    const ctx = {
+    const ctx: DraftContext = {
       instruments: base.instruments,
-      settings: base.settings,
+      accounts: base.accounts,
       charts: {
         entry: base.charts?.entry?.phase === 'ready',
         exit: base.charts?.exit?.phase === 'ready',
@@ -298,6 +356,10 @@ export function createRecordController(deps: {
     // チャートの描き直し中は保存しない（送るものが決まっていない）
     if (CHART_SLOTS.some((slot) => base.charts?.[slot]?.phase === 'preparing')) {
       read = { ...read, canSave: false, notice: read.notice ?? CHART_PREPARING };
+    }
+    // 口座を足している間は保存しない（U9）
+    if (base.addAccount?.saving) {
+      read = { ...read, canSave: false, notice: read.notice ?? ACCOUNT_ADDING };
     }
     state = { ...base, read };
     for (const fn of listeners) fn(state);
@@ -339,17 +401,22 @@ export function createRecordController(deps: {
       );
     }
     try {
-      const [t, i, s] = await Promise.all([
+      const [t, i, a] = await Promise.all([
         request('/api/trades').then((r) => getJson<{ items: StoredTrade[] }>(r, 200)),
         request('/api/instruments').then((r) => getJson<{ items: InstrumentRecord[] }>(r, 200)),
-        request('/api/settings').then((r) => getJson<SettingsRecord>(r, 200)),
+        request('/api/accounts').then((r) => getJson<{ items: AccountRecord[] }>(r, 200)),
       ]);
-      if (!Array.isArray(t.items) || !Array.isArray(i.items)) throw new Failed('other');
-      defaults = defaultsFrom(t.items, i.items, now());
+      if (!Array.isArray(t.items) || !Array.isArray(i.items) || !Array.isArray(a.items)) {
+        throw new Failed('other');
+      }
+      const accounts = sortAccounts(a.items);
+      defaults = defaultsFrom(t.items, i.items, now(), accounts);
+      const { addAccount: _closed, ...rest } = state;
+      state = rest;
       set({
         phase: 'editing',
         instruments: i.items,
-        settings: { capitalYen: s.capitalYen ?? null, riskTolerancePct: s.riskTolerancePct },
+        accounts,
         draft: applyDraft(EMPTY_DRAFT, { type: 'reset', values: defaults }),
         error: null,
       });
@@ -395,7 +462,8 @@ export function createRecordController(deps: {
     if (!row) return;
     touched = new Set();
     clearCharts();
-    const filled = fillFromRow(EMPTY_DRAFT, row, touched);
+    // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）
+    const filled = fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched);
     set(
       {
         phase: 'editing',
@@ -652,6 +720,7 @@ export function createRecordController(deps: {
       defaults = {
         instrumentName: name,
         quantity: formatPlain(found.record.entries[0].quantity),
+        accountId: accountIdOf(found.record),
       };
       // 保存したチャートは捨てる（次の取引・次の行の枠は空。1 取引 = その取引のチャート）
       clearCharts();
@@ -665,13 +734,117 @@ export function createRecordController(deps: {
       endStatement();
       set({
         phase: 'saved',
-        saved: { trade: found, instrumentName: name, summary: summarize(found) },
+        saved: {
+          trade: found,
+          instrumentName: name,
+          summary: summarize(found),
+          accountName: accountNameOf(accountIdOf(found.record), state.accounts),
+          accountCount: state.accounts.length,
+        },
         error: null,
         chartBlocked: null,
       });
     } catch (e) {
       const kind = kindOf(e);
       set({ phase: 'editing', error: messageOf(kind), errorKind: kind });
+    }
+  };
+
+  /** 足す欄の誤り（名前が空の誤りは [足す] を押した後だけ。API の 409 の名前は重複） */
+  const addErrors = (draft: NewAccountDraft, accounts: readonly AccountRecord[]) => {
+    const r = readNewAccountDraft(draft, accounts);
+    const errors: Partial<Record<AccountField, string>> = { ...r.errors };
+    if (errors.name === ACCOUNT_MSG.nameRequired && !addTried) delete errors.name;
+    if (!errors.name && accountTaken !== null && nameKeyOf(draft.name) === accountTaken) {
+      errors.name = ACCOUNT_MSG.duplicateName;
+    }
+    return { reading: r, errors };
+  };
+
+  const setAdd = (patch: Partial<AddAccountState>) => {
+    const cur = state.addAccount;
+    if (!cur) return;
+    const next = { ...cur, ...patch };
+    set({ addAccount: { ...next, errors: addErrors(next.draft, state.accounts).errors } });
+  };
+
+  const closeAdd = () => {
+    const { addAccount: _closed, ...rest } = state;
+    state = rest;
+  };
+
+  const doAddAccount = async () => {
+    const cur = state.addAccount;
+    if (state.phase !== 'editing' || !cur || cur.saving) return;
+    addTried = true;
+    const { reading, errors } = addErrors(cur.draft, state.accounts);
+    const body = Object.keys(errors).length === 0 ? reading.body : null;
+    if (body === null) {
+      setAdd({ message: null });
+      return;
+    }
+    const key = nameKeyOf(body.name);
+    const { auth: _a, ...base } = cur;
+    set({ addAccount: { ...base, errors: {}, saving: true, message: null } });
+    const finish = (patch: Partial<AddAccountState>) => {
+      const c = state.addAccount;
+      if (!c) return;
+      const { auth: _x, ...rest } = c;
+      set({
+        addAccount: {
+          ...rest,
+          saving: false,
+          ...patch,
+          errors: addErrors(c.draft, state.accounts).errors,
+        },
+      });
+    };
+    /** 足せた: 一覧に足して選び、欄を閉じる（下書きのほかの欄・明細・チャートはそのまま。B5） */
+    const added = (accounts: AccountRecord[], id: string) => {
+      addTried = false;
+      accountTaken = null;
+      uncertainAccount = null;
+      closeAdd();
+      set({ accounts, draft: { ...state.draft, accountId: id } });
+    };
+    try {
+      let res: Response;
+      try {
+        res = await request('/api/accounts', {
+          method: 'POST',
+          headers: JSON_HEADERS,
+          body: JSON.stringify(body),
+        });
+      } catch (e) {
+        if (kindOf(e) === 'network') uncertainAccount = key;
+        throw e;
+      }
+      if (res.status === 409) {
+        // 前の [足す] が届いていた（時間切れ・通信の失敗の後）なら、その口座を足せたものとして選ぶ
+        const wasUncertain = uncertainAccount === key;
+        uncertainAccount = null;
+        const list = await getJson<{ items: AccountRecord[] }>(await request('/api/accounts'), 200);
+        if (!Array.isArray(list.items)) throw new Failed('other');
+        const accounts = sortAccounts(list.items);
+        const hit = accounts.find((a) => nameKeyOf(a.name) === key);
+        if (wasUncertain && hit) {
+          added(accounts, hit.id);
+          return;
+        }
+        accountTaken = key;
+        set({ accounts });
+        finish({ message: null });
+        return;
+      }
+      const created = await getJson<AccountRecord>(res, 201);
+      added(sortAccounts([...state.accounts, created]), created.id);
+    } catch (e) {
+      const kind = kindOf(e);
+      finish(
+        kind === 'auth'
+          ? { message: AUTH_EXPIRED, auth: true }
+          : { message: kind === 'network' ? ACCOUNT_ADD_NETWORK_FAILED : ACCOUNT_ADD_FAILED },
+      );
     }
   };
 
@@ -685,6 +858,35 @@ export function createRecordController(deps: {
       };
     },
     load,
+    openAddAccount() {
+      if (state.phase !== 'editing' || state.addAccount) return;
+      addTried = false;
+      accountTaken = null;
+      set({
+        addAccount: { draft: EMPTY_NEW_ACCOUNT, errors: {}, saving: false, message: null },
+      });
+    },
+    closeAddAccount() {
+      if (!state.addAccount || state.addAccount.saving) return;
+      addTried = false;
+      accountTaken = null;
+      closeAdd();
+      set({});
+    },
+    setNewAccount(field, value) {
+      const cur = state.addAccount;
+      if (!cur || cur.saving) return;
+      if (field === 'name' && value.trim() === '') addTried = false;
+      setAdd({ draft: { ...cur.draft, [field]: value }, message: null });
+    },
+    addAccount() {
+      if (addingAccount) return addingAccount;
+      const p = doAddAccount().finally(() => {
+        addingAccount = null;
+      });
+      addingAccount = p;
+      return p;
+    },
     update(action) {
       if (state.phase !== 'editing') return;
       const st = state.statement;

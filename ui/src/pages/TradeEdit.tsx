@@ -5,12 +5,15 @@
 // TradeEdit は hook を持たない。「見つかりません」の面は詳細と同じ
 import type { JSX } from 'preact';
 import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { accountIdOf, DEFAULT_ACCOUNT_ID } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { Button } from '../components/Button';
 import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
 import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
 import { Verdict } from '../components/Verdict';
+import { findAccount, selectedAccountId, switchHint } from '../lib/accounts';
+
 import {
   CHART_SLOT_TEXT,
   CHART_SLOTS,
@@ -140,6 +143,10 @@ export function TradeEditView(p: TradeEditViewProps) {
   const optionalError = errorFields.some((k) => OPTIONAL_FIELDS.includes(k));
   const charts = CHART_SLOTS.filter((slot) => state.trade?.charts?.[slot] !== undefined);
   const notice = orphanNotice(state);
+  // 口座（#47）: 開いたときは取引の口座（付いていない取引は既定の口座）。替えたら欄の下に 1 行（U19）
+  const original = state.trade ? accountIdOf(state.trade.record) : DEFAULT_ACCOUNT_ID;
+  const accountId = selectedAccountId(d.accountId, original);
+  const accountHint = switchHint(findAccount(accountId, state.accounts), accountId !== original);
   return (
     <form
       class="record"
@@ -157,6 +164,9 @@ export function TradeEditView(p: TradeEditViewProps) {
           instruments={state.instruments}
           marks={{}}
           onUpdate={p.onUpdate}
+          accounts={state.accounts}
+          accountId={accountId}
+          accountHint={accountHint}
         />
         {charts.length > 0 ? (
           <section class="card section" aria-labelledby="edit-charts-title">

@@ -185,5 +185,240 @@
         "riskPct": 0.5
       }
     }
+  ],
+  "accountScenes": [
+    {
+      "name": "A4",
+      "instrument": {
+        "name": "架空指数A4"
+      },
+      "accounts": [
+        {
+          "key": "default",
+          "name": "口座 1",
+          "capitalYen": 1000000,
+          "riskTolerancePct": 1
+        },
+        {
+          "key": "ACCOUNT_A",
+          "name": "口座 A",
+          "capitalYen": 1000000,
+          "riskTolerancePct": 1
+        },
+        {
+          "key": "ACCOUNT_B",
+          "name": "口座 B",
+          "capitalYen": 200000,
+          "riskTolerancePct": 1
+        }
+      ],
+      "accountsNow": [
+        {
+          "key": "default",
+          "name": "口座 1",
+          "capitalYen": 1000000,
+          "riskTolerancePct": 1
+        },
+        {
+          "key": "ACCOUNT_A",
+          "name": "口座 A",
+          "capitalYen": 500000,
+          "riskTolerancePct": 1
+        },
+        {
+          "key": "ACCOUNT_B",
+          "name": "口座 B",
+          "capitalYen": 200000,
+          "riskTolerancePct": 1
+        }
+      ],
+      "original": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "widened",
+          "after": 99.2
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "statementPnlYen": -5000,
+        "accountId": "ACCOUNT_A"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1
+      },
+      "body": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "accountId": "ACCOUNT_B",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -5000,
+        "fees": []
+      },
+      "expect": {
+        "capitalYen": 200000,
+        "grade": "B",
+        "riskPct": 2.5
+      }
+    },
+    {
+      "name": "B7",
+      "instrument": {
+        "name": "架空指数B7"
+      },
+      "accounts": [
+        {
+          "key": "default",
+          "name": "口座 1",
+          "capitalYen": 1000000,
+          "riskTolerancePct": 1
+        },
+        {
+          "key": "ACCOUNT_B",
+          "name": "口座 B",
+          "capitalYen": 200000,
+          "riskTolerancePct": 1
+        }
+      ],
+      "accountsNow": [
+        {
+          "key": "default",
+          "name": "口座 1",
+          "capitalYen": 2000000,
+          "riskTolerancePct": 1
+        },
+        {
+          "key": "ACCOUNT_B",
+          "name": "口座 B",
+          "capitalYen": 200000,
+          "riskTolerancePct": 1
+        }
+      ],
+      "original": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "widened",
+          "after": 99.2
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "statementPnlYen": -5000
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1
+      },
+      "body": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "accountId": "default",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -5000,
+        "fees": []
+      },
+      "expect": {
+        "capitalYen": 1000000,
+        "grade": "A",
+        "riskPct": 0.5
+      }
+    }
   ]
 }

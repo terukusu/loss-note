@@ -10,6 +10,7 @@ from loss_note_api.schema import (
     MAX_TIME_MS,
     BodyError,
     parse_json_body,
+    validate_account,
     validate_instrument,
     validate_settings,
     validate_trade,
@@ -301,6 +302,55 @@ def test_settings_invalid(body, expected):
     value, issues = validate_settings(body)
     assert value is None
     assert expected in kinds(issues)
+
+
+# ── 口座（#47 PR-1）─────────────────────────────
+
+
+def test_trade_account_id_is_optional_and_checked():
+    value, issues = validate_trade({**t1(), "accountId": "accA1"})
+    assert issues == [] and value["accountId"] == "accA1"
+    value, _ = validate_trade(t1())
+    assert "accountId" not in value
+    for bad in ("a/b", "", "x" * 41, 7, None):
+        value, issues = validate_trade({**t1(), "accountId": bad})
+        assert value is None and ("accountId", "format") in kinds(issues), bad
+
+
+def test_account_create_defaults():
+    assert validate_account({"name": " 口座 A "}, create=True) == (
+        {"name": "口座 A", "capitalYen": None, "riskTolerancePct": 1}, [])  # fmt: skip
+    body = {"name": "口座 B", "capitalYen": 200_000, "riskTolerancePct": 2.5}
+    assert validate_account(body, create=True) == (body, [])
+
+
+def test_account_update_requires_all():
+    value, issues = validate_account({"name": "口座 A"}, create=False)
+    assert value is None
+    assert kinds(issues) == {("capitalYen", "required"), ("riskTolerancePct", "required")}
+    body = {"name": "口座 A", "capitalYen": None, "riskTolerancePct": 0.5}
+    assert validate_account(body, create=False) == (body, [])
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        ({"name": "口座", "currency": "USD"}, ("", "unknownField")),
+        ({"name": "x" * 41}, ("name", "length")),
+        ({"name": "  "}, ("name", "length")),
+        ({"name": "口座\u202e"}, ("name", "control")),
+        ({"name": "口座", "riskTolerancePct": 3.5}, ("riskTolerancePct", "range")),
+        ({"name": "口座", "riskTolerancePct": 0.4}, ("riskTolerancePct", "range")),
+        ({"name": "口座", "capitalYen": -1}, ("capitalYen", "range")),
+        ({"name": "口座", "capitalYen": True}, ("capitalYen", "type")),
+        ([], ("", "type")),
+    ],
+)
+def test_account_invalid(body, expected):
+    value, issues = validate_account(body, create=True)
+    assert value is None
+    assert expected in kinds(issues)
+    assert "USD" not in json.dumps(issues)
 
 
 # ── 本文の読み取り ─────────────────────────────

@@ -15,10 +15,11 @@ logger = logging.getLogger("loss_note_api")
 # 明細の読み取りの段ごと（limit_ms = 上限の予約・token_ms = federation の ID トークン・read_ms = 送り口の全体・
 # api_ms = CLI が報告する AI の API の時間）。
 # cli = 明細の読み取りが先立ての CLI を使ったか（warm / cold の 2 値だけ。#65）、cli_ms = 起動の準備の先立ての段
+# fromSettings・history = 既定の口座を設定から作ったか（真偽）と、写した資金の履歴の件数（#47。値・名前を出さない）
 _ALLOWED_KEYS = frozenset(
     {"event", "method", "route", "status", "ms", "exc", "reason", "rows",
      "store_ms", "auth_ms", "sdk_ms", "cli_ms", "limit_ms", "token_ms", "read_ms", "api_ms", "cli",
-     "var"}
+     "var", "fromSettings", "history"}
 )
 
 

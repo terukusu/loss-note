@@ -1,6 +1,8 @@
 """記録の保存先（Firestore。設計書 4 章・ADR-0004）。
 
 場所は利用者ごと: ``users/{uid}/trades/{id}``・``users/{uid}/instruments/{id}``・``users/{uid}/settings/current``・
+``users/{uid}/accounts/{id}``（口座。#47・ADR-0012。既定の口座 ``default`` は口座を読む・使う入口で無ければ、
+設定から決まった ID の 1 文書を create で 1 回だけ作る。取引・設定は書かない）・
 ``users/{uid}/charts/{tradeId}-{slot}``（根拠の足のチャート画像。1 文書 1 枚 ``{contentType, data}``。
 Issue #12・ADR-0006）。
 明細の読み取りの 1 日の計上（Issue #44・ADR-0010、Issue #51・ADR-0014）: 利用者ごと
@@ -19,6 +21,8 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Protocol
 
+from loss_note_api import accounts
+from loss_note_api.accounts import DEFAULT_ACCOUNT_ID, BuildDefault
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.read_limits import effective_user_micro
 
@@ -42,6 +46,14 @@ class MissingInstrument(Exception):
     """取引が指す銘柄が、その利用者の場所に無い（400）"""
 
 
+class MissingAccount(Exception):
+    """取引が指す口座が、その利用者の場所に無い（400）"""
+
+
+class _NeedDefault(Exception):
+    """口座を使うトランザクションの中で、既定の口座がまだ無いと分かった（作ってからやり直す。外へは出さない）"""
+
+
 class InvalidRecord(Exception):
     """保存済みの値と合わせて初めて分かる本文の誤り（チャートの無い枠に時間足など。400）。issues は既知の欄と種類だけ"""
 
@@ -50,10 +62,11 @@ class InvalidRecord(Exception):
         self.issues = issues
 
 
-# 取引の作成: (銘柄, 設定 or None) -> 保存する文書
-BuildTrade = Callable[[Doc, Doc | None], Doc]
-# 取引の直し: (今の文書, 付け替え先の銘柄 or None) -> 新しい文書（InvalidRecord を投げれば何も書かない）
-MutateTrade = Callable[[Doc, Doc | None], Doc]
+# 取引の作成: (銘柄, 口座) -> 保存する文書
+BuildTrade = Callable[[Doc, Doc], Doc]
+# 取引の直し: (今の文書, 付け替え先の銘柄 or None, 付け替え先の口座 or None) -> 新しい文書
+# （InvalidRecord を投げれば何も書かない）
+MutateTrade = Callable[[Doc, Doc | None, Doc | None], Doc]
 # チャートの文書 {contentType, data}。枠（"entry" / "exit"）ごと
 Charts = dict[str, Doc]
 # 読み取りの上限の判定: (その日の利用者の回数, 利用者の計上額 µUSD, 全体の計上額 µUSD)
@@ -72,14 +85,21 @@ WARM_TIMEOUT_SECONDS = 3.0
 class Store(Protocol):
     def list_trades(self, uid: str) -> list[tuple[str, Doc]]: ...
     def get_trade(self, uid: str, trade_id: str) -> Doc | None: ...
-    # 銘柄（と設定）の読みと取引の書き込みを 1 つのトランザクションで行う（銘柄の削除と同時でも、
-    # 無い銘柄を指す取引を残さない）。銘柄が無ければ MissingInstrument
+    # 銘柄・口座の読みと取引の書き込みを 1 つのトランザクションで行う（銘柄の削除と同時でも、
+    # 無い銘柄を指す取引を残さない）。銘柄が無ければ MissingInstrument、口座が無ければ MissingAccount
+    # （口座が既定の口座で文書が無いときだけ、先に build_default で作ってからやり直す）。
     # charts があれば、同じトランザクションで users/{uid}/charts/{tid}-{slot} を作る（書けなければ取引も無い）
     def create_trade(
-        self, uid: str, instrument_id: str, build: BuildTrade, charts: Charts | None = None
+        self, uid: str, instrument_id: str, account_id: str, build: BuildTrade, charts: Charts | None = None,
+        build_default: BuildDefault = ...,
     ) -> tuple[str, Doc]: ...
-    # instrument_id が今の取引の銘柄と違えば、同じトランザクションで付け替え先の銘柄を読んで mutate に渡す
-    def update_trade(self, uid: str, trade_id: str, instrument_id: str, mutate: MutateTrade) -> Doc | None: ...
+    # instrument_id が今の取引の銘柄と違えば、同じトランザクションで付け替え先の銘柄を読んで mutate に渡す。
+    # account_id（None = 今の口座のまま）が今の取引の口座（accountId が無ければ既定の口座）と違うときだけ、
+    # 付け替え先の口座を読んで mutate に渡す
+    def update_trade(
+        self, uid: str, trade_id: str, instrument_id: str, account_id: str | None, mutate: MutateTrade,
+        build_default: BuildDefault = ...,
+    ) -> Doc | None: ...
     # 取引と 2 枠のチャートを 1 トランザクションで消す
     def delete_trade(self, uid: str, trade_id: str) -> bool: ...
 
@@ -95,6 +115,14 @@ class Store(Protocol):
     def create_instrument(self, uid: str, doc: Doc) -> str: ...
     def update_instrument(self, uid: str, instrument_id: str, mutate: Mutate) -> Doc | None: ...
     def delete_instrument(self, uid: str, instrument_id: str) -> bool: ...
+
+    # 口座（#47）。どれも、既定の口座が無ければ先に build_default(設定) で作ってから行う
+    # （移し替え。取引・設定は書かない。作るのは accounts/default の 1 文書だけで、何度・同時に走っても 1 つ）
+    def list_accounts(self, uid: str, build_default: BuildDefault) -> list[tuple[str, Doc]]: ...
+    def get_account(self, uid: str, account_id: str, build_default: BuildDefault) -> Doc | None: ...
+    # 名前が重複すれば Conflict("duplicateName")
+    def create_account(self, uid: str, doc: Doc, build_default: BuildDefault) -> str: ...
+    def update_account(self, uid: str, account_id: str, mutate: Mutate, build_default: BuildDefault) -> Doc | None: ...
 
     def get_settings(self, uid: str) -> Doc | None: ...
     def update_settings(self, uid: str, mutate: Callable[[Doc | None], Doc]) -> Doc: ...
@@ -123,6 +151,12 @@ def _guard(fn):
         # Aborted = トランザクションの競合で再試行を使い切った（こちらの都合の一時的な失敗）
         except (gexc.ServiceUnavailable, gexc.DeadlineExceeded, gexc.RetryError, gexc.Aborted) as e:
             raise StoreUnavailable(type(e).__name__) from None
+        # commit の再試行を使い切った: SDK は ValueError を最後の Aborted から上げる（原因が Aborted のときだけ写す。
+        # ほかの ValueError はこちらの誤りなので 500 のまま）
+        except ValueError as e:
+            if isinstance(e.__cause__, gexc.Aborted):
+                raise StoreUnavailable("Aborted") from None
+            raise
 
     return wrapper
 
@@ -170,27 +204,31 @@ class FirestoreStore:
         return self._user(uid).collection("charts").document(chart_doc_id(trade_id, slot))
 
     @_guard
-    def create_trade(self, uid, instrument_id, build, charts=None):
+    def create_trade(self, uid, instrument_id, account_id, build, charts=None,
+                     build_default=accounts.build_default_now):  # fmt: skip
         user = self._user(uid)
         ref = user.collection("trades").document()
         inst_ref = user.collection("instruments").document(instrument_id)
-        settings_ref = user.collection("settings").document("current")
 
         def body(tx):
+            # 読みを全部先に（銘柄 → 口座）。書くのはその後
             inst = inst_ref.get(transaction=tx)
             if not inst.exists:
                 raise MissingInstrument()
-            settings = settings_ref.get(transaction=tx)
-            doc = build(inst.to_dict(), settings.to_dict() if settings.exists else None)
+            account = self._read_account(tx, uid, account_id)
+            if account is None:
+                raise MissingAccount()
+            doc = build(inst.to_dict(), account)
             tx.create(ref, doc)
             for slot, chart in (charts or {}).items():
                 tx.create(self._chart_ref(uid, ref.id, slot), chart)
             return ref.id, doc
 
-        return self._transaction(body)
+        return self._with_default(uid, build_default, body)
 
     @_guard
-    def update_trade(self, uid, trade_id, instrument_id, mutate):
+    def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
+                     build_default=accounts.build_default_now):  # fmt: skip
         user = self._user(uid)
         ref = user.collection("trades").document(trade_id)
 
@@ -205,11 +243,16 @@ class FirestoreStore:
                 if not inst.exists:
                     raise MissingInstrument()
                 instrument = inst.to_dict()
-            new = mutate(doc, instrument)
+            account = None
+            if account_id is not None and account_id != accounts.account_id_of(doc["record"]):
+                account = self._read_account(tx, uid, account_id)
+                if account is None:
+                    raise MissingAccount()
+            new = mutate(doc, instrument, account)
             tx.set(ref, new)
             return new
 
-        return self._transaction(body)
+        return self._with_default(uid, build_default, body)
 
     @_guard
     def delete_trade(self, uid, trade_id):
@@ -268,11 +311,112 @@ class FirestoreStore:
 
         return self._transaction(body)
 
+    # ── 口座（#47）──
+    # 既定の口座の移し替え: 口座を読む・使う入口で accounts/default が無ければ、設定を読んで決まった ID の文書を
+    # create（無いときだけ作る。あれば AlreadyExists = ほかの要求が先に作った）。トランザクションの外で 1 文書だけを
+    # 作るので、同時に何本走っても読み書きの競合の再試行を使い切らず、文書は 1 つしかできない。取引・設定は書かない。
+    # 口座を使うトランザクションの中で既定の口座が無いと分かったら _NeedDefault で抜け、作ってからもう一度だけやり直す
+    def _account_ref(self, uid, account_id):
+        return self._user(uid).collection("accounts").document(account_id)
+
+    def _read_account(self, tx, uid, account_id):
+        snap = self._account_ref(uid, account_id).get(transaction=tx)
+        if snap.exists:
+            return snap.to_dict()
+        if account_id == DEFAULT_ACCOUNT_ID:
+            raise _NeedDefault()
+        return None
+
+    def _ensure_default(self, uid, build_default):
+        from google.api_core import exceptions as gexc
+
+        ref = self._account_ref(uid, DEFAULT_ACCOUNT_ID)
+        if ref.get().exists:
+            return
+        settings_snap = self._user(uid).collection("settings").document("current").get()
+        settings = settings_snap.to_dict() if settings_snap.exists else None
+        doc = build_default(settings)
+        try:
+            ref.create(doc)
+        except gexc.Conflict:
+            # AlreadyExists（Conflict の下位）: ほかの要求が先に作った（作らない）
+            return
+        accounts.log_default_created(settings, doc)
+
+    def _with_default(self, uid, build_default, body):
+        # SDK は commit の Aborted だけを再試行し、トランザクションの中の読みで出た Aborted はそのまま上げる。
+        # 移し替えの瞬間は、外の create と、同じ既定の口座を読むトランザクションがぶつかり、
+        # 読みの段で Aborted になりうる。
+        # 読みの段の Aborted は何も書いていないので、ここでもう 1 回だけやり直す（2 回目も Aborted なら _guard が 503）
+        from google.api_core import exceptions as gexc
+
+        need_default_done = False
+        aborted_retried = False
+        while True:
+            try:
+                return self._transaction(body)
+            except _NeedDefault:
+                if need_default_done:
+                    raise StoreUnavailable("NeedDefault") from None
+                need_default_done = True
+                self._ensure_default(uid, build_default)
+            except gexc.Aborted:
+                if aborted_retried:
+                    raise
+                aborted_retried = True
+
+    @_guard
+    def list_accounts(self, uid, build_default):
+        col = self._user(uid).collection("accounts")
+        items = [(s.id, s.to_dict()) for s in col.stream()]
+        if any(aid == DEFAULT_ACCOUNT_ID for aid, _ in items):
+            return items
+        # 普段は書かない。既定の口座が無いときだけ作って読み直す
+        self._ensure_default(uid, build_default)
+        return [(s.id, s.to_dict()) for s in col.stream()]
+
+    @_guard
+    def get_account(self, uid, account_id, build_default):
+        if account_id == DEFAULT_ACCOUNT_ID:
+            self._ensure_default(uid, build_default)
+        snap = self._account_ref(uid, account_id).get()
+        return snap.to_dict() if snap.exists else None
+
+    @_guard
+    def create_account(self, uid, doc, build_default):
+        ref = self._user(uid).collection("accounts").document()
+
+        def body(tx):
+            # 既定の口座を先に確かめる（無ければ作ってからやり直す = 「口座 1」との重複も見られる）
+            self._read_account(tx, uid, DEFAULT_ACCOUNT_ID)
+            if self._name_taken(tx, uid, doc["nameKey"], collection="accounts"):
+                raise Conflict("duplicateName")
+            tx.create(ref, doc)
+            return ref.id
+
+        return self._with_default(uid, build_default, body)
+
+    @_guard
+    def update_account(self, uid, account_id, mutate, build_default):
+        ref = self._account_ref(uid, account_id)
+
+        def body(tx):
+            prev = self._read_account(tx, uid, account_id)
+            if prev is None:
+                return None
+            new = mutate(prev)
+            if self._name_taken(tx, uid, new["nameKey"], except_id=account_id, collection="accounts"):
+                raise Conflict("duplicateName")
+            tx.set(ref, new)
+            return new
+
+        return self._with_default(uid, build_default, body)
+
     # ── 銘柄 ──
-    def _name_taken(self, tx, uid, key, except_id=None) -> bool:
+    def _name_taken(self, tx, uid, key, except_id=None, collection="instruments") -> bool:
         from google.cloud.firestore_v1.base_query import FieldFilter
 
-        q = self._user(uid).collection("instruments").where(filter=FieldFilter("nameKey", "==", key)).limit(2)
+        q = self._user(uid).collection(collection).where(filter=FieldFilter("nameKey", "==", key)).limit(2)
         return any(s.id != except_id for s in q.get(transaction=tx))
 
     @_guard

@@ -260,9 +260,20 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(f['LC を動かしたか']).toBe('上げた（101）');
   });
 
-  it('snapshot は表示の欄に出さない（資金は判定の枠のリスクで見る）', () => {
-    const labels = recordFields({ ...L1, snapshot: SNAP_1M }, 'US30').map((r) => r.label);
-    expect(labels.some((l) => l.includes('資金'))).toBe(false);
+  it('#47 U18: 口座・記録したときの資金と許容リスクを口座の数によらず出す（付いていない取引は既定の口座の名前）', () => {
+    const f = Object.fromEntries(
+      recordFields({ ...L1, snapshot: SNAP_1M }, 'US30').map((r) => [r.label, r.value]),
+    );
+    expect(f.口座).toBe('口座 1');
+    expect(f['口座の資金（記録したとき）']).toBe('1,000,000円');
+    expect(f['許容リスク（記録したとき）']).toBe('1%');
+    const noCapital = Object.fromEntries(
+      recordFields({ ...L1, snapshot: { ...SNAP_1M, capitalYen: null } }, 'US30').map((r) => [
+        r.label,
+        r.value,
+      ]),
+    );
+    expect(noCapital['口座の資金（記録したとき）']).toBe('未設定');
   });
 });
 

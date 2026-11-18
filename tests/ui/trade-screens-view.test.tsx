@@ -2,7 +2,7 @@
 // 呼んで要素の木に展開して見る（View と部品は hook を持たない。アプリの中のリンク Link は a として止める）。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
-import type { StoredTrade } from '../../core/record';
+import type { AccountRecord, StoredTrade } from '../../core/record';
 import { Toast } from '../../ui/src/components/Toast';
 import { createDeletions, type ToastState } from '../../ui/src/lib/deletions';
 import { createEditController } from '../../ui/src/lib/edit-controller';
@@ -16,6 +16,7 @@ import { Home, HomeView } from '../../ui/src/pages/Home';
 import { notFoundState, TradeDetail, TradeDetailView } from '../../ui/src/pages/TradeDetail';
 import { TradeEdit, TradeEditView } from '../../ui/src/pages/TradeEdit';
 import { Trades, TradesView } from '../../ui/src/pages/Trades';
+import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
 import {
   CAPITAL_NOW,
@@ -86,6 +87,7 @@ const ready = (trades: readonly StoredTrade[]): TradesState => ({
   phase: 'ready',
   trades,
   instruments: INSTRUMENTS,
+  accounts: [],
 });
 
 function rowsOf(tree: Node[]) {
@@ -136,9 +138,13 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
       'traderow__date',
       'traderow__inst',
       'traderow__badge',
-      'num traderow__r',
       'traderow__risk traderow__none',
     ]);
+    // 1 行目の判定・R は 1 つのセルの中（幅 720 未満で口座が R の手前まで使える。720 以上は display: contents で列に戻る）
+    const badgeCell = row.children[2] as El;
+    expect(badgeCell.children.map((c) => (typeof c === 'string' ? c : cls(c))).at(-1)).toBe(
+      'num traderow__r',
+    );
     expect(row.children[0] && (row.children[0] as El).props.dateTime).toMatch(/^2026-11-1[23]$/);
   });
 
@@ -251,6 +257,7 @@ function detailState(
     phase: 'ready',
     trade: t,
     instruments: INSTRUMENTS,
+    accounts: [],
     instrumentName: 'US30',
     summary: summarize(t),
     charts: {
@@ -594,5 +601,148 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
     const before = all(view(), hasClass('verdict__before'))[0] as El;
     expect(text(before)).toContain('直す前');
     expect(text(before)).toContain('B 悪い損失');
+  });
+});
+
+// ---- 口座（Issue #47 PR-1。D1・U16〜U19・AC-10）。値・名前はすべて架空 ----
+
+const readyWith = (
+  trades: readonly StoredTrade[],
+  accounts: readonly AccountRecord[],
+): TradesState => ({
+  phase: 'ready',
+  trades,
+  instruments: INSTRUMENTS,
+  accounts,
+});
+const detailWith = (t: StoredTrade, accounts: readonly AccountRecord[]): DetailState => ({
+  ...(detailState(t) as Extract<DetailState, { phase: 'ready' }>),
+  accounts,
+});
+
+/** 口座の radiogroup の aria-describedby（1 行が無いときは付かない） */
+function group0Described(t: Parameters<typeof all>[0]): unknown {
+  return all(t, (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '口座')[0]?.props[
+    'aria-describedby'
+  ];
+}
+
+describe('口座（#47 D1・U16〜U19）', () => {
+  const TWO = [defaultAccount(1_000_000), account('accB', '口座 B', 200_000)];
+  const inB = (t: StoredTrade): StoredTrade => ({
+    ...t,
+    record: { ...t.record, accountId: 'accB' },
+  });
+
+  it('D1・AC-10: 口座 2 個 → 各行の銘柄・L / S の後ろに口座の名前（読み上げにも）。付いていない取引は「口座 1」', () => {
+    const tree = expand(
+      <TradesView
+        state={readyWith([L1, inB(L2)], TWO)}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    const names = all(tree, hasClass('traderow__account')).map(text);
+    expect(names).toEqual(['口座 B', '口座 1']);
+    const labels = rowsOf(tree).map((r) => String(r.label));
+    expect(labels[0]).toMatch(/ショート 口座 B |ロング 口座 B /);
+    expect(labels[1]).toMatch(/ショート 口座 1 |ロング 口座 1 /);
+  });
+
+  it('D1: 口座 1 個 → 行に口座の名前を出さない（今と同じ）', () => {
+    const tree = expand(
+      <TradesView
+        state={readyWith([L1, L2], [defaultAccount(1_000_000)])}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    expect(all(tree, hasClass('traderow__account'))).toEqual([]);
+    expect(rowsOf(tree).every((r) => !String(r.label).includes('口座'))).toBe(true);
+  });
+
+  it('U16: ホームの直近の行も同じ', () => {
+    const tree = expand(
+      <HomeView
+        state={readyWith([inB(L1)], TWO)}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    expect(all(tree, hasClass('traderow__account')).map(text)).toEqual(['口座 B']);
+  });
+
+  it('U17: 詳細の見出しの下「決済 … · 口座 B」と判定の枠の「口座 B の資金 1,000,000円（記録したとき）に対して」', () => {
+    const t = inB(D1);
+    const tree = detailTree(t, { state: detailWith(t, TWO) });
+    expect(text(all(tree, hasClass('detail__when')))).toMatch(/^決済 .* · 口座 B$/);
+    const capital = t.snapshot.capitalYen as number;
+    expect(all(tree, hasClass('verdict__account')).map(text)).toEqual([
+      `口座 B の資金 ${capital.toLocaleString('en-US')}円（記録したとき）に対して`,
+    ]);
+  });
+
+  it('U17・U18: 口座 1 個 → 見出し・判定の枠は今のまま。「すべての欄」には口座と記録したときの資金・許容リスク', () => {
+    const tree = detailTree(D1, { state: detailWith(D1, [defaultAccount(5)]) });
+    expect(text(all(tree, hasClass('detail__when')))).not.toContain('口座');
+    expect(all(tree, hasClass('verdict__account'))).toEqual([]);
+    const rows = all(tree, hasClass('fields__row')).map(text);
+    expect(rows).toContain('口座口座 1');
+    expect(rows.some((r) => r.startsWith('口座の資金（記録したとき）'))).toBe(true);
+    expect(rows.some((r) => r.startsWith('許容リスク（記録したとき）'))).toBe(true);
+  });
+
+  it('U19: 直す画面は口座 2 つ以上で同じ口座の欄（[＋ 口座を足す] は無い）。替えると 1 行、元へ戻すと消える', async () => {
+    const fake = createFakeApi({
+      trades: [L1],
+      instruments: [US30],
+      accounts: TWO,
+    });
+    const c = createEditController({ api: fake.api, id: L1.id });
+    await c.load();
+    const tree = () =>
+      expand(
+        <TradeEditView
+          id={L1.id}
+          state={c.getState()}
+          hidden={EMPTY}
+          notFound={notFoundState()}
+          onUpdate={c.update}
+          onSave={noop}
+          onReload={noop}
+          onRelogin={noop}
+        />,
+      );
+    const t0 = tree();
+    const group = all(
+      t0,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '口座',
+    )[0];
+    expect(
+      all(group ? [group] : [], (e) => e.type === 'input' && e.props.checked === true).map(
+        (e) => e.props.value,
+      ),
+    ).toEqual(['default']);
+    expect(all(t0, (e) => e.props.id === 'record-account-add')).toEqual([]);
+    expect(all(t0, (e) => e.props.id === 'record-account-hint')).toEqual([]);
+    c.update({ type: 'set', field: 'accountId', value: 'accB' });
+    expect(text(all(tree(), (e) => e.props.id === 'record-account-hint'))).toBe(
+      '口座 B の今の資金 200,000円 で計算し直します',
+    );
+    // 2〜3 つの Segment の形でも、1 行を radiogroup の読み上げの説明に結ぶ（select の形と同じ）
+    const group1 = all(
+      tree(),
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '口座',
+    )[0];
+    expect(group1?.props['aria-describedby']).toBe('record-account-hint');
+    expect(group0Described(t0)).toBeUndefined();
+    c.update({ type: 'set', field: 'accountId', value: 'default' });
+    expect(all(tree(), (e) => e.props.id === 'record-account-hint')).toEqual([]);
   });
 });

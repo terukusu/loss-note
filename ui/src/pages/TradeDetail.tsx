@@ -12,6 +12,7 @@ import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { Verdict } from '../components/Verdict';
+import { hasManyAccounts, tradeAccountName, verdictAsideText } from '../lib/accounts';
 import { APP_NAME } from '../lib/app-name';
 import type { ChartSlot } from '../lib/charts';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
@@ -77,7 +78,10 @@ function TradeDetailScreen({
     };
   }, [controller]);
   // 取引が読めたら、タブ・履歴の名前も見出しと同じにする
-  const heading = state.phase === 'ready' ? detailHeading(state.trade, state.instrumentName) : null;
+  const heading =
+    state.phase === 'ready'
+      ? detailHeading(state.trade, state.instrumentName, state.accounts)
+      : null;
   useEffect(() => {
     if (heading) document.title = `${heading.title} ${heading.sub} — ${APP_NAME}`;
     else document.title = titleOf({ name: 'trade', id });
@@ -141,7 +145,7 @@ export function TradeDetailView(p: TradeDetailViewProps) {
   }
   const t = state.trade;
   const block = editBlock(t);
-  const h = detailHeading(t, state.instrumentName);
+  const h = detailHeading(t, state.instrumentName, state.accounts);
   return (
     <>
       <PageHeader
@@ -178,12 +182,19 @@ function DetailBody(p: TradeDetailViewProps) {
   const t = state.trade;
   const r = t.record;
   const block = editBlock(t);
+  // 口座が 2 つ以上のときだけ、どの口座の資金（記録したとき）で割ったかの 1 行（U17）
+  const accountLine = hasManyAccounts(state.accounts)
+    ? verdictAsideText(tradeAccountName(t, state.accounts), t.snapshot.capitalYen, {
+        recorded: true,
+      })
+    : undefined;
   return (
     <div class="detail">
       <Verdict
         summary={state.summary}
         side={r.side}
         titleId="detail-verdict-title"
+        {...(accountLine === undefined ? {} : { account: accountLine })}
         taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
       />
       {block !== null ? <p class="detail__note">{block}</p> : null}
@@ -193,12 +204,14 @@ function DetailBody(p: TradeDetailViewProps) {
         <summary class="more__summary">すべての欄</summary>
         <div class="more__body">
           <dl class="fields">
-            {recordFields(t, state.instrumentName, state.summary.judgment).map((f) => (
-              <div key={f.label} class="fields__row">
-                <dt class="fields__label">{f.label}</dt>
-                <dd class="fields__value">{f.value}</dd>
-              </div>
-            ))}
+            {recordFields(t, state.instrumentName, state.summary.judgment, state.accounts).map(
+              (f) => (
+                <div key={f.label} class="fields__row">
+                  <dt class="fields__label">{f.label}</dt>
+                  <dd class="fields__value">{f.value}</dd>
+                </div>
+              ),
+            )}
           </dl>
         </div>
       </details>

@@ -45,3 +45,12 @@ def same_typed(a, b) -> bool:
     if isinstance(a, list):
         return len(a) == len(b) and all(same_typed(x, y) for x, y in zip(a, b, strict=True))
     return a == b
+
+
+def put_default_account(api, uid: str, settings: dict) -> dict:
+    """既定の口座（「口座 1」）の資金・許容リスクを、fixture の settings（今の設定の形）の値にする（#47。
+    取引の snapshot は記録したときのその取引の口座の値を写す）"""
+    body = {"name": "口座 1", "capitalYen": settings["capitalYen"], "riskTolerancePct": settings["riskTolerancePct"]}
+    res = api.put("/api/accounts/default", uid, body)
+    assert res.status_code == 200, res.get_json()
+    return res.get_json()

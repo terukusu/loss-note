@@ -2,11 +2,14 @@
 // 値はすべて架空
 import { afterEach, describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
+import { ACCOUNT_MSG } from '../../ui/src/lib/accounts';
 import { NotSignedIn } from '../../ui/src/lib/api';
 import { floorToMinute, toLocalInput } from '../../ui/src/lib/datetime';
 import { formatR } from '../../ui/src/lib/format';
 import { reasonText } from '../../ui/src/lib/reasons';
 import {
+  ACCOUNT_ADD_NETWORK_FAILED,
+  ACCOUNT_ADDING,
   AUTH_EXPIRED,
   CHART_LOCKED,
   CHART_MSG,
@@ -30,6 +33,7 @@ import {
   TZ_MISSING,
 } from '../../ui/src/lib/statement-fill';
 import { type PrepareResult, prepareImage } from '../../ui/src/lib/statement-image';
+import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeApi, type ReadScript } from './helpers/fake-api';
 import { E1, E2, E6, US30 } from './helpers/record-drafts';
 import {
@@ -139,23 +143,28 @@ describe('開いたときの既定（AC-9・E14）', () => {
       instrumentName: 'US30',
       quantity: '2',
       exitTime: toLocalInput(floorToMinute(NOW)),
+      accountId: 'default',
     });
     expect(s.draft.exitTime).toBe('2026-04-05T14:37');
-    // 開いたときの要求は 3 つ（取引・銘柄・設定）
+    // 開いたときの要求は 3 つ（取引・銘柄・口座。#47 で設定の代わりに口座）
     expect(fake.calls.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
+      'GET /api/accounts',
       'GET /api/instruments',
-      'GET /api/settings',
       'GET /api/trades',
     ]);
   });
 
   it('取引が 0 件なら銘柄・数量は空', async () => {
     const c = await opened(createFakeApi({ instruments: [US30] }));
-    expect(c.getState().draft).toEqual({ ...EMPTY_DRAFT, exitTime: '2026-04-05T14:37' });
+    expect(c.getState().draft).toEqual({
+      ...EMPTY_DRAFT,
+      exitTime: '2026-04-05T14:37',
+      accountId: 'default',
+    });
   });
 
   it('読み込みに失敗したら決まった文言で、もう一度読み込める', async () => {
-    const fake = createFakeApi({ fail: { 'GET /api/settings': 503 } });
+    const fake = createFakeApi({ fail: { 'GET /api/accounts': 503 } });
     const c = await opened(fake);
     expect(c.getState().phase).toBe('loadFailed');
     expect(c.getState().error).toBe(LOAD_FAILED);
@@ -340,6 +349,7 @@ describe('保存の後（[次の取引を記録]）', () => {
       instrumentName: '架空指数A',
       quantity: '3',
       exitTime: '2026-04-05T14:42',
+      accountId: 'default',
     });
     expect(fake.calls.filter((x) => x.method === 'GET').length).toBe(getsBefore);
   });
@@ -845,6 +855,7 @@ describe('複数行（AC-9・C20）', () => {
       instrumentName: '架空指数A',
       quantity: '2',
       exitTime: toLocalInput(floorToMinute(NOW)),
+      accountId: 'default',
     });
   });
 });
@@ -1451,5 +1462,150 @@ describe('読み取りの準備（#65 AC-13）', () => {
     const fake = createFakeApi({ instruments: [US30] });
     await opened(fake);
     expect(posts(fake, PREPARE)).toHaveLength(0);
+  });
+});
+
+// ---- 口座（Issue #47 PR-1。B5・B6・U9・KEEP-3）。値・名前はすべて架空 ----
+
+describe('口座（#47 B5・B6・U9・KEEP-3）', () => {
+  const ACC_B = account('accB', '口座 B', 200_000);
+
+  it('KEEP-3: 口座 1 つなら本文に口座を入れない（今と同じ本文）。口座 2 つ以上なら選んだ口座', async () => {
+    const one = createFakeApi({ instruments: [US30], capitalYen: 1_000_000 });
+    const c1 = await opened(one);
+    fillFrom(c1, E6);
+    await c1.save();
+    expect(posts(one, '/api/trades')[0]?.body).not.toHaveProperty('accountId');
+
+    const two = createFakeApi({ instruments: [US30], accounts: [defaultAccount(null), ACC_B] });
+    const c2 = await opened(two);
+    fillFrom(c2, E2);
+    expect(c2.getState().draft.accountId).toBe('default');
+    c2.update({ type: 'set', field: 'accountId', value: ACC_B.id });
+    // 選んだ口座の資金でその場で計算し直す（E2: 決済 = LC・明細の損益 −5,000 → 1R 5,000 ÷ 200,000 = 2.5%）
+    expect(c2.getState().read.preview.riskPct).toBeCloseTo(2.5, 12);
+    await c2.save();
+    expect(posts(two, '/api/trades')[0]?.body).toMatchObject({ accountId: ACC_B.id });
+  });
+
+  it('B5・AC-7: 記録する画面で「口座 C」・300,000 を足す → 名前と資金だけを送り、一覧に足して選ぶ。ほかの欄はそのまま', async () => {
+    const fake = createFakeApi({ instruments: [US30], capitalYen: 1_000_000 });
+    const c = await opened(fake);
+    fillFrom(c, E2);
+    const draftBefore = c.getState().draft;
+    c.openAddAccount();
+    expect(c.getState().addAccount?.errors).toEqual({});
+    c.setNewAccount('name', '口座 C');
+    c.setNewAccount('capital', '300,000');
+    await c.addAccount();
+    const s = c.getState();
+    expect(posts(fake, '/api/accounts').map((x) => x.body)).toEqual([
+      { name: '口座 C', capitalYen: 300_000 },
+    ]);
+    expect(s.addAccount).toBeUndefined();
+    expect(s.accounts.map((a) => a.name)).toEqual(['口座 1', '口座 C']);
+    const created = s.accounts.find((a) => a.name === '口座 C');
+    expect(created?.riskTolerancePct).toBe(1);
+    expect(s.draft).toEqual({ ...draftBefore, accountId: created?.id });
+    // 1R 5,000 ÷ 300,000 × 100 = 1.666…% → 判定の枠はその口座の資金で
+    expect(s.read.preview.riskPct).toBeCloseTo((5000 / 300_000) * 100, 9);
+    // 設定の画面に移らない（設定の API に触れない）
+    expect(fake.calls.some((x) => x.path === '/api/settings')).toBe(false);
+  });
+
+  it('U9: 送っている間は [記録する] を押せず、帯の文は「口座を足しています」', async () => {
+    const fake = createFakeApi({ instruments: [US30], capitalYen: 1_000_000 });
+    const c = await opened(fake);
+    fillFrom(c, E6);
+    expect(c.getState().read.canSave).toBe(true);
+    c.openAddAccount();
+    // 開いているだけの間は今のまま
+    expect(c.getState().read.canSave).toBe(true);
+    c.setNewAccount('name', '口座 C');
+    fake.hold();
+    const p = c.addAccount();
+    expect(c.getState().addAccount?.saving).toBe(true);
+    expect(c.getState().read.canSave).toBe(false);
+    expect(c.getState().read.notice).toBe(ACCOUNT_ADDING);
+    await c.save();
+    expect(posts(fake, '/api/trades')).toHaveLength(0);
+    fake.release();
+    await p;
+    expect(c.getState().read.canSave).toBe(true);
+  });
+
+  it('U8: 名前が空・重複は送らず欄の誤り。409（ほかの端末）も重複。通信の失敗は欄の中の知らせで値は残る', async () => {
+    const fake = createFakeApi({
+      instruments: [US30],
+      failOnce: { 'POST /api/accounts': 'throw' },
+    });
+    const c = await opened(fake);
+    c.openAddAccount();
+    await c.addAccount();
+    expect(c.getState().addAccount?.errors.name).toBe(ACCOUNT_MSG.nameRequired);
+    c.setNewAccount('name', '口座　１');
+    expect(c.getState().addAccount?.errors.name).toBe(ACCOUNT_MSG.duplicateName);
+    await c.addAccount();
+    expect(posts(fake, '/api/accounts')).toHaveLength(0);
+    c.setNewAccount('name', '口座 C');
+    await c.addAccount();
+    expect(c.getState().addAccount?.message).toBe(ACCOUNT_ADD_NETWORK_FAILED);
+    expect(c.getState().addAccount?.draft.name).toBe('口座 C');
+    expect(JSON.stringify(c.getState())).not.toContain('偽物');
+    // 届いていた（もう一度押して 409）→ 二重に足さず、その口座を選ぶ
+    fake.accounts.push(account('accC', '口座 C', null));
+    await c.addAccount();
+    expect(c.getState().addAccount).toBeUndefined();
+    expect(c.getState().draft.accountId).toBe('accC');
+    // ほかの端末が同じ名前を先に足した（届いたか分からない要求は無い）→ 重複の文言
+    c.openAddAccount();
+    c.setNewAccount('name', '口座 Z');
+    fake.accounts.push(account('accZ', '口座 Z', null));
+    await c.addAccount();
+    expect(c.getState().addAccount?.errors.name).toBe(ACCOUNT_MSG.duplicateName);
+  });
+
+  it('[やめる] で閉じ、下書きは変えない。送っている間は閉じない', async () => {
+    const fake = createFakeApi({ instruments: [US30] });
+    const c = await opened(fake);
+    fillFrom(c, E6);
+    const before = c.getState().draft;
+    c.openAddAccount();
+    c.setNewAccount('name', '口座 C');
+    c.closeAddAccount();
+    expect(c.getState().addAccount).toBeUndefined();
+    expect(c.getState().draft).toEqual(before);
+    c.openAddAccount();
+    c.setNewAccount('name', '口座 D');
+    fake.hold();
+    const p = c.addAccount();
+    c.closeAddAccount();
+    expect(c.getState().addAccount?.saving).toBe(true);
+    fake.release();
+    await p;
+  });
+
+  it('B6: 3 行の明細の 1 行目で口座 B を選んで記録 → 2・3 行目の既定も B', async () => {
+    const fake = createFakeApi({
+      instruments: [B],
+      accounts: [defaultAccount(null), ACC_B],
+      reads: [{ status: 200, body: statementBody(ROWS_E10) }],
+    });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => ({ ok: true, image: preparedImage(fakePreview()) }),
+    });
+    await c.load();
+    await c.readImage(blobOf(pngBytes(1200, 800, 2048)));
+    c.update({ type: 'set', field: 'accountId', value: ACC_B.id });
+    typeFive(c);
+    await c.save();
+    expect(c.getState().statement?.index).toBe(1);
+    expect(c.getState().draft.accountId).toBe(ACC_B.id);
+    c.skipRow();
+    expect(c.getState().statement?.index).toBe(2);
+    expect(c.getState().draft.accountId).toBe(ACC_B.id);
+    expect(posts(fake, '/api/trades')[0]?.body).toMatchObject({ accountId: ACC_B.id });
   });
 });

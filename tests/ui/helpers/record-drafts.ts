@@ -1,6 +1,7 @@
 // Issue #13 の例の表（E1〜E18）の下書き。値はすべて架空（実際の記録を写さない）。
 // 共通: 銘柄 US30（価格の通貨 未設定・乗数 1・刻み 1）、数量 10,000、手数料なし。
 // タップは「決めていたか / 動かしたか / 時間足」の順
+
 import type { InstrumentRecord } from '../../../core/record';
 import {
   applyDraft,
@@ -8,6 +9,7 @@ import {
   type DraftContext,
   EMPTY_DRAFT,
 } from '../../../ui/src/lib/record-form';
+import { defaultAccount } from './accounts';
 
 export const US30: InstrumentRecord = {
   id: 'inst-us30',
@@ -23,12 +25,12 @@ export const US30: InstrumentRecord = {
 
 export const NO_CAPITAL: DraftContext = {
   instruments: [US30],
-  settings: { capitalYen: null, riskTolerancePct: 1 },
+  accounts: [defaultAccount(null)],
 };
 
 export const CAPITAL_1M: DraftContext = {
   instruments: [US30],
-  settings: { capitalYen: 1_000_000, riskTolerancePct: 1 },
+  accounts: [defaultAccount(1_000_000)],
 };
 
 export function draft(values: Partial<Draft>): Draft {

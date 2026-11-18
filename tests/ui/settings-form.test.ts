@@ -1,6 +1,8 @@
-// 設定の画面の純関数（Issue #5 契約「settings-form.ts」・R1〜R5・AC-2・AC-4・AC-5）。値はすべて架空
+// 設定の画面の純関数（Issue #5 契約「settings-form.ts」・R1〜R5・AC-2・AC-4・AC-5）。値はすべて架空。
+// 口座の下書き（#47。旧「資金と許容リスク」の下書き）は tests/ui/accounts.test.ts
 import { describe, expect, it } from 'vitest';
-import type { InstrumentRecord, SettingsBody } from '../../core/record';
+import type { InstrumentRecord } from '../../core/record';
+import { ACCOUNT_FIELD_LABEL } from '../../ui/src/lib/accounts';
 import { formatAmountYen } from '../../ui/src/lib/format';
 import {
   allowanceText,
@@ -18,17 +20,11 @@ import {
   readInstrumentDraft,
   readNewInstrumentName,
   readRisk,
-  readSettingsDraft,
   riskWarning,
-  SETTINGS_FIELD_LABEL,
   SETTINGS_MSG,
-  settingsDraftOf,
   sortInstruments,
 } from '../../ui/src/lib/settings-form';
 import { rng } from '../core/helpers/prng';
-
-const LOADED: SettingsBody = { capitalYen: 1_000_000, riskTolerancePct: 1, performanceUnit: 'R' };
-const UNSET: SettingsBody = { capitalYen: null, riskTolerancePct: 1, performanceUnit: 'R' };
 
 function inst(id: string, name: string, over: Partial<InstrumentRecord> = {}): InstrumentRecord {
   return {
@@ -150,49 +146,6 @@ describe('readRisk・riskWarning（R3・AC-4）', () => {
       expect(got).toEqual({ ok: true, value: v });
       expect(riskWarning(v) !== null).toBe(v > 2);
     }
-  });
-});
-
-describe('readSettingsDraft（R1・R3・KEEP-2）', () => {
-  it('開いたときの下書きは保存値（3 桁区切り）', () => {
-    expect(settingsDraftOf(LOADED)).toEqual({ capital: '1,000,000', risk: '1' });
-    expect(settingsDraftOf(UNSET)).toEqual({ capital: '', risk: '1' });
-    expect(settingsDraftOf({ ...LOADED, riskTolerancePct: 1.5 }).risk).toBe('1.5');
-  });
-
-  it('本文は 3 欄。performanceUnit は読んだ値のまま（KEEP-2）', () => {
-    const got = readSettingsDraft(
-      { capital: '1,000,000', risk: '1' },
-      { ...LOADED, performanceUnit: 'yen' },
-    );
-    expect(got.body).toEqual({
-      capitalYen: 1_000_000,
-      riskTolerancePct: 1,
-      performanceUnit: 'yen',
-    });
-    expect(got.errors).toEqual({});
-    expect(got.warning).toBeNull();
-  });
-
-  it('E3b: 未設定で資金は空、許容リスク 1.5 → 資金 null の本文', () => {
-    const got = readSettingsDraft({ capital: '', risk: '1.5' }, UNSET);
-    expect(got.body).toEqual({ capitalYen: null, riskTolerancePct: 1.5, performanceUnit: 'R' });
-  });
-
-  it('E7: 2.5 は本文あり + 警告', () => {
-    const got = readSettingsDraft({ capital: '1000000', risk: '2.5' }, LOADED);
-    expect(got.body?.riskTolerancePct).toBe(2.5);
-    expect(got.warning).toBe(SETTINGS_MSG.riskWarning);
-  });
-
-  it('誤りがあれば本文は null で、欄ごとの誤り', () => {
-    const got = readSettingsDraft({ capital: '0', risk: '3.1' }, LOADED);
-    expect(got.body).toBeNull();
-    expect(got.errors).toEqual({
-      capital: SETTINGS_MSG.capitalNotPositive,
-      risk: SETTINGS_MSG.risk,
-    });
-    expect(got.warning).toBeNull();
   });
 });
 
@@ -452,7 +405,7 @@ describe('allowanceYen（1 回の負けの上限は切り捨て。レビュー�
 
 describe('誤りのある欄の知らせ（レビュー指摘 5）', () => {
   it('画面の並びの順に欄の名前を並べる', () => {
-    expect(errorFieldsOf({ risk: 'x', capital: 'y' }, SETTINGS_FIELD_LABEL)).toEqual([
+    expect(errorFieldsOf({ risk: 'x', capital: 'y' }, ACCOUNT_FIELD_LABEL)).toEqual([
       'capital',
       'risk',
     ]);

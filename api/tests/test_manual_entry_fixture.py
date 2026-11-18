@@ -8,7 +8,7 @@
 
 import copy
 
-from helpers.records import load_fixture, same_typed
+from helpers.records import load_fixture, put_default_account, same_typed
 
 A = "userA"
 PLACEHOLDER = "INSTRUMENT"
@@ -24,8 +24,7 @@ def test_manual_entry_bodies_are_accepted_as_sent(api):
         assert res.status_code == 201, (item["name"], res.get_json())
         inst = res.get_json()
         assert {k: inst[k] for k in item["snapshot"]["instrument"]} == item["snapshot"]["instrument"], item["name"]
-        res = api.put("/api/settings", A, item["settings"])
-        assert res.status_code == 200, res.get_json()
+        put_default_account(api, A, item["settings"])
 
         sent = copy.deepcopy(item["record"])
         assert sent["instrumentId"] == PLACEHOLDER

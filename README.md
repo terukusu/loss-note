@@ -62,7 +62,7 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9199/            # Sto
 
 ### 記録の API を試す・データが残ることを確かめる（合成のデータ）
 
-記録の API（`/api/trades`・`/api/instruments`・`/api/settings`）は、要求の `Authorization: Bearer <ID トークン>` を確かめ、その利用者の記録だけを読み書きします。手元では Auth のエミュレーターが出す ID トークン（署名がありません）を受けます。本番は使える利用者の許可リスト（環境変数 `LOSS_NOTE_ALLOWED_EMAILS`。カンマ区切りのメール）にある、確かめ済みのメールの利用者だけが使え、ほかは 403 になります（未設定なら誰も使えません）。手元のエミュレーターでは、この変数が無ければ制限しません（変数を置けば本番と同じに効きます。[`infra/README.md`](infra/README.md)「ログインと使える利用者」）。これを受けるのは、エミュレーターの接続先があり、プロジェクト ID が `demo-` で始まるときだけです（そうでない設定で接続先があると API は起動しません。[`docs/adr-0004-records-api-auth-and-storage.md`](docs/adr-0004-records-api-auth-and-storage.md)）。
+記録の API（`/api/trades`・`/api/instruments`・`/api/accounts`・`/api/settings`）は、要求の `Authorization: Bearer <ID トークン>` を確かめ、その利用者の記録だけを読み書きします。手元では Auth のエミュレーターが出す ID トークン（署名がありません）を受けます。本番は使える利用者の許可リスト（環境変数 `LOSS_NOTE_ALLOWED_EMAILS`。カンマ区切りのメール）にある、確かめ済みのメールの利用者だけが使え、ほかは 403 になります（未設定なら誰も使えません）。手元のエミュレーターでは、この変数が無ければ制限しません（変数を置けば本番と同じに効きます。[`infra/README.md`](infra/README.md)「ログインと使える利用者」）。これを受けるのは、エミュレーターの接続先があり、プロジェクト ID が `demo-` で始まるときだけです（そうでない設定で接続先があると API は起動しません。[`docs/adr-0004-records-api-auth-and-storage.md`](docs/adr-0004-records-api-auth-and-storage.md)）。
 
 `npm run emulators` と `npm run dev:api` を起動した状態で、架空の利用者を作り、銘柄・設定・取引を 1 つずつ作ります（値はすべて架空です）。
 
@@ -74,7 +74,7 @@ TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
   'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key' \
   -d '{"email":"test@example.com","password":"synthetic-pass","returnSecureToken":true}' | json idToken)
 AUTH="Authorization: Bearer $TOKEN"
-# 銘柄・設定・取引
+# 銘柄・設定・取引（最初に口座を使ったときに、設定の資金と許容リスクから既定の口座「口座 1」ができます）
 INSTRUMENT=$(curl -s -X POST -H "$AUTH" -H 'Content-Type: application/json' "$API/instruments" \
   -d '{"name":"TEST","priceCurrency":"JPY"}' | json id)
 curl -s -X PUT -H "$AUTH" -H 'Content-Type: application/json' "$API/settings" \
@@ -97,7 +97,8 @@ TOKEN=$(curl -s -X POST -H 'Content-Type: application/json' \
 AUTH="Authorization: Bearer $TOKEN"
 curl -s -H "$AUTH" "$API/trades"         # 止める前に作った取引
 curl -s -H "$AUTH" "$API/instruments"    # 銘柄
-curl -s -H "$AUTH" "$API/settings"       # 設定（資金の履歴つき）
+curl -s -H "$AUTH" "$API/accounts"       # 口座（資金・許容リスク・資金の履歴）
+curl -s -H "$AUTH" "$API/settings"       # 設定（成績の表示など）
 curl -s -H 'Authorization: Bearer owner' \
   'http://127.0.0.1:9199/download/storage/v1/b/demo-loss-note.appspot.com/o/synthetic.png?alt=media'
 ```

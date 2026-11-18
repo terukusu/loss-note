@@ -2,13 +2,16 @@
 // 判定・R・リスク（%）は保存した取引から summarize（= toTradeInput → evaluateTrade）で出す（保存しない）。
 // 資金・許容リスク・銘柄の値は取引に写した snapshot だけから（今の設定・銘柄を引かない）。出ない値は記録する画面と同じ文言。
 // 並びは API の trade_sort_key と同じ（決済の時刻の新しい順 → 作った時刻の新しい順 → ID の昇順）
+// 口座（#47）: 口座が 2 つ以上のときだけ行・詳細の見出しに口座の名前（口座の付いていない取引は既定の口座）。
+// 詳細の「すべての欄」には口座の数によらず口座と、記録したときの資金・許容リスクを出す（U16〜U18）
 import type { Grade, Judgment } from '../../../core/judge';
-import type { InstrumentRecord, StoredTrade } from '../../../core/record';
+import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
 import { isLongerTimeframe } from '../../../core/trade';
+import { hasManyAccounts, tradeAccountName } from './accounts';
 import { type BadgeModel, badgeModel } from './badge';
 import { CHART_SLOT_TEXT, CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
 import { formatDate, formatDateTime } from './datetime';
-import { formatPct, formatPlain, formatPrice, formatR, formatYen } from './format';
+import { formatAmountYen, formatPct, formatPlain, formatPrice, formatR, formatYen } from './format';
 import { TIMEFRAME_NAME, widenVerb } from './reasons';
 import { RISK_NOTE, type Summary, summarize } from './record-form';
 
@@ -38,12 +41,14 @@ export interface TradeRow {
   /** リスクが出ない理由（記録する画面と同じ文言。出るときは null） */
   readonly riskNote: string | null;
   readonly instrumentName: string;
+  /** 口座の名前（口座が 2 つ以上のときだけ。U16） */
+  readonly accountName?: string;
   /** L / S（記号だけ） */
   readonly sideText: string;
   readonly dateText: string;
   /** 決済の日付（time 要素の datetime。端末の時間帯の YYYY-MM-DD） */
   readonly dateIso: string;
-  /** 行のリンクの読み上げの名前（日付 銘柄 L / S 判定 R リスク。出ない値は理由の文言） */
+  /** 行のリンクの読み上げの名前（日付 銘柄 L / S [口座] 判定 R リスク。出ない値は理由の文言） */
   readonly label: string;
 }
 
@@ -79,7 +84,11 @@ export function riskNoteOf(s: Summary): string | null {
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-export function tradeRow(t: StoredTrade, instruments: readonly InstrumentRecord[]): TradeRow {
+export function tradeRow(
+  t: StoredTrade,
+  instruments: readonly InstrumentRecord[],
+  accounts: readonly AccountRecord[] = [],
+): TradeRow {
   const s = summarize(t);
   const grade = s.judgment?.grade ?? null;
   const badge = badgeModel(grade);
@@ -88,6 +97,7 @@ export function tradeRow(t: StoredTrade, instruments: readonly InstrumentRecord[
   const rText = s.r === undefined ? MISSING : formatR(s.r);
   const riskText = s.riskPct === undefined ? MISSING : formatPct(s.riskPct);
   const instrumentName = instrumentNameOf(t, instruments);
+  const accountName = hasManyAccounts(accounts) ? tradeAccountName(t, accounts) : undefined;
   const d = new Date(t.record.exit.time);
   const dateText = formatDate(t.record.exit.time);
   return {
@@ -101,10 +111,11 @@ export function tradeRow(t: StoredTrade, instruments: readonly InstrumentRecord[
     riskText,
     riskNote,
     instrumentName,
+    ...(accountName === undefined ? {} : { accountName }),
     sideText: SIDE_SHORT[t.record.side],
     dateText,
     dateIso: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
-    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
+    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]}${accountName === undefined ? '' : ` ${accountName}`} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
   };
 }
 
@@ -148,10 +159,11 @@ export function recentRows(
   ts: readonly StoredTrade[],
   instruments: readonly InstrumentRecord[],
   n: number = RECENT_COUNT,
+  accounts: readonly AccountRecord[] = [],
 ): TradeRow[] {
   return sortTrades(ts)
     .slice(0, Math.max(0, n))
-    .map((t) => tradeRow(t, instruments));
+    .map((t) => tradeRow(t, instruments, accounts));
 }
 
 /** 消した印（[元に戻す] を待っている取引）を除く。順は保つ */
@@ -253,16 +265,28 @@ export interface FieldRow {
   readonly value: string;
 }
 
-/** 詳細の「すべての欄」（#34 までの「記録した欄」。ラベルと値。空の任意の欄は出さない）。judgment は時間足の行に、判定に使った方の印を付けるため */
+/**
+ * 詳細の「すべての欄」（#34 までの「記録した欄」。ラベルと値。空の任意の欄は出さない）。judgment は時間足の行に、
+ * 判定に使った方の印を付けるため。口座・記録したときの資金と許容リスクは口座の数によらず出す（U18。口座の付いていない
+ * 取引は既定の口座の名前）
+ */
 export function recordFields(
   t: StoredTrade,
   instrumentName: string,
   judgment?: Judgment,
+  accounts: readonly AccountRecord[] = [],
 ): readonly FieldRow[] {
   const r = t.record;
   const e = r.entries[0];
   const x = r.exit;
+  const s = t.snapshot;
   const rows: FieldRow[] = [
+    { label: '口座', value: tradeAccountName(t, accounts) },
+    {
+      label: '口座の資金（記録したとき）',
+      value: s.capitalYen === null ? '未設定' : formatAmountYen(s.capitalYen),
+    },
+    { label: '許容リスク（記録したとき）', value: `${formatPlain(s.riskTolerancePct)}%` },
     { label: '銘柄', value: instrumentName },
     { label: 'L / S', value: SIDE_TEXT[r.side] },
     { label: 'イン', value: formatPrice(e.price) },
@@ -324,13 +348,15 @@ export function shortLabel(t: StoredTrade, instrumentName: string): string {
   return `${instrumentName} ${SIDE_SHORT[t.record.side]} ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
 }
 
-/** 詳細の見出し（銘柄 · L ロング）と添え書き（決済の日時） */
+/** 詳細の見出し（銘柄 · L ロング）と添え書き（決済の日時。口座が 2 つ以上なら「· 口座 A」も。U17） */
 export function detailHeading(
   t: StoredTrade,
   instrumentName: string,
+  accounts: readonly AccountRecord[] = [],
 ): { readonly title: string; readonly sub: string } {
+  const account = hasManyAccounts(accounts) ? ` · ${tradeAccountName(t, accounts)}` : '';
   return {
     title: `${instrumentName} · ${SIDE_TEXT[t.record.side]}`,
-    sub: `決済 ${formatDateTime(t.record.exit.time)}`,
+    sub: `決済 ${formatDateTime(t.record.exit.time)}${account}`,
   };
 }

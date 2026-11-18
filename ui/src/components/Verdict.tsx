@@ -48,6 +48,10 @@ export interface VerdictProps {
   readonly before?: Summary;
   /** 3 つのタップの答え（取引の詳細だけ。理由の下に札で並べる。#34） */
   readonly taps?: { readonly items: readonly TapAnswer[]; readonly note: string | null };
+  /**
+   * どの口座の資金で割ったかの 1 行（#47 U10・U17。口座が 2 つ以上のときだけ画面が渡す）。数の段のすぐ下に無色で出す
+   */
+  readonly account?: string;
 }
 
 /** 3 つのタップの答えの札（外れた札は形の印・「外れ」の文字・読み上げの「計画から外れた」） */
@@ -161,6 +165,8 @@ export function Verdict(v: VerdictProps) {
           ) : null}
         </dl>
       )}
+      {v.account ? <p class="verdict__aside verdict__account">{v.account}</p> : null}
+
       {n.notes.map((t) => (
         <p key={t} class="verdict__aside verdict__why">
           {t}

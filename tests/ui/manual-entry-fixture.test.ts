@@ -2,6 +2,7 @@
 // API のテスト（api/tests/test_manual_entry_fixture.py）が同じ fixture を本物の API に通し、201 で受けて
 // 送った本文のまま保存すること・snapshot が画面の予想と同じことを確かめる（偽の API とのずれを塞ぐ）。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/manual-entry-fixture.test.ts` で書き直す
+
 import { describe, expect, it } from 'vitest';
 import type { InstrumentBody, SettingsBody, TradeRecord, TradeSnapshot } from '../../core/record';
 import {
@@ -10,6 +11,7 @@ import {
   type Draft,
   readDraft,
 } from '../../ui/src/lib/record-form';
+import { accountsOf } from './helpers/accounts';
 import { E1, E2, E5, E6, E7, E16 } from './helpers/record-drafts';
 
 const node = (
@@ -43,7 +45,7 @@ function item(name: string, d: Draft, capitalYen: number | null): Item {
   const settings: SettingsBody = { capitalYen, riskTolerancePct: 1, performanceUnit: 'R' };
   const read = readDraft(
     { ...d, instrumentName: `架空指数${name}` },
-    { instruments: [], settings },
+    { instruments: [], accounts: accountsOf(settings) },
   );
   if (!read.body || !read.preview.judgment) throw new Error(`${name} が保存できる下書きでない`);
   return {

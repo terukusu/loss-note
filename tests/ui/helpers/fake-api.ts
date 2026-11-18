@@ -17,14 +17,24 @@
 //   PUT は本文で record を置き換え、銘柄を別の銘柄に変えたときだけ snapshot の銘柄の値をその銘柄の今の値で写し直す
 //   （資金・許容リスクは変えない。C36）。チャートの無い枠に時間足 → 400 noChart。DELETE は取引と 2 枠のチャートを消して 204。
 //   チャートの GET は opts.chartData（鍵 = 取引 ID-枠）のバイト列を返す（無ければ 404）
+// - 口座（#47）: GET /api/accounts = { items }（名前の順）。既定の口座 default（「口座 1」）が無ければ、口座を読む・使う
+//   入口（口座の GET・POST・PUT、取引の POST・PUT）で設定の資金・許容リスク・資金の履歴から 1 回だけ作る（本物の移し替え）。
+//   POST /api/accounts = 201（資金を入れたら履歴 1 件）・名前が同じなら 409。PUT /api/accounts/<id> = 3 欄を置き換え、
+//   資金が前と違うときだけ履歴に足す。無い ID は 404。取引の snapshot の資金・許容リスクは取引の口座（accountId。無い = 既定）
+//   から写す。PUT で口座を付け替えたときだけ付け替え先の今の値で写し直す（本文に口座が無ければ前の口座を保つ）。無い口座は 400
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
-import type {
-  InstrumentBody,
-  InstrumentRecord,
-  PerformanceUnit,
-  SettingsRecord,
-  StoredTrade,
-  TradeRecord,
+import {
+  type AccountBody,
+  type AccountRecord,
+  accountIdOf,
+  DEFAULT_ACCOUNT_ID,
+  DEFAULT_ACCOUNT_NAME,
+  type InstrumentBody,
+  type InstrumentRecord,
+  type PerformanceUnit,
+  type SettingsRecord,
+  type StoredTrade,
+  type TradeRecord,
 } from '../../../core/record';
 import { nameKey } from '../../../ui/src/lib/instrument-name';
 import type { ApiFn } from '../../../ui/src/lib/request';
@@ -66,6 +76,8 @@ export interface FakeOptions {
   readonly reads?: readonly ReadScript[];
   /** チャートの GET が返すバイト列（鍵 = 取引 ID-枠。#9） */
   readonly chartData?: Readonly<Record<string, Uint8Array>>;
+  /** 口座（#47。省けば既定の口座を設定から作る = 移し替え） */
+  readonly accounts?: readonly AccountRecord[];
 }
 
 export interface FakeApi {
@@ -73,6 +85,8 @@ export interface FakeApi {
   readonly calls: FakeCall[];
   readonly instruments: InstrumentRecord[];
   readonly trades: StoredTrade[];
+  /** 口座（#47。既定の口座を作るのは最初に口座を読む・使うとき） */
+  readonly accounts: AccountRecord[];
   /** 保存したチャート（鍵 = 取引 ID-枠）。枚数 = size */
   readonly charts: Map<string, FakeChart>;
   /** 今の設定（PUT /api/settings で変わる） */
@@ -114,6 +128,30 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     capitalHistory: [...(opts.capitalHistory ?? [])],
   };
   const settings = (): SettingsRecord => current;
+
+  const accounts: AccountRecord[] = [...(opts.accounts ?? [])];
+  /** 既定の口座が無ければ設定から作る（本物の移し替え。取引・設定は書かない） */
+  const ensureDefault = () => {
+    if (accounts.some((a) => a.id === DEFAULT_ACCOUNT_ID)) return;
+    accounts.push({
+      id: DEFAULT_ACCOUNT_ID,
+      name: DEFAULT_ACCOUNT_NAME,
+      capitalYen: current.capitalYen,
+      riskTolerancePct: current.riskTolerancePct,
+      capitalHistory: [...current.capitalHistory],
+      createdAt: clock,
+      updatedAt: clock,
+    });
+  };
+  const sortedAccounts = () => {
+    const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+    return [...accounts].sort(
+      (a, b) => cmp(nameKey(a.name), nameKey(b.name)) || cmp(a.name, b.name) || cmp(a.id, b.id),
+    );
+  };
+  const okCapital = (cap: unknown) =>
+    cap === null || (typeof cap === 'number' && cap > 0 && cap <= 1e12);
+  const okRisk = (risk: unknown) => typeof risk === 'number' && risk >= 0.5 && risk <= 3;
 
   const api: ApiFn = async (path, init = {}) => {
     const method = (init.method ?? 'GET').toUpperCase();
@@ -205,24 +243,48 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
             });
           }
         }
+        // 口座: 本文に無ければ前の口座のまま。付け替えたときだけ付け替え先の今の値で写し直す（#47 A4・B7）
+        const accountMoved =
+          record.accountId !== undefined && record.accountId !== accountIdOf(prev.record);
+        let movedTo: AccountRecord | undefined;
+        if (accountMoved) {
+          ensureDefault();
+          movedTo = accounts.find((a) => a.id === record.accountId);
+          if (!movedTo) {
+            return json(400, {
+              error: 'invalid',
+              issues: [{ field: 'accountId', kind: 'notFound' }],
+            });
+          }
+        }
         clock += 1;
         const changed = inst.id !== prev.record.instrumentId;
+        const snap0 = changed
+          ? {
+              ...prev.snapshot,
+              instrument: {
+                multiplier: inst.multiplier,
+                quantityStep: inst.quantityStep,
+                priceCurrency: inst.priceCurrency,
+                underlyingKind: inst.underlyingKind,
+                productForm: inst.productForm,
+              },
+            }
+          : prev.snapshot;
         const next: StoredTrade = {
           ...prev,
           updatedAt: Math.max(clock, prev.updatedAt + 1),
-          snapshot: changed
+          snapshot: movedTo
             ? {
-                ...prev.snapshot,
-                instrument: {
-                  multiplier: inst.multiplier,
-                  quantityStep: inst.quantityStep,
-                  priceCurrency: inst.priceCurrency,
-                  underlyingKind: inst.underlyingKind,
-                  productForm: inst.productForm,
-                },
+                ...snap0,
+                capitalYen: movedTo.capitalYen,
+                riskTolerancePct: movedTo.riskTolerancePct,
               }
-            : prev.snapshot,
+            : snap0,
           record: {
+            ...(record.accountId === undefined && prev.record.accountId !== undefined
+              ? { accountId: prev.record.accountId }
+              : {}),
             ...record,
             lcBasis: record.lcBasis ?? 'chart',
             stopOrderPlaced: record.stopOrderPlaced ?? 'unanswered',
@@ -230,6 +292,77 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
           },
         };
         trades[idx] = next;
+        return json(200, next);
+      }
+    }
+    if (key === 'GET /api/accounts') {
+      ensureDefault();
+      return json(200, { items: sortedAccounts() });
+    }
+    if (key === 'POST /api/accounts') {
+      ensureDefault();
+      const b = body as AccountBody;
+      const name = typeof b.name === 'string' ? b.name.trim() : '';
+      const cap = b.capitalYen ?? null;
+      const risk = b.riskTolerancePct ?? 1;
+      const known = new Set(['name', 'capitalYen', 'riskTolerancePct']);
+      if (
+        name === '' ||
+        !okCapital(cap) ||
+        !okRisk(risk) ||
+        Object.keys(b).some((k) => !known.has(k))
+      ) {
+        return json(400, { error: 'invalid', issues: [{ field: 'account' }] });
+      }
+      if (accounts.some((a) => nameKey(a.name) === nameKey(name))) {
+        return json(409, { error: 'conflict', reason: 'duplicateName' });
+      }
+      clock += 1;
+      const created: AccountRecord = {
+        id: `acc-new-${++seq}`,
+        name,
+        capitalYen: cap,
+        riskTolerancePct: risk,
+        capitalHistory: cap === null ? [] : [{ valueYen: cap, at: clock }],
+        createdAt: clock,
+        updatedAt: clock,
+      };
+      accounts.push(created);
+      return json(201, created);
+    }
+    const accountPath = /^\/api\/accounts\/([^/]+)$/.exec(path);
+    if (accountPath) {
+      ensureDefault();
+      const id = decodeURIComponent(accountPath[1] ?? '');
+      const idx = accounts.findIndex((a) => a.id === id);
+      if (idx < 0) return json(404, { error: 'not_found' });
+      const prev = accounts[idx] as AccountRecord;
+      if (method === 'GET') return json(200, prev);
+      if (method === 'PUT') {
+        const b = body as Record<string, unknown>;
+        const name = typeof b.name === 'string' ? b.name.trim() : '';
+        const cap = b.capitalYen;
+        const risk = b.riskTolerancePct;
+        if (name === '' || !('capitalYen' in b) || !okCapital(cap) || !okRisk(risk)) {
+          return json(400, { error: 'invalid', issues: [{ field: 'account' }] });
+        }
+        if (accounts.some((a) => a.id !== id && nameKey(a.name) === nameKey(name))) {
+          return json(409, { error: 'conflict', reason: 'duplicateName' });
+        }
+        clock += 1;
+        const next: AccountRecord = {
+          id,
+          name,
+          capitalYen: cap as number | null,
+          riskTolerancePct: risk as number,
+          capitalHistory:
+            cap === prev.capitalYen
+              ? prev.capitalHistory
+              : [...prev.capitalHistory, { valueYen: cap as number | null, at: clock }],
+          createdAt: prev.createdAt,
+          updatedAt: Math.max(clock, prev.updatedAt + 1),
+        };
+        accounts[idx] = next;
         return json(200, next);
       }
     }
@@ -323,8 +456,13 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
           });
         }
       }
+      ensureDefault();
+      const acc = accounts.find((a) => a.id === accountIdOf(record));
+      if (!acc) {
+        return json(400, { error: 'invalid', issues: [{ field: 'accountId', kind: 'notFound' }] });
+      }
       clock += 1;
-      const s = settings();
+      const s = { capitalYen: acc.capitalYen, riskTolerancePct: acc.riskTolerancePct };
       const stored: StoredTrade = {
         id: `trade-${++seq}`,
         schemaVersion: 1,
@@ -364,6 +502,8 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     calls,
     instruments,
     trades,
+    accounts,
+
     charts,
     settings,
     hold() {

@@ -1,4 +1,4 @@
-// 設定の画面と記録する画面のつながり（Issue #5 AC-1 の後半・AC-7 の E14・E15・KEEP-3）。
+// 設定の画面と記録する画面のつながり（Issue #5 AC-1 の後半・AC-7 の E14・E15・KEEP-3。#47 で資金は口座「口座 1」に）。
 // 設定の controller と記録の controller を同じ偽の API で動かす。値はすべて架空
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade } from '../../core/record';
@@ -55,8 +55,9 @@ describe('AC-1: 資金を保存した後の記録にリスク（%）が出る', 
     expect(before.getState().read.preview.riskNote).toBe(RISK_NOTE.noCapital);
 
     const sc = await settingsOpen(fake);
-    sc.setField('capital', '1,000,000');
-    await sc.saveSettings();
+    sc.openAccount('default');
+    sc.updateAccount('capital', '1,000,000');
+    await sc.saveAccount();
 
     const rc = await recordOpen(fake);
     const p = rc.getState().read.preview;
@@ -94,8 +95,9 @@ describe('AC-7: 直しても記録済みの取引は変わらず、以後の記�
     expect(t3.snapshot.capitalYen).toBeNull();
 
     const sc = await settingsOpen(fake);
-    sc.setField('capital', '1000000');
-    await sc.saveSettings();
+    sc.openAccount('default');
+    sc.updateAccount('capital', '1000000');
+    await sc.saveAccount();
 
     const t3After = fake.trades.find((t) => t.id === t3.id);
     expect(t3After?.snapshot.capitalYen).toBeNull();

@@ -7,6 +7,7 @@ gRPC の接続・アクセス トークン）と ID トークンの検証（fire
 
 - 段は順に 1 回ずつ呼ぶ。どれかが例外を投げても続け、起動は止めない（失敗した段は最初の要求で作り直す = 今までの
   遅延の初期化のまま）
+- 段 ``cli``（#65）は明細の読み取りの CLI の先立てを立て始めるだけ（立ち上がりを待たない）
 - ログは 1 行（``event=warmup``）: 理由（``ok`` か、失敗した段の名前を ``+`` でつないだもの）・合計の時間・段ごとの
   時間（``<段>_ms``）。例外の型も文言も出さない（文言に接続先・文書のパスが入りうる）
 """
@@ -17,7 +18,7 @@ from collections.abc import Callable, Sequence
 from loss_note_api import logs
 
 # 段の名前 → ログの時間の鍵（logs._ALLOWED_KEYS にあるものだけ）
-STEP_KEYS = {"store": "store_ms", "auth": "auth_ms", "sdk": "sdk_ms"}
+STEP_KEYS = {"store": "store_ms", "auth": "auth_ms", "sdk": "sdk_ms", "cli": "cli_ms"}
 
 Step = tuple[str, Callable[[], object]]
 

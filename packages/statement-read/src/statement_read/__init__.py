@@ -8,6 +8,7 @@ API（``api/``）と評価の道具（``tools/statement-eval/``）が同じも�
 - ``image``: 画像の上限と、PNG / JPEG の寸法を読む純関数（Pillow なし）
 - ``normalize``: 読み取りの結果 → API の応答の形（向き・日本時間・手数料の合計・範囲の外の欄を空に）
 - ``agent_reader``: Claude Agent SDK で画像 1 枚を読む送り口（SDK は依存グループ ``ai``。読むときだけ import）
-- ``app_settings``: アプリの読み取りのモデル・effort・締め切り・最大出力
+- ``warm``: 先立ての CLI（起動して待たせ、1 回の読み取りに使ったら捨てる。API だけが使う。#65）
+- ``app_settings``: アプリの読み取りのモデル・effort・締め切り・最大出力・先立ての期限
 - ``pricing``: 料金表と、1 回の読み取りの費用（整数の µUSD）・費用の上界（予約額。#44）
 """

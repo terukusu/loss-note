@@ -21,7 +21,14 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 ログの時間の内訳（Issue #60。その段まで進んだときだけ出す）: ``token_ms`` = federation の ID トークンの取得・
 ``limit_ms`` = 1 日の上限の予約（Firestore のトランザクション）・``read_ms`` = 送り口の全体（CLI の起動・資格情報の
 交換・AI の API・後始末）・``api_ms`` = CLI が報告する AI の API の時間（``read_ms - api_ms`` がおおよそ CLI の側の
-時間）。
+時間）。``cli`` = 先立ての CLI を使ったか（``warm`` / ``cold``。#65）。
+
+先立ての CLI（Issue #65・ADR-0013・``statement_read.warm``）: 起動の段（``app.py`` の準備）と準備の要求
+``POST /api/statement-reads/prepare`` のときだけ、CLI を 1 つ先に起動して待たせる。読み取りは先立てがあれば使い
+（1 回で捨てる）、無い・期限切れ・画像を送る前に失敗したら、残りの時間でその場で立てる（AI へ送るのは 1 回）。
+準備の要求は AI を呼ばず、1 日の上限に数えない（認証・許可リストは blueprint の門のまま）。応答は 200
+``{"ready": bool}``（使えない設定・SDK なしは 503 ``read_unavailable``）。ログは ``event=statement_read_prepare``・
+``reason``（``ok`` / ``not_ready``）・``ms`` だけ。
 """
 
 import math
@@ -32,9 +39,17 @@ from types import MappingProxyType
 
 from flask import Blueprint, Response, g, jsonify, request
 from statement_read import app_settings, image
-from statement_read.agent_reader import FEDERATION, NoCredential, Reader, credential_names_in, credential_values
+from statement_read.agent_reader import (
+    FEDERATION,
+    NoCredential,
+    Reader,
+    ReadOutcome,
+    credential_names_in,
+    credential_values,
+)
 from statement_read.normalize import normalize_result
 from statement_read.result import Bad
+from statement_read.warm import WarmPool
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from loss_note_api import identity_token as id_token
@@ -43,6 +58,7 @@ from loss_note_api.logs import log_event
 from loss_note_api.store import Store
 
 PATH = "/statement-reads"
+PREPARE_PATH = "/statement-reads/prepare"
 # 資格情報の方式の切り替え（api_key = ANTHROPIC_API_KEY〔既定〕/ oauth_token = CLAUDE_CODE_OAUTH_TOKEN /
 # federation = ANTHROPIC_FEDERATION_RULE_ID・ANTHROPIC_ORGANIZATION_ID〔任意で SA の ID・ワークスペースの ID〕と
 # ID トークン）
@@ -60,6 +76,8 @@ class ReadConfig:
     values: Mapping[str, str] = field(default=_EMPTY, repr=False)
     timeout: float = app_settings.APP_TIMEOUT_SECONDS
     identity_token: Callable[[], str] | None = field(default=None, repr=False, compare=False)
+    # 先立ての CLI（#65）。使える設定のときだけ（作るだけでは CLI を起動しない）
+    warm: WarmPool | None = field(default=None, repr=False, compare=False)
 
     @property
     def usable(self) -> bool:
@@ -87,7 +105,11 @@ def read_config(
     except NoCredential:
         return ReadConfig(None, _EMPTY, t)
     fetch = (identity_token or id_token.fetch_gcp_identity_token) if kind == FEDERATION else None
-    return ReadConfig(kind, MappingProxyType(dict(values)), t, fetch)
+    frozen = MappingProxyType(dict(values))
+    warm = WarmPool(kind, frozen, app_settings.APP_MODEL, app_settings.APP_EFFORT, timeout=t,
+                    max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS, identity_token=fetch,
+                    ttl=app_settings.APP_WARM_TTL_SECONDS, startup=app_settings.APP_WARM_STARTUP_SECONDS)
+    return ReadConfig(kind, frozen, t, fetch, warm)
 
 
 def sdk_available() -> bool:
@@ -120,10 +142,28 @@ def register(
     """記録の API の blueprint（認証済み）に読み取りの入口を足す。store は 1 日の計上の置き場（#44）、clock は今の
     時刻（エポックのミリ秒。日本時間の日付に直す）、limits は上限の値"""
 
+    @bp.post(PREPARE_PATH)
+    def prepare_statement_read():
+        # 読み取りの準備（#65）: 先立ての CLI を立て、立ち上がるまで待つ。AI を呼ばず、上限に数えない
+        started = time.perf_counter()
+
+        def reply(status: int, body: dict, reason: str) -> Response:
+            log_event(event="statement_read_prepare", reason=reason,
+                      ms=round((time.perf_counter() - started) * 1000, 1))
+            res = jsonify(body)
+            res.status_code = status
+            return res
+
+        if not config.usable or config.warm is None or not sdk_available():
+            return reply(503, {"error": "read_unavailable"}, "unavailable")
+        ready = config.warm.prepare(app_settings.APP_WARM_STARTUP_SECONDS)
+        return reply(200, {"ready": ready}, "ok" if ready else "not_ready")
+
     @bp.post(PATH)
     def read_statement():
         started = time.perf_counter()
         timings: dict[str, float] = {}  # 段ごとの時間（#60。ログの鍵 → ミリ秒）
+        tags: dict[str, str] = {}  # 先立てを使ったか（#65。cli = warm / cold）
 
         def ms_since(t: float) -> float:
             return round((time.perf_counter() - t) * 1000, 1)
@@ -132,7 +172,7 @@ def register(
             return ms_since(started)
 
         def reply(status: int, body: dict, reason: str, rows: int = 0) -> Response:
-            log_event(event="statement_read", reason=reason, rows=rows, ms=elapsed(), **timings)
+            log_event(event="statement_read", reason=reason, rows=rows, ms=elapsed(), **tags, **timings)
             res = jsonify(body)
             res.status_code = status
             return res
@@ -184,12 +224,21 @@ def register(
         if decision != "ok":
             return reply(429, {"error": "read_limited"}, f"limited_{decision}")
 
-        reader = Reader(config.credential, config.values, app_settings.APP_MODEL, app_settings.APP_EFFORT,
-                        timeout=config.timeout, max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS,
-                        identity_token=token)
-        del token
+        media_type = image.media_type_of(data)
         t = time.perf_counter()
-        outcome = reader.read(data, image.media_type_of(data))
+        # 先立てがあれば使う（1 回で捨てる。#65）。無い・送る前に失敗したら、残りの時間でその場で立てる
+        outcome = config.warm.read(data, media_type, token) if config.warm is not None else None
+        tags["cli"] = "warm" if outcome is not None else "cold"
+        if outcome is None:
+            remaining = config.timeout - (time.perf_counter() - t)
+            if remaining <= 0:
+                outcome = ReadOutcome(result=None, seconds=None, error="timeout")
+            else:
+                reader = Reader(config.credential, config.values, app_settings.APP_MODEL, app_settings.APP_EFFORT,
+                                timeout=remaining, max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS,
+                                identity_token=token)
+                outcome = reader.read(data, media_type)
+        del token
         timings["read_ms"] = ms_since(t)
         api_seconds = outcome.api_seconds
         if isinstance(api_seconds, int | float) and not isinstance(api_seconds, bool) and math.isfinite(api_seconds) \

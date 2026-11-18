@@ -1422,3 +1422,34 @@ describe('根拠の足のチャート（Issue #12）', () => {
     expect(c.getState().charts?.exit?.phase).toBe('ready');
   });
 });
+
+describe('読み取りの準備（#65 AC-13）', () => {
+  const PREPARE = '/api/statement-reads/prepare';
+
+  it('warmRead なら開いたときに準備の要求を 1 回送る（AI へは送らない）', async () => {
+    const fake = createFakeApi({ instruments: [US30] });
+    const c = createRecordController({ api: fake.api, now: () => NOW, warmRead: true });
+    await c.load();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    expect(posts(fake, '/api/statement-reads')).toHaveLength(0);
+    expect(c.getState().phase).toBe('editing');
+  });
+
+  it('準備が失敗しても画面は編集できる状態で、文言を出さない', async () => {
+    for (const f of [500, 'throw'] as const) {
+      const fake = createFakeApi({ instruments: [US30], fail: { [`POST ${PREPARE}`]: f } });
+      const c = createRecordController({ api: fake.api, now: () => NOW, warmRead: true });
+      await c.load();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(posts(fake, PREPARE)).toHaveLength(1);
+      expect(c.getState().phase).toBe('editing');
+      expect(c.getState().error).toBeNull();
+    }
+  });
+
+  it('warmRead が無ければ送らない（既定）', async () => {
+    const fake = createFakeApi({ instruments: [US30] });
+    await opened(fake);
+    expect(posts(fake, PREPARE)).toHaveLength(0);
+  });
+});

@@ -1,5 +1,5 @@
 // 取引の詳細（Issue #9 契約 U-2。設計書 7.5・9.2、ADR-0006 決定 4）: 判定・理由のすべて・R・損益（円）・リスク（%）、
-// エントリー時と決済時のチャートを並べて各枠の時間足を添え、記録した欄を出す。[直す]・[消す]（確認を挟まない。[元に戻す] は
+// 判定の枠の中（理由の下）に 3 つのタップの答えの札（#34）、エントリー時と決済時のチャートを並べて各枠の時間足を添え、記録した欄を「すべての欄」に畳んで出す。[直す]・[消す]（確認を挟まない。[元に戻す] は
 // アプリの殻のトースト。ADR-0007）。無い ID・ほかの利用者の取引・消した印の取引は「この取引は見つかりません」と一覧へのリンク。
 // チャートは API から読んだバイト列を canvas に描く（object URL・data URL・img を使わない。CSP を広げない）。
 // 見出しは取引が読めたら「銘柄 · L / S」と決済の日時（読めるまで・見つからないときは「取引の詳細」。h1 の要素は同じなので
@@ -19,7 +19,14 @@ import { Link, NavigatorContext } from '../lib/router';
 import { titleOf } from '../lib/routes';
 import { browserCodec } from '../lib/statement-image';
 import { createTradeDetailController, type DetailState } from '../lib/trade-detail-controller';
-import { chartSlots, detailHeading, recordFields, shortLabel } from '../lib/trade-view';
+import {
+  chartSlots,
+  detailHeading,
+  recordFields,
+  shortLabel,
+  tapAnswers,
+  timeframeNote,
+} from '../lib/trade-view';
 import { LoadState } from './Trades';
 
 /** 「この取引は見つかりません」と一覧へのリンク（詳細・直すで同じ。V4・KEEP-3） */
@@ -111,7 +118,7 @@ export interface TradeDetailViewProps {
   readonly onRelogin: () => void;
 }
 
-/** 判定の枠・チャートの枠・記録した欄・[直す] / [消す]（hook を持たない） */
+/** 判定の枠（3 つのタップの答えの札を含む）・チャートの枠・すべての欄（畳む）・[直す] / [消す]（hook を持たない） */
 export function TradeDetailView(p: TradeDetailViewProps) {
   const { state } = p;
   const plain = <PageHeader title="取引の詳細" />;
@@ -172,22 +179,28 @@ function DetailBody(p: TradeDetailViewProps) {
   const block = editBlock(t);
   return (
     <div class="detail">
-      <Verdict summary={state.summary} side={r.side} titleId="detail-verdict-title" />
+      <Verdict
+        summary={state.summary}
+        side={r.side}
+        titleId="detail-verdict-title"
+        taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
+      />
       {block !== null ? <p class="detail__note">{block}</p> : null}
       <ChartsView {...p} />
-      <section class="card section" aria-labelledby="detail-fields-title">
-        <h2 class="section__title" id="detail-fields-title">
-          記録した欄
-        </h2>
-        <dl class="fields">
-          {recordFields(t, state.instrumentName, state.summary.judgment).map((f) => (
-            <div key={f.label} class="fields__row">
-              <dt class="fields__label">{f.label}</dt>
-              <dd class="fields__value">{f.value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
+      {/* 記録した欄はすべて「すべての欄」に畳む（既定で閉じる。記録する画面の「ほかの欄（任意）」と同じ部品。#34） */}
+      <details class="card more">
+        <summary class="more__summary">すべての欄</summary>
+        <div class="more__body">
+          <dl class="fields">
+            {recordFields(t, state.instrumentName, state.summary.judgment).map((f) => (
+              <div key={f.label} class="fields__row">
+                <dt class="fields__label">{f.label}</dt>
+                <dd class="fields__value">{f.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </details>
     </div>
   );
 }

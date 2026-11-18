@@ -7,11 +7,12 @@ import { badgeModel } from '../lib/badge';
 import { formatPct } from '../lib/format';
 import { reasonText } from '../lib/reasons';
 import type { Preview, Summary } from '../lib/record-form';
-import { MISSING } from '../lib/trade-view';
+import { MISSING, OFF_PLAN_TEXT, TAPS_LABEL, type TapAnswer } from '../lib/trade-view';
 import { verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
 import { JudgeBadge } from './JudgeBadge';
 import { RNum, YenNum } from './Num';
+import { Ruler } from './Ruler';
 
 export const VERDICT_TITLE_ID = 'record-verdict-title';
 
@@ -45,6 +46,35 @@ export interface VerdictProps {
   readonly titleId?: string;
   /** 直す前の判定（直す画面だけ。直す前 → 直した後が分かるように、判定の行の上に出す） */
   readonly before?: Summary;
+  /** 3 つのタップの答え（取引の詳細だけ。理由の下に札で並べる。#34） */
+  readonly taps?: { readonly items: readonly TapAnswer[]; readonly note: string | null };
+}
+
+/** 3 つのタップの答えの札（外れた札は形の印・「外れ」の文字・読み上げの「計画から外れた」） */
+function Taps({ items, note }: NonNullable<VerdictProps['taps']>) {
+  return (
+    <>
+      <ul class="taps" aria-label={TAPS_LABEL}>
+        {items.map((a) => (
+          <li key={a.label} class={a.offPlan ? 'taps__item taps__item--off' : 'taps__item'}>
+            {a.offPlan ? (
+              <>
+                <Icon name="offPlan" />
+                <span class="taps__off" aria-hidden="true">
+                  外れ
+                </span>
+              </>
+            ) : null}
+            <span>
+              {a.label}: {a.value}
+            </span>
+            {a.offPlan ? <span class="sr-only">{OFF_PLAN_TEXT}</span> : null}
+          </li>
+        ))}
+      </ul>
+      {note ? <p class="verdict__aside">{note}</p> : null}
+    </>
+  );
 }
 
 /** 値が出ない場所（「—」。読み上げには「出ません」。理由は枠の下の注記に 1 回だけ） */
@@ -136,7 +166,8 @@ export function Verdict(v: VerdictProps) {
           {t}
         </p>
       ))}
-      {/* #34 の部品（LC の物差しと「計画 → 実行」の梯子）はここ（数の後・理由の前）に 1 段で入る */}
+      {/* LC の物差し（#34。数の後・理由の前に 1 段。判定が出てから） */}
+      {!pending && v.summary.ruler ? <Ruler ruler={v.summary.ruler} /> : null}
       {n.reasons.length > 0 ? (
         <ul class="reasons" aria-label="理由">
           {n.reasons.map((r, i) => (
@@ -151,6 +182,7 @@ export function Verdict(v: VerdictProps) {
           {reasonText(r, v.side)}
         </p>
       ))}
+      {v.taps ? <Taps {...v.taps} /> : null}
       {hint ? (
         <p class="verdict__hint" id={v.hintId}>
           {hint}

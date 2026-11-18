@@ -26,6 +26,8 @@ const FILES = [
   '../../ui/src/pages/Trades.tsx',
   '../../ui/src/pages/TradeDetail.tsx',
   '../../ui/src/pages/TradeEdit.tsx',
+  '../../ui/src/lib/ruler-view.ts',
+  '../../ui/src/components/Ruler.tsx',
 ];
 
 const DEVICE_STORAGE =

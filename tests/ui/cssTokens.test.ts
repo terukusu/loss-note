@@ -448,6 +448,35 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(bad).toEqual([]);
   });
 
+  it('物差しの CSS は文字・線・段のトークンだけ（新しい色を足さない。Issue #34 AC-5）', () => {
+    const allowed =
+      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|bg|line))\)|currentColor|none|transparent)$/;
+    let seen = 0;
+    const bad: string[] = [];
+    for (const b of blocks(stripComments(files[COMPONENTS] ?? ''))) {
+      if (!/\.ruler|\.taps/.test(b.selector)) continue;
+      for (const [name, value] of decls(b.body)) {
+        if (
+          !['color', 'fill', 'stroke', 'background', 'background-color', 'border-color'].includes(
+            name,
+          )
+        ) {
+          continue;
+        }
+        seen++;
+        if (!allowed.test(value)) bad.push(`${b.selector} { ${name}: ${value} }`);
+      }
+      // 面の色・四辺の線を持たない（枠に数えない。入れ子は判定の枠 → 部品の 2 段）
+      for (const k of ['border', 'background', 'box-shadow']) {
+        if (/\.ruler(?![\w-])|\.ruler__track|\.ruler__plot/.test(b.selector)) {
+          expect(decls(b.body).has(k), `${b.selector} の ${k}`).toBe(false);
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(5);
+    expect(bad).toEqual([]);
+  });
+
   it('CSS は外のものを読まない（url() も @import も書かない）', () => {
     for (const [path, raw] of Object.entries(files)) {
       const css = stripComments(raw);

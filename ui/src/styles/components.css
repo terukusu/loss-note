@@ -924,6 +924,175 @@
   background: var(--ink-3);
 }
 
+/* LC の物差し（#34）。判定の枠の中の 1 段。面の色・四辺の線を持たない（入れ子は判定の枠 → 部品の 2 段のまま）。
+   色は文字・線のトークンだけ（判定の段の色を足さない。点の種類は形、区間は太さと線の種類で見分ける。P2・P5）。
+   幅は数の段に揃えて 560px まで（損失の取引で右半分が罫線のように伸びない） */
+.ruler {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-width: 560px;
+}
+
+/* 端の点・範囲の外の山形が切れない余白 */
+.ruler__track {
+  padding-inline: var(--sp-4);
+}
+
+/* 線の上側に動かした LC の ▽、線の下に目盛りの文字（Ruler.tsx の LINE_Y・TICK_Y と合わせる） */
+.ruler__plot {
+  display: block;
+  width: 100%;
+  height: 48px;
+  overflow: visible;
+}
+
+.ruler__line {
+  stroke: var(--line-2);
+  stroke-width: 2;
+}
+
+/* 決めた LC〜動かした LC（LC を広げた分。破線の太線） */
+.ruler__widen {
+  stroke: var(--ink-2);
+  stroke-width: 4;
+  stroke-dasharray: 3 3;
+}
+
+/* 決済が決めた LC を越えた区間（実線の太線。広げた区間の上に重ねる） */
+.ruler__over {
+  stroke: var(--ink);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.ruler__mark {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
+.ruler__mark--filled {
+  fill: var(--ink);
+  stroke: var(--ink);
+}
+
+/* 動かした LC はいちばん大事な事実なので本文の色 */
+.ruler__mark--triangleDown {
+  stroke: var(--ink);
+}
+
+/* 決めた LC（−1R の線）は計画の基準なので本文の色で太く */
+.ruler__mark--bar {
+  stroke: var(--ink);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+/* 入る前に決めていない LC は計画の線ではない（破線・薄い色。計画どおりの勝ちと見分ける） */
+.ruler__mark--late {
+  stroke: var(--ink-3);
+  stroke-dasharray: 2 3;
+  stroke-linecap: butt;
+}
+
+.ruler__beyond {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ruler__tick {
+  fill: var(--ink-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 名前と価格の 1 行（左 = 損の側から。狭い幅では折り返す）。R は読み上げだけ（目盛りと大きな R で見える） */
+.ruler__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  padding-inline: var(--sp-1);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.ruler__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.ruler__item--exit,
+.ruler__item--movedLc {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.ruler__key {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  overflow: visible;
+}
+
+.ruler__key .ruler__mark {
+  stroke-width: 1.75;
+}
+
+.ruler__over-text {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* 詳細の 3 つのタップの答え（#34）。判定の枠の中、理由の下に区切り線を引いて小さな札で並べる（狭い幅では折り返す）。
+   外れた札は枠を本文の色で太くし、形の印と「外れ」の文字を頭に付ける（判定の記号 ○ △ × − を流用しない） */
+.taps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.taps__item {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-pill);
+}
+
+.taps__item--off {
+  border: 1.5px solid var(--ink);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.taps__off {
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+}
+
+.taps__item .icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.2;
+}
+
 /* 任意の欄の畳み */
 .more__summary {
   display: flex;

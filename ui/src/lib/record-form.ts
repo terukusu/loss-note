@@ -20,6 +20,7 @@ import type {
   TradeSnapshot,
 } from '../../../core/record';
 import { toTradeInput } from '../../../core/record';
+import { type Ruler, rulerOf } from '../../../core/ruler';
 import type {
   ExitOrderType,
   ExitReason,
@@ -149,6 +150,8 @@ export interface Summary {
   readonly riskNote?: string;
   /** 保存した記録から計算できない（検査を通らない形。取り込みなど）。R・リスクの場所に RISK_NOTE.invalid を出す */
   readonly invalid?: true;
+  /** LC の物差し（#34。判定の枠の数の後に出す。LC なし・買い増し・計算できないときは無し） */
+  readonly ruler?: Ruler;
 }
 
 export interface Preview extends Summary {
@@ -293,7 +296,8 @@ export function lengthOf(s: string): number {
 /** 保存した取引（またはその形に写した下書き）の判定・数 */
 export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Summary {
   const noLc = stored.record.lc === undefined;
-  const ev = evaluateTrade(toTradeInput(stored));
+  const input = toTradeInput(stored);
+  const ev = evaluateTrade(input);
   if (!ev.ok) return { noLc, invalid: true, riskNote: RISK_NOTE.invalid };
   const riskNote =
     ev.riskPct !== undefined
@@ -303,6 +307,7 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
         : stored.snapshot.capitalYen === null
           ? RISK_NOTE.noCapital
           : RISK_NOTE.noOneR;
+  const ruler = rulerOf(input, stored.record.tp);
   return {
     noLc,
     ...(ev.r === undefined ? {} : { r: ev.r }),
@@ -311,6 +316,7 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
     ...(ev.pnlYen === undefined ? {} : { pnlYen: ev.pnlYen }),
     ...(ev.judgment === undefined ? {} : { judgment: ev.judgment }),
     ...(riskNote === undefined ? {} : { riskNote }),
+    ...(ruler === undefined ? {} : { ruler }),
   };
 }
 
@@ -553,7 +559,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       });
       preview = { ...summarize(asStored(body)), showGapSlip };
     } else {
-      // タップの前でも R・1R・リスクは出す（タップに依存しない。判定・理由は出さない）
+      // タップの前でも R・1R・リスクは出す（タップに依存しない。判定・理由と LC の物差しは出さない）
       const s = summarize(
         asStored(
           build(side, entry, exit, quantity, xt, {
@@ -564,7 +570,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
           }),
         ),
       );
-      const { judgment: _hidden, ...nums } = s;
+      const { judgment: _hidden, ruler: _notYet, ...nums } = s;
       preview = { ...nums, showGapSlip: false };
     }
   }

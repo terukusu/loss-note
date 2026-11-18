@@ -13,7 +13,9 @@ import {
   recordFields,
   shortLabel,
   sortTrades,
+  tapAnswers,
   timeframeChangeText,
+  timeframeNote,
   tradeRow,
   UNKNOWN_INSTRUMENT,
   visibleTrades,
@@ -289,5 +291,90 @@ describe('時間足を変えたかの表示（申告とチャートを並べ、�
   it('チャートが 2 枚そろっていなければ申告だけ（D2・E2）', () => {
     expect(timeframeChangeText(D2, summarize(D2).judgment)).toBe('変えず');
     expect(timeframeChangeText(E2, summarize(E2).judgment)).toBe('変えず');
+  });
+});
+
+describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）', () => {
+  it('D1: 決めていた / 下げた（99.2）（外れ）/ 時間足はチャートから判定に効いたので外れ', () => {
+    expect(tapAnswers(D1, summarize(D1).judgment)).toEqual([
+      { label: 'LC を入る前に', value: '決めていた', offPlan: false },
+      { label: 'LC', value: '下げた（99.2）', offPlan: true },
+      { label: '時間足', value: '4 時間足 → 日足', offPlan: true },
+    ]);
+  });
+
+  it('L1: すべて計画どおり（印なし）', () => {
+    expect(tapAnswers(L1, summarize(L1).judgment).map((a) => a.offPlan)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  it('決めていない・長い足へは外れ、詰めた・短い足へは外れない', () => {
+    const t = stored('tap', {
+      lcDecidedBeforeEntry: false,
+      lcMove: { kind: 'tightened' },
+      timeframeChange: 'longer',
+    });
+    expect(tapAnswers(t, summarize(t).judgment)).toEqual([
+      { label: 'LC を入る前に', value: '決めていない', offPlan: true },
+      { label: 'LC', value: '詰めた', offPlan: false },
+      { label: '時間足', value: '長い足へ', offPlan: true },
+    ]);
+    const u = stored('tap2', { timeframeChange: 'shorter' });
+    expect(tapAnswers(u, summarize(u).judgment).at(-1)).toEqual({
+      label: '時間足',
+      value: '短い足へ',
+      offPlan: false,
+    });
+  });
+
+  it('S で上げた・後の値なしは「上げた」（括弧なし）', () => {
+    const t = stored('tap3', {
+      side: 'S',
+      lc: 150.5,
+      entries: [{ price: 150, quantity: 10_000 }],
+      lcMove: { kind: 'widened' },
+      exit: { ...L1.record.exit, price: 150.8 },
+    });
+    expect(tapAnswers(t)[1]).toEqual({ label: 'LC', value: '上げた', offPlan: true });
+  });
+
+  it('L3（LC なし）: 時間足だけ（C37）', () => {
+    expect(tapAnswers(L3, summarize(L3).judgment).map((a) => a.label)).toEqual(['時間足']);
+  });
+
+  it('LC の答えは「すべての欄」の同じ答えと同じ文言、時間足はチャートから効かなければ答えのまま', () => {
+    for (const t of [D1, D2, L1, L3, E2]) {
+      const j = summarize(t).judgment;
+      const f = Object.fromEntries(recordFields(t, 'US30', j).map((r) => [r.label, r.value]));
+      const a = Object.fromEntries(tapAnswers(t, j).map((x) => [x.label, x.value]));
+      if (t.record.lc !== undefined) {
+        expect(a.LC).toBe(f['LC を動かしたか']);
+        expect(a['LC を入る前に']).toBe(f['LC を入る前に決めていたか']);
+      }
+    }
+    expect(tapAnswers(L1, summarize(L1).judgment).at(-1)?.value).toBe('変えず');
+  });
+
+  it('timeframeNote: あなたの答えとチャートが食い違うときだけ 1 行（D1）。そろう・チャートが足りないときは null', () => {
+    expect(timeframeNote(D1)).toBe('あなたの答えは「変えず」、チャートは 4 時間足 → 日足');
+    const agree = stored(
+      'tfa',
+      { ...D1.record, timeframeChange: 'longer' },
+      { charts: D1.charts ?? {} },
+    );
+    expect(timeframeNote(agree)).toBeNull();
+    const denied = stored(
+      'tfb',
+      { ...D1.record, timeframeChange: 'longer', exitChartTimeframe: '4h' },
+      { charts: D1.charts ?? {} },
+    );
+    expect(timeframeNote(denied)).toBe(
+      'あなたの答えは「長い足へ」、チャートは 4 時間足 → 4 時間足',
+    );
+    expect(timeframeNote(D2)).toBeNull();
+    expect(timeframeNote(E2)).toBeNull();
   });
 });

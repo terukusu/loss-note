@@ -13,7 +13,7 @@
 // （枠を選んで貼る → チャート・枠の外に貼る → 明細 / 貼る → 保存 → 離れるの後に端末の保存先に画像が無い / 2 枚と明細で
 // 打つ 2・選ぶ 3 → 1 要求の multipart で保存）を流す。チャートの画像もページの中の canvas で作る（架空）。
 // 取引の一覧・詳細・直す（Issue #9）は、取引のある一覧・ホーム・詳細（チャート 2 枚）・直すを同じ幅とテーマで測り
-// （トーストの出た一覧も）、手順 T-L4・T-H1・T-D1・T-D2・T-E1・T-E2・T-X1・T-X2（例の表の L4・H1・D1・D2・E1・E2・X1・X2）を流す。
+// （トーストの出た一覧も）、手順 T-L4・T-H1・T-D1・T-D2・T-D3・T-E1・T-E2・T-X1・T-X2（例の表の L4・H1・D1・D2・E1・E2・X1・X2 と #34 の物差し）を流す。
 // 例の取引とチャートの画像（このスクリプトが作る小さな PNG）はすべて架空。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
@@ -98,6 +98,10 @@ const PAGES = [
   { path: '/trades/no-such-trade', h1: '取引の詳細' },
   { path: '/trades/x-d1', h1: 'US30 · L', wait: 'canvas.chartview__canvas >> nth=1' },
   { path: '/trades/x-e1/edit', h1: '取引を直す', wait: '#edit-submit' },
+  // Issue #34: 物差しの場面（危ない勝ちで LC を下げていた・TP を入れた・ショート）
+  { path: '/trades/x-r1', h1: 'US30 · L', wait: '.ruler__plot' },
+  { path: '/trades/x-r2', h1: 'US30 · L', wait: '.ruler__plot' },
+  { path: '/trades/x-r3', h1: 'US30 · S', wait: '.ruler__plot' },
   { path: '/settings', h1: '設定' },
   { path: '/dev/parts', h1: '部品の見本' },
 ];
@@ -379,7 +383,34 @@ const TX_E2 = exampleTrade('x-e2', 1700000000007, {
   entryChartTimeframe: '4h',
   exitChartTimeframe: '1d',
 });
-const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2];
+/** Issue #34 の撮影の場面（物差し）: 危ない勝ちで LC を下げていた（L）・TP を入れた（L）・ショートで LC を上げた。架空の値。
+ * 決済の時刻は一覧・ホームの並びの後ろ（既存の手順の件数・並びを変えない） */
+const rulerExit = (days, price, reason = 'other') => ({
+  time: T_1110 - days * DAY_MS,
+  price,
+  orderType: 'unknown',
+  reason,
+  gapSlip: 'unanswered',
+});
+const TX_R1 = exampleTrade('x-r1', 1700000000011, {
+  lcMove: { kind: 'widened', after: 99.2 },
+  exit: rulerExit(20, 100.75),
+  statementPnlYen: 7500,
+});
+const TX_R2 = exampleTrade('x-r2', 1700000000012, {
+  tp: 101,
+  exit: rulerExit(21, 101, 'tp'),
+  statementPnlYen: 10000,
+});
+const TX_R3 = exampleTrade('x-r3', 1700000000013, {
+  side: 'S',
+  lc: 150.5,
+  entries: [{ price: 150, quantity: 10000 }],
+  lcMove: { kind: 'widened', after: 150.8 },
+  exit: rulerExit(22, 150.8),
+  statementPnlYen: -8000,
+});
+const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2, TX_R1, TX_R2, TX_R3];
 /** H1: 決済の時刻の違う 7 件（新しい方から 2 件目が危ない勝ち = L3 の形） */
 const TX_H1 = Array.from({ length: 7 }, (_, i) => {
   const base = i === 1 ? TX_L3 : TX_L1;
@@ -3229,6 +3260,80 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return '決済時の枠は「チャートなし」（GET を送らない）、理由に時間足を変えたは出ない';
+  });
+
+  // Issue #34: LC の物差し（AC-4）・3 つのタップの答え（AC-7）・「すべての欄」の畳み（AC-8）。x-d1 は例の表 E2 と同じ形
+  // （下げた後 99.2・決済 99.2）で、チャートからの時間足（4 時間足 → 日足）が判定に効く
+  await check('T-D3', async () => {
+    const { c, p, errors } = await recordContext();
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades/x-d1`);
+      await waitReady(p, 'US30 · L');
+      const list = p.locator('ul[aria-label="LC の物差し"]');
+      await list.waitFor();
+      expectEq(
+        (await list.locator('li').allTextContents()).join(' / '),
+        '動かした LC 99.2（−1.6R） / 決済 99.2（−1.6R） / 決めた LC 99.5（−1.0R） / イン 100 / LC を 0.6R 越えて決済',
+        '物差しの一覧',
+      );
+      expectEq(
+        await p.locator('.verdict svg.ruler__plot').getAttribute('aria-hidden'),
+        'true',
+        '物差しの図の aria-hidden',
+      );
+      // 判定の枠の中で、数の段の後・理由の前
+      const order = await p
+        .locator('.verdict')
+        .evaluate((v) =>
+          [...v.children]
+            .map((e) => e.className)
+            .filter((c) => /verdict__stats|^ruler$|^reasons$|^taps$/.test(c)),
+        );
+      expectEq(order.join(' '), 'verdict__stats ruler reasons taps', '判定の枠の中の順');
+      // 動かした LC〜決めた LC の破線の太線と、越えた区間の実線の太線。目盛りは −1R・0・+1R
+      expectEq(await p.locator('.verdict .ruler__widen').count(), 1, '広げた区間');
+      expectEq(await p.locator('.verdict .ruler__over').count(), 1, '越えた区間');
+      expectEq(
+        (await p.locator('.verdict .ruler__tick').allTextContents()).join(' '),
+        '−1R 0 +1R',
+        '目盛り',
+      );
+      const rulerH = await p
+        .locator('.verdict .ruler')
+        .evaluate((e) => e.getBoundingClientRect().height);
+      if (rulerH > 120) throw new Error(`物差しの段の高さ ${rulerH}px（120px 以下）`);
+      // 判定の枠の中、理由の下に 3 つのタップの答えの札
+      expectEq(
+        await p.locator('.verdict ul.taps').getAttribute('aria-label'),
+        '3 つのタップの答え',
+        '札の一覧の名前',
+      );
+      const off = await p.locator('.verdict ul.taps li.taps__item--off').allTextContents();
+      expectEq(
+        off.join(' / '),
+        '外れLC: 下げた（99.2）計画から外れた / 外れ時間足: 4 時間足 → 日足計画から外れた',
+        '外れた答え',
+      );
+      const note = await p.locator('.verdict').textContent();
+      if (!note?.includes('あなたの答えは「変えず」、チャートは 4 時間足 → 日足'))
+        throw new Error('時間足の食い違いの 1 行が無い');
+      // 「すべての欄」は閉じていて、押すと開く
+      const more = p.locator('details.more');
+      expectEq(await more.getAttribute('open'), null, '既定で閉じる');
+      expectEq((await more.locator('summary').textContent())?.trim(), 'すべての欄', '見出し');
+      if (await more.locator('.fields__row').first().isVisible())
+        throw new Error('閉じているのに行が見える');
+      await more.locator('summary').click();
+      await more.locator('.fields__row').first().waitFor({ state: 'visible' });
+      const labels = await more.locator('.fields__label').allTextContents();
+      if (labels[0] !== '銘柄' || !labels.includes('時間足を変えたか'))
+        throw new Error(`すべての欄: ${labels.join(' / ')}`);
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `物差しの一覧 5 行・図は読み上げから外す・数の段 → 物差し → 理由 → 札、広げた区間・越えた区間・目盛り、札の外れは 2 つ、「すべての欄」は閉じて開く（物差しの段の高さ ${Math.round(rulerH)}px @360）`;
+    } finally {
+      await c.close();
+    }
   });
 
   await check('T-E1', async () => {

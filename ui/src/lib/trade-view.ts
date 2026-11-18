@@ -4,6 +4,7 @@
 // 並びは API の trade_sort_key と同じ（決済の時刻の新しい順 → 作った時刻の新しい順 → ID の昇順）
 import type { Grade, Judgment } from '../../../core/judge';
 import type { InstrumentRecord, StoredTrade } from '../../../core/record';
+import { isLongerTimeframe } from '../../../core/trade';
 import { type BadgeModel, badgeModel } from './badge';
 import { CHART_SLOT_TEXT, CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
 import { formatDate, formatDateTime } from './datetime';
@@ -175,12 +176,84 @@ const EXIT_REASON_TEXT = {
 const LC_BASIS_TEXT = { chart: 'チャートの根拠', amount: '金額から' } as const;
 const GAP_SLIP_TEXT = { yes: 'はい', no: 'いいえ', unanswered: '' } as const;
 
+/** LC を動かしたかの答え（そのまま / 詰めた / 下げた（99.2）。S は上げた） */
+function lcMoveText(t: StoredTrade): string {
+  const r = t.record;
+  const m = r.lcMove;
+  return m.kind === 'none'
+    ? 'そのまま'
+    : m.kind === 'tightened'
+      ? '詰めた'
+      : `${widenVerb(r.side)}${m.after === undefined ? '' : `（${formatPrice(m.after)}）`}`;
+}
+
+export interface TapAnswer {
+  readonly label: string;
+  readonly value: string;
+  /** 計画から外れた答え（決めていない・下げた / 上げた・長い足へ。時間足はチャートから判定に効いたときも） */
+  readonly offPlan: boolean;
+}
+
+/** 3 つのタップの答えの一覧の名前（読み上げ） */
+export const TAPS_LABEL = '3 つのタップの答え';
+/** 外れた答えの読み上げ */
+export const OFF_PLAN_TEXT = '計画から外れた';
+
+/**
+ * 詳細の判定の枠の中に札で並べる 3 つのタップの答え（Issue #34 ルール 6）。LC が無い取引は時間足だけ（C37）。
+ * 時間足の印は、答えが「長い足へ」か、チャート（エントリー時と決済時の時間足）から判定に効いた（理由に
+ * 「時間足を変えた（…・チャートから）」が出る）とき。チャートから効いたときの札の値はチャートの足（例 4 時間足 → 日足）で、
+ * あなたの答えとの食い違いは timeframeNote の 1 行で添える
+ */
+export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAnswer[] {
+  const r = t.record;
+  const out: TapAnswer[] = [];
+  if (r.lc !== undefined) {
+    out.push({
+      label: 'LC を入る前に',
+      value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
+      offPlan: !r.lcDecidedBeforeEntry,
+    });
+    out.push({ label: 'LC', value: lcMoveText(t), offPlan: r.lcMove.kind === 'widened' });
+  }
+  const reason = judgment?.reasons.find((x) => x.kind === 'timeframeLonger');
+  const a = r.entryChartTimeframe;
+  const b = r.exitChartTimeframe;
+  const fromChart =
+    reason?.kind === 'timeframeLonger' &&
+    reason.source === 'chart' &&
+    a !== undefined &&
+    b !== undefined;
+  out.push({
+    label: '時間足',
+    value: fromChart
+      ? `${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`
+      : TIMEFRAME_CHANGE_TEXT[r.timeframeChange],
+    offPlan: r.timeframeChange === 'longer' || reason !== undefined,
+  });
+  return out;
+}
+
+/**
+ * 時間足のあなたの答えと、チャートの時間足が食い違うときの 1 行（例「あなたの答えは「変えず」、チャートは 4 時間足 → 日足」）。
+ * エントリー時と決済時のチャートと時間足がそろっていなければ null
+ */
+export function timeframeNote(t: StoredTrade): string | null {
+  const r = t.record;
+  const a = r.entryChartTimeframe;
+  const b = r.exitChartTimeframe;
+  const hasChart = t.charts?.entry !== undefined && t.charts?.exit !== undefined;
+  if (!hasChart || a === undefined || b === undefined) return null;
+  if ((r.timeframeChange === 'longer') === isLongerTimeframe(a, b)) return null;
+  return `あなたの答えは「${TIMEFRAME_CHANGE_TEXT[r.timeframeChange]}」、チャートは ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`;
+}
+
 export interface FieldRow {
   readonly label: string;
   readonly value: string;
 }
 
-/** 詳細の「記録した欄」（ラベルと値。空の任意の欄は出さない）。judgment は時間足の行に、判定に使った方の印を付けるため */
+/** 詳細の「すべての欄」（#34 までの「記録した欄」。ラベルと値。空の任意の欄は出さない）。judgment は時間足の行に、判定に使った方の印を付けるため */
 export function recordFields(
   t: StoredTrade,
   instrumentName: string,
@@ -205,14 +278,7 @@ export function recordFields(
       label: 'LC を入る前に決めていたか',
       value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
     });
-    const m = r.lcMove;
-    const moved =
-      m.kind === 'none'
-        ? 'そのまま'
-        : m.kind === 'tightened'
-          ? '詰めた'
-          : `${widenVerb(r.side)}${m.after === undefined ? '' : `（${formatPrice(m.after)}）`}`;
-    rows.push({ label: 'LC を動かしたか', value: moved });
+    rows.push({ label: 'LC を動かしたか', value: lcMoveText(t) });
   }
   rows.push({ label: '時間足を変えたか', value: timeframeChangeText(t, judgment) });
   if (r.statementPnlYen !== undefined) {

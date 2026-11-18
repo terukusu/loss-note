@@ -3,6 +3,7 @@
 // ブラウザが持つ）。選ばれたものは面の濃さ・強調の枠・文字の前のチェックの記号の 3 つで表す（色だけに頼らない。Issue #33）。
 // radio は項目の全面に透明で重ね、当たり = 項目の大きさ（44×44px 以上）。項目はそれぞれが入力の部品の枠を持つ
 // （セグメント全体の枠は持たない。カードの中で枠が 3 段にならない）
+import type { ComponentChildren } from 'preact';
 import { Icon, type IconName } from './Icon';
 
 export interface SegmentOption<V extends string> {
@@ -39,6 +40,8 @@ export interface SegmentProps<V extends string> {
   readonly grow?: number | null | undefined;
   /** 見出しの右の 1 行（「選択中: 〈名前〉」。1 行・省略・全文は title）。読み上げは radio の名前で足りるので外す */
   readonly note?: string | null | undefined;
+  /** 見出しの横の「i」（言葉の説明の InfoTip。#57）。radiogroup の外（見出しの段）に置き、説明は段の下に開く */
+  readonly info?: ComponentChildren;
 }
 
 export function Segment<V extends string>(p: SegmentProps<V>) {
@@ -58,9 +61,10 @@ export function Segment<V extends string>(p: SegmentProps<V>) {
   const fit = p.truncate === true && p.grow !== undefined && p.grow !== null;
   return (
     <div class="field">
-      {p.mark || note ? (
+      {p.mark || note || p.info ? (
         <div class="field__head">
           {label}
+          {p.info ?? null}
           {p.mark ? (
             <span id={markId} class="field__mark">
               {p.mark}

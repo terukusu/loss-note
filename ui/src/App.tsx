@@ -15,6 +15,7 @@ import { hrefOf, type Route, titleOf } from './lib/routes';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
 import { createTradesCache, TradesCacheContext } from './lib/trades-cache';
 import { Forbidden } from './pages/Forbidden';
+import { Glossary } from './pages/Glossary';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Record } from './pages/Record';
@@ -74,6 +75,8 @@ export function Page(p: PageProps) {
           signOutError={p.signOutError ?? null}
         />
       );
+    case 'glossary':
+      return <Glossary />;
     case 'parts':
       return Parts ? <Parts /> : <Loading />;
   }

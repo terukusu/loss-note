@@ -309,9 +309,9 @@ describe('時間足を変えたかの表示（申告とチャートを並べ、�
 describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）', () => {
   it('D1: 決めていた / 下げた（99.2）（外れ）/ 時間足はチャートから判定に効いたので外れ', () => {
     expect(tapAnswers(D1, summarize(D1).judgment)).toEqual([
-      { label: 'LC を入る前に', value: '決めていた', offPlan: false },
-      { label: 'LC', value: '下げた（99.2）', offPlan: true },
-      { label: '時間足', value: '4 時間足 → 日足', offPlan: true },
+      { label: 'LC を入る前に', value: '決めていた', offPlan: false, term: 'lcDecided' },
+      { label: 'LC', value: '下げた（99.2）', offPlan: true, term: 'lcMove' },
+      { label: '時間足', value: '4 時間足 → 日足', offPlan: true, term: 'timeframeChange' },
     ]);
   });
 
@@ -330,15 +330,16 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
       timeframeChange: 'longer',
     });
     expect(tapAnswers(t, summarize(t).judgment)).toEqual([
-      { label: 'LC を入る前に', value: '決めていない', offPlan: true },
-      { label: 'LC', value: '詰めた', offPlan: false },
-      { label: '時間足', value: '長い足へ', offPlan: true },
+      { label: 'LC を入る前に', value: '決めていない', offPlan: true, term: 'lcDecided' },
+      { label: 'LC', value: '詰めた', offPlan: false, term: 'lcMove' },
+      { label: '時間足', value: '長い足へ', offPlan: true, term: 'timeframeChange' },
     ]);
     const u = stored('tap2', { timeframeChange: 'shorter' });
     expect(tapAnswers(u, summarize(u).judgment).at(-1)).toEqual({
       label: '時間足',
       value: '短い足へ',
       offPlan: false,
+      term: 'timeframeChange',
     });
   });
 
@@ -350,7 +351,12 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
       lcMove: { kind: 'widened' },
       exit: { ...L1.record.exit, price: 150.8 },
     });
-    expect(tapAnswers(t)[1]).toEqual({ label: 'LC', value: '上げた', offPlan: true });
+    expect(tapAnswers(t)[1]).toEqual({
+      label: 'LC',
+      value: '上げた',
+      offPlan: true,
+      term: 'lcMove',
+    });
   });
 
   it('L3（LC なし）: 時間足だけ（C37）', () => {

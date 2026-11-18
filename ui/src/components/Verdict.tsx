@@ -10,6 +10,7 @@ import { type Preview, RISK_NOTE, type Summary } from '../lib/record-form';
 import { MISSING, OFF_PLAN_TEXT, TAPS_LABEL, type TapAnswer } from '../lib/trade-view';
 import { FX_NOT_CHECKED, sizingLine, verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
+import { InfoTip } from './InfoTip';
 import { JudgeBadge } from './JudgeBadge';
 import { MoneyNum, RNum } from './Num';
 import { Ruler } from './Ruler';
@@ -71,18 +72,22 @@ function Taps({ items, note }: NonNullable<VerdictProps['taps']>) {
       <ul class="taps" aria-label={TAPS_LABEL}>
         {items.map((a) => (
           <li key={a.label} class={a.offPlan ? 'taps__item taps__item--off' : 'taps__item'}>
-            {a.offPlan ? (
-              <>
-                <Icon name="offPlan" />
-                <span class="taps__off" aria-hidden="true">
-                  外れ
-                </span>
-              </>
-            ) : null}
-            <span>
-              {a.label}: {a.value}
+            <span class="taps__chip">
+              {a.offPlan ? (
+                <>
+                  <Icon name="offPlan" />
+                  <span class="taps__off" aria-hidden="true">
+                    外れ
+                  </span>
+                </>
+              ) : null}
+              <span>
+                {a.label}: {a.value}
+              </span>
+              {a.offPlan ? <span class="sr-only">{OFF_PLAN_TEXT}</span> : null}
             </span>
-            {a.offPlan ? <span class="sr-only">{OFF_PLAN_TEXT}</span> : null}
+            {/* 問いの説明（記録する画面と同じ「i」。札の枠の外に置く = 枠の入れ子を増やさない。#57 デザインレビュー 8） */}
+            <InfoTip term={a.term} size="sm" id={`info-tap-${a.term}`} />
           </li>
         ))}
       </ul>
@@ -133,6 +138,8 @@ export function Verdict(v: VerdictProps) {
         <h2 class="verdict__title" id={titleId} tabIndex={-1}>
           判定
         </h2>
+        {/* 判定の名前の説明（#57。見出しの横・バッジの前。箱は見出しの段の下に開く） */}
+        <InfoTip term="judgment" />
         <JudgeBadge grade={j?.grade ?? null} size="lg" />
       </div>
       {v.before ? (
@@ -149,7 +156,9 @@ export function Verdict(v: VerdictProps) {
           {n.hideRisk ? null : (
             <>
               <div class="verdict__stat">
-                <dt class="verdict__label">R</dt>
+                <dt class="verdict__label verdict__label--info">
+                  R<InfoTip term="r" size="sm" prefer="above" />
+                </dt>
                 <dd>
                   {v.summary.r !== undefined ? <RNum value={v.summary.r} size="xl" /> : <None />}
                 </dd>

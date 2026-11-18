@@ -10,6 +10,7 @@ export type Route =
   | { readonly name: 'trade'; readonly id: string }
   | { readonly name: 'tradeEdit'; readonly id: string }
   | { readonly name: 'settings' }
+  | { readonly name: 'glossary' }
   | { readonly name: 'parts' };
 
 export type RouteName = Route['name'];
@@ -28,6 +29,7 @@ const FIXED: Readonly<Record<string, Route>> = {
   '/record': { name: 'record' },
   '/trades': { name: 'trades' },
   '/settings': { name: 'settings' },
+  '/glossary': { name: 'glossary' },
 };
 
 /** パス（クエリ・ハッシュを含まない）から画面を引く。知らない URL は null */
@@ -62,6 +64,8 @@ export function hrefOf(route: Route): string {
       return `/trades/${route.id}/edit`;
     case 'settings':
       return '/settings';
+    case 'glossary':
+      return '/glossary';
     case 'parts':
       return '/dev/parts';
   }
@@ -75,9 +79,30 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   trade: '取引の詳細',
   tradeEdit: '取引を編集',
   settings: '設定',
+  glossary: '用語集',
   // 開発の時だけの画面。名前の文字列を本番のビルドに残さないため、見出しは画面の側に持つ
   parts: '開発用',
 };
+
+/**
+ * 用語集の画面の「‹ 〈来た画面〉」（#57 デザインの再レビュー 3）。?from= の値が自分の画面（用語集・ログインを除く）なら、
+ * その画面の名前。それ以外（無い・外の URL・知らない画面）は null（設定へのリンクにする）
+ */
+export function glossaryBack(
+  search: string,
+  opts: RouteOptions,
+): { readonly label: string; readonly route: Route } | null {
+  let from: string | null;
+  try {
+    from = new URLSearchParams(search).get('from');
+  } catch {
+    return null;
+  }
+  if (!from?.startsWith('/') || from.startsWith('//') || from.includes('\\')) return null;
+  const route = parseRoute(from.split(/[?#]/)[0] ?? '', opts);
+  if (!route || route.name === 'login' || route.name === 'glossary') return null;
+  return { label: NAMES[route.name], route };
+}
 
 /** document.title（読み上げ・タブ・履歴の一覧に出る） */
 export function titleOf(route: Route): string {
@@ -102,7 +127,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'list',
     current: ['trades', 'trade', 'tradeEdit'],
   },
-  { route: { name: 'settings' }, label: '設定', icon: 'settings', current: ['settings'] },
+  {
+    route: { name: 'settings' },
+    label: '設定',
+    icon: 'settings',
+    // 用語集（#76）は設定から開く
+    current: ['settings', 'glossary'],
+  },
 ];
 
 export interface Resolved {

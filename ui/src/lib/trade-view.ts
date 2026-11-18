@@ -220,6 +220,8 @@ export interface TapAnswer {
   readonly value: string;
   /** 計画から外れた答え（決めていない・下げた / 上げた・長い足へ。時間足はチャートから判定に効いたときも） */
   readonly offPlan: boolean;
+  /** 問いの説明の「i」（用語集の項目。#57 デザインレビュー 8） */
+  readonly term: 'lcDecided' | 'lcMove' | 'timeframeChange';
 }
 
 /** 3 つのタップの答えの一覧の名前（読み上げ） */
@@ -241,8 +243,14 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
       label: 'LC を入る前に',
       value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
       offPlan: !r.lcDecidedBeforeEntry,
+      term: 'lcDecided',
     });
-    out.push({ label: 'LC', value: lcMoveText(t), offPlan: r.lcMove.kind === 'widened' });
+    out.push({
+      label: 'LC',
+      value: lcMoveText(t),
+      offPlan: r.lcMove.kind === 'widened',
+      term: 'lcMove',
+    });
   }
   const reason = judgment?.reasons.find((x) => x.kind === 'timeframeLonger');
   const a = r.entryChartTimeframe;
@@ -258,6 +266,7 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
       ? `${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`
       : TIMEFRAME_CHANGE_TEXT[r.timeframeChange],
     offPlan: r.timeframeChange === 'longer' || reason !== undefined,
+    term: 'timeframeChange',
   });
   return out;
 }

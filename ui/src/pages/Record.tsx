@@ -23,6 +23,7 @@ import {
 import { ACCOUNT_FIELD_ID } from '../components/AccountField';
 import { Button } from '../components/Button';
 import { Icon } from '../components/Icon';
+import { InfoTip } from '../components/InfoTip';
 import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
 import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
@@ -300,9 +301,13 @@ export const STATEMENT_NOTICE = [
   '口座番号・氏名は切り取って貼ってください。',
 ] as const;
 
-/** 注意の「詳しく」の中（畳んでよい補足。3 つの中身は上の注意に常に出ている） */
+/** 注意の「i」の中（畳んでよい補足。3 つの中身は上の注意に常に出ている。#57） */
 export const STATEMENT_NOTICE_MORE =
-  '明細の画像は AI の提供元（Anthropic）に送り、読み取った値を欄に入れます。値は確かめてから記録してください。画像はこのアプリにも端末にも保存しません。口座番号・氏名などは、端末の写真の編集で切り取ってから貼ってください。';
+  '読み取った値は欄に入ります。確認してから記録してください。画像はこのアプリにも端末にも保存しません。';
+
+/** 注意の「i」の言葉（ボタンの名前「「明細の送り方」の説明」） */
+export const STATEMENT_INFO_LABEL = '明細の送り方';
+const STATEMENT_INFO_ID = 'record-statement-info';
 
 export function RecordView(p: RecordViewProps) {
   const { state } = p;
@@ -555,8 +560,10 @@ function StatementPanel(p: RecordViewProps) {
       <h2 class="section__title" id={STATEMENT_TITLE_ID} tabIndex={-1}>
         決済明細のスクショ
       </h2>
-      <p class="statement__notice" id={STATEMENT_NOTICE_ID}>
-        {STATEMENT_NOTICE.join('')}
+      {/* 補足は注意の文の末尾の「i」に（#57。3 つの中身は注意に常に出ている）。[スクショを選ぶ] の説明に結ぶのは文だけ */}
+      <p class="statement__notice">
+        <span id={STATEMENT_NOTICE_ID}>{STATEMENT_NOTICE.join('')}</span>
+        <InfoTip label={STATEMENT_INFO_LABEL} body={STATEMENT_NOTICE_MORE} id={STATEMENT_INFO_ID} />
       </p>
       <div class="statement__pick">
         <label class="btn btn--secondary statement__file" for={STATEMENT_FILE_ID}>
@@ -577,10 +584,6 @@ function StatementPanel(p: RecordViewProps) {
             }}
           />
         </label>
-        <details class="statement__more">
-          <summary class="statement__more-summary">詳しく</summary>
-          <p class="statement__more-body">{STATEMENT_NOTICE_MORE}</p>
-        </details>
         {/* キーの名前に頼らない言い方。指で触る端末（スマホ）では出さない（CSS の hover・pointer: fine だけで出す） */}
         <p class="field__hint statement__pastehint">PC はこの画面に貼り付けもできます。</p>
       </div>

@@ -23,6 +23,7 @@ import { notFoundState } from '../../ui/src/pages/TradeDetail';
 import { TradeEditView } from '../../ui/src/pages/TradeEdit';
 import { account } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
+import { closedInfoTip } from './helpers/info-tip';
 import { stored } from './helpers/trade-examples';
 
 const IDX: InstrumentRecord = {
@@ -376,6 +377,8 @@ function expand(v: unknown): Node[] {
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  const tip = closedInfoTip(vn);
+  if (tip) return expand(tip);
   if (vn.type === (Link as unknown)) {
     const { children, ...props } = vn.props ?? {};
     return [{ type: 'a', props, children: expand(children) }];

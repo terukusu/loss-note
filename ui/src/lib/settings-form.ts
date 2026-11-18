@@ -46,7 +46,8 @@ export const SETTINGS_MSG = {
 } as const;
 
 /** 直したときの効き方（R6・C36。口座・銘柄の両方に出す） */
-export const EFFECT_NOTE = '編集すると、これから記録する取引に効きます。記録済みの取引は変わりません';
+export const EFFECT_NOTE =
+  '編集すると、これから記録する取引に効きます。記録済みの取引は変わりません';
 
 export type ReadResult<T> =
   | { readonly ok: true; readonly value: T }

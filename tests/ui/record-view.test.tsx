@@ -873,7 +873,7 @@ describe('チャートの枠（Issue #12）', () => {
     const tree = view(stateFor(E1, NO_CAPITAL));
     const f = frames(tree);
     expect(f.map((e) => e.props['data-chart-slot'])).toEqual(['entry', 'exit']);
-    expect(text(all(tree, hasClass('section__title')))).toContain('根拠の足のチャート（任意）');
+    expect(text(all(tree, hasClass('section__title')))).toContain('チャート（任意）');
     expect(f.map((e) => text(all([e], hasClass('chart__name'))))).toEqual([
       'エントリー時',
       '決済時',
@@ -893,7 +893,7 @@ describe('チャートの枠（Issue #12）', () => {
     );
   });
 
-  it('AC-3: 時間足の欄はチャートのある枠だけ（「選ばない」+ 9 つ）。チャートが無ければ select 0', () => {
+  it('AC-3: 時間足の欄はチャートのある枠だけ（「指定なし」+ 9 つ）。チャートが無ければ select 0', () => {
     const none = view(stateFor(E1, NO_CAPITAL));
     expect(frames(none).flatMap((f) => all([f], (e) => e.type === 'select'))).toEqual([]);
     const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
@@ -914,9 +914,9 @@ describe('チャートの枠（Issue #12）', () => {
       '1w',
       '1M',
     ]);
-    expect(text(opts[0] as El)).toBe('選ばない');
+    expect(text(opts[0] as El)).toBe('指定なし');
     expect(text(opts[6] as El)).toBe('4 時間足');
-    // 欄には label、プレビューには名前、[外す]
+    // 欄には label、プレビューには名前、[削除]
     const label = all(
       [entry],
       (e) => e.type === 'label' && e.props.for === (sel[0] as El).props.id,
@@ -925,11 +925,13 @@ describe('チャートの枠（Issue #12）', () => {
     const canvas = all([entry], (e) => e.type === 'canvas')[0] as El;
     expect(canvas.props['aria-label']).toBe('エントリー時のチャートのプレビュー');
     expect(canvas.props.role).toBe('img');
-    expect(text(entry)).toContain('外す');
-    expect(all([entry], (e) => e.type === 'input' && e.props.type === 'file')).toEqual([]);
+    expect(text(entry)).toContain('削除');
+    // チャートのある枠は [チャートを選ぶ] の代わりに 1 手の [差し替え]（#89）
+    const files = all([entry], (e) => e.type === 'input' && e.props.type === 'file');
+    expect(files.map((f) => f.props['aria-label'])).toEqual(['エントリー時のチャートを差し替える']);
   });
 
-  it('時間足を選ぶ / 「選ばない」に戻す → onUpdate（空は null）。[外す] → onRemoveChart', () => {
+  it('時間足を選ぶ / 「指定なし」に戻す → onUpdate（空は null）。[削除] → onRemoveChart', () => {
     const actions: unknown[] = [];
     const removed: string[] = [];
     const tree = view(stateFor(E1, NO_CAPITAL, { charts: { exit: ready() } }), {
@@ -951,7 +953,7 @@ describe('チャートの枠（Issue #12）', () => {
       { type: 'set', field: 'exitChartTimeframe', value: null },
       { type: 'set', field: 'exitChartTimeframe', value: null },
     ]);
-    const btn = all([exit], (e) => e.type === 'button' && text(e) === '外す')[0] as El;
+    const btn = all([exit], (e) => e.type === 'button' && text(e) === '削除')[0] as El;
     (btn.props.onClick as () => void)();
     expect(removed).toEqual(['exit']);
   });
@@ -1062,10 +1064,10 @@ describe('チャートの枠（Issue #12）', () => {
     expect(saved(trade)).not.toContain('チャート');
   });
 
-  it('レビュー指摘 2: 2 つの枠の [外す]・[チャートを選ぶ] の読み上げの名前を区別する', () => {
+  it('レビュー指摘 2: 2 つの枠の [削除]・[チャートを選ぶ] の読み上げの名前を区別する', () => {
     const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
-    const removes = all(tree, (e) => e.type === 'button' && text(e) === '外す');
-    expect(removes.map((b) => b.props['aria-label'])).toEqual(['エントリー時のチャートを外す']);
+    const removes = all(tree, (e) => e.type === 'button' && text(e) === '削除');
+    expect(removes.map((b) => b.props['aria-label'])).toEqual(['エントリー時のチャートを削除']);
     const files = all(
       tree,
       (e) =>
@@ -1073,7 +1075,10 @@ describe('チャートの枠（Issue #12）', () => {
         e.props.type === 'file' &&
         String(e.props.id).startsWith('record-chart'),
     );
-    expect(files.map((f) => f.props['aria-label'])).toEqual(['決済時のチャートを選ぶ']);
+    expect(files.map((f) => f.props['aria-label'])).toEqual([
+      'エントリー時のチャートを差し替える',
+      '決済時のチャートを選ぶ',
+    ]);
     const none = view(stateFor(E1, NO_CAPITAL));
     const both = all(
       none,

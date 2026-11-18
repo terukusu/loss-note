@@ -236,7 +236,8 @@ def test_multipart_shape_is_checked(api, iid):
         ("record の重複", chart_parts(rec) + chart_parts(rec)[:1] , [{"field": "record", "kind": "duplicate"}]),
         ("record なし", chart_parts(None, {"entry": img}), [{"field": "record", "kind": "required"}]),
         ("record が JSON でない", chart_parts("{not json", {"entry": img}), [{"field": "", "kind": "json"}]),
-        ("部分が 4 つ", chart_parts(rec, {"entry": img, "exit": img}) + [("x", "y", None, None)],
+        # 部分の数の上限は記録 + 枠ごとに 1 つ（#89 で付属の 5 枠を足して 8）。超えたら tooLarge
+        ("部分が上限 + 1", chart_parts(rec, {s: img for s in charts.SLOTS}) + [("x", "y", None, None)],
          [{"field": "", "kind": "tooLarge"}]),
         ("record が 64 KiB 超", chart_parts('{"a":"' + "x" * (64 * 1024) + '"}'), [{"field": "", "kind": "tooLarge"}]),
         ("本文全体が上限超え",

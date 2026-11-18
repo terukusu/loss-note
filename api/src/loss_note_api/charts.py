@@ -6,19 +6,33 @@
 - チャートの時間足（``entryChartTimeframe`` / ``exitChartTimeframe``）は、その枠にチャートがある取引にだけ持つ（R4）
 - 置き場は ``users/{uid}/charts/{tradeId}-{slot}``（``store.py``）。場所は API が uid・取引 ID・枠から作り、
   利用者の送ったパス・名前を使わない
+- 付属のチャート（Issue #89）: 枠 ``x1``〜``x5``（最大 5 枚。エントリー時・決済時と合わせて 1 取引 7 枚まで）。
+  判定に使わない。
+  並び・時間足・一言は記録の ``extraCharts``（``[{slot, timeframe?, note?}]``。追加した順）に持ち、付属の画像のある枠と
+  ``extraCharts`` の枠は一致する（``chart_timeframe_issues``）
 """
 
 from statement_read import image
 
-SLOTS = ("entry", "exit")
-# multipart の部分の名前（作成）と、記録の時間足の欄
-PART = {"entry": "entryChart", "exit": "exitChart"}
+from loss_note_api.schema import EXTRA_CHART_NOTE_MAX, EXTRA_CHART_SLOTS
+
+MAIN_SLOTS = ("entry", "exit")
+# 付属のチャートの枠（#89。判定に使わない）
+EXTRA_SLOTS = EXTRA_CHART_SLOTS
+SLOTS = MAIN_SLOTS + EXTRA_SLOTS
+# multipart の部分の名前（作成・取引の直し）と、記録の時間足の欄（エントリー時・決済時だけ）
+PART = {s: f"{s}Chart" for s in SLOTS}
 TIMEFRAME_FIELD = {"entry": "entryChartTimeframe", "exit": "exitChartTimeframe"}
+# 取引の直しの multipart で、外す枠を 1 つずつ持つ文字の部分（#89）
+REMOVE_PART = "removeChart"
+EXTRA_FIELD = "extraCharts"
+NOTE_MAX = EXTRA_CHART_NOTE_MAX
 
 MAX_BYTES = image.MAX_BYTES
-# multipart の作成の入口だけの上限: 記録（64 KiB）+ 画像 2 枚 + 枠の分（境界・見出し）
+# multipart の入口（作成・取引の直し）だけの上限: 記録（64 KiB）+ 画像 7 枚 + 枠の分（境界・見出し）
 MAX_RECORD_PART = 64 * 1024
-MAX_MULTIPART_BYTES = MAX_RECORD_PART + 2 * MAX_BYTES + 8 * 1024
+MAX_MULTIPART_BYTES = MAX_RECORD_PART + len(SLOTS) * MAX_BYTES + 16 * 1024
+# 記録 + 枠ごとに 1 つ（画像か外す印。同じ枠に両方は 400）
 MAX_PARTS = 1 + len(SLOTS)
 
 _KIND = {"bytes": "imageBytes", "format": "imageFormat", "dimensions": "imageDimensions"}
@@ -50,12 +64,26 @@ def content_type_of(data: bytes) -> str:
 
 
 def chart_timeframe_issues(record: dict, slots: set[str] | frozenset[str]) -> list[dict]:
-    """チャートの無い枠に時間足がある → その欄の noChart"""
-    return [
+    """チャートの無い枠に時間足がある → その欄の noChart。付属: extraCharts の枠に画像が無い → extraCharts の noChart、
+    付属の画像があるのに extraCharts に無い → その部分の noEntry"""
+    issues = [
         {"field": TIMEFRAME_FIELD[s], "kind": "noChart"}
-        for s in SLOTS
+        for s in MAIN_SLOTS
         if TIMEFRAME_FIELD[s] in record and s not in slots
     ]
+    listed = {e["slot"] for e in record.get(EXTRA_FIELD) or []}
+    if any(s not in slots for s in listed):
+        issues.append({"field": EXTRA_FIELD, "kind": "noChart"})
+    issues += [{"field": PART[s], "kind": "noEntry"} for s in EXTRA_SLOTS if s in slots and s not in listed]
+    return issues
+
+
+def kept_extras(record: dict, stored: dict, slots: set[str] | frozenset[str]) -> dict:
+    """直しの本文に extraCharts が無ければ、保存済みの並び（残る枠だけ）を保つ（古い画面が黙って付属を落とさない）"""
+    if EXTRA_FIELD in record:
+        return record
+    extras = [e for e in stored.get(EXTRA_FIELD) or [] if e.get("slot") in slots]
+    return {**record, EXTRA_FIELD: extras} if extras else record
 
 
 def chart_doc(data: bytes) -> dict:
@@ -70,3 +98,26 @@ def chart_meta(doc: dict) -> dict:
 
 def charts_summary(charts: dict[str, dict]) -> dict:
     return {s: chart_meta(charts[s]) for s in SLOTS if s in charts}
+
+
+def record_after_replace(record: dict, slot: str) -> dict:
+    """枠ごとの差し替え（PUT /charts/{slot}）の後の記録: 時間足は選び直し（消す）。付属の枠は並びに無ければ末尾に足す"""
+    if slot in TIMEFRAME_FIELD:
+        return {k: v for k, v in record.items() if k != TIMEFRAME_FIELD[slot]}
+    extras = list(record.get(EXTRA_FIELD) or [])
+    for i, e in enumerate(extras):
+        if e.get("slot") == slot:
+            extras[i] = {k: v for k, v in e.items() if k != "timeframe"}
+            break
+    else:
+        extras.append({"slot": slot})
+    return {**record, EXTRA_FIELD: extras}
+
+
+def record_after_remove(record: dict, slot: str) -> dict:
+    """枠ごとの外す（DELETE /charts/{slot}）の後の記録: その枠の時間足・付属の並びの行を消す"""
+    if slot in TIMEFRAME_FIELD:
+        return {k: v for k, v in record.items() if k != TIMEFRAME_FIELD[slot]}
+    extras = [e for e in record.get(EXTRA_FIELD) or [] if e.get("slot") != slot]
+    out = {k: v for k, v in record.items() if k != EXTRA_FIELD}
+    return {**out, EXTRA_FIELD: extras} if extras else out

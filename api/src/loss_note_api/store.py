@@ -74,6 +74,8 @@ BuildTrade = Callable[[Doc, Doc], Doc]
 MutateTrade = Callable[[Doc, Doc | None, Doc | None], Doc]
 # チャートの文書 {contentType, data}。枠（"entry" / "exit"）ごと
 Charts = dict[str, Doc]
+# 取引の直しのチャートの変更（#89）: 枠 → 置く文書 or None（消す）
+ChartChanges = dict[str, Doc | None]
 # 読み取りの上限の判定: (その日の利用者の回数, 利用者の計上額 µUSD, 全体の計上額 µUSD)
 # -> "ok" / "user" / "user_spend" / "spend"（read_limits.decide）
 DecideRead = Callable[[int, int, int], str]
@@ -105,9 +107,11 @@ class Store(Protocol):
     # account_id（None = 今の口座のまま）が今の取引の口座（accountId が無ければ既定の口座）と違うときだけ、
     # 付け替え先の口座を読んで mutate に渡す
     # refresh = True（#31）なら、銘柄・口座が保存済みと同じでも今の値を読んで mutate に渡す（今の値で写し直す）
+    # charts（#89）があれば、同じトランザクションで枠ごとにチャートの文書を置く（文書）・消す（None）。
+    # 書けなければ取引も前のまま
     def update_trade(
         self, uid: str, trade_id: str, instrument_id: str, account_id: str | None, mutate: MutateTrade,
-        build_default: BuildDefault = ..., refresh: bool = False,
+        build_default: BuildDefault = ..., refresh: bool = False, charts: ChartChanges | None = None,
     ) -> Doc | None: ...
     # 取引と 2 枠のチャートを 1 トランザクションで消す
     def delete_trade(self, uid: str, trade_id: str) -> bool: ...
@@ -275,7 +279,7 @@ class FirestoreStore:
 
     @_guard
     def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
-                     build_default=accounts.build_default_now, refresh=False):  # fmt: skip
+                     build_default=accounts.build_default_now, refresh=False, charts=None):  # fmt: skip
         user = self._user(uid)
         ref = user.collection("trades").document(trade_id)
 
@@ -297,6 +301,11 @@ class FirestoreStore:
                 if account is None:
                     raise MissingAccount()
             new = mutate(doc, instrument, account)
+            for slot, chart in (charts or {}).items():
+                if chart is None:
+                    tx.delete(self._chart_ref(uid, trade_id, slot))
+                else:
+                    tx.set(self._chart_ref(uid, trade_id, slot), chart)
             tx.set(ref, new)
             return new
 

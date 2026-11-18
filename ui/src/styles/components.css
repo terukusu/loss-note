@@ -1440,6 +1440,18 @@
   }
 }
 
+/* [＋ チャートを追加]（#89）は見出しの行の右端。幅 480px 未満は「＋ 追加」にして見出しと 1 行に収める
+   （記録する画面の全長を増やさない。読み上げの名前は aria-label の「チャートを追加」） */
+.charts__addlong {
+  display: none;
+}
+
+@media (min-width: 480px) {
+  .charts__addlong {
+    display: inline;
+  }
+}
+
 /* 送る前の注意（チャートは時間足を読むため AI に送り、記録と一緒に保存する。#27・C38） */
 .charts__notice {
   /* 見出しに寄せる（段の間の gap を詰め、口座の欄が入っても記録する画面の全長の上限に収める。#47 との合流） */
@@ -1450,6 +1462,7 @@
 }
 
 .chart {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
@@ -1485,7 +1498,8 @@
 .chart__name {
   float: left;
   width: 100%;
-  padding: 0;
+  /* 右上の [削除] と重ならない（#89） */
+  padding: 0 calc(var(--tap) + var(--sp-4)) 0 0;
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
 }
@@ -1526,8 +1540,60 @@
   }
 
   .chart__preview {
+    width: 100%;
     max-height: 120px;
   }
+}
+
+/* 枠の右上の [削除]（#89。時間足の欄を枠いっぱいに使う） */
+.chart__remove {
+  position: absolute;
+  top: var(--sp-1);
+  right: var(--sp-1);
+}
+
+/* 編集の画面の枠の印「差し替え済み」「追加（未保存）」「削除（未保存）」（#89）。押せる部品に見えない小さな文字 */
+.chart__mark {
+  margin-left: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+}
+
+/* 削除した保存済みのチャート（[保存する] で消える。[元に戻す] で戻る。#89） */
+.chart__removed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.chart__removedtext {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.chart__replace {
+  display: flex;
+}
+
+/* 追加のチャートの枠は実線（2 枠の点線は貼り付けの受け口。判定に使う枠と見分ける。#89） */
+.chart--extra {
+  border-style: solid;
+  border-color: var(--line);
+}
+
+/* 追加のチャートの小見出し（判定に使わないことを 1 回だけ。#89） */
+.charts__subtitle {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+}
+
+/* [＋ 追加] はリンクの色（畳んだ欄の開く印の「＋」と見分ける。#89） */
+.charts__add {
+  color: var(--accent);
 }
 
 /* 読めた値の案（利用者の選んだ値と違うとき。上書きせず、1 タップで直せる。#27 デザイン 3） */
@@ -1557,6 +1623,11 @@
 .chart__tf {
   flex: 1 1 10rem;
   min-width: 0;
+}
+
+/* 時間足の欄は枠の縦の並びの 1 段（横並びのときの伸びを持ち込まない。#89） */
+.chart > .chart__tf {
+  flex: none;
 }
 
 /* 欄の印（読み取り・直した など）。ラベルの横に小さな文字で（色だけに頼らない） */
@@ -2354,6 +2425,18 @@ summary.settings__subtitle {
   color: var(--ink-2);
 }
 
+/* 追加のチャートの一言（#89）: 利用者の言葉を本文の大きさで、canvas の上に */
+.chartview__note {
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* 追加のチャートの枠を中身の高さに（削除した枠が隣の高さに伸びない） */
+.charts__extras {
+  align-items: start;
+}
+
 .chartview__failed {
   display: flex;
   flex-direction: column;
@@ -2985,4 +3068,15 @@ summary.settings__subtitle {
 
 .glossary__related-label {
   font-weight: var(--fw-bold);
+}
+
+/* 直す画面の帯のボタン: [キャンセル]（狭い ghost）と [保存する] を横並びに 1 段（#89 デザインの再レビュー 8） */
+.edit__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.edit__actions > :last-child {
+  flex: 1 1 auto;
 }

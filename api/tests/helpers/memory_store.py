@@ -112,7 +112,7 @@ class MemoryStore:
             return tid, doc
 
     def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
-                     build_default=accounts.build_default_now, refresh=False):  # fmt: skip
+                     build_default=accounts.build_default_now, refresh=False, charts=None):  # fmt: skip
         with self._lock:
             col = self._col(uid, "trades")
             if trade_id not in col:
@@ -133,6 +133,15 @@ class MemoryStore:
                 self._write_default(uid, pending)  # 取引より先（create_trade と同じ）
                 account = copy.deepcopy(account)
             new = mutate(copy.deepcopy(col[trade_id]), instrument, account)
+            if charts:
+                self._chart_write()
+            # ここから下は失敗しない（取引・チャートを一緒に書く = トランザクションと同じ）
+            for slot, chart in (charts or {}).items():
+                key = chart_doc_id(trade_id, slot)
+                if chart is None:
+                    self._col(uid, "charts").pop(key, None)
+                else:
+                    self._col(uid, "charts")[key] = copy.deepcopy(chart)
             col[trade_id] = copy.deepcopy(new)
             return new
 

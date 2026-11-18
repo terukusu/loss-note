@@ -5,7 +5,7 @@
 //   作らない。読めなかった枠は failed（その枠だけ [もう一度読み込む]）。画面を離れたら（dispose）handle を close する
 // - 画像・取引は記憶の中だけ（端末の保存先・URL・履歴に書かない）。失敗は決まった文言だけ
 import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
-import { CHART_SLOTS, type ChartSlot } from './charts';
+import { ALL_SLOTS, type AnySlot, type ChartSlot, type ExtraSlot } from './charts';
 import { type ImageType, imageInfo } from './image-limits';
 import { type Summary, summarize } from './record-form';
 import {
@@ -17,6 +17,7 @@ import {
   getJson,
   kindOf,
   REQUEST_TIMEOUT_MS,
+  type RequestFn,
 } from './request';
 import type { PreviewHandle } from './statement-image';
 import { instrumentNameOf } from './trade-view';
@@ -44,7 +45,9 @@ export type DetailState =
       readonly accounts: readonly AccountRecord[];
       readonly instrumentName: string;
       readonly summary: Summary;
-      readonly charts: Readonly<Record<ChartSlot, ChartView>>;
+      /** エントリー時・決済時は常に、付属の枠（#89）は画像のある枠だけ */
+      readonly charts: Readonly<Record<ChartSlot, ChartView>> &
+        Readonly<Partial<Record<ExtraSlot, ChartView>>>;
     };
 
 export interface DetailController {
@@ -52,13 +55,32 @@ export interface DetailController {
   subscribe(fn: (s: DetailState) => void): () => void;
   load(): Promise<void>;
   /** 読めなかった枠を読み直す */
-  reloadChart(slot: ChartSlot): Promise<void>;
+  reloadChart(slot: AnySlot): Promise<void>;
   /** 画面を離れた: チャートの handle を close し、後で届いた応答を捨てる */
   dispose(): void;
 }
 
 export function tradePath(id: string): string {
   return `/api/trades/${encodeURIComponent(id)}`;
+}
+
+/**
+ * 保存したチャートを 1 枚読み戻して、canvas に描ける handle にする（形式と寸法を imageInfo で確かめてから。読めなければ
+ * 投げる）。詳細と編集の画面（#89）が同じものを使う
+ */
+export async function loadChartPreview(
+  request: RequestFn,
+  id: string,
+  slot: AnySlot,
+  preview: (bytes: Uint8Array, type: ImageType) => Promise<PreviewHandle>,
+): Promise<PreviewHandle> {
+  const res = await request(`${tradePath(id)}/charts/${slot}`, {}, { ms: CHART_READ_TIMEOUT_MS });
+  if (res.status !== 200) throw new Failed('other');
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  // 壊れた応答・画像でない応答を復号に回さない
+  const info = imageInfo(bytes);
+  if (!info || info.width <= 0 || info.height <= 0) throw new Failed('other');
+  return preview(bytes, info.type);
 }
 
 export function createTradeDetailController(deps: {
@@ -72,7 +94,7 @@ export function createTradeDetailController(deps: {
   const listeners = new Set<(s: DetailState) => void>();
   let state: DetailState = { phase: 'loading' };
   let gen = 0;
-  const chartGen: Record<ChartSlot, number> = { entry: 0, exit: 0 };
+  const chartGen = Object.fromEntries(ALL_SLOTS.map((s) => [s, 0])) as Record<AnySlot, number>;
   let disposed = false;
 
   const set = (s: DetailState) => {
@@ -81,32 +103,22 @@ export function createTradeDetailController(deps: {
   };
   const closeCharts = () => {
     if (state.phase !== 'ready') return;
-    for (const slot of CHART_SLOTS) {
+    for (const slot of ALL_SLOTS) {
       const c = state.charts[slot];
-      if (c.phase === 'ready') c.preview.close();
+      if (c?.phase === 'ready') c.preview.close();
     }
   };
-  const setChart = (slot: ChartSlot, view: ChartView) => {
+  const setChart = (slot: AnySlot, view: ChartView) => {
     if (state.phase !== 'ready') return;
     set({ ...state, charts: { ...state.charts, [slot]: view } });
   };
 
-  const readChart = async (slot: ChartSlot): Promise<void> => {
+  const readChart = async (slot: AnySlot): Promise<void> => {
     const my = ++chartGen[slot];
     const current = () => !disposed && my === chartGen[slot] && state.phase === 'ready';
     setChart(slot, { phase: 'loading' });
     try {
-      const res = await request(
-        `${tradePath(id)}/charts/${slot}`,
-        {},
-        { ms: CHART_READ_TIMEOUT_MS },
-      );
-      if (res.status !== 200) throw new Failed('other');
-      const bytes = new Uint8Array(await res.arrayBuffer());
-      // 壊れた応答・画像でない応答を復号に回さない
-      const info = imageInfo(bytes);
-      if (!info || info.width <= 0 || info.height <= 0) throw new Failed('other');
-      const handle = await deps.preview(bytes, info.type);
+      const handle = await loadChartPreview(request, id, slot, deps.preview);
       if (!current()) {
         handle.close();
         return;
@@ -151,7 +163,7 @@ export function createTradeDetailController(deps: {
           throw new Failed('other');
         }
         if (my !== gen || disposed) return;
-        const has = (slot: ChartSlot) => trade.charts?.[slot] !== undefined;
+        const has = (slot: AnySlot) => trade.charts?.[slot] !== undefined;
         set({
           phase: 'ready',
           trade,
@@ -159,12 +171,11 @@ export function createTradeDetailController(deps: {
           accounts: acc.items,
           instrumentName: instrumentNameOf(trade, inst.items),
           summary: summarize(trade),
-          charts: {
-            entry: has('entry') ? { phase: 'loading' } : { phase: 'none' },
-            exit: has('exit') ? { phase: 'loading' } : { phase: 'none' },
-          },
+          charts: Object.fromEntries(
+            ALL_SLOTS.map((s) => [s, has(s) ? { phase: 'loading' } : { phase: 'none' }]),
+          ) as Record<ChartSlot, ChartView>,
         });
-        await Promise.all(CHART_SLOTS.filter(has).map((slot) => readChart(slot)));
+        await Promise.all(ALL_SLOTS.filter(has).map((slot) => readChart(slot)));
       } catch (e) {
         if (my !== gen || disposed) return;
         const kind = kindOf(e);
@@ -178,14 +189,13 @@ export function createTradeDetailController(deps: {
     async reloadChart(slot) {
       if (state.phase !== 'ready' || state.trade.charts?.[slot] === undefined) return;
       const c = state.charts[slot];
-      if (c.phase === 'ready' || c.phase === 'loading') return;
+      if (c?.phase === 'ready' || c?.phase === 'loading') return;
       await readChart(slot);
     },
     dispose() {
       disposed = true;
       gen++;
-      chartGen.entry++;
-      chartGen.exit++;
+      for (const s of ALL_SLOTS) chartGen[s]++;
       closeCharts();
       listeners.clear();
     },

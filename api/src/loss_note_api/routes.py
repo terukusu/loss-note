@@ -105,28 +105,41 @@ def trade_response(trade_id: str, doc: dict) -> dict:
     return res
 
 
-def read_trade_multipart() -> tuple[object | None, dict[str, bytes], Response | None]:
-    """multipart の作成の本文 → (記録の JSON, 枠ごとの画像のバイト列, 誤りの応答)。
+def read_trade_multipart(
+    allow_remove: bool = False,
+) -> tuple[object | None, dict[str, bytes], set[str], Response | None]:
+    """multipart の作成・直しの本文 → (記録の JSON, 枠ごとの画像のバイト列, 外す枠, 誤りの応答)。
 
-    上限: 本文全体・部分の数・文字の部分の大きさ（超えたら RequestEntityTooLarge → アプリの処理で 400 tooLarge）。
-    issues は既知の名前と種類だけ（送った部分の名前・値を返さない）。画像の中身の検査は呼び出し側
+    外す枠（部分 ``removeChart`` = 枠の名前。枠ごとに 1 つ）は取引の直し（allow_remove）だけ。同じ枠に画像と外すの
+    両方は 400 conflict。上限: 本文全体・部分の数・文字の部分の大きさ（超えたら RequestEntityTooLarge → アプリの処理で
+    400 tooLarge）。issues は既知の名前と種類だけ（送った部分の名前・値を返さない）。画像の中身の検査は呼び出し側
     """
     request.max_content_length = charts.MAX_MULTIPART_BYTES
     request.max_form_parts = charts.MAX_PARTS
     request.max_form_memory_size = charts.MAX_RECORD_PART
     form, files = request.form, request.files
     known_files = {charts.PART[s]: s for s in charts.SLOTS}
-    if any(k != "record" for k in form) or any(k not in known_files for k in files):
-        return None, {}, invalid([{"field": "", "kind": "unknownPart"}])
+    known_form = ("record", charts.REMOVE_PART) if allow_remove else ("record",)
+    if any(k not in known_form for k in form) or any(k not in known_files for k in files):
+        return None, {}, set(), invalid([{"field": "", "kind": "unknownPart"}])
     for name in ("record", *known_files):
         if len((form if name == "record" else files).getlist(name)) > 1:
-            return None, {}, invalid([{"field": name, "kind": "duplicate"}])
+            return None, {}, set(), invalid([{"field": name, "kind": "duplicate"}])
     if "record" not in form:
-        return None, {}, invalid([{"field": "record", "kind": "required"}])
+        return None, {}, set(), invalid([{"field": "record", "kind": "required"}])
+    removes: set[str] = set()
+    for value in form.getlist(charts.REMOVE_PART):
+        if value not in charts.SLOTS:
+            return None, {}, set(), invalid([{"field": charts.REMOVE_PART, "kind": "enum"}])
+        if value in removes:
+            return None, {}, set(), invalid([{"field": charts.REMOVE_PART, "kind": "duplicate"}])
+        removes.add(value)
+    if any(charts.PART[s] in files for s in removes):
+        return None, {}, set(), invalid([{"field": charts.REMOVE_PART, "kind": "conflict"}])
     try:
         body = schema.parse_json_body(form["record"].encode("utf-8"), "application/json")
     except schema.BodyError as e:
-        return None, {}, invalid([{"field": "", "kind": e.kind}])
+        return None, {}, set(), invalid([{"field": "", "kind": e.kind}])
     images: dict[str, bytes] = {}
     issues = []
     for part, slot in known_files.items():
@@ -139,7 +152,7 @@ def read_trade_multipart() -> tuple[object | None, dict[str, bytes], Response | 
             issues.append({"field": part, "kind": kind})
         else:
             images[slot] = data
-    return body, images, (invalid(issues) if issues else None)
+    return body, images, removes, (invalid(issues) if issues else None)
 
 
 def read_chart_body() -> tuple[bytes | None, Response | None]:
@@ -254,7 +267,7 @@ def make_blueprint(
     def create_trade():
         images: dict[str, bytes] = {}
         if request.mimetype == "multipart/form-data":
-            body, images, err = read_trade_multipart()
+            body, images, _, err = read_trade_multipart()
         else:
             body, err = read_body()
         if err:
@@ -309,16 +322,26 @@ def make_blueprint(
         if modes and modes != [SNAPSHOT_CURRENT]:
             return invalid([{"field": "snapshot", "kind": "invalid"}])
         refresh = bool(modes)
-        body, err = read_body()
+        # チャートの変更（#89）: multipart なら、差し替え・足す画像と外す枠を取引と同じトランザクションで書く
+        images: dict[str, bytes] = {}
+        removes: set[str] = set()
+        if request.mimetype == "multipart/form-data":
+            body, images, removes, err = read_trade_multipart(allow_remove=True)
+        else:
+            body, err = read_body()
         if err:
             return err
         record, issues = schema.validate_trade(body)
         if record is None:
             return invalid(issues)
+        chart_docs: dict[str, dict | None] = {slot: charts.chart_doc(data) for slot, data in images.items()}
+        chart_docs.update({slot: None for slot in removes})
 
         def mutate(doc: dict, new_instrument: dict | None, new_account: dict | None) -> dict:
-            # チャートの時間足は、保存済みのチャートがある枠にだけ（トランザクションの中で見る。R4）
-            tf_issues = charts.chart_timeframe_issues(record, set(doc.get("charts") or {}))
+            # チャートの時間足・付属の並びは、直した後にチャートがある枠にだけ（トランザクションの中で見る。R4）
+            slots = (set(doc.get("charts") or {}) - removes) | set(images)
+            checked = charts.kept_extras(record, doc["record"], slots)
+            tf_issues = charts.chart_timeframe_issues(checked, slots)
             if tf_issues:
                 raise InvalidRecord(tf_issues)
             snapshot = dict(doc["snapshot"])
@@ -328,20 +351,22 @@ def make_blueprint(
             # 口座を別の口座に付け替えたときだけ、その口座の今の資金・許容リスク・通貨で写し直す（#47 A4・A9）
             if new_account is not None:
                 snapshot.update(accounts.account_snapshot(new_account))
-            new_record = record
+            new_record = checked
             # 本文に口座が無ければ保存済みの口座を保つ（古い画面が黙って既定の口座へ付け替えない）
             if "accountId" not in record and "accountId" in doc["record"]:
-                new_record = {**record, "accountId": doc["record"]["accountId"]}
-            return {
+                new_record = {**new_record, "accountId": doc["record"]["accountId"]}
+            new = {
                 **doc,
                 "updatedAt": next_updated_at(clock(), doc.get("updatedAt")),
                 "snapshot": snapshot,
                 "record": new_record,
             }
+            return with_chart_summary(new, chart_docs) if chart_docs else new
 
         try:
             doc = store.update_trade(g.uid, trade_id, record["instrumentId"], record.get("accountId"), mutate,
-                                     build_default=build_default, refresh=refresh)  # fmt: skip
+                                     build_default=build_default, refresh=refresh,
+                                     charts=chart_docs or None)  # fmt: skip
         except MissingInstrument:
             return invalid([{"field": "instrumentId", "kind": "notFound"}])
         except MissingAccount:
@@ -358,7 +383,7 @@ def make_blueprint(
             return error(404, "not_found")
         return Response(status=204)
 
-    # ── チャート（Issue #12。差し替え・外すの画面は #9）──
+    # ── チャート（Issue #12。画面の差し替え・外すは取引の PUT の multipart で取引と一緒に。#89）──
     # 経路は /trades/<path:trade_id> より先に当たる。ID・枠の形が違えば保存先に触れずに 404
     def chart_target(trade_id: str, slot: str) -> bool:
         return valid_id(trade_id) and charts.valid_slot(slot)
@@ -378,11 +403,10 @@ def make_blueprint(
         if err:
             return err
         chart = charts.chart_doc(data)
-        tf_field = charts.TIMEFRAME_FIELD[slot]
 
         def mutate(doc: dict) -> dict:
             # 差し替えた枠の時間足は消して選び直しにする（前のチャートの足が残って、誤って「時間足を変えた」にしない）
-            record = {k: v for k, v in doc["record"].items() if k != tf_field}
+            record = charts.record_after_replace(doc["record"], slot)
             new = {**doc, "record": record, "updatedAt": next_updated_at(clock(), doc.get("updatedAt"))}
             return with_chart_summary(new, {slot: chart})
 
@@ -395,11 +419,9 @@ def make_blueprint(
     def delete_chart(trade_id: str, slot: str):
         if not chart_target(trade_id, slot):
             return error(404, "not_found")
-        tf_field = charts.TIMEFRAME_FIELD[slot]
-
         def mutate(doc: dict) -> dict:
-            # 外すとその枠の時間足も消える（R4。判定もそれに従う）
-            record = {k: v for k, v in doc["record"].items() if k != tf_field}
+            # 外すとその枠の時間足も消える（R4。判定もそれに従う）。付属の枠は並びからも消える
+            record = charts.record_after_remove(doc["record"], slot)
             new = {**doc, "record": record, "updatedAt": next_updated_at(clock(), doc.get("updatedAt"))}
             return with_chart_summary(new, {slot: None})
 

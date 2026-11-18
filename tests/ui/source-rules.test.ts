@@ -113,6 +113,10 @@ const RECORD_FILES = [
   '../../ui/src/lib/statement-fill.ts',
   // Issue #12（根拠の足のチャート。AC-10: チャートの画像を端末の保存先に書かない）
   '../../ui/src/lib/charts.ts',
+  // Issue #89（編集の画面のチャート・付属のチャート）
+  '../../ui/src/lib/chart-slots.ts',
+  '../../ui/src/lib/edit-controller.ts',
+  '../../ui/src/components/ChartPanel.tsx',
 ];
 const DEVICE_STORAGE =
   /\b(localStorage|sessionStorage|indexedDB|IDBFactory|caches|document\.cookie)\b/;
@@ -157,6 +161,8 @@ const STATEMENT_FILES = [
   '../../ui/src/lib/record-controller.ts',
   '../../ui/src/pages/Record.tsx',
   '../../ui/src/lib/charts.ts',
+  '../../ui/src/lib/chart-slots.ts',
+  '../../ui/src/components/ChartPanel.tsx',
 ];
 
 describe('決済明細の読み取り（Issue #15 AC-11・AC-12・AC-13）', () => {

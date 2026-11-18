@@ -12,7 +12,7 @@
 // 口座（Issue #47 PR-1）: 口座が 2 つ以上なら「取引」の先頭に口座の欄と、判定の枠に「口座 A の資金 … に対して」の 1 行。
 // 「取引」の見出しの行の右端の [＋ 口座を足す] で、その場で名前と資金だけで足せる（設定の画面に移らない）
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { Side } from '../../../core/trade';
+import type { Side, Timeframe } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
 import {
   AccountAddButton,
@@ -22,6 +22,7 @@ import {
 } from '../components/AccountAdd';
 import { ACCOUNT_FIELD_ID } from '../components/AccountField';
 import { Button } from '../components/Button';
+import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
 import { PageHeader } from '../components/PageHeader';
@@ -35,21 +36,13 @@ import {
   selectedAccountId,
   verdictAsideText,
 } from '../lib/accounts';
+import { timeframeConflict } from '../lib/chart-read';
 import {
-  CHART_READ_MARK,
-  CHART_READ_NOTICE,
-  suggestButton,
-  suggestText,
-  timeframeConflict,
-} from '../lib/chart-read';
-import {
-  CHART_SLOT_TEXT,
-  CHART_SLOTS,
+  type AnySlot,
   CHART_TIMEFRAME_FIELD,
-  type ChartSlot,
   chartSlotOf,
-  isTimeframe,
-  TIMEFRAME_CHOICES,
+  type ExtraSlot,
+  isMainSlot,
 } from '../lib/charts';
 import { currencyView } from '../lib/currency';
 import { formatPrice } from '../lib/format';
@@ -224,9 +217,15 @@ export function RecordScreen() {
       }}
       onRemoveChart={(slot) => {
         controller.removeChart(slot);
-        // [外す] の後は枠へフォーカスを戻す（ボタンは消える）
-        focusSoon(chartBoxId(slot));
+        // [削除] の後は枠へフォーカスを戻す（ボタンは消える）。付属の枠は枠ごと消えるので [＋ チャートを追加] へ
+        focusSoon(isMainSlot(slot) ? chartBoxId(slot) : addExtraId('record'));
       }}
+      onAddExtraChart={() => {
+        const slot = controller.addExtraChart();
+        if (slot) focusSoon(chartBoxId(slot));
+      }}
+      onExtraTimeframe={controller.setExtraTimeframe}
+      onExtraNote={controller.setExtraNote}
       onOpenAddAccount={() => {
         controller.openAddAccount();
         focusSoon(NEW_ACCOUNT_NAME_ID);
@@ -269,16 +268,20 @@ export interface RecordViewProps {
   /** [この行を飛ばす] */
   readonly onSkipRow?: () => void;
   /** チャートを枠に選んだ（#12） */
-  readonly onPickChart?: (slot: ChartSlot, file: File) => void;
-  /** チャートの [外す] */
-  readonly onRemoveChart?: (slot: ChartSlot) => void;
+  readonly onPickChart?: (slot: AnySlot, file: File) => void;
+  /** チャートの [削除] */
+  readonly onRemoveChart?: (slot: AnySlot) => void;
+  /** [＋ チャートを追加]・付属の時間足・一言（#89） */
+  readonly onAddExtraChart?: () => void;
+  readonly onExtraTimeframe?: (slot: ExtraSlot, value: Timeframe | null) => void;
+  readonly onExtraNote?: (slot: ExtraSlot, note: string) => void;
   /** [＋ 口座を足す]・[やめる]・欄の入力・[足す]（#47） */
   readonly onOpenAddAccount?: () => void;
   readonly onCloseAddAccount?: () => void;
   readonly onNewAccount?: (field: 'name' | 'capital', value: string) => void;
   readonly onAddAccount?: () => void;
   /** チャートから読めた値の [〈値〉にする]（#27） */
-  readonly onAcceptChartTimeframe?: (slot: ChartSlot) => void;
+  readonly onAcceptChartTimeframe?: (slot: AnySlot) => void;
 }
 
 const FIRST_FIELD_ID = 'record-instrument';
@@ -288,8 +291,7 @@ const STATEMENT_NOTICE_ID = 'record-statement-notice';
 const VERDICT_HINT_ID = 'record-verdict-hint';
 const STATEMENT_TITLE_ID = 'record-statement-title';
 const STATEMENT_ROW_ID = 'record-statement-row';
-const CHARTS_TITLE_ID = 'record-charts-title';
-const chartBoxId = (slot: ChartSlot) => `record-chart-${slot}`;
+const chartBoxId = (slot: AnySlot) => boxId('record', slot);
 
 /**
  * 送る前の注意（枠に常に出す。畳まない・ダイアログにしない。R10・設計書 7.5・C38）。3 つの中身（AI の提供元に送る・
@@ -356,7 +358,7 @@ function SavedPanel(p: RecordViewProps) {
   if (!saved) return null;
   const r = saved.trade.record;
   const entry = r.entries[0];
-  const charts = CHART_SLOTS.filter((s) => saved.trade.charts?.[s] !== undefined).length;
+  const charts = Object.keys(saved.trade.charts ?? {}).length;
   return (
     <div class="record">
       <Verdict
@@ -507,7 +509,26 @@ function RecordForm(p: RecordViewProps) {
           chartConflict={conflict?.verdictLine ?? null}
         />
 
-        <ChartPanel {...p} />
+        <ChartPanel
+          idPrefix="record"
+          title="チャート（任意）"
+          charts={state.charts}
+          extras={state.extras ?? []}
+          timeframes={{ entry: d.entryChartTimeframe, exit: d.exitChartTimeframe }}
+          blocked={state.chartBlocked}
+          {...(p.onPickChart ? { onPick: p.onPickChart } : {})}
+          {...(p.onRemoveChart ? { onRemove: p.onRemoveChart } : {})}
+          {...(p.onAcceptChartTimeframe ? { onAccept: p.onAcceptChartTimeframe } : {})}
+          {...(p.onAddExtraChart ? { onAddExtra: p.onAddExtraChart } : {})}
+          {...(p.onExtraNote ? { onNote: p.onExtraNote } : {})}
+          onTimeframe={(slot, value) => {
+            if (isMainSlot(slot)) {
+              onUpdate({ type: 'set', field: CHART_TIMEFRAME_FIELD[slot], value });
+            } else {
+              p.onExtraTimeframe?.(slot, value);
+            }
+          }}
+        />
 
         <TradeMoreFields
           draft={d}
@@ -541,7 +562,11 @@ function RecordForm(p: RecordViewProps) {
           disabled={!read.canSave || saving}
           {...(describe ? { describedBy: describe } : {})}
         >
-          {saving ? '記録しています…' : '記録する'}
+          {saving
+            ? Object.values(state.charts ?? {}).some((c) => c?.phase === 'ready')
+              ? 'チャートを送っています…'
+              : '記録しています…'
+            : '記録する'}
         </Button>
       </div>
     </form>
@@ -649,171 +674,5 @@ function StatementPanel(p: RecordViewProps) {
         </p>
       ) : null}
     </section>
-  );
-}
-
-/** 根拠の足のチャートの枠（エントリー時・決済時。#12 契約 UI-1） */
-function ChartPanel(p: RecordViewProps) {
-  return (
-    // 外側のカードを持たない（見出し + 2 つの点線の枠。枠 → ボタン・canvas の 2 段。Issue #33 AC-5）
-    <section class="section charts" aria-labelledby={CHARTS_TITLE_ID}>
-      <h2 class="section__title" id={CHARTS_TITLE_ID}>
-        根拠の足のチャート（任意）
-      </h2>
-      {/* 送る前の注意（常に出す。C38・#27） */}
-      <p class="charts__notice">{CHART_READ_NOTICE}</p>
-      {p.state.chartBlocked ? (
-        <p class="statement__text" role="status">
-          {p.state.chartBlocked}
-        </p>
-      ) : null}
-      <div class="charts__grid">
-        {CHART_SLOTS.map((slot) => (
-          <ChartBox key={slot} slot={slot} {...p} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ChartBox(p: RecordViewProps & { readonly slot: ChartSlot }) {
-  const { slot } = p;
-  const c = p.state.charts?.[slot];
-  const text = CHART_SLOT_TEXT[slot];
-  const id = chartBoxId(slot);
-  const field = CHART_TIMEFRAME_FIELD[slot];
-  const tf = p.state.draft[field];
-  const preview = c?.phase === 'ready' ? c.preview : null;
-  return (
-    // 枠を選んで（クリック・Tab で）貼るとこの枠に入る（data-chart-slot を chartSlotOf が見る）
-    <fieldset
-      class="chart"
-      id={id}
-      data-chart-slot={slot}
-      aria-describedby={`${id}-hint`}
-      // biome-ignore lint/a11y/noNoninteractiveTabindex: 貼り付けの行き先を選ぶために枠そのものにフォーカスを置く（R1）
-      tabIndex={0}
-    >
-      <legend class="chart__name" id={`${id}-name`}>
-        {text.name}
-      </legend>
-      {/* 撮る足の添え書きは空の枠だけに見せる（貼った後は読み上げの説明にだけ残す。#27 デザイン 7） */}
-      <p class={preview ? 'chart__hint sr-only' : 'chart__hint'} id={`${id}-hint`}>
-        {text.hint}
-      </p>
-      {c?.phase === 'preparing' ? (
-        <p class="statement__reading" role="status">
-          準備しています…
-        </p>
-      ) : null}
-      {c?.phase === 'failed' && c.message ? (
-        <p class="notice notice--error" role="alert">
-          {c.message}
-        </p>
-      ) : null}
-      {preview ? (
-        <>
-          <canvas
-            class="chart__preview"
-            width={preview.width}
-            height={preview.height}
-            role="img"
-            aria-label={`${text.name}のチャートのプレビュー`}
-            ref={(el: HTMLCanvasElement | null) => {
-              if (el) preview.draw(el);
-            }}
-          />
-          <div class="chart__row">
-            <div class="field chart__tf">
-              {c?.readMark ? (
-                <div class="field__head">
-                  <label class="field__label" for={`${id}-tf`}>
-                    時間足（任意）
-                  </label>
-                  <span id={`${id}-tf-mark`} class="field__mark field__mark--chart">
-                    <Icon name="image" class="field__markicon" />
-                    {CHART_READ_MARK}
-                  </span>
-                </div>
-              ) : (
-                <label class="field__label" for={`${id}-tf`}>
-                  時間足（任意）
-                </label>
-              )}
-              <select
-                id={`${id}-tf`}
-                {...(c?.readMark ? { 'aria-describedby': `${id}-tf-mark` } : {})}
-                class={c?.readMark ? 'select select--read' : 'select'}
-                value={tf ?? ''}
-                onChange={(ev) => {
-                  const v = ev.currentTarget.value;
-                  p.onUpdate({ type: 'set', field, value: isTimeframe(v) ? v : null });
-                }}
-              >
-                <option value="">選ばない</option>
-                {TIMEFRAME_CHOICES.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <Button
-              variant="ghost"
-              label={`${text.name}のチャートを外す`}
-              onClick={() => p.onRemoveChart?.(slot)}
-            >
-              外す
-            </Button>
-          </div>
-          {c?.read === 'reading' ? (
-            <p class="statement__reading" role="status">
-              時間足を読み取っています…
-            </p>
-          ) : null}
-          {c?.readNote ? (
-            <p class="field__hint" role="status">
-              {c.readNote}
-            </p>
-          ) : null}
-          {c?.readSuggest ? (
-            // 利用者の選んだ値と読めた値が違う: 上書きせず、読めた値と 1 タップで直すボタンを出す（#27 デザイン 3）
-            // ボタンは知らせ（role="status"）の外に置き、ほかの小さな操作（[この行を飛ばす] など）と同じ線つきの部品にする（R5）
-            <div class="chart__suggest">
-              <p class="field__hint" role="status">
-                {suggestText(c.readSuggest)}
-              </p>
-              <Button variant="secondary" onClick={() => p.onAcceptChartTimeframe?.(slot)}>
-                {suggestButton(c.readSuggest)}
-              </Button>
-            </div>
-          ) : null}
-        </>
-      ) : c?.phase === 'preparing' ? null : (
-        <div class="statement__pick">
-          <label class="btn btn--secondary statement__file" for={`${id}-file`}>
-            <Icon name="image" />
-            <span>チャートを選ぶ</span>
-            <input
-              id={`${id}-file`}
-              class="statement__input"
-              type="file"
-              aria-label={`${text.name}のチャートを選ぶ`}
-              accept="image/png,image/jpeg,image/*"
-              onChange={(ev) => {
-                const input = ev.currentTarget;
-                const file = input.files?.[0];
-                input.value = '';
-                if (file) p.onPickChart?.(slot, file);
-              }}
-            />
-          </label>
-          <p class="field__hint chart__pastehint">PC は枠を選んでから貼り付けもできます。</p>
-        </div>
-      )}
-      <p class="chart__ready" aria-hidden="true">
-        {preview ? '貼ると差し替えます' : 'ここに貼れます'}
-      </p>
-    </fieldset>
   );
 }

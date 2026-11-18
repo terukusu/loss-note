@@ -194,8 +194,12 @@ _TRADE_FIELDS = (
     "status", "source", "instrumentId", "accountId", "side", "contractMonth", "optionType", "strike", "timeframe", "lc",
     "brokenCondition", "lcBasis", "tp", "thesis", "entryEmotion", "stopOrderPlaced", "planFxRate", "plannedAt",
     "lcDecidedBeforeEntry", "lcMove", "timeframeChange", "entries", "exit", "statementPnlYen", "fees",
-    "entryChartTimeframe", "exitChartTimeframe",
+    "entryChartTimeframe", "exitChartTimeframe", "extraCharts",
 )  # fmt: skip
+# 付属のチャート（#89）: 枠は x1〜x5、最大 5 枚、一言は 40 字まで（loss_note_api.charts と同じ値）
+EXTRA_CHART_SLOTS = ("x1", "x2", "x3", "x4", "x5")
+EXTRA_CHART_NOTE_MAX = 40
+_EXTRA_CHART_FIELDS = ("slot", "timeframe", "note")
 _ENTRY_FIELDS = ("time", "price", "quantity", "lc")
 _EXIT_FIELDS = ("time", "price", "fxRate", "orderType", "reason", "gapSlip", "emotion", "review")
 _FEE_FIELDS = ("label", "amountYen")
@@ -324,6 +328,36 @@ def validate_trade(body: Any) -> tuple[dict | None, list[Issue]]:
     _put(out, "fees", c.field(src, "fees", "", fees), [])
     _put(out, "entryChartTimeframe", c.field(src, "entryChartTimeframe", "", c.enum(TIMEFRAMES)))
     _put(out, "exitChartTimeframe", c.field(src, "exitChartTimeframe", "", c.enum(TIMEFRAMES)))
+
+    def extra_charts(v: Any, path: str) -> Any:
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if len(v) > len(EXTRA_CHART_SLOTS):
+            c.add(path, "length")
+            return INVALID
+        res: list = []
+        seen: set = set()
+        for i, item in enumerate(v):
+            p = f"{path}[{i}]"
+            e = c.obj(item, p, _EXTRA_CHART_FIELDS)
+            if e is None:
+                continue
+            row: dict = {}
+            _put(row, "slot", c.field(e, "slot", p, c.enum(EXTRA_CHART_SLOTS), required=True))
+            _put(row, "timeframe", c.field(e, "timeframe", p, c.enum(TIMEFRAMES)))
+            _put(row, "note", c.field(e, "note", p, c.text(EXTRA_CHART_NOTE_MAX)))
+            if row.get("slot") in seen:
+                c.add(f"{p}.slot", "duplicate")
+            seen.add(row.get("slot"))
+            # 空の一言は持たない
+            if row.get("note") == "":
+                del row["note"]
+            res.append(row)
+        # 空の並びは持たない（付属の無い取引は今と同じ形）
+        return res if res else MISSING
+
+    _put(out, "extraCharts", c.field(src, "extraCharts", "", extra_charts))
 
     if not c.issues:
         _check_lc_direction(out, c)

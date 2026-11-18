@@ -26,6 +26,8 @@
 //   POST /api/accounts = 201（資金を入れたら履歴 1 件）・名前が同じなら 409。PUT /api/accounts/<id> = 3 欄を置き換え、
 //   資金が前と違うときだけ履歴に足す。無い ID は 404。取引の snapshot の資金・許容リスクは取引の口座（accountId。無い = 既定）
 //   から写す。PUT で口座を付け替えたときだけ付け替え先の今の値で写し直す（本文に口座が無ければ前の口座を保つ）。無い口座は 400
+// - PUT /api/trades/<id> の multipart（#89）: 部分 record + 差し替え・足す画像 {slot}Chart + 外す枠 removeChart。直した後の
+//   チャートの枠で時間足を見て（無い枠に時間足 → 400 noChart）、charts の要約と charts の Map を直す（本物と同じ 1 回で）
 // - POST /api/chart-reads（#27）: opts.chartReads の台本を順に返す（無ければ { kind: 'chart', timeframe: null } =
 //   時間足を読めなかった）。要求は calls に Content-Type とバイト数だけを残す。holdChartReads / releaseChartReads で止める
 // - 口座の通貨（#47 PR-2）: 口座はいつも currency を返す（無い = JPY）。POST の currency は任意（既定 JPY）、PUT の currency は
@@ -49,6 +51,10 @@ import {
 } from '../../../core/record';
 import { nameKey } from '../../../ui/src/lib/instrument-name';
 import type { ApiFn } from '../../../ui/src/lib/request';
+
+/** チャートの枠（エントリー時・決済時・付属。#89） */
+const ALL_SLOTS = ['entry', 'exit', 'x1', 'x2', 'x3', 'x4', 'x5'] as const;
+type Slot = (typeof ALL_SLOTS)[number];
 
 export interface FakeCall {
   readonly method: string;
@@ -315,7 +321,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const slot = chartPath[2] ?? '';
       const t = trades.find((x) => x.id === id);
       const data = opts.chartData?.[`${id}-${slot}`];
-      const meta = t?.charts?.[slot as 'entry' | 'exit'];
+      const meta = t?.charts?.[slot as Slot];
       if (!t || !meta || !data) return json(404, { error: 'not_found' });
       return new Response(data as BodyInit, {
         status: 200,
@@ -333,21 +339,35 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       if (method === 'GET') return json(200, prev);
       if (method === 'DELETE') {
         trades.splice(idx, 1);
-        charts.delete(`${id}-entry`);
-        charts.delete(`${id}-exit`);
+        for (const slot of ALL_SLOTS) charts.delete(`${id}-${slot}`);
         return new Response(null, { status: 204 });
       }
       if (method === 'PUT') {
         const record = body as TradeRecord;
         const inst = instruments.find((i) => i.id === record.instrumentId);
         if (!inst) return json(400, { error: 'invalid', issues: [{ field: 'instrumentId' }] });
+        // チャートの変更（#89）: 直した後の枠
+        const removes = new Set(form?.getAll('removeChart').map(String) ?? []);
+        const nextCharts: Partial<Record<Slot, FakeChart>> = {};
+        for (const slot of ALL_SLOTS) {
+          const f = form?.get(`${slot}Chart`);
+          const old = prev.charts?.[slot];
+          if (f instanceof Blob) nextCharts[slot] = { contentType: f.type, size: f.size };
+          else if (old && !removes.has(slot)) nextCharts[slot] = old as FakeChart;
+        }
         for (const slot of ['entry', 'exit'] as const) {
-          if (record[`${slot}ChartTimeframe`] !== undefined && !prev.charts?.[slot]) {
+          if (record[`${slot}ChartTimeframe`] !== undefined && !nextCharts[slot]) {
             return json(400, {
               error: 'invalid',
               issues: [{ field: `${slot}ChartTimeframe`, kind: 'noChart' }],
             });
           }
+        }
+        if ((record.extraCharts ?? []).some((e) => !nextCharts[e.slot])) {
+          return json(400, {
+            error: 'invalid',
+            issues: [{ field: 'extraCharts', kind: 'noChart' }],
+          });
         }
         // 口座: 本文に無ければ前の口座のまま。付け替えたときだけ付け替え先の今の値で写し直す（#47 A4・B7）
         const target = record.accountId ?? accountIdOf(prev.record);
@@ -377,8 +397,19 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
               },
             }
           : prev.snapshot;
+        const { charts: _prevCharts, ...prevRest } = prev;
+        if (form) {
+          for (const slot of ALL_SLOTS) {
+            const c = nextCharts[slot];
+            if (c) charts.set(`${id}-${slot}`, c);
+            else charts.delete(`${id}-${slot}`);
+          }
+        }
         const next: StoredTrade = {
-          ...prev,
+          ...prevRest,
+          ...(Object.keys(nextCharts).length > 0
+            ? { charts: nextCharts as NonNullable<StoredTrade['charts']> }
+            : {}),
           updatedAt: Math.max(clock, prev.updatedAt + 1),
           snapshot: movedTo
             ? {
@@ -570,10 +601,12 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const record = body as TradeRecord;
       const inst = instruments.find((i) => i.id === record.instrumentId);
       if (!inst) return json(400, { error: 'invalid', issues: [{ field: 'instrumentId' }] });
-      const parts: Partial<Record<'entry' | 'exit', FakeChart>> = {};
-      for (const slot of ['entry', 'exit'] as const) {
+      const parts: Partial<Record<Slot, FakeChart>> = {};
+      for (const slot of ALL_SLOTS) {
         const f = form?.get(`${slot}Chart`);
         if (f instanceof Blob) parts[slot] = { contentType: f.type, size: f.size };
+      }
+      for (const slot of ['entry', 'exit'] as const) {
         if (record[`${slot}ChartTimeframe`] !== undefined && !parts[slot]) {
           return json(400, {
             error: 'invalid',

@@ -4,8 +4,8 @@
 //   建てが複数・建てごとの LC の取引 = blocked
 // - 下書きのたびに、写した資金・許容リスク（口座を付け替えたら付け替え先の今の値。#47）で判定・R・リスクを出し直す
 //   （readDraft + editPreview）
-// - 保存は PUT（JSON）。1 回押して 1 件（実行中は同じ Promise）。PUT は冪等なので、時間切れの後に送り直してよい。
-//   チャートは変えない（チャートの無い枠の時間足は本文に入らない。orphanTimeframes をその旨として出す）
+// - 保存は PUT（JSON。チャートの変更があれば multipart）。1 回押して 1 件（実行中は同じ Promise）。PUT は冪等なので、
+//   時間切れの後に送り直してよい。チャートの無い枠の時間足は本文に入らない（orphanTimeframes をその旨として出す）
 // - 今の値で計算し直す（#31）: 写した値と取引の口座・銘柄の今の値が違えば offer（違う値と判定・R・リスクの 前 → 後）を出す。
 //   setRefresh(true) で「今の値」を選ぶとプレビューは今の値で出し、保存の PUT に ?snapshot=current を付ける（選ばなければ付けない。
 //   C36）。違いが無くなったら（口座・銘柄を付け替えた等）選択も戻す。保存の前に口座・銘柄を読み直し、開いてから今の値が
@@ -13,6 +13,13 @@
 // - 失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。下書きは記憶の中だけ（端末の保存先・URL・履歴に書かない）
 // - 通貨の違う口座へ付け替えたら損益・手数料を空に戻し（currencyCleared）、元の通貨の口座へ戻したら開いたときの値に戻す
 //   （#47 PR-2・A9・U33。保存済みの値は元の口座の通貨の金額なので、別の通貨の口座に持ち込まない）
+// - チャート（#89）: 保存済みのチャートを読み戻してプレビューに置き（chart-slots.ts。記録する画面と同じもの）、追加・
+//   差し替え・削除・付属の枠ができる。変更は [保存する] まで送らない。保存は取引の欄とチャートの変更を 1 要求
+//   （PUT の multipart: 差し替え・足す画像 + 外す枠）で、API が 1 トランザクションで書く（失敗すれば取引もチャートも前のまま）。
+//   [キャンセル]・画面を離れると捨てる（dispose でプレビューを閉じる）。足した枠の時間足は空から読み取りで埋める。
+//   2 枠を差し替えたときは前に保存した時間足を残し、読めたら置き換える（失敗で終われば「前のチャートの時間足のまま」）。
+//   読み取りの途中で保存したら、その枠は「指定なし」で保存する（#89 N2）。removeChart は利用者が [削除] した枠だけ。
+//   判定のプレビューは今の枠（チャートの有無）で出し直す（保存の帯の「判定: 前 → 後」）
 import {
   type AccountRecord,
   accountCurrencyOf,
@@ -20,7 +27,31 @@ import {
   type StoredTrade,
   type TradeRecord,
 } from '../../../core/record';
+import type { Timeframe } from '../../../core/trade';
 import { sortAccounts } from './accounts';
+import { CHART_READ_TIMEOUT_MS } from './chart-read';
+import {
+  type ChartSlots,
+  type ChartSlotsChange,
+  type ChartsState,
+  createChartSlots,
+  keptReadingSlots,
+} from './chart-slots';
+import {
+  ALL_SLOTS,
+  type AnySlot,
+  CHART_TIMEFRAME_FIELD,
+  type ChartSlot,
+  chartSaveTimeoutMs,
+  type ExtraEntry,
+  type ExtraSlot,
+  extraNoteErrors,
+  extraNoteTooLong,
+  extrasBody,
+  extrasFromRecord,
+  isMainSlot,
+  tradeFormData,
+} from './charts';
 import { accountCurrencyIn } from './currency';
 import {
   draftFromStored,
@@ -32,6 +63,7 @@ import {
   type OrphanTimeframe,
   orphanTimeframes,
 } from './edit-form';
+import type { ImageType } from './image-limits';
 import { resolveInstrument } from './instrument-resolve';
 import {
   applyDraft,
@@ -68,7 +100,13 @@ import {
   resnapshotOffer,
   withoutStaleFx,
 } from './resnapshot';
-import { tradePath } from './trade-detail-controller';
+import type { PrepareResult, PreviewHandle } from './statement-image';
+import { loadChartPreview, tradePath } from './trade-detail-controller';
+import { CHART_PREPARING } from './verdict-notes';
+
+/** ほかの画面でチャートが変わっていて、この画面の並びと食い違う（API の 400 noChart / noEntry。#89） */
+export const EDIT_CHARTS_CHANGED =
+  'ほかの画面でチャートが変わったため保存できませんでした。読み込み直してから、もう一度直してください。';
 
 export const EDIT_LOAD_FAILED =
   '取引を読み込めませんでした。通信を確かめて、もう一度読み込んでください。';
@@ -116,6 +154,12 @@ export interface EditState {
   readonly fxCleared: boolean;
   readonly error: string | null;
   readonly errorKind?: FailureKind;
+  /** チャートの枠（保存済み・足した・差し替えた。#89） */
+  readonly charts?: ChartsState;
+  /** 付属のチャートの行（追加した順。#89） */
+  readonly extras: readonly ExtraEntry[];
+  /** 保存でチャートの画像を送っている（帯の文を「チャートを送っています…」に。#89） */
+  readonly sendingCharts?: true;
 }
 
 export interface EditController {
@@ -126,6 +170,18 @@ export interface EditController {
   /** 計算に使う値: true = 今の値、false = 記録したとき（#31。違いが無ければ何もしない） */
   setRefresh(on: boolean): void;
   save(): Promise<void>;
+  /** チャートを枠に入れる（描き直してプレビュー・時間足の読み取り。送るのは [保存する]。#89） */
+  setChart(slot: AnySlot, file: Blob): Promise<void>;
+  /** [削除]: 枠のチャートと時間足を消す（付属の枠は行ごと。保存済みのチャートは [保存する] で消える） */
+  removeChart(slot: AnySlot): void;
+  /** [＋ チャートを追加] */
+  addExtraChart(): ExtraSlot | null;
+  setExtraTimeframe(slot: ExtraSlot, value: Timeframe | null): void;
+  setExtraNote(slot: ExtraSlot, note: string): void;
+  /** [〈読めた値〉にする] */
+  acceptChartTimeframe(slot: AnySlot): void;
+  /** [元に戻す]: 削除・差し替えした枠を保存済みのチャートに戻す */
+  restoreChart(slot: AnySlot): void;
   dispose(): void;
 }
 
@@ -179,6 +235,11 @@ export function createEditController(deps: {
   readonly api: ApiFn;
   readonly id: string;
   readonly timeoutMs?: number;
+  /** 画像を送る形に描き直す（画面が statement-image.ts の prepareImage を渡す。テストは偽物。#89） */
+  readonly prepare?: (file: Blob) => Promise<PrepareResult>;
+  /** 保存済みのチャートを canvas に描ける形にする（画面は browserCodec.preview。省けば読み戻さない） */
+  readonly preview?: (bytes: Uint8Array, type: ImageType) => Promise<PreviewHandle>;
+  readonly readTimeoutMs?: number;
 }): EditController {
   const request = createRequest(deps.api, deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const listeners = new Set<(s: EditState) => void>();
@@ -200,6 +261,7 @@ export function createEditController(deps: {
     currencyCleared: false,
     fxCleared: false,
     error: null,
+    extras: [],
   };
   let inflight: Promise<void> | null = null;
   let gen = 0;
@@ -218,7 +280,10 @@ export function createEditController(deps: {
     initial: Draft,
     refresh: boolean,
   ) => {
-    const ctx = editContext(trade, instruments, accounts);
+    const ctx = editContext(trade, instruments, accounts, {
+      entry: slots.has('entry'),
+      exit: slots.has('exit'),
+    });
     let draft = draft0;
     let read = readDraft(draft, ctx);
     // ただし開いたときのまま（触っていない）答えは残す（保存で書き換えない。mergeEdit）
@@ -240,7 +305,21 @@ export function createEditController(deps: {
       refresh && offer !== null && merged !== undefined
         ? withoutStaleFx(merged, stored, snapshot)
         : merged;
-    return { draft, read, offer, preview: editPreview(read, forPreview, snapshot) };
+    // チャートの描き直し中・付属の一言が長すぎる間は保存しない（記録する画面と同じ。#89）
+    let gated = read;
+    if (slots.preparing()) {
+      gated = { ...gated, canSave: false, notice: gated.notice ?? CHART_PREPARING };
+    }
+    if (extraNoteErrors(slots.view().extras).length > 0) {
+      gated = { ...gated, canSave: false, notice: gated.notice ?? extraNoteTooLong };
+    }
+    return {
+      draft,
+      read: gated,
+      offer,
+      preview: editPreview(read, forPreview, snapshot),
+      orphans: orphanTimeframes(trade, (s) => slots.has(s)),
+    };
   };
 
   const set = (patch: Partial<EditState>) => {
@@ -258,6 +337,59 @@ export function createEditController(deps: {
   /** 為替の基準の組（開いたときの組 → 為替を打ったときの組）と、規則で空にしたか（#47 PR-2） */
   let fxBasis: FxPair = { price: null, account: 'JPY', matched: false };
   let fxAutoCleared = false;
+
+  /** チャートの枠（chart-slots.ts。記録する画面と同じもの） */
+  const slots: ChartSlots = createChartSlots({
+    request,
+    readTimeoutMs: deps.readTimeoutMs ?? CHART_READ_TIMEOUT_MS,
+    ...(deps.prepare ? { prepare: deps.prepare } : {}),
+    timeframeOf: (slot) => state.draft[CHART_TIMEFRAME_FIELD[slot]],
+    commit: (c: ChartSlotsChange) => {
+      const trade = state.trade;
+      if (disposed || trade === null || state.phase === 'loading') return;
+      let draft = state.draft;
+      for (const [slot, tf] of Object.entries(c.timeframes ?? {})) {
+        draft = { ...draft, [CHART_TIMEFRAME_FIELD[slot as ChartSlot]]: tf };
+      }
+      state = { ...state, charts: c.view.charts, extras: c.view.extras };
+      const next = withDraft(
+        trade,
+        state.instruments,
+        state.accounts,
+        draft,
+        state.initial,
+        state.refresh,
+      );
+      set({
+        ...next,
+        ...(next.offer === null ? { refresh: false } : {}),
+        ...(c.authExpired ? { error: AUTH_EXPIRED, errorKind: 'auth' as const } : {}),
+      });
+    },
+  });
+
+  /** 保存済みのチャートを読み戻して枠に置く（読めない枠は「読み込めませんでした」。差し替え・削除はできる） */
+  const loadStoredCharts = async (trade: StoredTrade, my: number) => {
+    const stored = ALL_SLOTS.filter((s) => trade.charts?.[s] !== undefined);
+    const preview = deps.preview;
+    if (!preview) return;
+    await Promise.all(
+      stored.map(async (slot) => {
+        let handle: PreviewHandle | null = null;
+        try {
+          handle = await loadChartPreview(request, deps.id, slot, preview);
+        } catch {
+          handle = null;
+        }
+        // 開き直した・離れた後に届いた応答は捨てる（差し替え・削除の後でも元のチャートとして持つ = [元に戻す]）
+        if (my !== gen || disposed) {
+          handle?.close();
+          return;
+        }
+        slots.setStored(slot, handle);
+      }),
+    );
+  };
 
   const load = async () => {
     const my = ++gen;
@@ -292,6 +424,14 @@ export function createEditController(deps: {
       const initial = draftFromStored(trade, inst.items);
       fxBasis = fxPairOf(initial, editContext(trade, inst.items, accounts));
       fxAutoCleared = false;
+      // 保存済みのチャートは読み戻すまで「読み込んでいます」（チャートはある = 判定・時間足の欄はそのまま）
+      slots.clear();
+      for (const slot of ALL_SLOTS) {
+        if (trade.charts?.[slot] === undefined) continue;
+        slots.markStored(slot, isMainSlot(slot) ? initial[CHART_TIMEFRAME_FIELD[slot]] : null);
+      }
+      slots.init(extrasFromRecord(trade.record.extraCharts).filter((e) => slots.has(e.slot)));
+      state = { ...state, trade, charts: slots.view().charts, extras: slots.view().extras };
       const next = withDraft(trade, inst.items, accounts, initial, initial, false);
       set({
         phase: 'editing',
@@ -301,13 +441,13 @@ export function createEditController(deps: {
         initial,
         ...next,
         before: summarize(trade),
-        orphans: orphanTimeframes(trade),
         block: null,
         refresh: false,
         currencyCleared: false,
         fxCleared: false,
         error: null,
       });
+      await loadStoredCharts(trade, my);
     } catch (e) {
       if (my !== gen || disposed) return;
       const kind = kindOf(e);
@@ -319,7 +459,42 @@ export function createEditController(deps: {
     }
   };
 
+  /** 400 の理由が、チャートの並び・有無の食い違い（ほかの画面でチャートが変わった）か */
+  const chartsConflict = async (res: Response): Promise<boolean> => {
+    try {
+      const j = (await res.clone().json()) as { issues?: { kind?: unknown }[] };
+      return (j.issues ?? []).some((i) => i.kind === 'noChart' || i.kind === 'noEntry');
+    } catch {
+      return false;
+    }
+  };
+
+  /** チャートの変更（差し替え・足す画像と外す枠）。変更が無ければ null（今の JSON の PUT） */
+  const chartChanges = (trade: StoredTrade) => {
+    const uploads = slots.uploads();
+    // removeChart を送るのは、利用者が [削除] した保存済みの枠だけ（差し替えの失敗などで黙って消さない。#89 R1）
+    const removes = slots.removedSlots().filter((s) => trade.charts?.[s] !== undefined);
+    if (Object.keys(uploads).length === 0 && removes.length === 0) return null;
+    return { uploads, removes };
+  };
+
   const doSave = async () => {
+    // 2 枠を差し替えて時間足の読み取りの途中なら、前のチャートの時間足を新しいチャートに付けず「指定なし」で保存する
+    // （保存の前の帯で知らせる。利用者が選んだ値はそのまま。#89 N2）
+    const keptReading = keptReadingSlots(state.charts);
+    if (keptReading.length > 0 && state.phase === 'editing' && state.trade !== null) {
+      let d = state.draft;
+      for (const slot of keptReading) d = { ...d, [CHART_TIMEFRAME_FIELD[slot]]: null };
+      const next = withDraft(
+        state.trade,
+        state.instruments,
+        state.accounts,
+        d,
+        state.initial,
+        state.refresh,
+      );
+      state = { ...state, ...next };
+    }
     const { trade, read, draft, initial } = state;
     // 「今の値」を選んでいて、記録したときの値と今の値が違うときだけ保存し直しを頼む（#31）
     const refresh = state.refresh && state.offer !== null;
@@ -327,6 +502,9 @@ export function createEditController(deps: {
       return;
     }
     const body = read.body;
+    // 終わっていない時間足の読み取りは止めて結果を捨てる（記録する画面と同じ。#27）
+    const stopped = slots.stopReads();
+    if (stopped.length > 0) state = { ...state, charts: slots.view().charts };
     set({ phase: 'saving', error: null });
     try {
       if (refresh) {
@@ -349,6 +527,8 @@ export function createEditController(deps: {
             refresh: next.offer !== null,
             error: EDIT_VALUES_CHANGED,
           });
+          // 保存の前に止めた時間足の読み取りを送り直す（#89 R3）
+          slots.requeue(stopped);
           return;
         }
       }
@@ -371,24 +551,49 @@ export function createEditController(deps: {
       );
       // 今の値で写し直す（#31）とき、通貨の組が変わるなら為替を外して送る（#47 PR-2。為替は組に縛られた値）
       const offer = state.offer;
-      const record =
+      const merged =
         refresh && offer !== null
           ? withoutStaleFx(record0, editSnapshot(read, ctx, draft), offer.snapshot)
           : record0;
-      const res = await request(`${tradePath(deps.id)}${refresh ? RESNAPSHOT_QUERY : ''}`, {
-        method: 'PUT',
-        headers: JSON_HEADERS,
-        body: JSON.stringify(record),
-      });
+      const extraCharts = extrasBody(slots.view().extras, (x) => slots.has(x));
+      const record: TradeRecord = { ...merged, ...(extraCharts ? { extraCharts } : {}) };
+      // チャートの変更があれば取引と一緒に 1 要求（multipart。API が 1 トランザクションで書く）。無ければ今の JSON
+      const changes = chartChanges(trade);
+      const path = `${tradePath(deps.id)}${refresh ? RESNAPSHOT_QUERY : ''}`;
+      if (changes) set({ sendingCharts: true });
+      const res = changes
+        ? await request(
+            path,
+            { method: 'PUT', body: tradeFormData(record, changes.uploads, changes.removes) },
+            { ms: chartSaveTimeoutMs(changes.uploads) },
+          )
+        : await request(path, {
+            method: 'PUT',
+            headers: JSON_HEADERS,
+            body: JSON.stringify(record),
+          });
       if (disposed) return;
       if (res.status === 404) {
         set({ phase: 'notFound', error: null });
         return;
       }
+      // 本文に付属の並びがあれば JSON の保存でも同じ食い違いが起きうる（#89 R4）
+      if (
+        (changes || record.extraCharts !== undefined) &&
+        res.status === 400 &&
+        (await chartsConflict(res))
+      ) {
+        unsend();
+        set({ phase: 'editing', error: EDIT_CHARTS_CHANGED, errorKind: 'other' });
+        slots.requeue(stopped);
+        return;
+      }
       const saved = await getJson<StoredTrade>(res, 200);
+      unsend();
       set({ phase: 'saved', trade: saved, error: null });
     } catch (e) {
       if (disposed) return;
+      unsend();
       const kind = kindOf(e);
       set({
         phase: 'editing',
@@ -400,8 +605,20 @@ export function createEditController(deps: {
               : EDIT_SAVE_FAILED,
         errorKind: kind,
       });
+      // 編集に戻った: 保存の前に止めた時間足の読み取りを送り直す
+      slots.requeue(stopped);
     }
   };
+
+  const editing = () => state.phase === 'editing' && state.trade !== null;
+
+  /** 送っている印を外す */
+  function unsend() {
+    if (state.sendingCharts) {
+      const { sendingCharts: _s, ...rest } = state;
+      state = rest;
+    }
+  }
 
   return {
     getState: () => state,
@@ -416,6 +633,14 @@ export function createEditController(deps: {
     update(action) {
       const trade = state.trade;
       if (state.phase !== 'editing' || trade === null) return;
+      // チャートの時間足を利用者が選んだ: 後で届く読み取りで上書きせず、読み取りの印と知らせを消す（#27）
+      if (action.type === 'set') {
+        for (const slot of ['entry', 'exit'] as const) {
+          if (action.field !== CHART_TIMEFRAME_FIELD[slot]) continue;
+          slots.touch(slot, action.value as Timeframe | null);
+          state = { ...state, charts: slots.view().charts };
+        }
+      }
       let draft = applyDraft(state.draft, action);
       let currencyCleared = state.currencyCleared;
       let fxCleared = state.fxCleared;
@@ -499,9 +724,38 @@ export function createEditController(deps: {
       inflight = p;
       return p;
     },
+    async setChart(slot, file) {
+      if (!editing()) return;
+      state = { ...state, error: null };
+      await slots.setChart(slot, file);
+    },
+    removeChart(slot) {
+      if (!editing()) return;
+      state = { ...state, error: null };
+      slots.remove(slot);
+    },
+    addExtraChart() {
+      if (!editing()) return null;
+      return slots.addExtra();
+    },
+    setExtraTimeframe(slot, value) {
+      if (editing()) slots.setExtraTimeframe(slot, value);
+    },
+    setExtraNote(slot, note) {
+      if (editing()) slots.setExtraNote(slot, note);
+    },
+    acceptChartTimeframe(slot) {
+      if (editing()) slots.accept(slot);
+    },
+    restoreChart(slot) {
+      if (!editing()) return;
+      state = { ...state, error: null };
+      slots.restore(slot);
+    },
     dispose() {
       disposed = true;
       gen++;
+      slots.clear();
       listeners.clear();
     },
   };

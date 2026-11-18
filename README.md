@@ -6,7 +6,7 @@
 
 ## 前提の道具
 
-- [mise](https://mise.jdx.dev/)（道具の版をそろえるために使います。リポジトリの `mise.toml` に Node 24.22.3・Java 21（Temurin 21.0.13）・uv 0.13.6 の版が書いてあります）
+- [mise](https://mise.jdx.dev/)（道具の版をそろえるために使います。リポジトリの `mise.toml` に Node 24.22.3・Java 21（Temurin 21.0.13）・uv 0.13.6・terraform 1.17.1 の版が書いてあります）
 - git・curl
 
 ```sh
@@ -132,10 +132,10 @@ curl -s -X POST -H "$AUTH" -H 'Content-Type: image/png' \
 
 ## 確認コマンド
 
-型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（決済明細の読み取りの部品 `packages/statement-read/`、API、読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）をまとめて流します。API のテストは、エミュレーター（Auth・Firestore）を自分で起動して流す段もあります（Java が要ります。`npm run emulators` を動かしているとポートがぶつかるので、止めてから流してください）。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
+型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（決済明細の読み取りの部品 `packages/statement-read/`、API、読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）、本番の土台の Terraform（[`infra/`](infra/README.md)。書式・検証と、モックのプロバイダのテスト）をまとめて流します。API のテストは、エミュレーター（Auth・Firestore）を自分で起動して流す段もあります（Java が要ります。`npm run emulators` を動かしているとポートがぶつかるので、止めてから流してください）。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
 
 ```sh
-mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)'
+mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && terraform fmt -check -recursive infra && terraform -chdir=infra/bootstrap init -backend=false -input=false -no-color && terraform -chdir=infra/bootstrap validate -no-color && terraform -chdir=infra/bootstrap test -no-color && .github/scripts/tf-required-vars.sh && .github/scripts/tf-iam-grants.test.sh && .github/scripts/tf-iam-grants.sh'
 ```
 
 ## ログイン（手元）
@@ -159,6 +159,10 @@ mise exec -- npm run ui:check -- --shots <出力先のディレクトリ>   # �
 ```
 
 開発の時だけ <http://localhost:5173/dev/parts> で部品の見本（ボタン・3 つのタップ・判定のバッジ・R と円の数字・色のトークン）が開けます。本番のビルドには入りません。画面の原則は [`docs/ui-guidelines.md`](docs/ui-guidelines.md) にあります。
+
+## 本番の土台（GCP）
+
+自分の GCP プロジェクトに本番の土台（API・Terraform の state のバケット・GitHub Actions からの鍵なしの認証・コンテナイメージの置き場・Firebase・月の予算の通知）を作る手順は [`infra/README.md`](infra/README.md) にあります。
 
 ## ディレクトリ
 

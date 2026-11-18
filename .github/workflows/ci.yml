@@ -89,3 +89,23 @@ jobs:
       - name: 道具のテスト
         working-directory: tools/statement-eval
         run: uv run --locked pytest -q
+      # Terraform（infra/。#41）。資格情報なし: fmt・validate と、モックのプロバイダの terraform test だけ
+      # （bootstrap の plan / apply は所有者が手元で行う。infra/README.md）。版は mise.toml の terraform と揃える
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - name: terraform fmt
+        run: terraform fmt -check -recursive infra
+      - name: terraform validate（bootstrap）
+        run: |
+          terraform -chdir=infra/bootstrap init -backend=false -input=false -no-color
+          terraform -chdir=infra/bootstrap validate -no-color
+      - name: terraform test（bootstrap、モックのプロバイダ）
+        run: terraform -chdir=infra/bootstrap test -no-color
+      - name: 変数なしの plan が必須の変数の未指定で止まるか（bootstrap、モックのプロバイダ）
+        run: .github/scripts/tf-required-vars.sh
+      - name: IAM の付与の宣言の検査の自己テスト
+        run: .github/scripts/tf-iam-grants.test.sh
+      - name: IAM の付与の宣言が期待の集合だけか（bootstrap。権威的な型・*.tf.json・module は 0 件）
+        run: .github/scripts/tf-iam-grants.sh

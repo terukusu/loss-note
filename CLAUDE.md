@@ -24,7 +24,7 @@
 - SaaS として提供する。リポジトリは公開で、作りは誰でも clone して自分の環境で使える汎用のものにする（下の「リポジトリに置くもの / 置かないもの」）
 - 画面は **モダンでかっこいい Web の SPA**（シングルページアプリ）。見た目と操作の気持ちよさを機能と同じ重さで扱う（オーナー「かっちょいいモダンなWebベースのSPAにしようよ」）
 - スタックは option-simulator と同じ: GCP（Cloud Run・Terraform・Firestore）、画面は TypeScript + Vite + Preact、API は Python（Flask / gunicorn、uv）
-- 本番は loss-note 専用の GCP プロジェクト（optionchan とは分ける）
+- 本番は loss-note 専用の GCP プロジェクト（optionchan とは分ける）。リージョンは東京（asia-northeast1）。請求先に月の予算（既定 3,000 円）を置き、50 / 90 / 100% で請求先の管理者に通知する（止めはしない。#41・ADR-0008）
 - MVP は無料。課金は後の EPIC で足す
 - MVP の範囲: 記録と一覧 / 気づきと集計 / AI の振り返り
 - スプレッドシート「損失ノート」はオーナー自身のデータを一度だけ移すためのもの（製品の機能にしない。移行の手段は使い捨てでよく、実データはリポジトリに入れない）
@@ -52,7 +52,8 @@
 | `packages/statement-read/` | 決済明細の読み取りの部品（Python 3.13・uv の独立したプロジェクト。#11・ADR-0005）。`api/` と `tools/statement-eval/` が uv の path 依存で同じものを使う（二重に持たない）。`src/statement_read/`: `prompt.py` = 読み取りの指示と決まった文、`result.py` = ツール `report_statement` の名前・説明・入力の形と結果の検査 `check_result`、`values.py` = 数・日時・向き（`opened_side`）・手数料の合計の純関数、`image.py` = 画像の上限と PNG / JPEG の寸法を読む純関数、`normalize.py` = 結果 → API の応答の形（向き・日本時間・手数料の合計・範囲の外の欄を空に）、`agent_reader.py` = Claude Agent SDK の送り口（締め切り・一時ディレクトリ・失敗の分類）、`app_settings.py` = アプリの読み取りのモデル・effort・締め切り。テストは `tests/`（実際の AI は呼ばない） |
 | `tools/statement-eval/` | 決済明細の AI による読み取りを測る道具（Python 3.13・uv の独立したプロジェクト。アプリの依存ではない。#14・ADR-0001）。読み取りの部品（指示・結果の形・送り口・向きなどの純関数）は共有の `packages/statement-read/` を使い、道具のモジュールは名前を写すだけ。`eval --preset app` はアプリの読み取りの設定で測る（#11 の AC-14）。採点の純関数は `src/statement_eval/score.py`（テストは `tests/test_score.py`）、合成の明細（架空の値の画像・正解）は `synthetic/`（`python -m statement_eval generate` で作り直す）。実物の明細と正解は `data/local/statement-eval/real/` だけに置く。実際の AI を呼ぶのは手元で `eval` を回したときだけ（依存グループ `ai`・資格情報の環境変数） |
 | `scripts/` | 手元の道具（`emulators.sh` = エミュレーターの起動、`check-pinned.mjs` = 直接の依存が正確な版かの検査、`ui-check.mjs` = 画面の検査 `npm run ui:check`（Playwright。手元だけ。Auth のエミュレーターが動いていること。ログイン済みの文脈の `/api` はスクリプトの中の偽の記録の API に置き換える）） |
-| `.github/` | CI（`workflows/ci.yml`）とビルド成果物の検査（`scripts/csp-check.sh`・自己テスト `csp-check.test.sh`） |
+| `.github/` | CI（`workflows/ci.yml`）とビルド成果物の検査（`scripts/csp-check.sh`・自己テスト `csp-check.test.sh`）、Terraform の変数なしの plan が必須の変数の未指定で止まるかの検査（`scripts/tf-required-vars.sh`）と、bootstrap の IAM の付与の宣言が期待の集合だけかの検査（`scripts/tf-iam-grants.sh`・自己テスト `tf-iam-grants.test.sh`。`*.tf.json`・`module` を置くと失敗する。付与を足すときはスクリプトの期待の集合と test を一緒に直す） |
+| `infra/` | 本番の土台の Terraform（#41・ADR-0008。手順は `infra/README.md`）。`bootstrap/` = 所有者が手元から apply するルート（API の有効化・state のバケット 2 つ・Workload Identity 連携と CI の SA（plan / apply）・実行用 SA・Artifact Registry・Firebase と Authentication の初期化（Identity Platform）・月の予算）。識別子（プロジェクト・請求先・リポジトリ・数値 ID）に既定値は無く、apply のたびに `TF_VAR_` で渡す。テストは `bootstrap/tests/`（モックのプロバイダ。資格情報なし）と、変数なしの plan を流す `bootstrap/tests/required-vars/`（既定の `terraform test` では読まれない。`.github/scripts/tf-required-vars.sh` が流す）。CI が apply する `infra/prod/` は #42 |
 | `firebase.json`・`firestore.rules`・`storage.rules` | 手元のエミュレーター（Firestore・Auth・Storage）の設定。ルールはすべて拒否（画面から直接読み書きさせない）。Storage は使っていない（チャート画像は Firestore。ADR-0006）が、全部拒否であることを `npm run test:api:emulator` で検査する |
 | `docs/` | 設計書・ADR |
 | `data/local/` | 手元だけのデータ（gitignore）。実際の記録の写しと、エミュレーターの書き出し `data/local/emulator/`。開発サーバーからも配らない（`vite.config.ts` の `server.fs.deny`） |
@@ -66,15 +67,15 @@
 確認コマンド（CI と同じもの。手元は `mise exec -- bash -c '<この 1 行>'` で Node 24・uv・Java を使う。`npm run test:api:emulator` はエミュレーターを自分で起動して API のテストを流すので、`npm run emulators` を動かしているとポートがぶつかる。止めてから流す）:
 
 ```
-npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q)
+npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && terraform fmt -check -recursive infra && terraform -chdir=infra/bootstrap init -backend=false -input=false -no-color && terraform -chdir=infra/bootstrap validate -no-color && terraform -chdir=infra/bootstrap test -no-color && .github/scripts/tf-required-vars.sh && .github/scripts/tf-iam-grants.test.sh && .github/scripts/tf-iam-grants.sh
 ```
 
-スキル（`.claude/skills/implement-issue` ほか）はこの確認コマンドを検証の正として使う。画面を触る PR は、あわせて `npm run ui:check`（画面の検査。CI には入れない）を手元で流し、出力の要約を PR に貼る（`docs/ui-guidelines.md` 6 章）。Terraform の検査（fmt・validate・test）は `infra/` を作る Issue で足す。
+スキル（`.claude/skills/implement-issue` ほか）はこの確認コマンドを検証の正として使う。画面を触る PR は、あわせて `npm run ui:check`（画面の検査。CI には入れない）を手元で流し、出力の要約を PR に貼る（`docs/ui-guidelines.md` 6 章）。Terraform の検査（fmt・bootstrap の validate・モックのプロバイダの test・変数なしの plan の検査・IAM の付与の宣言の検査）は資格情報なしで回る。bootstrap の plan / apply は所有者が手元で行う（`infra/README.md`）。
 
-- 手元の道具の版は `mise.toml` でパッチまで固定する（Node 24.22.3・Java 21.0.13（Temurin。エミュレーター用）・uv 0.13.6）。Node の版は `.node-version`（CI が読む）、uv の版とハッシュは `.github/uv-requirements.txt`（CI が pip の `--require-hashes` で入れる）にも書いてあるので、変えるときは両方を直す。Python 3.13 は uv が `api/.python-version`・`packages/statement-read/.python-version`・`tools/statement-eval/.python-version` を見て入れる
+- 手元の道具の版は `mise.toml` でパッチまで固定する（Node 24.22.3・Java 21.0.13（Temurin。エミュレーター用）・uv 0.13.6・terraform 1.17.1）。Node の版は `.node-version`（CI が読む）、uv の版とハッシュは `.github/uv-requirements.txt`（CI が pip の `--require-hashes` で入れる）、terraform の版は `.github/workflows/ci.yml` の `terraform_version` にも書いてあるので、変えるときは両方を直す。Terraform の provider（google・google-beta）は `infra/bootstrap/versions.tf` で正確な版にし、`.terraform.lock.hcl`（linux_amd64・darwin_arm64・darwin_amd64 のハッシュ。`terraform providers lock -platform=...` で作る）をコミットする。Python 3.13 は uv が `api/.python-version`・`packages/statement-read/.python-version`・`tools/statement-eval/.python-version` を見て入れる
 - 手元の起動は `README.md`（`npm run emulators`・`npm run dev:api`・`npm run dev`）
 - 依存はバージョンを固定する（lock ファイルをコミットする）。画面の直接の依存は正確な版（`.npmrc` の `save-exact=true`。`npm run check:pinned` で検査）、API は `api/pyproject.toml` の範囲 + `[tool.uv] exclude-newer` + `api/uv.lock`（`packages/statement-read/`・`tools/statement-eval/` も同じ形。AI の SDK は `api/`・`tools/statement-eval/` の依存グループ `ai` に入れ、確認コマンドと CI では入れない）。CI は `npm ci` と `uv sync --locked`（lock と食い違うと失敗）
-- 直接の依存は、公開から 14 日以上たった版を使う（サプライチェーン対策）。npm は `npm view <pkg> time --json` で公開日を調べる。API は `exclude-newer` の日付を進めて `uv lock` する（API は推移的な依存にも同じ日付の上限が掛かる。画面の推移的な依存には日付の上限をまだ掛けていない）
+- 直接の依存は、公開から 14 日以上たった版を使う（サプライチェーン対策）。npm は `npm view <pkg> time --json` で公開日を調べる。terraform 本体・provider は GitHub の releases（`gh api repos/hashicorp/<名前>/releases`）の公開日で調べる。API は `exclude-newer` の日付を進めて `uv lock` する（API は推移的な依存にも同じ日付の上限が掛かる。画面の推移的な依存には日付の上限をまだ掛けていない）
 - 設計判断は必要に応じて `docs/adr-NNNN-<slug>.md`（0001 から連番。状態・日付・背景・決定・選択肢・結果・関連）に残す
 
 ## 作業の進め方

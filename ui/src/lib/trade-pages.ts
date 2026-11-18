@@ -15,16 +15,24 @@ export const DELIVERED_LIMIT = 10;
 
 export type TradeOrder = 'exit' | 'created';
 
-/** GET /api/trades の件数つきのパス（order は exit のとき省く） */
-export function tradesPath(opts: {
-  readonly limit: number;
-  readonly cursor?: string | null;
-  readonly order?: TradeOrder;
-}): string {
+/**
+ * GET /api/trades の件数つきのパス（order は exit のとき省く）。決済の時刻の範囲（#88。exitFrom 以上 exitTo 未満の全件。
+ * 長さは API が 367 日までに抑える）もここで組み立てる（全件を読むパスを作らない）
+ */
+export function tradesPath(
+  opts:
+    | { readonly limit: number; readonly cursor?: string | null; readonly order?: TradeOrder }
+    | { readonly exitFrom: number; readonly exitTo: number },
+): string {
   const q = new URLSearchParams();
-  if (opts.order === 'created') q.set('order', 'created');
-  q.set('limit', String(opts.limit));
-  if (opts.cursor) q.set('cursor', opts.cursor);
+  if ('exitFrom' in opts) {
+    q.set('exitFrom', String(opts.exitFrom));
+    q.set('exitTo', String(opts.exitTo));
+  } else {
+    if (opts.order === 'created') q.set('order', 'created');
+    q.set('limit', String(opts.limit));
+    if (opts.cursor) q.set('cursor', opts.cursor);
+  }
   return `/api/trades?${q.toString()}`;
 }
 

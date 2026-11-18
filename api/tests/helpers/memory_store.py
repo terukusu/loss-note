@@ -19,7 +19,7 @@ import secrets
 import string
 import threading
 
-from loss_note_api import accounts, trade_pages
+from loss_note_api import accounts, trade_pages, trade_range
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.logs import log_event
@@ -80,6 +80,13 @@ class MemoryStore:
             return page
         self.trade_page_reads.append(len(page))
         return page
+
+    def list_trades_in_exit_range(self, uid, start, end, limit):
+        # Firestore の where（>= start・< end）と同じ境目（trade_range.in_range）、決済の新しい順に limit 件
+        with self._lock:
+            items = [(k, copy.deepcopy(v)) for k, v in self._col(uid, "trades").items()]
+        hit = sorted((it for it in items if trade_range.in_range(it[1], start, end)), key=trade_pages.exit_key)
+        return hit[:limit]
 
     def get_trade(self, uid, trade_id):
         with self._lock:

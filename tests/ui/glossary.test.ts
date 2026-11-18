@@ -35,6 +35,8 @@ const IDS: readonly GlossaryId[] = [
   'timeframeChange',
   'ruler',
   'judgment',
+  'planRate',
+  'disciplineCost',
 ];
 
 /** 項目の文をすべてつないだ見える文字（言葉・短い説明・続き・一覧・例。リンクの印は外す） */
@@ -49,8 +51,8 @@ const DESIGN_SECTIONS = new Set(
 );
 
 describe('用語のデータの形', () => {
-  it('15 項目・ID は重複なし・すべての ID がある', () => {
-    expect(GLOSSARY).toHaveLength(15);
+  it('17 項目・ID は重複なし・すべての ID がある（#88 で計画どおり率・規律コストを足した）', () => {
+    expect(GLOSSARY).toHaveLength(17);
     expect(GLOSSARY.map((g) => g.id).sort()).toEqual([...IDS].sort());
     expect(isGlossaryId('lc')).toBe(true);
     expect(isGlossaryId('nope')).toBe(false);
@@ -257,5 +259,29 @@ describe('AC-8: 説明が指す設計書の節は設計書の見出しにある'
 
   it.each(GLOSSARY.map((g) => [g.id, g.design] as const))('%s', (_id, design) => {
     for (const n of design) expect(DESIGN_SECTIONS.has(n)).toBe(true);
+  });
+});
+
+describe('#88: 振り返りの言葉', () => {
+  it('計画どおり率: A いい損失と計画どおりの勝ちの割合・5 件未満は出さない・取り込みは既定で外す・例は 4 / 7 = 57%', () => {
+    const s = allText('planRate');
+    for (const w of [
+      'A いい損失',
+      '計画どおりの勝ち',
+      '5 件未満',
+      '取り込んだ取引',
+      '4 / 7 = 57%',
+    ]) {
+      expect(s).toContain(w);
+    }
+    expect(Math.round((4 / 7) * 100)).toBe(57);
+  });
+
+  it('規律コスト: −1.0R より大きく負けた B・C だけ −1.0R に・危ない勝ちは運・例は −1.6R → −0.6R', () => {
+    const s = allText('disciplineCost');
+    for (const w of ['−1.0R より大きく負けた', '危ない勝ち', '運', '−1.6R', '−0.6R']) {
+      expect(s).toContain(w);
+    }
+    expect(-1.6 - -1.0).toBeCloseTo(-0.6, 12);
   });
 });

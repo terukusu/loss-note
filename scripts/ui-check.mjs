@@ -429,6 +429,74 @@ const TX_R3 = exampleTrade('x-r3', 1700000000013, {
   statementPnlYen: -8000,
 });
 const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2, TX_R1, TX_R2, TX_R3];
+/**
+ * Issue #88 の例の表 S1 の 7 件（架空の値）。決済は端末の今日から 6 日前〜今日の 10:00（7 日・3 か月に入り、1 日は今日の 1 件）。
+ * 1 A −1.0R・2 計画どおりの勝ち +2.0R・3 B LC を下げた −1.6R・4 危ない勝ち +0.5R・5 C LC なし・6 A −0.8R・7 計画どおりの勝ち +1.2R
+ */
+function reviewExit(daysAgo) {
+  const t = new Date();
+  return new Date(t.getFullYear(), t.getMonth(), t.getDate() - daysAgo, 10, 0).getTime();
+}
+function reviewTrade(i, id, price, over = {}, source = 'manual') {
+  return exampleTrade(id, 1700000001000 + i, {
+    source,
+    exit: {
+      time: reviewExit(6 - i),
+      price,
+      orderType: 'unknown',
+      reason: 'other',
+      gapSlip: 'unanswered',
+    },
+    statementPnlYen: Math.round((price - 100) * 10000),
+    ...over,
+  });
+}
+const REVIEW_S1 = [
+  reviewTrade(0, 'rv-1', 99.5),
+  reviewTrade(1, 'rv-2', 101),
+  reviewTrade(2, 'rv-3', 99.2, { lcMove: { kind: 'widened', after: 99.2 } }),
+  reviewTrade(3, 'rv-4', 100.25, { timeframeChange: 'longer' }),
+  reviewTrade(4, 'rv-5', 99, { lc: undefined, lcDecidedBeforeEntry: false }),
+  reviewTrade(5, 'rv-6', 99.6),
+  reviewTrade(6, 'rv-7', 100.6),
+];
+/** S4 の取り込んだ取引 2 件（A −1.0R・B −1.3R） */
+const REVIEW_IMPORTS = [
+  reviewTrade(1, 'rv-i1', 99.5, {}, 'import'),
+  reviewTrade(2, 'rv-i2', 99.35, { lcMove: { kind: 'widened', after: 99.3 } }, 'import'),
+];
+/** S2: 判定の出た取引 3 件（A 1・B 2） */
+const REVIEW_S2 = REVIEW_S1.slice(0, 3);
+/** 差が無い期間（S1 から 3 番の B を除く） */
+const REVIEW_NOGAP = REVIEW_S1.filter((t) => t.id !== 'rv-3');
+/** 差も曲線の外の取引も無い期間（「崩れなし ±0.0R」） */
+const REVIEW_CLEAN = REVIEW_S1.filter((t) => t.id !== 'rv-3' && t.id !== 'rv-5');
+/** 今日から 120 日前に決済した取引だけ（1 日・7 日・1 か月・3 か月はどれも 0 件） */
+const REVIEW_OLD = REVIEW_S1.map((t) => ({
+  ...t,
+  record: { ...t.record, exit: { ...t.record.exit, time: reviewExit(120) } },
+}));
+/** 大きな負け（LC を下げて −8.0R の B）が 1 件ある期間 */
+const REVIEW_BIG = [
+  ...REVIEW_S1,
+  reviewTrade(6, 'rv-big', 96, { lcMove: { kind: 'widened', after: 95.5 } }),
+];
+/** 取引の多い期間（合成 120 件。決済は今日から 0〜84 日前。10 件に 1 件が LC を下げた −1.5R の B） */
+const REVIEW_MANY = Array.from({ length: 120 }, (_, i) => {
+  const daysAgo = Math.floor((119 - i) * 0.7);
+  const price = i % 10 === 0 ? 99.25 : i % 3 === 0 ? 99.5 : 100.4;
+  return exampleTrade(`rv-m${i}`, 1700000100000 + i, {
+    exit: {
+      time: reviewExit(daysAgo) + (i % 5) * 60000,
+      price,
+      orderType: 'unknown',
+      reason: 'other',
+      gapSlip: 'unanswered',
+    },
+    statementPnlYen: Math.round((price - 100) * 10000),
+    ...(i % 10 === 0 ? { lcMove: { kind: 'widened', after: 99.2 } } : {}),
+  });
+});
 /** #47 PR-2: JPY の口座 × USD 建て・為替 150 の取引（詳細の外貨建ての測りで一時だけ足す。架空の値） */
 /** Issue #89: エントリー時・決済時 + 追加のチャート 5 枚（一言の有り無し・時間足の有り無しを混ぜる。値は架空） */
 const CHART_META = { contentType: 'image/png', size: 1 };
@@ -618,6 +686,10 @@ async function installFakeApi(context, opts = {}) {
     tradeGets: [],
     /** 取引の一覧のページの応答を待たせる（ミリ秒。Issue #87 の読み込み中の確かめ） */
     tradesPageDelayMs: 0,
+    /** 決済の時刻の範囲の読み（Issue #88）の状態（200 以外 = 振り返りだけ失敗させる） */
+    rangeStatus: 200,
+    /** 決済の時刻の範囲の応答を待たせる（ミリ秒。読み込み中の状態を撮る） */
+    rangeHoldMs: 0,
     deletes: [],
     chartGets: [],
     /** 取引の PUT のチャートの変更（Issue #89） */
@@ -748,6 +820,38 @@ async function installFakeApi(context, opts = {}) {
       // ページ分け（Issue #87。本物の trade_pages.py と同じ並びと切り出し。カーソルは並びの鍵の JSON）
       const q = new URL(req.url()).searchParams;
       api.tradeGets.push(q.toString());
+      // 決済の時刻の範囲（Issue #88。本物の trade_range.py と同じ境目: 開始を含み終了を含まない。367 日まで）
+      if (q.has('exitFrom') || q.has('exitTo')) {
+        const from = Number(q.get('exitFrom'));
+        const to = Number(q.get('exitTo'));
+        if (!(from >= 0 && to > from && to - from <= 367 * 86400000) || q.has('limit')) {
+          return json(route, 400, { error: 'invalid' });
+        }
+        if (api.rangeHoldMs) {
+          await new Promise((ok) => {
+            const t = setTimeout(ok, api.rangeHoldMs);
+            t.unref?.();
+          });
+        }
+        if (api.rangeStatus !== 200) {
+          try {
+            return await json(route, api.rangeStatus, { error: 'unavailable' });
+          } catch {
+            return undefined; // 待たせている間に画面を離れた
+          }
+        }
+        const items = api.trades
+          .filter((t) => t.record.exit.time >= from && t.record.exit.time < to)
+          .sort(tradeSort);
+        try {
+          return await json(route, 200, {
+            items: items.slice(0, 2000),
+            truncated: items.length > 2000,
+          });
+        } catch {
+          return undefined; // 待たせている間に画面を離れた
+        }
+      }
       if (!q.has('limit')) return json(route, 200, { items: [...api.trades].sort(tradeSort) });
       const limit = Number(q.get('limit'));
       const order = q.get('order') ?? 'exit';
@@ -3038,6 +3142,273 @@ async function main() {
             problems.push(`${label}: 開けない ${msg}`);
           } finally {
             setAccounts(recApi, []);
+          }
+        }
+        // ホームの規律の振り返り（Issue #88 AC-12）: 期間ごと・件数が少ない・0 件・期間の誤り・取り込みを含める / 外す・
+        // 「数で見る」を開いた形。取引を一時だけ S1（架空の値）に替えて測り、後で戻す
+        {
+          const ymd = (d) =>
+            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          const today = new Date();
+          const back5 = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5);
+          const REVIEW_STATES = [
+            ['/?period=7d', REVIEW_S1, '.curve', 'home-review-7d'],
+            ['/?period=1d', REVIEW_S1, '.review__grid', 'home-review-1d'],
+            ['/?period=1m', REVIEW_S1, '.curve', 'home-review-1m'],
+            ['/?period=3m', REVIEW_S1, '.curve', 'home-review-3m'],
+            [
+              `/?period=custom&from=${ymd(today)}&to=${ymd(back5)}`,
+              REVIEW_S1,
+              '#review-to-error',
+              'home-review-custom-error',
+            ],
+            [
+              `/?period=custom&from=${ymd(back5)}&to=${ymd(today)}`,
+              REVIEW_S1,
+              '.curve',
+              'home-review-custom',
+            ],
+            [
+              '/?period=custom&from=2020-01-01&to=2020-01-31',
+              REVIEW_S1,
+              '.review__empty',
+              'home-review-empty',
+            ],
+            ['/?period=7d', REVIEW_S2, '.review__missing', 'home-review-few'],
+            // レビュー後に足した状態（#88 Phase 4b）: 差が無い・大きな負け・取引の多い期間（合成 120 件）・読み込み中・
+            // 「i」を開いた・キーボードのフォーカス
+            ['/?period=7d', REVIEW_NOGAP, '.curve', 'home-review-nogap'],
+            ['/?period=7d', REVIEW_BIG, '.curve', 'home-review-bigloss'],
+            ['/?period=3m', REVIEW_MANY, '.curve', 'home-review-many'],
+            ['/?period=7d', REVIEW_S1, '.review .loading', 'home-review-loading', null, 200, 4000],
+            [
+              '/?period=7d',
+              REVIEW_S1,
+              '.curve',
+              'home-review-info',
+              async (pg) => {
+                await pg.locator('.review button[aria-label="「規律コスト」の説明"]').click();
+                await pg.locator('.review .info__lead').first().waitFor();
+              },
+            ],
+            ['/?period=7d', REVIEW_CLEAN, '.curve', 'home-review-clean'],
+            ['/?period=1d', REVIEW_OLD, '.review__empty', 'home-review-empty-1d'],
+            ['/?period=7d', REVIEW_OLD, '.review__empty', 'home-review-empty-7d'],
+            ['/?period=1m', REVIEW_OLD, '.review__empty', 'home-review-empty-1m'],
+            ['/?period=3m', REVIEW_OLD, '.review__empty', 'home-review-empty-3m'],
+            [
+              '/?period=7d',
+              REVIEW_S1,
+              '.curve',
+              'home-review-switching',
+              async (pg) => {
+                recApi.rangeHoldMs = 4000;
+                await seg(pg, '期間', '1か月').click();
+                await pg.locator('.review__body--busy').waitFor();
+              },
+            ],
+            [
+              '/?period=7d',
+              REVIEW_S1,
+              '.curve',
+              'home-review-info-rate',
+              async (pg) => {
+                await pg.locator('.review button[aria-label="「計画どおり率」の説明"]').click();
+                await pg.locator('.review .info__lead').first().waitFor();
+              },
+            ],
+            [
+              '/?period=7d',
+              [...REVIEW_S1, ...REVIEW_IMPORTS],
+              '.review__toggle',
+              'home-review-focus-toggle',
+              async (pg) => {
+                await pg.locator('input[name="review-period"]:checked').focus();
+                await pg.keyboard.press('Tab');
+                await pg.waitForFunction(() =>
+                  document.activeElement?.classList.contains('review__check'),
+                );
+              },
+            ],
+            [
+              '/?period=7d',
+              REVIEW_S1,
+              '.review__table > summary',
+              'home-review-focus-table',
+              async (pg) => {
+                await pg.locator('.review__table > summary').focus();
+                await pg.keyboard.press('Enter');
+                await pg.locator('.review__table table').waitFor();
+                await pg.keyboard.press('Tab');
+                await pg.waitForFunction(() =>
+                  document.activeElement?.classList.contains('review__scroll'),
+                );
+                await pg.locator('.review__table').scrollIntoViewIfNeeded();
+              },
+            ],
+            [
+              '/?period=7d',
+              REVIEW_S1,
+              '.curve',
+              'home-review-focus',
+              async (pg) => {
+                await pg.locator('.home__record a').first().focus();
+                await pg.keyboard.press('Tab');
+                await pg.waitForFunction(
+                  () => document.activeElement?.getAttribute('name') === 'review-period',
+                );
+              },
+            ],
+            [
+              '/?period=7d',
+              [...REVIEW_S1, ...REVIEW_IMPORTS],
+              '.review__toggle',
+              'home-review-imports-off',
+            ],
+            [
+              '/?period=7d&imports=1',
+              [...REVIEW_S1, ...REVIEW_IMPORTS],
+              '.review__toggle',
+              'home-review-imports-on',
+            ],
+            ['/?period=7d', REVIEW_IMPORTS, '.review__toggle', 'home-review-imports-only'],
+            [
+              '/?period=7d',
+              REVIEW_S1,
+              '.review__table > summary',
+              'home-review-table',
+              async (pg) => {
+                await pg.locator('.review__table > summary').click();
+                await pg.locator('.review__table table').waitFor();
+                await pg.locator('.review__table').scrollIntoViewIfNeeded();
+              },
+            ],
+            ['/?period=7d', REVIEW_S1, '.review .notice--error', 'home-review-failed', null, 503],
+          ];
+          for (const [path, trades, wait, slug, after, rangeStatus, holdMs] of REVIEW_STATES) {
+            const tp = pageFor.get(false);
+            const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`振り返り ${slug.replace('home-review-', '')}`, 22)}`;
+            const saved = recApi.trades;
+            try {
+              recApi.trades = [...trades];
+              recApi.rangeStatus = rangeStatus ?? 200;
+              recApi.rangeHoldMs = holdMs ?? 0;
+              await tp.goto(base + path);
+              await waitReady(tp, 'ホーム');
+              await tp.locator(wait).first().waitFor({ timeout: 15000 });
+              if (after) await after(tp);
+              await tp.mouse.move(0, 0);
+              const m = await measure(tp, w === 360, TAP);
+              states++;
+              worstH = Math.max(worstH, m.h);
+              smallTotal += m.small.length;
+              clippedTotal += m.clipped.length;
+              const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+              const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+              console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+              if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+              for (const x of m.clipped) {
+                console.log(`    はみ出し: ${x}`);
+                problems.push(`${label}: はみ出し ${x}`);
+              }
+              for (const x of m.small) {
+                console.log(`    当たり<44: ${x}`);
+                problems.push(`${label}: 当たり<44 ${x}`);
+              }
+              checkNest(label, m);
+              for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+              if (opts.shots) {
+                await tp.screenshot({
+                  path: join(opts.shots, `${w}x${hgt}-${theme}-${slug}.png`),
+                  fullPage: true,
+                });
+              }
+            } catch (e) {
+              const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+              console.log(`${label} 開けない  NG`);
+              problems.push(`${label}: 開けない ${msg}`);
+            } finally {
+              recApi.trades = saved;
+              recApi.rangeStatus = 200;
+              recApi.rangeHoldMs = 0;
+            }
+          }
+          // RV1（幅 360・ダークで 1 回）: 5 つの期間を順に押す → URL の検索部分が置き換わり（履歴の数が増えない）、
+          // フォーカスは押した選択肢に残る（見出しへ移らない）。開き直すと同じ期間。7 日の S1 の数字が出る
+          if (w === 360 && theme === 'dark') {
+            const tp = pageFor.get(false);
+            const saved = recApi.trades;
+            const expectEq = (got, want, what) => {
+              if (got !== want)
+                throw new Error(`${what}: ${JSON.stringify(got)}（期待 ${JSON.stringify(want)}）`);
+            };
+            try {
+              recApi.trades = [...REVIEW_S1];
+              await tp.goto(`${base}/`);
+              await waitReady(tp, 'ホーム');
+              await tp.locator('.review .curve').waitFor({ timeout: 15000 });
+              const text7 = (await tp.locator('.review').textContent()) ?? '';
+              for (const want of [
+                '57%',
+                '4 / 7 件',
+                '崩れで −0.6R',
+                '守っていれば +0.9R · 実際 +0.3R',
+              ]) {
+                expectEq(text7.includes(want), true, `RV1: 7 日の S1 に「${want}」`);
+              }
+              const len0 = await tp.evaluate(() => history.length);
+              for (const [key, name] of [
+                ['1d', '1日'],
+                ['1m', '1か月'],
+                ['3m', '3か月'],
+                ['custom', '任意'],
+                ['7d', '7日'],
+              ]) {
+                await seg(tp, '期間', name).click();
+                await tp.waitForFunction((k) => location.search.includes(`period=${k}`), key);
+                await tp.locator('.review__meta, #review-to-error').first().waitFor();
+                const focused = await tp.evaluate(
+                  () =>
+                    document.activeElement?.getAttribute('value') ??
+                    document.activeElement?.tagName,
+                );
+                expectEq(focused, key, `RV1: ${name} を押した後のフォーカス`);
+              }
+              expectEq(
+                await tp.evaluate(() => history.length),
+                len0,
+                'RV1: 履歴の数（置き換えだけ）',
+              );
+              await seg(tp, '期間', '3か月').click();
+              await tp.waitForFunction(() => location.search.includes('period=3m'));
+              // 切り替えの途中は前の図を薄く残すので、図ではなく範囲の行に件数が出る（読み終えた）まで待つ
+              await tp.waitForFunction(
+                () => document.querySelector('.review__meta')?.textContent?.includes('件') === true,
+              );
+              const meta = await tp.locator('.review__meta').textContent();
+              await tp.reload();
+              await waitReady(tp, 'ホーム');
+              await tp.waitForFunction(
+                () => document.querySelector('.review__meta')?.textContent?.includes('件') === true,
+              );
+              expectEq(
+                await tp.locator('.review__meta').textContent(),
+                meta,
+                'RV1: 再読み込みで同じ期間',
+              );
+              expectEq(
+                await tp.locator('input[name="review-period"]:checked').getAttribute('value'),
+                '3m',
+                'RV1: 再読み込みで選ばれた期間',
+              );
+              console.log('RV1 期間の置き換え・フォーカス・再読み込み ok');
+            } catch (e) {
+              const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+              console.log(`RV1 NG ${msg}`);
+              problems.push(`RV1: ${msg}`);
+            } finally {
+              recApi.trades = saved;
+            }
           }
         }
         // 詳細と編集（外貨建て。#47 PR-2 U32・U33・U34）: 外貨の取引を一時だけ足して測る

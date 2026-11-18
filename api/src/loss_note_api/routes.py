@@ -40,6 +40,7 @@ from loss_note_api import (
     statement_profile,
     statement_read,
     trade_pages,
+    trade_range,
 )
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
@@ -251,11 +252,21 @@ def make_blueprint(
     # ── 取引 ──
     @bp.get("/trades")
     def list_trades():
+        # 決済の時刻の範囲（Issue #88・C44）: exitFrom・exitTo を付けたときだけ。範囲の中の全件を一覧と同じ並びで
+        # （集計は画面。長さは 367 日まで）。ページ分けの引数とは同時に受けない
         # ページ分け（Issue #87・ADR-0016）: limit を付けたときだけ。付けなければ今と同じ全件（古い画面が壊れない）
         try:
-            params = trade_pages.parse_page_params(request.args)
+            span = trade_range.parse_range_params(request.args)
+            params = None if span is not None else trade_pages.parse_page_params(request.args)
         except trade_pages.PageParamError as e:
             return invalid(e.issues)
+        if span is not None:
+            # 件数の上限（C44）: 決済の新しい順に上限 + 1 件まで読み、超えたら先頭の上限の件数と印 truncated を返す
+            got = store.list_trades_in_exit_range(g.uid, *span, trade_range.MAX_RANGE_ITEMS + 1)
+            items = sorted(got, key=trade_sort_key)
+            truncated = len(items) > trade_range.MAX_RANGE_ITEMS
+            items = items[: trade_range.MAX_RANGE_ITEMS]
+            return {"items": [trade_response(tid, doc) for tid, doc in items], "truncated": truncated}
         if params is None:
             items = sorted(store.list_trades(g.uid), key=trade_sort_key)
             return {"items": [trade_response(tid, doc) for tid, doc in items]}

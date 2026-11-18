@@ -66,12 +66,15 @@ function rng(seed: number) {
 }
 
 describe('parseReadResponse（応答の形を画面の側でも確かめる）', () => {
-  it('E1 の応答 → 12 の鍵の行。知らない鍵は写さない', () => {
+  it('E1 の応答 → 13 の鍵の行。知らない鍵・円の欄（pnlYen・feesTotalYen）は写さない', () => {
     const r = parseReadResponse(
-      statementBody([{ ...ROW_E1, secret: 'SECRET-本文' }], { extra: 1 }),
+      statementBody([{ ...ROW_E1, secret: 'SECRET-本文', pnlYen: 1, feesTotalYen: 2 }], {
+        extra: 1,
+      }),
     );
     expect(r?.kind).toBe('statement');
     expect(r?.rows).toEqual([ROW_E1]);
+    expect(r?.profile).toBeNull();
     expect(Object.keys(r?.rows[0] ?? {}).sort()).toEqual(
       [
         'symbol',
@@ -79,12 +82,13 @@ describe('parseReadResponse（応答の形を画面の側でも確かめる）',
         'entryPrice',
         'exitPrice',
         'quantity',
-        'pnlYen',
+        'pnl',
+        'pnlCurrency',
         'entryTime',
         'exitTime',
         'timeZoneNeedsCheck',
         'fees',
-        'feesTotalYen',
+        'feesTotal',
         'exitOrderType',
       ].sort(),
     );
@@ -95,6 +99,7 @@ describe('parseReadResponse（応答の形を画面の側でも確かめる）',
     expect(parseReadResponse({ kind: 'notStatement', rows: [] })).toEqual({
       kind: 'notStatement',
       rows: [],
+      profile: null,
     });
     expect(parseReadResponse(statementBody([]))?.rows).toEqual([]);
   });
@@ -119,11 +124,12 @@ describe('parseReadResponse（応答の形を画面の側でも確かめる）',
           entryPrice: '100',
           exitPrice: -1,
           quantity: 0,
-          pnlYen: 2e12,
+          pnl: 2e12,
+          pnlCurrency: 'usd',
           entryTime: { written: '2026/11/10 09:05', timeZone: 'JST', jst: null, epochMs: 1 },
           exitTime: { ...ROW_E1.exitTime, epochMs: 1.5 },
           fees: [1, 'x'],
-          feesTotalYen: Number.NaN,
+          feesTotal: Number.NaN,
           exitOrderType: 'trailing',
         },
       ]),
@@ -134,12 +140,13 @@ describe('parseReadResponse（応答の形を画面の側でも確かめる）',
       entryPrice: null,
       exitPrice: null,
       quantity: null,
-      pnlYen: null,
+      pnl: null,
+      pnlCurrency: 'unknown',
       entryTime: null,
       exitTime: null,
       timeZoneNeedsCheck: false,
       fees: null,
-      feesTotalYen: null,
+      feesTotal: null,
       exitOrderType: 'unknown',
     });
     expect(

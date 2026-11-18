@@ -12,6 +12,10 @@
 ``snapshot.capitalYen``・``snapshot.riskTolerancePct`` に写す。既定の口座は口座を読む・使う入口で無ければ設定から
 1 回だけ作る（``accounts.py``）。設定の ``capitalYen`` 等は移し替えの元として形を変えずに残す（KEEP-6）。
 
+明細の特徴の覚え（Issue #66・ADR-0017）: ``PUT /api/statement-profiles/{鍵}`` 本文 ``{accountId}``。明細から作った
+下書きを記録した後に画面が送り、鍵 → 口座を上書きで覚える（後に記録したものが勝つ）。鍵の形が外れたら保存先に
+触れずに 404、口座が無ければ 400 ``accountId`` notFound。204。覚えるのは口座の ID と時刻だけ。
+
 今の値で写し直す（Issue #31・設計書 C36）: 取引の PUT に ``?snapshot=current`` を付けたときだけ、取引の銘柄と口座の
 今の値で snapshot を写し直す（利用者が編集の画面で前 → 後を見て選んだとき）。付けなければ今と同じ。
 
@@ -26,7 +30,17 @@ from collections.abc import Callable
 from flask import Blueprint, Response, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from loss_note_api import accounts, ai_usage, allowlist, chart_read, charts, schema, statement_read, trade_pages
+from loss_note_api import (
+    accounts,
+    ai_usage,
+    allowlist,
+    chart_read,
+    charts,
+    schema,
+    statement_profile,
+    statement_read,
+    trade_pages,
+)
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import ReadLimits
@@ -42,6 +56,8 @@ from loss_note_api.store import (
 SCHEMA_VERSION = 1
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
 _INSTRUMENT_SNAPSHOT_KEYS = ("multiplier", "quantityStep", "priceCurrency", "underlyingKind", "productForm")
+# 明細の特徴の覚えの入口（#66）
+STATEMENT_PROFILES_PATH = "/statement-profiles"
 # 取引の PUT のクエリ snapshot の決まった値（#31。今の口座・銘柄の値で写し直す）
 SNAPSHOT_CURRENT = "current"
 
@@ -540,6 +556,24 @@ def make_blueprint(
             return error(404, "not_found")
         return accounts.account_response(account_id, doc)
 
+    # ── 明細の特徴の覚え（#66）──
+    @bp.put(f"{STATEMENT_PROFILES_PATH}/<path:key>")
+    def put_statement_profile(key: str):
+        if not statement_profile.valid_key(key):
+            return error(404, "not_found")
+        body, err = read_body()
+        if err:
+            return err
+        value, issues = schema.validate_statement_profile(body)
+        if value is None:
+            return invalid(issues)
+        try:
+            store.put_statement_profile(g.uid, key, statement_profile.profile_doc(value["accountId"], clock()),
+                                        build_default)
+        except MissingAccount:
+            return invalid([{"field": "accountId", "kind": "notFound"}])
+        return Response(status=204)
+
     # ── 設定 ──
     @bp.get("/settings")
     def get_settings():
@@ -594,6 +628,7 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/accounts", methods=["GET", "POST"])
     @bp.route("/accounts/<path:_id>", methods=["GET", "PUT"])
     @bp.route("/settings", methods=["GET", "PUT"])
+    @bp.route(f"{STATEMENT_PROFILES_PATH}/<path:_id>", methods=["PUT"])
     @bp.route(statement_read.PATH, methods=["POST"])
     @bp.route(chart_read.PATH, methods=["POST"])
     @bp.route(ai_usage.PATH, methods=["GET"])

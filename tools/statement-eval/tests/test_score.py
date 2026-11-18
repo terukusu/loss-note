@@ -12,11 +12,14 @@ from statement_eval.score import (
     aggregate,
     compare_row,
     cost_usd,
+    issuer_keys_stable,
     match_rows,
     median_max,
     normalize_number,
     opened_side,
     parse_statement_datetime,
+    profile_material,
+    profile_runs_stable,
     score_image,
 )
 
@@ -34,8 +37,8 @@ def example_01():
 
 
 def example_02():
-    a = answer_row(pnl_jpy="-12340")
-    assert field_ok(a, read_from_answer(a, pnl_jpy=12340), "pnl_jpy") is False  # 符号
+    a = answer_row(pnl="-12340")
+    assert field_ok(a, read_from_answer(a, pnl=12340), "pnl") is False  # 符号
 
 
 def example_03():
@@ -124,10 +127,11 @@ def example_13():
 
 
 def example_14():
-    rows = [answer_row(pnl_jpy="100"), answer_row(pnl_jpy="200"), answer_row(pnl_jpy="300")]
+    rows = [answer_row(pnl="100"), answer_row(pnl="200"), answer_row(pnl="300")]
     read = {"kind": "statement", "rows": [read_from_answer(rows[0]), read_from_answer(rows[2])]}
     s = score_image({"rows": rows}, read)
-    assert [r.n_matched for r in s.rows] == [10, 0, 10]  # 欠けた中の 1 行の欄はすべて不一致（後ろはずれない）
+    # 欠けた中の 1 行の欄はすべて不一致（後ろはずれない）
+    assert [r.n_matched for r in s.rows] == [len(FIELDS), 0, len(FIELDS)]
     assert s.row_count_match is False
     t = aggregate([s], [], [], "claude-opus-5-5")
     assert t.n_reads - t.row_count_matches == 1  # 行数の不一致 1 件
@@ -222,11 +226,11 @@ def test_not_statement_counts_as_no_rows():
 def test_extra_read_rows_only_affect_row_count():
     a = answer_row()
     s = score_image({"rows": [a]}, {"kind": "statement", "rows": [read_from_answer(a), read_from_answer(a)]})
-    assert s.rows[0].n_matched == 10 and s.row_count_match is False
+    assert s.rows[0].n_matched == len(FIELDS) and s.row_count_match is False
 
 
 def test_match_rows_large_falls_back_to_order():
-    rows = [answer_row(pnl_jpy=str(i)) for i in range(10)]
+    rows = [answer_row(pnl=str(i)) for i in range(10)]
     reads = [read_from_answer(r) for r in rows[:9]]
     assert match_rows(rows, reads) == [(i, i if i < 9 else None) for i in range(10)]
 
@@ -263,7 +267,7 @@ def _random_row(rng: random.Random) -> dict:
         exit_price=num(-10, 10**7, rng.randint(0, 3)),
         qty=rng.choice([num(1, 10**6, 0), "0"]),
         fees=rng.choice([None, [num(0, 2000, 0) for _ in range(rng.randint(1, 4))]]),
-        pnl_jpy=num(-(10**8), 10**8, 0),
+        pnl=num(-(10**8), 10**8, 0),
         exit_order_type=rng.choice(["unknown", "stop", "market", "limit"]),
         entry_time=f"2026-{rng.randint(1, 12):02d}-{rng.randint(1, 28):02d}T{rng.randint(0, 23):02d}:"
         f"{rng.randint(0, 59):02d}",
@@ -338,7 +342,7 @@ def test_property_aggregate_sums_and_bounds():
     for img in imgs:
         read = _exact(img)
         for r in read["rows"]:
-            for k in ("entry_price", "pnl_jpy", "symbol"):
+            for k in ("entry_price", "pnl", "symbol"):
                 if rng.random() < 0.3:
                     r[k] = None
         if rng.random() < 0.1:
@@ -357,7 +361,52 @@ def test_property_aggregate_sums_and_bounds():
 
 def test_property_extreme_values_do_not_raise():
     for v in ["0", "-0", "0.000", "99999999999999999999", "-99999999999999999999.999", "1e5", " ", "－"]:
-        a = answer_row(pnl_jpy="0")
-        compare_row(a, read_from_answer(a, pnl_jpy=None))
+        a = answer_row(pnl="0")
+        compare_row(a, read_from_answer(a, pnl=None))
         normalize_number(v)
     assert aggregate([], [], [], "m").rate("qty") is None
+
+
+# ---- #66: 損益の通貨と、会社の名前の鍵の安定（AC-10 の採点の側） ----
+
+
+def test_pnl_currency_field():
+    a = answer_row(pnl="-28.5", pnl_currency="USD")
+    assert field_ok(a, read_from_answer(a), "pnl_currency") is True
+    assert field_ok(a, read_from_answer(a, pnl_currency="JPY"), "pnl_currency") is False
+    assert field_ok(a, read_from_answer(a, pnl_currency="unknown"), "pnl_currency") is False
+
+
+def test_issuer_matched_uses_shared_key():
+    a = {"issuer": "架空証券 X", "rows": [answer_row()]}
+    for written, want in (("架空証券Ｘ", True), (" 架空証券 x ", True), ("架空 FX Y", False), (None, False)):
+        r = {"kind": "statement", "issuer": written, "rows": [read_from_answer(a["rows"][0])]}
+        assert score_image(a, r).issuer_matched is want
+    assert score_image({"rows": [answer_row()]}, None).issuer_matched is None
+    assert score_image(a, None).issuer_matched is False
+
+
+def test_issuer_keys_stable_pairs():
+    x, y = {"issuer": "架空証券 X"}, {"issuer": "架空 FX Y"}
+    reads = [{"issuer": "架空証券X"}, {"issuer": "架空証券 X"}, {"issuer": "架空 FX Y"}]
+    assert issuer_keys_stable([x, x, y], reads) == (3, 3)
+    # 同じ会社を違う名前に読んだ / 違う会社を同じ名前に読んだ → その組は不一致
+    misread = [{"issuer": "架空証券 X"}, {"issuer": "架空"}, {"issuer": "架空 FX Y"}]
+    assert issuer_keys_stable([x, x, y], misread) == (2, 3)
+    assert issuer_keys_stable([x, y], [{"issuer": "架空証券 X"}, {"issuer": "架空証券 X"}]) == (0, 1)
+    # 失敗した読み取り・会社の名前の無い正解
+    assert issuer_keys_stable([x, x], [None, {"issuer": "架空証券 X"}]) == (0, 1)
+    assert issuer_keys_stable([x, {}], [{"issuer": "架空証券 X"}, {"issuer": "架空証券 X"}]) == (0, 0)
+
+
+def test_profile_material_and_runs_stable():
+    rows = [{"side_of": "position", "pnl_currency": "USD"}, {"side_of": None, "pnl_currency": "unknown"}]
+    m = profile_material({"issuer": "架空 FX Y", "rows": rows})
+    assert m == ("架空fxy", ("position",), ("USD",))
+    assert profile_material({"issuer": None, "rows": rows}) is None and profile_material(None) is None
+    same = {"issuer": "架空FX Y", "rows": rows[:1]}
+    assert profile_runs_stable([m, profile_material(same)]) is True
+    # 回によって通貨・向きの読みが揺れると鍵が変わる
+    other = {"issuer": "架空 FX Y", "rows": [{"side_of": "close", "pnl_currency": "USD"}]}
+    assert profile_runs_stable([m, profile_material(other)]) is False
+    assert profile_runs_stable([None, None]) is False and profile_runs_stable([]) is False

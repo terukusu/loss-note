@@ -27,7 +27,7 @@ ENV = {"ANTHROPIC_API_KEY": "dummy-not-a-real-key"}
 
 def _wrong(row: dict) -> dict:
     r = dict(row)
-    for k in ("entry_price", "exit_price", "pnl_jpy"):
+    for k in ("entry_price", "exit_price", "pnl"):
         if r[k] is not None:
             r[k] = r[k] + 7
     r["qty"] = (r["qty"] or 0) + 3
@@ -92,7 +92,7 @@ def _value_strings(answers: list[dict], reads: list[dict]) -> set[str]:
     out: set[str] = set()
     rows = [r for im in answers for r in im["rows"]] + [r for rd in reads for r in rd["rows"]]
     for r in rows:
-        for k in ("entry_price", "exit_price", "qty", "pnl_jpy"):
+        for k in ("entry_price", "exit_price", "qty", "pnl"):
             out |= _variants_number(r.get(k))
         for f in r.get("fees") or []:
             out |= _variants_number(f)
@@ -141,13 +141,18 @@ def real_dir():
 # 重なるので、探す前に伏せる
 _FLOAT_KEYS = ("seconds_median", "seconds_max", "api_seconds_median", "api_seconds_max", "cost_per_read_usd",
                "cost_total_usd", "sdk_cost_total_usd", "usd_jpy")
-_MD_FLOATS = re.compile(r"\$\d+\.\d+|約 [\d.]+ 円|[\d.]+ 秒")
+_MD_FLOATS = re.compile(r"\$\d+\.\d+|約 [\d.]+ 円|[\d.]+ 秒|\d+ / \d+ 組|\d+ / \d+ 枚")
+# 明細の組の数（#66。画像 16 枚で 120 組 = 値の文字列とたまたま重なる）は型で件数と決まっている欄
+_PAIR_KEYS = ("issuer_pairs_stable", "issuer_pairs", "profile_stable_images", "profile_images")
 
 
 def _mask(stdout: str, js: str) -> tuple[str, str]:
     d = json.loads(js)
     for k in _FLOAT_KEYS:
         assert d[k] is None or isinstance(d[k], float)
+        d[k] = None
+    for k in _PAIR_KEYS:
+        assert isinstance(d[k], int)
         d[k] = None
     return _MD_FLOATS.sub("#", stdout), json.dumps(d, ensure_ascii=False)
 
@@ -223,6 +228,8 @@ _ALLOWED_FIELDS = {
     "order_type_rows", "time_zones", "failures", "images_within_limits", "images_shrunk", "seconds_median",
     "seconds_max", "api_seconds_median", "api_seconds_max", "cost_per_read_usd", "cost_total_usd",
     "sdk_cost_total_usd", "usd_jpy", "groups", "rows_per_round",
+    "issuer_matched", "issuer_denominator", "issuer_pairs_stable", "issuer_pairs", "profile_stable_images",
+    "profile_images",
 }
 
 

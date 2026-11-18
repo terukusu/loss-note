@@ -19,9 +19,9 @@ from typing import Literal
 
 # 数・日時・向き・手数料の純関数は API の直しと共有する（statement_read.values。#11）。ここからも同じ名前で使える
 from statement_read.pricing import CACHE_WRITE_FACTOR, PRICES_PER_MTOK
-from statement_read.values import ORDER_TYPES, Usage, normalize_number, opened_side, sum_fees, time_key
+from statement_read.values import ORDER_TYPES, Usage, issuer_key, normalize_number, opened_side, sum_fees, time_key
 
-# R1 の 10 欄（出力の順番）
+# R1 の 10 欄 + 損益の通貨（#66）（出力の順番）
 FIELDS = (
     "symbol",
     "side",
@@ -31,12 +31,13 @@ FIELDS = (
     "exit_time",
     "qty",
     "fees",
-    "pnl_jpy",
+    "pnl",
+    "pnl_currency",
     "exit_order_type",
 )
 # 判定と R に効く 4 欄（R7）
-DECISIVE_FIELDS = ("side", "entry_price", "exit_price", "pnl_jpy")
-NUMBER_FIELDS = ("entry_price", "exit_price", "qty", "pnl_jpy")
+DECISIVE_FIELDS = ("side", "entry_price", "exit_price", "pnl")
+NUMBER_FIELDS = ("entry_price", "exit_price", "qty", "pnl")
 TIME_FIELDS = ("entry_time", "exit_time")
 # 全順列で行を対応づける上限（8! = 40,320 通り）
 MAX_PERMUTE_ROWS = 8
@@ -67,6 +68,8 @@ class ImageScore:
     n_answer_rows: int
     n_read_rows: int
     failed: bool  # 読み取りが失敗した（結果が無い・検査で捨てた）
+    # 会社の名前の比べる形（issuer_key）が正解と一致したか（#66。明細の特徴の鍵の安定）。正解に会社の名前が無ければ None
+    issuer_matched: bool | None = None
 
     @property
     def row_count_match(self) -> bool:
@@ -152,6 +155,8 @@ def compare_field(name: str, answer, read: ReadRow) -> bool:
             return a_none and r_none
         a, r = sum_fees(answer), sum_fees(got)
         return a is not None and a == r
+    if name == "pnl_currency":
+        return (answer or "unknown") == (got or "unknown")
     if name == "exit_order_type":
         a = answer if answer in ORDER_TYPES else "unknown"
         r = got if got in ORDER_TYPES else "unknown"
@@ -199,14 +204,54 @@ def match_rows(answers: list[AnswerRow], reads: list[ReadRow]) -> list[tuple[int
 def score_image(answer: dict, read: dict | None) -> ImageScore:
     """正解の 1 枚（{"rows": [...]}）と読み取りの結果（{"kind", "rows"} | None = 失敗）"""
     a_rows = list(answer.get("rows") or [])
+    a_issuer = issuer_key(answer.get("issuer"))
     if read is None:
         return ImageScore(
-            rows=tuple(compare_row(a, None) for a in a_rows), n_answer_rows=len(a_rows), n_read_rows=0, failed=True
+            rows=tuple(compare_row(a, None) for a in a_rows), n_answer_rows=len(a_rows), n_read_rows=0, failed=True,
+            issuer_matched=None if a_issuer is None else False,
         )
     r_rows = list(read.get("rows") or []) if read.get("kind") == "statement" else []
     pairs = match_rows(a_rows, r_rows)
     rows = tuple(compare_row(a_rows[i], r_rows[j] if j is not None else None) for i, j in pairs)
-    return ImageScore(rows=rows, n_answer_rows=len(a_rows), n_read_rows=len(r_rows), failed=False)
+    matched = None if a_issuer is None else issuer_key(read.get("issuer")) == a_issuer
+    return ImageScore(rows=rows, n_answer_rows=len(a_rows), n_read_rows=len(r_rows), failed=False,
+                      issuer_matched=matched)
+
+
+def profile_material(read: dict | None) -> tuple | None:
+    """明細の特徴の鍵の材料（API の statement_profile.profile_key と同じ: 会社の名前の比べる形・読めた side_of の集合・
+    unknown でない通貨の集合。#66）。失敗した読み取り・会社の名前が無い読み取りは None（鍵なし）"""
+    if read is None:
+        return None
+    name = issuer_key(read.get("issuer"))
+    if name is None:
+        return None
+    rows = read.get("rows") or []
+    sides = tuple(sorted({r.get("side_of") for r in rows if isinstance(r.get("side_of"), str)}))
+    curs = tuple(sorted({r.get("pnl_currency") for r in rows
+                         if isinstance(r.get("pnl_currency"), str) and r.get("pnl_currency") != "unknown"}))
+    return name, sides, curs
+
+
+def profile_runs_stable(materials: list[tuple | None]) -> bool:
+    """同じ明細を繰り返し読んだとき、どの回も鍵が作られ、鍵の材料（= 鍵）がすべて同じか（回をまたいだ安定。#66 P2）"""
+    return bool(materials) and materials[0] is not None and all(m == materials[0] for m in materials)
+
+
+def issuer_keys_stable(answers: list[dict], reads: list[dict | None]) -> tuple[int, int]:
+    """鍵の安定（#66 AC-10）: 正解の会社の名前が同じ明細どうしは読んだ比べる形も同じ、違う明細どうしは違う、が成り立つ
+    組の数と組の総数（どちらかの正解に会社の名前が無い組・失敗した読み取りを含む組は数える側で不一致）"""
+    keys = [issuer_key(r.get("issuer")) if r is not None else None for r in reads]
+    want = [issuer_key(a.get("issuer")) for a in answers]
+    ok = total = 0
+    for i, j in itertools.combinations(range(len(answers)), 2):
+        if want[i] is None or want[j] is None:
+            continue
+        total += 1
+        if keys[i] is None or keys[j] is None:
+            continue
+        ok += int((want[i] == want[j]) == (keys[i] == keys[j]))
+    return ok, total
 
 
 def median_max(xs: list[float]) -> tuple[float, float] | None:

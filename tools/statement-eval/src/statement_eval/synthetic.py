@@ -1,7 +1,8 @@
 """合成の明細（Issue #14 の R6）: 架空の値の表 → 明細の配置（セルの文字列）と正解。純関数（乱数・I/O なし）。
 
 値はすべて架空。2 つの形（欄の並び・日時の書き方・時間帯・向きの言葉・手数料の欄の分け方）だけを真似て、
-会社名・ロゴ・配色は入れない（白地・黒字・灰色の罫線、見出しに「合成・架空の値」）。
+ロゴ・配色は入れない（白地・黒字・灰色の罫線、見出しに「合成・架空の値」）。明細を出した会社の名前は実在しない
+架空の名前（「架空証券 X」「架空 FX Y」）だけを上部に描く（#66。会社の名前と損益の通貨の読み取りを測る）。
 
 - 形 1（form1。CFD）: 1 行 1 取引。「方向」の欄は建玉そのものの向き（買約定 = L、売約定 = S）。
   日時は 日 / 月 / 年・GMT。損益は円。手数料の欄なし
@@ -9,6 +10,7 @@
   日時は 年 / 月 / 日（日本時間）。数量は枚。建て・決済の手数料と消費税が別の欄。損益は手数料と消費税を引いた後の円。
   オプションは銘柄名に限月・プット / コール・行使価格
 - order_type = True の明細は「決済注文」の欄（逆指値 / 成行）を足した版
+- currency = "USD" の明細（形 1 だけ。#66）は損益を USD（セント未満は四捨五入）で書き、見出しを「損益 (USD)」にする
 """
 
 from dataclasses import dataclass
@@ -19,6 +21,9 @@ from .score import parse_statement_datetime
 TITLE = "約定明細（合成・架空の値）"
 FORMS = ("form1", "form2_future", "form2_option")
 ORDER_TYPE_LABEL = {"stop": "逆指値", "market": "成行", "limit": "指値"}
+# 明細を出した会社の名前（実在しない架空の名前だけ。#66）
+ISSUER_X = "架空証券 X"
+ISSUER_Y = "架空 FX Y"
 
 
 @dataclass(frozen=True)
@@ -43,6 +48,15 @@ class Statement:
     form: str
     trades: tuple[Trade, ...]
     order_type_column: bool = False
+    # 明細を出した会社の名前（架空）と損益の通貨（#66）。形 1 は「架空 FX Y」、形 2 は「架空証券 X」
+    issuer: str | None = None
+    currency: str = "JPY"
+
+    @property
+    def issuer_name(self) -> str:
+        if self.issuer is not None:
+            return self.issuer
+        return ISSUER_Y if self.form == "form1" else ISSUER_X
 
 
 @dataclass(frozen=True)
@@ -53,6 +67,7 @@ class Layout:
     subtitle: str
     columns: tuple[str, ...]
     cells: tuple[tuple[str, ...], ...]
+    issuer: str = ""  # 上部に描く会社の名前（架空。#66）
 
 
 def _d(s: str) -> Decimal:
@@ -65,10 +80,11 @@ def gross_pnl(t: Trade) -> Decimal:
     return (_d(t.exit) - _d(t.entry)) * _d(t.qty) * _d(t.multiplier) * sign
 
 
-def net_pnl(t: Trade) -> Decimal:
-    """手数料と消費税を引いた損益（円、1 円未満は四捨五入）"""
+def net_pnl(t: Trade, currency: str = "JPY") -> Decimal:
+    """手数料と消費税を引いた損益（円は 1 円未満、USD は 1 セント未満を四捨五入）"""
     fees = sum((_d(f) for f in t.fees), Decimal(0)) if t.fees else Decimal(0)
-    return (gross_pnl(t) - fees).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    unit = Decimal(1) if currency == "JPY" else Decimal("0.01")
+    return (gross_pnl(t) - fees).quantize(unit, rounding=ROUND_HALF_UP)
 
 
 def _plain(d: Decimal) -> str:
@@ -164,13 +180,21 @@ STATEMENTS: tuple[Statement, ...] = (
         Trade("日経225mini 26/06", "S", "38590", "38665", "1", "2026/06/05 10:40", "2026/06/05 11:30", "100",
               _F2_FEE_1),
     )),
+    # #66: 同じ架空の会社（架空 FX Y）の USD 建ての明細（損益は USD・倍率 1 = 1 単位あたり USD）
+    Statement("s15.png", "form1", (
+        Trade("US500", "L", "5612.5", "5598.25", "2", "08/06/2026 13:35", "08/06/2026 14:02", "1"),
+    ), currency="USD"),
+    Statement("s16.png", "form1", (
+        Trade("US30", "S", "42180.5", "42095.75", "1", "09/06/2026 14:30", "09/06/2026 15:05", "1"),
+        Trade("EUR/USD", "L", "1.08425", "1.08190", "10000", "10/06/2026 08:00", "10/06/2026 12:30", "1"),
+    ), currency="USD"),
 )
 
 
 # ---- 正解 ----
 
 
-def answer_row(form: str, t: Trade) -> dict:
+def answer_row(form: str, t: Trade, currency: str = "JPY") -> dict:
     order = _order(form)
     return {
         "symbol": t.symbol,
@@ -181,7 +205,8 @@ def answer_row(form: str, t: Trade) -> dict:
         "exit_time": parse_statement_datetime(t.exit_time, order),
         "qty": _plain(_d(t.qty)),
         "fees": list(t.fees) if t.fees is not None else None,
-        "pnl_jpy": _plain(net_pnl(t)),
+        "pnl": _plain(net_pnl(t, currency)),
+        "pnl_currency": currency,
         "exit_order_type": t.order_type,
     }
 
@@ -190,7 +215,10 @@ def answers(statements: tuple[Statement, ...] = STATEMENTS) -> dict:
     """answers.json の中身（作り直しても同じ）"""
     return {
         "schema_version": 1,
-        "images": [{"file": s.file, "rows": [answer_row(s.form, t) for t in s.trades]} for s in statements],
+        "images": [
+            {"file": s.file, "issuer": s.issuer_name, "rows": [answer_row(s.form, t, s.currency) for t in s.trades]}
+            for s in statements
+        ],
     }
 
 
@@ -206,11 +234,12 @@ SCENES = (
     "pnl_zero_and_loss",  # 損益 0 円と損失
     "order_type_column",  # 決済の注文の種類の欄（逆指値と成行）
     "decimal_and_separator",  # 小数のある価格・桁区切りのある大きな数
+    "pnl_usd",  # 損益が USD の明細（#66）
 )
 
 
 def scenes_of(s: Statement) -> list[str]:
-    rows = [answer_row(s.form, t) for t in s.trades]
+    rows = [answer_row(s.form, t, s.currency) for t in s.trades]
     out = []
     sides = {r["side"] for r in rows}
     if s.form == "form1" and "L" in sides:
@@ -226,14 +255,16 @@ def scenes_of(s: Statement) -> list[str]:
         out.append("day_le_12")
     if 2 <= len(rows) <= 3:
         out.append("multi_rows")
-    if any(_d(r["pnl_jpy"]) <= 0 for r in rows):
+    if any(_d(r["pnl"]) <= 0 for r in rows):
         out.append("pnl_zero_and_loss")
     if s.order_type_column:
         out.append("order_type_column")
     if any("." in r[k] for r in rows for k in ("entry_price", "exit_price")) or any(
-        abs(_d(r[k])) >= 1000 for r in rows for k in ("qty", "pnl_jpy")
+        abs(_d(r[k])) >= 1000 for r in rows for k in ("qty", "pnl")
     ):
         out.append("decimal_and_separator")
+    if s.currency == "USD":
+        out.append("pnl_usd")
     return out
 
 
@@ -260,14 +291,15 @@ def manifest(statements: tuple[Statement, ...] = STATEMENTS) -> dict:
 def layout(s: Statement) -> Layout:
     """明細の見た目の中身（セルの文字列）"""
     ot = s.order_type_column
+    unit = "円" if s.currency == "JPY" else s.currency
     if s.form == "form1":
-        cols = ["銘柄", "方向", "数量", "建値", "建玉日時 (GMT)", "決済値", "決済日時 (GMT)", "損益 (円)"]
+        cols = ["銘柄", "方向", "数量", "建値", "建玉日時 (GMT)", "決済値", "決済日時 (GMT)", f"損益 ({unit})"]
         if ot:
             cols.insert(7, "決済注文")
         cells = []
         for t in s.trades:
             row = [t.symbol, _side_word(s.form, t.side), _shown(t.qty), _shown(t.entry), t.entry_time,
-                   _shown(t.exit), t.exit_time, _shown(_plain(net_pnl(t)))]
+                   _shown(t.exit), t.exit_time, _shown(_plain(net_pnl(t, s.currency)))]
             if ot:
                 row.insert(7, ORDER_TYPE_LABEL.get(t.order_type, ""))
             cells.append(tuple(row))
@@ -282,9 +314,10 @@ def layout(s: Statement) -> Layout:
             f = t.fees or ("", "", "", "")
             et, xt = t.entry_time.split(" "), t.exit_time.split(" ")
             row = [f"{xt[0]}\n{xt[1]}", t.symbol, _side_word(s.form, t.side), _shown(t.qty), _shown(t.exit),
-                   _shown(t.entry), f"{et[0]}\n{et[1]}", *(_shown(x) for x in f), _shown(_plain(net_pnl(t)))]
+                   _shown(t.entry), f"{et[0]}\n{et[1]}", *(_shown(x) for x in f),
+                   _shown(_plain(net_pnl(t, s.currency)))]
             if ot:
                 row.insert(5, ORDER_TYPE_LABEL.get(t.order_type, ""))
             cells.append(tuple(row))
         sub = "先物・オプション 決済明細" if s.form == "form2_future" else "先物・オプション 決済明細（オプション）"
-    return Layout(title=TITLE, subtitle=sub, columns=tuple(cols), cells=tuple(cells))
+    return Layout(title=TITLE, subtitle=sub, columns=tuple(cols), cells=tuple(cells), issuer=s.issuer_name)

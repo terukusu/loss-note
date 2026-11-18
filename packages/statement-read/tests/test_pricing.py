@@ -48,6 +48,17 @@ def test_reserve_is_upper_bound():
     assert 6 * got <= 2_000_000
 
 
+# 予約額の値を固定する唯一の箇所（#66 AC-9。指示とツールの定義が長くなれば値が変わる。ほかのテストは
+# pricing.reserve_micro_usd から取る）。#44 の 278,736 µUSD（Sonnet 5.5）から、会社の名前・損益の通貨の
+# 指示とツールの欄の分だけ上がった
+APP_RESERVE_MICRO_USD = 282_012
+
+
+def test_app_reserve_value_is_pinned():
+    got = pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_MAX_OUTPUT_TOKENS)
+    assert got == APP_RESERVE_MICRO_USD
+
+
 def test_reserve_covers_any_usage_within_bounds():
     """性質: 入力の合計が上界以内・出力が上限以内のどんな使用量でも、料金表の額 ≤ 予約額"""
     reserve = pricing.reserve_micro_usd(SONNET, app_settings.APP_MAX_OUTPUT_TOKENS)
@@ -65,15 +76,17 @@ def test_reserve_covers_any_usage_within_bounds():
 
 
 def test_output_cap_covers_longest_result():
-    """最大出力は、最も長い形の結果（20 行・銘柄の名前 40 字の漢字・手数料 8 欄・桁の多い数）の JSON のバイト数
-    （整形しても）より大きい（トークン数 ≤ バイト数）"""
+    """最大出力は、最も長い形の結果（20 行・銘柄と会社の名前 40 字の漢字・手数料 8 欄・桁の多い数・
+    通貨）の JSON のバイト数（整形しても）より大きい（トークン数 ≤ バイト数）"""
     row = {
         "symbol": "漢" * result.MAX_SYMBOL_LEN, "side_written": "sell", "side_of": "position",
         "entry_price": -123456789.123456, "entry_time": "2026-11-18T23:59", "exit_price": -123456789.123456,
         "exit_time": "2026-11-18T23:59", "time_zone": "unknown", "qty": -123456789.123456,
-        "fees": [-123456789.123456] * result.MAX_FEES, "pnl_jpy": -123456789.123456, "exit_order_type": "unknown",
+        "fees": [-123456789.123456] * result.MAX_FEES, "pnl": -123456789.123456, "pnl_currency": "unknown",
+        "exit_order_type": "unknown",
     }
-    longest = {"kind": "statement", "rows": [row] * result.MAX_ROWS}
+    # 会社の名前（#66）も最も長い形（40 字の漢字）
+    longest = {"kind": "statement", "issuer": "漢" * result.MAX_ISSUER_LEN, "rows": [row] * result.MAX_ROWS}
     assert result.check_result(longest)["rows"]
     pretty = len(json.dumps(longest, ensure_ascii=False, indent=2).encode())
     assert pretty < app_settings.APP_MAX_OUTPUT_TOKENS

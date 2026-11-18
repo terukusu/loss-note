@@ -57,7 +57,7 @@ def test_check_result_rejects(mutate, path):
 def test_symbol_out_of_charset_is_dropped_only():
     out = schema.check_result(_result(symbol="JP225<script>"))
     assert out["rows"][0]["symbol"] is None
-    assert out["rows"][0]["pnl_jpy"] == 3600
+    assert out["rows"][0]["pnl"] == 3600
     assert schema.check_result(_result(symbol="X" * 41))["rows"][0]["symbol"] is None
     assert schema.check_result(_result(symbol="日経225OP 26/04 C 39500"))["rows"][0]["symbol"] is not None
 
@@ -80,7 +80,7 @@ def test_check_answers_accepts():
         (lambda a: a["images"][0]["rows"][0].update(side="Long"), "images[0].rows[0].side"),
         (lambda a: a["images"][0]["rows"][0].update(exit_time="2026/03/04 10:15"), "images[0].rows[0].exit_time"),
         (lambda a: a["images"][0]["rows"][0].update(fees=["x"]), "images[0].rows[0].fees[0]"),
-        (lambda a: a["images"][0]["rows"][0].pop("pnl_jpy"), "images[0].rows[0].pnl_jpy"),
+        (lambda a: a["images"][0]["rows"][0].pop("pnl"), "images[0].rows[0].pnl"),
         (lambda a: a["images"][0]["rows"][0].update(memo="x"), "images[0].rows[0].<unknown>"),
         (lambda a: a["images"].append(copy.deepcopy(a["images"][0])), "images[1].file"),
     ],

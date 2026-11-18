@@ -474,7 +474,7 @@ def test_ledger_keys_and_no_content(limited, sdk):
     sdk.tool_input = {"kind": "statement", "rows": [{
         "symbol": "LEDGERSYMQZ", "side_written": "buy", "side_of": "position", "entry_price": 13579.5,
         "entry_time": "2026-03-04T01:15", "exit_price": 13600.0, "exit_time": "2026-03-04T06:40", "time_zone": "GMT",
-        "qty": 0.5, "fees": None, "pnl_jpy": 2468, "exit_order_type": "unknown"}]}
+        "qty": 0.5, "fees": None, "pnl": 2468, "exit_order_type": "unknown"}]}
     res = c.post(data=png(800, 600, size=5_000, filler=b"LEDGERIMG-3e9a"), email=EMAIL)
     assert res.status_code == 200
     user, spend = c.ledger.user(A, D1118), c.ledger.spend(D1118)

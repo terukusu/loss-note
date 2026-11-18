@@ -373,15 +373,22 @@ def test_chart_reserve_is_per_task():
     chart = pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_CHART_MAX_OUTPUT_TOKENS,
                                       chart_timeframe.CHART_TASK)
     assert real.chart_reserve_micro_usd == chart == 130_164
-    assert real.reserve_micro_usd == 278_736
+    assert real.reserve_micro_usd == pricing.reserve_micro_usd(app_settings.APP_MODEL,
+                                                               app_settings.APP_MAX_OUTPUT_TOKENS)
     assert chart_timeframe.CHART_TASK.prompt_bytes() <= STATEMENT_TASK.prompt_bytes() == pricing.prompt_bytes()
     assert real.for_chart().reserve_micro_usd == chart and real.for_chart().per_user == real.per_user
 
 
-@pytest.mark.parametrize("p,ok", [(0, 3), (150_000, 3), (460_936, 3), (460_937, 2), (721_264, 1)])
+_S = ReadLimits().reserve_micro_usd  # 明細の予約額（pricing から。#66 AC-9）
+_C = ReadLimits().chart_reserve_micro_usd
+
+
+@pytest.mark.parametrize("p,ok", [(0, 3), (150_000, 3), (1_000_000 - _S - 2 * _C, 3), (1_000_000 - _S - 2 * _C + 1, 2),
+                                  (1_000_000 - _S, 1)])
 def test_statement_and_two_charts_at_once(p, ok):
     # B1 の例（ADR-0015 の結果の節）: その日の利用者の計上額 P のとき、明細 1 + チャート 2 の予約が重なって何件通るか
-    # （既定の上限: 利用者 1.00 USD・全体 2.00 USD。全体は他の利用者 0 とする）。予約額は 明細 278,736・チャート 130,164
+    # （既定の上限: 利用者 1.00 USD・全体 2.00 USD。全体は他の利用者 0 とする）。予約額は 明細 282,012（#66 から）・
+    # チャート 130,164
     limits = ReadLimits()
     reserves = [(limits, limits.reserve_micro_usd), (limits.for_chart(), limits.chart_reserve_micro_usd),
                 (limits.for_chart(), limits.chart_reserve_micro_usd)]

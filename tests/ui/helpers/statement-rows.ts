@@ -1,5 +1,6 @@
 // Issue #15 の例の表（E1〜E13）の読み取りの応答の行と、偽の画像・変換器。値はすべて架空（実際の明細を写さない）。
-// 行の形は API の応答（packages/statement-read/src/statement_read/normalize.py の normalize_row）と同じ 12 の鍵
+// 行の形は API の応答（packages/statement-read/src/statement_read/normalize.py の normalize_row）のうち画面が使う 13 の鍵
+// （損益・手数料の合計は明細の通貨のまま pnl・feesTotal と通貨 pnlCurrency。#66）
 import type { ImageType } from '../../../ui/src/lib/image-limits';
 import type { ReadRow, ReadTime } from '../../../ui/src/lib/statement-fill';
 import type {
@@ -33,12 +34,13 @@ export const ROW_E1: ReadRow = {
   entryPrice: 100,
   exitPrice: 99,
   quantity: 2,
-  pnlYen: -2000,
+  pnl: -2000,
+  pnlCurrency: 'JPY',
   entryTime: jst(2026, 11, 10, 9, 5),
   exitTime: jst(2026, 11, 10, 10, 30),
   timeZoneNeedsCheck: false,
   fees: [100, 50],
-  feesTotalYen: 150,
+  feesTotal: 150,
   exitOrderType: 'unknown',
 };
 
@@ -69,11 +71,11 @@ export const ROWS_E10: readonly ReadRow[] = [
     entryPrice: 200,
     exitPrice: 201.5,
     quantity: 1,
-    pnlYen: -1500,
+    pnl: -1500,
     fees: null,
-    feesTotalYen: null,
+    feesTotal: null,
   },
-  { ...ROW_E1, symbol: '架空指数D', entryPrice: 50, exitPrice: 51, quantity: 3, pnlYen: 3000 },
+  { ...ROW_E1, symbol: '架空指数D', entryPrice: 50, exitPrice: 51, quantity: 3, pnl: 3000 },
 ];
 
 export const statementBody = (rows: readonly unknown[], extra: object = {}) => ({

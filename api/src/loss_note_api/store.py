@@ -4,7 +4,8 @@
 ``users/{uid}/accounts/{id}``（口座。#47・ADR-0012。既定の口座 ``default`` は口座を読む・使う入口で無ければ、
 設定から決まった ID の 1 文書を create で 1 回だけ作る。取引・設定は書かない）・
 ``users/{uid}/charts/{tradeId}-{slot}``（根拠の足のチャート画像。1 文書 1 枚 ``{contentType, data}``。
-Issue #12・ADR-0006）。
+Issue #12・ADR-0006）・``users/{uid}/statement_profiles/{鍵}``（明細の特徴の覚え = ``{accountId, updatedAt}`` だけ。
+Issue #66・ADR-0017）。
 明細の読み取りの 1 日の計上（Issue #44・ADR-0010、Issue #51・ADR-0014）: 利用者ごと
 ``users/{uid}/statement_read_days/{YYYY-MM-DD}`` = ``{count, microUsd}``（``microUsd`` は #51 から。欠け・負は
 回数 × 予約額に見積もる = ``read_limits.effective_user_micro``）、
@@ -137,6 +138,12 @@ class Store(Protocol):
 
     def get_settings(self, uid: str) -> Doc | None: ...
     def update_settings(self, uid: str, mutate: Callable[[Doc | None], Doc]) -> Doc: ...
+
+    # 明細の特徴の覚え（#66・ADR-0017）。users/{uid}/statement_profiles/{鍵} = {accountId, updatedAt}。
+    # 読むだけ（明細の読み取り）と、口座の存在の確かめと上書きを 1 つのトランザクションで（覚える入口）。
+    # 口座が無ければ MissingAccount（何も書かない）
+    def get_statement_profile(self, uid: str, key: str) -> Doc | None: ...
+    def put_statement_profile(self, uid: str, key: str, doc: Doc, build_default: BuildDefault) -> None: ...
 
     # 明細の読み取りの 1 日の計上（#44・#51）。利用者の日の文書と全体の日の文書を 1 つのトランザクションで読み、
     # decide が "ok" のときだけ利用者の回数 + 1・利用者の金額 + reserve_micro・全体の回数 + 1・
@@ -578,6 +585,26 @@ class FirestoreStore:
             .start_at({doc_id: first}).end_at({doc_id: last}).limit(USAGE_MAX_DAYS)
         )
         return [(s.id, s.to_dict()) for s in q.stream()]
+
+    # ── 明細の特徴の覚え（#66）──
+    def _profile_ref(self, uid, key):
+        return self._user(uid).collection("statement_profiles").document(key)
+
+    @_guard
+    def get_statement_profile(self, uid, key):
+        snap = self._profile_ref(uid, key).get()
+        return snap.to_dict() if snap.exists else None
+
+    @_guard
+    def put_statement_profile(self, uid, key, doc, build_default):
+        ref = self._profile_ref(uid, key)
+
+        def body(tx):
+            if self._read_account(tx, uid, doc["accountId"]) is None:
+                raise MissingAccount()
+            tx.set(ref, doc)
+
+        self._with_default(uid, build_default, body)
 
     # ── 設定 ──
     @_guard

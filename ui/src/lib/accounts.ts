@@ -36,7 +36,7 @@ export const ACCOUNT_MSG = {
 /** 口座の名前が一覧に無いとき（取引が指す口座が読めなかった） */
 export const UNKNOWN_ACCOUNT = '口座が見つかりません';
 /** 送っている間の帯の文（U9） */
-export const ACCOUNT_ADDING = '口座を足しています';
+export const ACCOUNT_ADDING = '口座を追加しています';
 /** 記録する画面の足す欄の資金の説明（3.2） */
 export const NEW_ACCOUNT_CAPITAL_HINT = '空でも足せます。資金を入れるとリスク（%）が出ます';
 

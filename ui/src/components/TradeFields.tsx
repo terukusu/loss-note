@@ -54,7 +54,7 @@ export interface CurrencyView {
   readonly fx?: { readonly unit: string; readonly line: string };
   /** 損益・手数料の単位（「円」/「USD」。U27） */
   readonly moneyUnit: string;
-  /** 損益・手数料の下の 1 行（外貨の口座で明細を貼った・通貨の違う口座へ替えた。U28・U33） */
+  /** 損益・手数料の下の 1 行（明細の損益の通貨が口座と合わない・読めない（#66・R6）・通貨の違う口座へ替えた。U33） */
   readonly moneyNote?: string;
 }
 
@@ -147,6 +147,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
             value={p.accountId}
             onChange={set('accountId')}
             {...(p.accountHint ? { hint: p.accountHint } : {})}
+            {...mark('accountId')}
           />
         ) : null}
         <TextField

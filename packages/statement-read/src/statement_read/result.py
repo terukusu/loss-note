@@ -29,9 +29,15 @@ READ_ROW_KEYS = (
     "time_zone",
     "qty",
     "fees",
-    "pnl_jpy",
+    "pnl",
+    "pnl_currency",
     "exit_order_type",
 )
+# 損益・手数料の通貨（英字 3 文字か unknown。外れたら unknown。#66）
+UNKNOWN_CURRENCY = "unknown"
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+# 明細を出した会社・サービスの名前の上限（#66。銘柄の名前と同じ文字・長さ。外れたら None で捨てる）
+MAX_ISSUER_LEN = MAX_SYMBOL_LEN
 # 銘柄の名前に許す文字（英数・かな・漢字・半角と全角の空白・/ . - ( ) ・ と全角の同じもの）。外れたらその欄だけ None
 # （C21）。空白は半角（U+0020）と全角（U+3000）だけ（\s は改行・タブ・制御文字の区切りも通すので使わない）。全体に当てる
 _SYMBOL_RE = re.compile(r"[0-9A-Za-z０-９Ａ-Ｚａ-ｚ぀-ヿ一-鿿々 　/／.．\-－()（）・ー]+")
@@ -58,9 +64,10 @@ _TIME = {"type": ["string", "null"], "description": "YYYY-MM-DDTHH:MM（明細�
 TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["kind", "rows"],
+    "required": ["kind", "issuer", "rows"],
     "properties": {
         "kind": {"type": "string", "enum": list(KINDS)},
+        "issuer": {"type": ["string", "null"], "maxLength": MAX_ISSUER_LEN},
         "rows": {
             "type": "array",
             "maxItems": MAX_ROWS,
@@ -79,7 +86,8 @@ TOOL_INPUT_SCHEMA: dict[str, Any] = {
                     "time_zone": {"type": ["string", "null"], "enum": [*TIME_ZONES, None]},
                     "qty": _NUM,
                     "fees": {"type": ["array", "null"], "maxItems": MAX_FEES, "items": {"type": "number"}},
-                    "pnl_jpy": _NUM,
+                    "pnl": _NUM,
+                    "pnl_currency": {"type": "string", "description": "英字 3 文字（JPY・USD など）か unknown"},
                     "exit_order_type": {"type": "string", "enum": list(ORDER_TYPES)},
                 },
             },
@@ -117,7 +125,7 @@ def check_read_row(row, path: str) -> dict:
     out["side_written"] = _enum(row.get("side_written"), f"{path}.side_written", SIDE_WRITTEN)
     out["side_of"] = _enum(row.get("side_of"), f"{path}.side_of", SIDE_OF)
     out["time_zone"] = _enum(row.get("time_zone"), f"{path}.time_zone", TIME_ZONES)
-    for k in ("entry_price", "exit_price", "qty", "pnl_jpy"):
+    for k in ("entry_price", "exit_price", "qty", "pnl"):
         v = row.get(k)
         if v is not None and not _is_num(v):
             raise Bad(f"{path}.{k}", "type")
@@ -133,18 +141,30 @@ def check_read_row(row, path: str) -> dict:
             raise Bad(f"{path}.fees", "type")
         fees = list(fees)
     out["fees"] = fees
+    # 通貨は形が外れたら unknown（その欄だけ。行は捨てない）
+    cur = row.get("pnl_currency")
+    out["pnl_currency"] = cur if isinstance(cur, str) and _CURRENCY_RE.fullmatch(cur) else UNKNOWN_CURRENCY
     out["exit_order_type"] = _enum(row.get("exit_order_type", "unknown"), f"{path}.exit_order_type", ORDER_TYPES,
                                    nullable=False)
     return out
 
 
+def check_issuer(v) -> str | None:
+    """明細を出した会社の名前（#66）。文字列でない・許さない文字（銘柄の名前と同じ制限。``&``・``,`` なども外れる）・
+    長すぎる・空白だけなら None（鍵を作らない）。会社の名前は鍵の材料に過ぎないので、型が外れても結果全体は捨てない"""
+    if not isinstance(v, str):
+        return None
+    return v if _symbol_ok(v) else None
+
+
 def check_result(tool_input) -> dict:
-    """report_statement の入力 → {"kind", "rows"}（検査済み）。全体の不正は Bad（その回は失敗として数える）"""
+    """report_statement の入力 → {"kind", "issuer", "rows"}（検査済み）。全体の不正は Bad（その回は失敗として数える）。
+    issuer（会社の名前）は API の中で明細の特徴の鍵に変えて捨てる（応答・ログ・保存先に出さない。#66）"""
     path = "result"
     if not isinstance(tool_input, dict):
         raise Bad(path, "type")
     for k in tool_input:
-        if k not in ("kind", "rows"):
+        if k not in ("kind", "issuer", "rows"):
             raise Bad(f"{path}.<unknown>", "unknown_key")
     kind = _enum(tool_input.get("kind"), f"{path}.kind", KINDS, nullable=False)
     rows = tool_input.get("rows", [])
@@ -153,4 +173,6 @@ def check_result(tool_input) -> dict:
     if len(rows) > MAX_ROWS:
         raise Bad(f"{path}.rows", "size")
     checked = [check_read_row(r, f"{path}.rows[{i}]") for i, r in enumerate(rows)]
-    return {"kind": kind, "rows": checked if kind == "statement" else []}
+    issuer = check_issuer(tool_input.get("issuer"))
+    statement = kind == "statement"
+    return {"kind": kind, "issuer": issuer if statement else None, "rows": checked if statement else []}

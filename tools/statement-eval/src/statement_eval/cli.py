@@ -331,15 +331,22 @@ def run_eval(args, env: dict[str, str], reader_factory: Callable, out, err) -> i
     tz = Counter()
     failures = Counter()
     per_image: list[list[score.ImageScore]] = []
+    # 回ごとの会社の名前の読み（#66。鍵の安定を数えるだけ。記憶の中だけで、要約には件数しか出さない）
+    issuer_reads: list[list[dict | None]] = [[] for _ in range(repeat)]
+    # 画像ごと・回ごとの鍵の材料（会社の名前の比べる形・向きの集合・通貨の集合。記憶の中だけ）
+    materials: list[list[tuple | None]] = []
     total = len(prepared) * repeat
     n = 0
     for im, (data, media_type) in zip(answers["images"], prepared, strict=True):
         runs = []
-        for _ in range(repeat):
+        materials.append([])
+        for rnd in range(repeat):
             n += 1
             print(f"読み取り {n} / {total}", file=err)
             o = reader.read(data, media_type)
             s = score.score_image(im, o.result)
+            issuer_reads[rnd].append(None if o.result is None else {"issuer": o.result.get("issuer")})
+            materials[-1].append(score.profile_material(o.result))
             runs.append(s)
             scores.append(s)
             if o.result is None:
@@ -357,6 +364,12 @@ def run_eval(args, env: dict[str, str], reader_factory: Callable, out, err) -> i
         per_image.append(runs)
 
     tally = score.aggregate(scores, seconds, usages, args.model)
+    issuer_scored = [s for s in scores if s.issuer_matched is not None]
+    pairs_ok = pairs_total = 0
+    for reads_ in issuer_reads:
+        ok_, tot_ = score.issuer_keys_stable(answers["images"], reads_)
+        pairs_ok += ok_
+        pairs_total += tot_
     groups: list[report.GroupMismatch] = []
     if args.set == "synthetic":
         by_scene: dict[str, list[int]] = {sc: [0, 0] for sc in synthetic.SCENES}
@@ -418,6 +431,12 @@ def run_eval(args, env: dict[str, str], reader_factory: Callable, out, err) -> i
         sdk_cost_total_usd=float(sum(Decimal(str(c)) for c in sdk_costs)) if sdk_costs else None,
         usd_jpy=args.usd_jpy,
         groups=tuple(groups),
+        issuer_matched=sum(bool(s.issuer_matched) for s in issuer_scored),
+        issuer_denominator=len(issuer_scored),
+        issuer_pairs_stable=pairs_ok,
+        issuer_pairs=pairs_total,
+        profile_stable_images=sum(score.profile_runs_stable(m) for m in materials),
+        profile_images=len(materials),
         rows_per_round=rows_per_round,
     )
     out.write(report.to_markdown(summary))

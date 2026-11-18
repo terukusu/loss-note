@@ -31,6 +31,8 @@
 // - 口座の通貨（#47 PR-2）: 口座はいつも currency を返す（無い = JPY）。POST の currency は任意（既定 JPY）、PUT の currency は
 //   任意（省くと今のまま）。形は英大文字 3 文字。取引のある口座の通貨を変える PUT は 409 currencyLocked。履歴の新しい行は
 //   currency を持つ（通貨だけを変えても 1 行）。取引の snapshot に口座の通貨（accountCurrency）を写す
+// - 明細の特徴の覚え（#66）: PUT /api/statement-profiles/<鍵> 本文 { accountId } = 204。鍵が 16 進 32 文字でなければ 404、
+//   口座が無ければ 400 notFound。覚えは profiles（鍵 → 口座の ID）に残す
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 import {
   type AccountBody,
@@ -100,6 +102,8 @@ export interface FakeApi {
   readonly accounts: AccountRecord[];
   /** 保存したチャート（鍵 = 取引 ID-枠）。枚数 = size */
   readonly charts: Map<string, FakeChart>;
+  /** 明細の特徴の覚え（鍵 → 口座の ID。#66） */
+  readonly profiles: Map<string, string>;
   /** 今の設定（PUT /api/settings で変わる） */
   settings(): SettingsRecord;
   /** 待たせている要求を進める（delay を使うとき） */
@@ -173,6 +177,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   const trades: StoredTrade[] = [...(opts.trades ?? [])];
   const calls: FakeCall[] = [];
   const charts = new Map<string, FakeChart>();
+  const profiles = new Map<string, string>();
   let clock = 1_800_000_000_000;
   let seq = 0;
   let conflict = opts.conflictOnce;
@@ -283,6 +288,19 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       throw new TypeError('ネットワークの誤り（偽物。この文字列は画面に出ないこと）');
     if (typeof f === 'number')
       return json(f, { error: 'unavailable', secret: '応答の本文（偽物）' });
+
+    const profilePath = /^\/api\/statement-profiles\/([^/]+)$/.exec(path);
+    if (method === 'PUT' && profilePath) {
+      const k = profilePath[1] ?? '';
+      if (!/^[0-9a-f]{32}$/.test(k)) return json(404, { error: 'not_found' });
+      ensureDefault();
+      const id = (body as { accountId?: unknown } | undefined)?.accountId;
+      if (typeof id !== 'string' || !accounts.some((a) => a.id === id)) {
+        return json(400, { error: 'invalid', issues: [{ field: 'accountId', kind: 'notFound' }] });
+      }
+      profiles.set(k, id);
+      return new Response(null, { status: 204 });
+    }
 
     if (key === 'GET /api/trades') {
       return json(200, { items: [...trades].sort(byExit) });
@@ -613,6 +631,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     accounts,
 
     charts,
+    profiles,
     settings,
     hold() {
       gate = new Promise((ok) => {

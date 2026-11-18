@@ -15,11 +15,14 @@ ROW_KEYS = {
     "entryPrice",
     "exitPrice",
     "quantity",
+    "pnl",
+    "pnlCurrency",
     "pnlYen",
     "entryTime",
     "exitTime",
     "timeZoneNeedsCheck",
     "fees",
+    "feesTotal",
     "feesTotalYen",
     "exitOrderType",
 }
@@ -38,7 +41,8 @@ def read_row(**kw) -> dict:
         "time_zone": "GMT",
         "qty": 0.5,
         "fees": None,
-        "pnl_jpy": 6500,
+        "pnl": 6500,
+        "pnl_currency": "JPY",
         "exit_order_type": "unknown",
     }
     row.update(kw)
@@ -180,6 +184,8 @@ def test_example_17_one_row():
         "entryPrice": 39012.5,
         "exitPrice": 39100.0,
         "quantity": 0.5,
+        "pnl": 6500,
+        "pnlCurrency": "JPY",
         "pnlYen": 6500,
         "entryTime": {"written": "2026-03-04T01:15", "timeZone": "GMT", "jst": "2026-03-04T10:15",
                       "epochMs": epoch_ms(2026, 3, 4, 1, 15)},
@@ -187,13 +193,14 @@ def test_example_17_one_row():
                      "epochMs": epoch_ms(2026, 3, 4, 6, 40)},
         "timeZoneNeedsCheck": False,
         "fees": None,
+        "feesTotal": None,
         "feesTotalYen": None,
         "exitOrderType": "unknown",
     }
 
 
 def test_example_18_zero_and_loss():
-    out = run(read_row(pnl_jpy=0), read_row(pnl_jpy=-12340, side_written="sell"))
+    out = run(read_row(pnl=0), read_row(pnl=-12340, side_written="sell"))
     assert [r["pnlYen"] for r in out["rows"]] == [0, -12340]
     # 損益は 0 以下でも空にしない（負けを消さない）
     assert out["rows"][0]["pnlYen"] is not None and out["rows"][0]["pnlYen"] == 0
@@ -231,10 +238,10 @@ def test_price_out_of_range_only_blank(key, out_key, v):
 
 
 def test_huge_quantity_and_pnl_blank():
-    r = run(read_row(qty=1e13, pnl_jpy=-1e13))["rows"][0]
+    r = run(read_row(qty=1e13, pnl=-1e13))["rows"][0]
     assert r["quantity"] is None and r["pnlYen"] is None
     # 境目: 1e12 ちょうどは残す
-    r = run(read_row(qty=1e12, pnl_jpy=-1e12, entry_price=1e12))["rows"][0]
+    r = run(read_row(qty=1e12, pnl=-1e12, entry_price=1e12))["rows"][0]
     assert r["quantity"] == 1e12 and r["pnlYen"] == -1e12 and r["entryPrice"] == 1e12
 
 
@@ -244,7 +251,7 @@ def test_order_types_pass_through():
 
 
 def test_rows_order_kept():
-    out = run(*[read_row(pnl_jpy=i) for i in range(5)])
+    out = run(*[read_row(pnl=i) for i in range(5)])
     assert [r["pnlYen"] for r in out["rows"]] == [0, 1, 2, 3, 4]
 
 
@@ -281,7 +288,7 @@ def test_row_shape_is_constant_and_in_range_values_unchanged():
             entry_price=rng.choice([None, round(rng.uniform(0.01, 1e6), 2), 0, -1]),
             exit_price=rng.choice([None, round(rng.uniform(0.01, 1e6), 2)]),
             qty=rng.choice([None, rng.randrange(1, 1000), 0]),
-            pnl_jpy=rng.choice([None, rng.randrange(-10**7, 10**7), 0]),
+            pnl=rng.choice([None, rng.randrange(-10**7, 10**7), 0]),
             fees=rng.choice([None, [], [rng.randrange(0, 500) for _ in range(rng.randrange(1, 5))]]),
             time_zone=rng.choice(["GMT", "UTC", "JST", "unknown", None]),
             exit_order_type=rng.choice(["stop", "market", "limit", "unknown"]),
@@ -291,7 +298,7 @@ def test_row_shape_is_constant_and_in_range_values_unchanged():
         assert set(out) == ROW_KEYS
         assert row == before  # 入力を変えない
         for src, dst, positive in (("entry_price", "entryPrice", True), ("exit_price", "exitPrice", True),
-                                   ("qty", "quantity", True), ("pnl_jpy", "pnlYen", False)):
+                                   ("qty", "quantity", True), ("pnl", "pnlYen", False)):
             v = row[src]
             if v is None or (positive and v <= 0):
                 assert out[dst] is None
@@ -342,3 +349,63 @@ def test_jst_is_zero_padded_for_small_years(written, tz, jst):
     import re
 
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", got)
+
+
+# ---- #66: 損益・手数料の通貨（AC-8 の部品の側。例 C1〜C3） ----
+
+
+@pytest.mark.parametrize(
+    "currency,pnl,fees,want_yen",
+    [
+        ("JPY", -9100, [50, 50], True),  # C1: 円の明細は円の欄にも入る
+        ("unknown", -9100, [50, 50], True),  # C2: 通貨が書かれていない明細は今と同じ（円の欄に入る）
+        ("USD", -62.0, [1.0, 1.0], False),  # C3: USD の数を円の欄に入れない
+    ],
+)
+def test_currency_rows_c1_c3(currency, pnl, fees, want_yen):
+    r = run(read_row(pnl=pnl, fees=fees, pnl_currency=currency))["rows"][0]
+    assert r["pnl"] == pnl and r["pnlCurrency"] == currency
+    assert r["feesTotal"] == sum(fees)
+    if want_yen:
+        assert r["pnlYen"] == pnl and r["feesTotalYen"] == sum(fees)
+    else:
+        assert r["pnlYen"] is None and r["feesTotalYen"] is None
+
+
+@pytest.mark.parametrize("bad", ["usd", "US", "USDX", "", "円", 1, None])
+def test_currency_out_of_shape_is_unknown(bad):
+    row = read_row(pnl_currency=bad)
+    r = run(row)["rows"][0]
+    assert r["pnlCurrency"] == "unknown" and r["pnlYen"] == 6500
+
+
+def test_currency_missing_is_unknown():
+    row = read_row()
+    del row["pnl_currency"]
+    assert run(row)["rows"][0]["pnlCurrency"] == "unknown"
+
+
+# ---- #66: 会社の名前（issuer）は検査を通り、応答には写さない ----
+
+
+def test_issuer_checked_and_not_in_response():
+    checked = check_result({"kind": "statement", "issuer": "架空証券 X", "rows": [read_row()]})
+    assert checked["issuer"] == "架空証券 X"
+    out = normalize.normalize_result(checked)
+    assert set(out) == {"kind", "rows"} and "架空証券" not in repr(out)
+
+
+@pytest.mark.parametrize("issuer", ["X" * 41, "架空@証券", "架空\n証券", "   ", ""])
+def test_issuer_out_of_shape_is_dropped(issuer):
+    assert check_result({"kind": "statement", "issuer": issuer, "rows": [read_row()]})["issuer"] is None
+
+
+@pytest.mark.parametrize("issuer", [12, {"name": "架空証券 X"}, ["架空証券 X"], True, "架空証券 & X", "架空, 証券"])
+def test_issuer_wrong_type_or_chars_is_none_and_rows_kept(issuer):
+    # 会社の名前は鍵の材料に過ぎないので、型・文字が外れても行は捨てない（鍵が作られないだけ）
+    checked = check_result({"kind": "statement", "issuer": issuer, "rows": [read_row()]})
+    assert checked["issuer"] is None and len(checked["rows"]) == 1
+
+
+def test_issuer_dropped_when_not_statement():
+    assert check_result({"kind": "not_statement", "issuer": "架空証券 X", "rows": []})["issuer"] is None

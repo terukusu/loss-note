@@ -67,12 +67,17 @@ def render_png(lay: Layout, font_path: str) -> bytes:
     body_hs = [row_h(r) for r in lay.cells]
     table_w = sum(widths)
     width = table_w + MARGIN * 2
-    top = MARGIN + (FONT_SIZE + 5) + 10 + line_h + 14
+    # 上部に会社の名前（架空。#66）の 1 行
+    issuer_h = line_h + 6 if lay.issuer else 0
+    top = MARGIN + issuer_h + (FONT_SIZE + 5) + 10 + line_h + 14
     height = top + head_h + sum(body_hs) + MARGIN
+    width = max(width, text_w(lay.issuer, font) + MARGIN * 2)
     img = Image.new("RGB", (width, height), "white")
     d = ImageDraw.Draw(img)
-    d.text((MARGIN, MARGIN), lay.title, font=title_font, fill=INK)
-    d.text((MARGIN, MARGIN + FONT_SIZE + 5 + 10), lay.subtitle, font=font, fill=SUB_INK)
+    if lay.issuer:
+        d.text((MARGIN, MARGIN), lay.issuer, font=font, fill=INK)
+    d.text((MARGIN, MARGIN + issuer_h), lay.title, font=title_font, fill=INK)
+    d.text((MARGIN, MARGIN + issuer_h + FONT_SIZE + 5 + 10), lay.subtitle, font=font, fill=SUB_INK)
 
     def draw_row(y: int, cells, h: int, head: bool) -> None:
         x = MARGIN

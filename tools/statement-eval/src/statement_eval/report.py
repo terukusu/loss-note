@@ -18,7 +18,8 @@ FIELD_LABELS = {
     "exit_time": "決済の日時",
     "qty": "数量",
     "fees": "手数料",
-    "pnl_jpy": "損益（円）",
+    "pnl": "損益",
+    "pnl_currency": "損益の通貨",
     "exit_order_type": "決済の注文の種類",
 }
 SET_LABELS = {"synthetic": "合成の明細", "real": "実物の明細"}
@@ -77,6 +78,16 @@ class Summary:
     usd_jpy: float | None
     groups: tuple[GroupMismatch, ...]
     rows_per_round: int  # 1 回分の正解の行の数（1 件の誤りが動かす割合の分母）
+    # 明細を出した会社の名前（#66）: 比べる形が正解と一致した読み取りの数 / 正解に会社の名前がある読み取りの数と、
+    # 鍵の安定（同じ会社は同じ・違う会社は違う、が成り立った明細の組の数 / 組の総数。回ごとに数えて足す）
+    issuer_matched: int = 0
+    issuer_denominator: int = 0
+    issuer_pairs_stable: int = 0
+    issuer_pairs: int = 0
+    # 鍵の回をまたいだ安定（#66 P2）: 同じ明細を repeat 回読んで、どの回も鍵の材料（会社の名前・向きの集合・
+    # 通貨の集合）が同じだった画像の数 / 画像の数
+    profile_stable_images: int = 0
+    profile_images: int = 0
 
 
 def _pct(n: int, d: int) -> str:
@@ -131,8 +142,13 @@ def to_markdown(s: Summary) -> str:
     decisive = [f for f in s.fields if f.name in DECISIVE_FIELDS]
     if decisive:
         ok = all(f.matched == f.denominator for f in decisive)
-        lines.append("- 判定と R に効く 4 欄（L / S・建てた価格・決済の価格・損益（円））: "
+        lines.append("- 判定と R に効く 4 欄（L / S・建てた価格・決済の価格・損益）: "
                      + ("全件一致" if ok else "不一致あり（R7: 30 秒の予算の見直しを提案に含める）"))
+    if s.issuer_denominator:
+        lines.append(f"- 明細を出した会社の名前（比べる形）: {s.issuer_matched} / {s.issuer_denominator}"
+                     f"（{_pct(s.issuer_matched, s.issuer_denominator)}）・鍵の安定（同じ会社は同じ・違う会社は違う）: "
+                     f"{s.issuer_pairs_stable} / {s.issuer_pairs} 組・鍵の材料が回をまたいで同じ: "
+                     f"{s.profile_stable_images} / {s.profile_images} 枚")
     lines.append(f"- 決済の注文の種類の作り話（写っていないのに種類を返した）: {s.hallucinations} 件")
     if s.order_type_rows is not None and s.order_type_visible_rows is not None:
         lines.append(f"- 決済の注文の種類が写っていた行: {s.order_type_visible_rows} / {s.order_type_rows}"

@@ -9,7 +9,8 @@ Issue #12・ADR-0006）。
 ``users/{uid}/statement_read_days/{YYYY-MM-DD}`` = ``{count, microUsd}``（``microUsd`` は #51 から。欠け・負は
 回数 × 予約額に見積もる = ``read_limits.effective_user_micro``）、
 全体 ``statement_read_spend/{YYYY-MM-DD}`` =
-``{count, microUsd}``（日付は日本時間。日付・回数・金額だけ）。
+``{count, microUsd}``（日付は日本時間。日付・回数・金額だけ）。使った量（Issue #62）は利用者の日の文書を
+文書 ID の範囲（今月 1 日〜今日）で読むだけ（``read_days_between``）。
 チャートは取引の作成・削除・差し替え・外すと同じトランザクションで書く（取引が無いチャート・チャートが書けなかった取引を残さない）。
 uid は ``auth.check_claims`` が形を確かめた値、ID は ``schema.ID_PATTERN`` に合う値だけが来る（ほかの利用者の
 場所を指せない）。手元・テストはエミュレーター（``FIRESTORE_EMULATOR_HOST`` を google-cloud-firestore が見て、
@@ -24,7 +25,7 @@ from typing import Protocol
 from loss_note_api import accounts
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID, BuildDefault
 from loss_note_api.charts import SLOTS, chart_doc_id
-from loss_note_api.read_limits import effective_user_micro
+from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
 
 Doc = dict
 Mutate = Callable[[Doc], Doc]
@@ -133,6 +134,9 @@ class Store(Protocol):
     def reserve_read(self, uid: str, day: str, decide: DecideRead, reserve_micro: int) -> str: ...
     # 送った後に利用者と全体の金額を delta_micro だけ直す（実額 − 予約額。負もある。2 つを 1 回の書き込みで）
     def settle_read(self, uid: str, day: str, delta_micro: int) -> None: ...
+    # 使った量（#62）: 利用者の日の文書のうち、日付（文書の ID）が first〜last（両端を含む）のものを日付の順に
+    # 最大 31 件読む（書かない。全体の日の文書は読まない）
+    def read_days_between(self, uid: str, first: str, last: str) -> list[tuple[str, Doc]]: ...
 
     # 起動の準備（#60）: 最初の要求が払う初期化（クライアント・接続）を先に済ませる。記録を書かない・利用者の文書を
     # 読まない。失敗は例外（起動は止めない。最初の要求で作り直す）
@@ -510,6 +514,18 @@ class FirestoreStore:
         batch.set(self._user(uid).collection(READ_DAYS).document(day), inc, merge=True)
         batch.set(db.collection(READ_SPEND).document(day), inc, merge=True)
         batch.commit()
+
+    @_guard
+    def read_days_between(self, uid, first, last):
+        from google.cloud.firestore_v1.field_path import FieldPath
+
+        # 文書 ID の範囲で読む（読む文書は月の日数まで。費用と速さのため、月の外・全体の日の文書を読まない）
+        doc_id = FieldPath.document_id()
+        q = (
+            self._user(uid).collection(READ_DAYS).order_by(doc_id)
+            .start_at({doc_id: first}).end_at({doc_id: last}).limit(USAGE_MAX_DAYS)
+        )
+        return [(s.id, s.to_dict()) for s in q.stream()]
 
     # ── 設定 ──
     @_guard

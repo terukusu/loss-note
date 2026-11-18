@@ -519,6 +519,30 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(bad).toEqual([]);
   });
 
+  it('AI の利用状況のカードの CSS は文字・線のトークンだけ（判定の段の色を使わない。Issue #62 AC-7）', () => {
+    const allowed = /^(var\(--(ink|ink-2|ink-3|line|line-2)\)|currentColor|none|transparent)$/;
+    const css = files['../../ui/src/styles/ai-usage.css'] ?? '';
+    expect(css).not.toBe('');
+    expect(/--tier-|--accent|--danger/.test(stripComments(css))).toBe(false);
+    let seen = 0;
+    const bad: string[] = [];
+    for (const b of blocks(stripComments(css))) {
+      for (const [name, value] of decls(b.body)) {
+        if (
+          !['color', 'fill', 'stroke', 'background', 'background-color', 'border-color'].includes(
+            name,
+          )
+        ) {
+          continue;
+        }
+        seen++;
+        if (!allowed.test(value)) bad.push(`${b.selector} { ${name}: ${value} }`);
+      }
+    }
+    expect(seen).toBeGreaterThan(5);
+    expect(bad).toEqual([]);
+  });
+
   it('CSS は外のものを読まない（url() も @import も書かない）', () => {
     for (const [path, raw] of Object.entries(files)) {
       const css = stripComments(raw);

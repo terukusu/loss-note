@@ -23,7 +23,7 @@ from collections.abc import Callable
 from flask import Blueprint, Response, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from loss_note_api import accounts, allowlist, chart_read, charts, schema, statement_read
+from loss_note_api import accounts, ai_usage, allowlist, chart_read, charts, schema, statement_read
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import ReadLimits
@@ -545,6 +545,8 @@ def make_blueprint(
     statement_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock, limits)
     # ── チャートの時間足の読み取り（#27。明細と同じ設定・同じ上限 = 同じ財布）──
     chart_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock, limits)
+    # ── AI の利用状況（#62。同じ計上を読むだけ）──
+    ai_usage.register(bp, store, clock, limits)
 
     @bp.errorhandler(StoreUnavailable)
     def store_unavailable(e: StoreUnavailable):
@@ -568,6 +570,7 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/settings", methods=["GET", "PUT"])
     @bp.route(statement_read.PATH, methods=["POST"])
     @bp.route(chart_read.PATH, methods=["POST"])
+    @bp.route(ai_usage.PATH, methods=["GET"])
     def unavailable(_id: str | None = None, _slot: str | None = None):
         return error(503, "unavailable")
 

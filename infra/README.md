@@ -372,7 +372,7 @@ gcloud storage rm --recursive "gs://$P-firestore-restore"
 
 `STATEMENT_READ_CREDENTIAL`・`STATEMENT_READ_KEY`（と下の AI の上限の切り替え・数）だけは secrets でなく variables に置きます。CI が読む値は secrets に置く決まりですが、値を伏せる必要の無い切り替えは例外です（secrets にすると Actions のログの方式の名前・`true` がすべて伏せ字になり、plan・検査のログが読めなくなるため）。
 
-上限（設計書 8.2・下の「AI の上限とバイパス」）: 既定は利用者ごとに 1 日 30 回・1.00 USD、全利用者の合計で 1 日 2.00 USD（日本時間の 0:00 で区切る）。越えると 429 `read_limited`（画面は「今日の読み取りの上限に達しました。手で入れてください。」）。日ごとの計上は Firestore の `statement_read_spend/{YYYY-MM-DD}`（`count`・`microUsd`。1 USD = 1,000,000）と `users/{uid}/statement_read_days/{YYYY-MM-DD}`（`count`・`microUsd`。`microUsd` は #51 から）にあり、所有者の資格情報で読めます（中身は日付・回数・金額だけ）。
+上限（設計書 8.2・下の「AI の上限とバイパス」）: 既定は利用者ごとに 1 日 30 回・1.00 USD、全利用者の合計で 1 日 2.00 USD（日本時間の 0:00 で区切る）。越えると 429 `read_limited`（画面は「今日の読み取りの上限に達しました。手で入れてください。」）。日ごとの計上は Firestore の `statement_read_spend/{YYYY-MM-DD}`（`count`・`microUsd`。1 USD = 1,000,000）と `users/{uid}/statement_read_days/{YYYY-MM-DD}`（`count`・`microUsd`。`microUsd` は #51 から）にあり、所有者の資格情報で読めます（中身は日付・回数・金額だけ）。利用者は自分の分だけを設定の画面の「AI の利用状況」で見られます（#62。今日・今月の回数と金額）。そこに出る今月の額は日の計上の合計で、Anthropic Console の月の上限（使った額）とは別の数字です。
 
 ```sh
 D=$(TZ=Asia/Tokyo date +%F)

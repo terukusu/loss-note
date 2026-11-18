@@ -17,6 +17,7 @@ CSP の土台と ``nosniff``・``no-referrer`` を付ける。
 起動の準備（Issue #60・``warmup.py``）: 環境変数から起動したとき（本番の gunicorn・手元の起動）は、資格情報の名前を
 環境から外し、保存先と ID トークンの検証器を作った後に、保存先の接続・公開鍵の取得・読み取りの SDK の読み込みを
 済ませてから返す（gunicorn は返るまで要求を受けない）。失敗しても起動は止めない。
+明細の読み取りの CLI は先立てを立て始めるだけで、立ち上がりを待たない（#65。``statement_read.warm``）。
 """
 
 import io
@@ -64,10 +65,14 @@ def _login_csp(mode: str, env: Mapping[str, str]) -> dict[str, tuple[str, ...]] 
 
 def _warm_steps(records: Store, verifier: TokenVerifier, read_config: statement_read.ReadConfig) -> list:
     """起動の準備の段（#60）。読み取りの SDK は読み取りが使える起動だけ
-    （import の確かめ。入っていなくても失敗にしない）"""
+    （import の確かめ。入っていなくても失敗にしない）。SDK が入っていれば、明細の読み取りの CLI の先立てを
+    立て始める（#65。待たない = 起動を延ばさない）"""
     steps: list = [("store", records.warm), ("auth", verifier.warm)]
     if read_config.usable:
         steps.append(("sdk", statement_read.sdk_available))
+        warm = read_config.warm
+        if warm is not None:
+            steps.append(("cli", lambda: statement_read.sdk_available() and warm.start()))
     return steps
 
 
@@ -116,6 +121,8 @@ def create_app(
     if read_config is None:
         app.register_blueprint(make_unconfigured_blueprint())
     else:
+        # 先立ての CLI の置き場（#65。テストが後始末に使う。プロセスの終了では atexit が閉じる）
+        app.extensions["statement_read_warm"] = read_config.warm
         records = store or FirestoreStore(runtime.project_id)
         verifier = TokenVerifier(runtime)
         app.register_blueprint(

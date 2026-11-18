@@ -391,71 +391,99 @@ class Reader:
         captured: list = []
         kwargs = option_kwargs(self.model, self.effort, self._credential, values, base,
                                max_output_tokens=self.max_output_tokens)
-        query_fn = self._query_fn
-        if query_fn is None:
-            try:
-                from claude_agent_sdk import query as query_fn
-            except ImportError:
-                raise SdkMissing("claude_agent_sdk") from None
-
-            # SDK は親の環境に options.env を重ねて子を起動する。系統の名前が親に残っていたら送らない（外すのは入口の
-            # 1 回だけ。ここでは os.environ を書き換えない）
-            if credential_names_in():
-                raise CredentialEnvPresent("credential_env")
-            opts = sdk_options(kwargs, captured)
-        else:
-            opts = kwargs
-        content = [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type,
-                                         "data": base64.b64encode(data).decode("ascii")}},
-            {"type": "text", "text": prompt.READ_USER_TEXT},
-        ]
+        query_fn, opts = resolve_query(self._query_fn, kwargs, captured)
         done = asyncio.Event()
+        message = user_message(data, media_type)
 
         async def prompt_stream():
             # 結果を受け取るまで入力を閉じない（閉じると CLI の制御要求 = SDK MCP・フックに答えられない）
-            yield {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None,
-                   "session_id": "default"}
+            yield message
             await done.wait()
 
-        started = self._clock()
-        seconds = api_seconds = sdk_cost = None
-        usage = None
-        is_error = False
-        tool_inputs: list = []
+        collector = Collector(self._clock, self._clock())
         try:
             # 締め切りは cancel scope で（超えたら TimeoutError。generator の中の await に取り消しが届き、SDK の後始末が
             # 走る）。generator は同じ scope の中で閉じる
             with anyio.fail_after(self.timeout):
                 async with contextlib.aclosing(query_fn(prompt=prompt_stream(), options=opts)) as stream:
                     async for m in stream:
-                        kind = type(m).__name__
-                        if kind == "AssistantMessage":
-                            for b in getattr(m, "content", None) or []:
-                                if type(b).__name__ == "ToolUseBlock" and str(getattr(b, "name", "")).endswith(
-                                    schema.TOOL_NAME
-                                ):
-                                    tool_inputs.append(getattr(b, "input", None))
-                        elif kind == "ResultMessage" and seconds is None:
-                            seconds = self._clock() - started
-                            api_ms = getattr(m, "duration_api_ms", None)
-                            api_seconds = api_ms / 1000 if isinstance(api_ms, (int, float)) else None
-                            usage = _usage(getattr(m, "usage", None))
-                            cost = getattr(m, "total_cost_usd", None)
-                            sdk_cost = float(cost) if isinstance(cost, (int, float)) else None
-                            is_error = bool(getattr(m, "is_error", False))
+                        if collector.feed(m):
                             done.set()
         finally:
             done.set()
-        raw = captured[0] if captured else (tool_inputs[0] if tool_inputs else None)
-        n_calls = max(len(tool_inputs), len(captured))
-        out = ReadOutcome(result=None, seconds=seconds, api_seconds=api_seconds, usage=usage, sdk_cost_usd=sdk_cost,
-                          tool_calls=n_calls)
+        return collector.outcome(captured)
+
+
+def resolve_query(query_fn: Callable | None, kwargs: dict, captured: list) -> tuple[Callable, object]:
+    """送る関数と options。query_fn（テスト用）があれば options は option_kwargs の dict のまま
+    （SDK を import しない）。無ければ SDK を import し、親の環境に資格情報の系統の名前が残っていれば送らない
+    （外すのは入口の 1 回だけ。ここでは os.environ を書き換えない）"""
+    if query_fn is not None:
+        return query_fn, kwargs
+    try:
+        from claude_agent_sdk import query as sdk_query
+    except ImportError:
+        raise SdkMissing("claude_agent_sdk") from None
+    # SDK は親の環境に options.env を重ねて子を起動する
+    if credential_names_in():
+        raise CredentialEnvPresent("credential_env")
+    return sdk_query, sdk_options(kwargs, captured)
+
+
+def user_message(data: bytes, media_type: str) -> dict:
+    """CLI へ送る user の message（画像 1 枚と決まった文）"""
+    content = [
+        {"type": "image", "source": {"type": "base64", "media_type": media_type,
+                                     "data": base64.b64encode(data).decode("ascii")}},
+        {"type": "text", "text": prompt.READ_USER_TEXT},
+    ]
+    return {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None,
+            "session_id": "default"}
+
+
+class Collector:
+    """stream の message を受けて ReadOutcome を組み立てる（その場で立てる送り口と先立て（warm）が共有する）。
+    started は秒数を数え始めた時刻（clock の値）"""
+
+    def __init__(self, clock: Callable[[], float], started: float):
+        self._clock = clock
+        self.started = started
+        self.seconds: float | None = None
+        self.api_seconds: float | None = None
+        self.sdk_cost: float | None = None
+        self.usage: Usage | None = None
+        self.is_error = False
+        self.tool_inputs: list = []
+
+    def feed(self, m) -> bool:
+        """message を 1 つ受ける。最初の ResultMessage を受けたら True（入力を閉じてよい）"""
+        kind = type(m).__name__
+        if kind == "AssistantMessage":
+            for b in getattr(m, "content", None) or []:
+                if type(b).__name__ == "ToolUseBlock" and str(getattr(b, "name", "")).endswith(schema.TOOL_NAME):
+                    self.tool_inputs.append(getattr(b, "input", None))
+        elif kind == "ResultMessage" and self.seconds is None:
+            self.seconds = self._clock() - self.started
+            api_ms = getattr(m, "duration_api_ms", None)
+            self.api_seconds = api_ms / 1000 if isinstance(api_ms, (int, float)) else None
+            self.usage = _usage(getattr(m, "usage", None))
+            cost = getattr(m, "total_cost_usd", None)
+            self.sdk_cost = float(cost) if isinstance(cost, (int, float)) else None
+            self.is_error = bool(getattr(m, "is_error", False))
+            return True
+        return False
+
+    def outcome(self, captured: list) -> ReadOutcome:
+        """フックが受けた入力（captured）か、AssistantMessage のツールの入力から結果を作る"""
+        raw = captured[0] if captured else (self.tool_inputs[0] if self.tool_inputs else None)
+        n_calls = max(len(self.tool_inputs), len(captured))
+        out = ReadOutcome(result=None, seconds=self.seconds, api_seconds=self.api_seconds, usage=self.usage,
+                          sdk_cost_usd=self.sdk_cost, tool_calls=n_calls)
         if raw is None:
-            if seconds is None:  # ResultMessage を受けないまま終わった（CLI の異常終了など）
+            if self.seconds is None:  # ResultMessage を受けないまま終わった（CLI の異常終了など）
                 out.error = "no_result"
             else:
-                out.error = "result_error" if is_error else "no_tool_call"
+                out.error = "result_error" if self.is_error else "no_tool_call"
             return out
         try:
             out.result = schema.check_result(raw)

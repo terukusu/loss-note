@@ -80,3 +80,30 @@ def test_real_sdk_child_env(captured, tmp_path, method):
         assert k not in env
     assert env["GH_TOKEN"] == ""
     assert list((tmp_path / "t").iterdir()) == []
+
+
+@pytest.mark.parametrize("method", ["api_key", "oauth_token", "federation"])
+def test_real_sdk_child_env_warm(captured, tmp_path, method):
+    # #65: 先立ての CLI も同じ許可リスト（本物の SDK の connect に渡る env=）。子は起動しない
+    from statement_read import warm
+
+    secret, names, kw = METHOD[method]
+    token = kw.get("identity_token")
+    pool = warm.WarmPool(method, secret, "claude-sonnet-5-5", "low", timeout=10, tmp_parent=str(tmp_path / "t"),
+                         identity_token=(lambda: token) if token else None)
+    try:
+        assert pool.prepare(10) is False  # 起動を止めたので立ち上がらない
+        assert pool.wait_idle(10)
+    finally:
+        pool.close()
+    env = captured["env"]
+    family = {k for k in env if agent_reader.is_credential_name(k)}
+    allowed_cli = {"CLAUDE_CONFIG_DIR", "CLAUDE_CODE_TMPDIR", "CLAUDE_CODE_MAX_RETRIES",
+                   "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+                   "CLAUDE_CODE_ENTRYPOINT"}
+    creds = {k for k in family if k not in allowed_cli and not k.startswith("CLAUDE_AGENT_SDK")
+             and not k.startswith("CLAUDE_CODE_SDK") and not k.startswith("CLAUDE_CODE_EMIT")}
+    assert creds == names
+    assert all(env[k] for k in names)
+    assert env["GH_TOKEN"] == ""
+    assert list((tmp_path / "t").iterdir()) == []

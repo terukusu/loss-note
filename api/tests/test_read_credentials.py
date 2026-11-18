@@ -115,7 +115,7 @@ def test_federation_log_has_token_timing(prod, sdk, capfd):
     _out, err = capfd.readouterr()
     lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
     (read,) = [ln for ln in lines if ln.get("event") == "statement_read"]
-    assert set(read) == {"event", "reason", "rows", "ms", "token_ms", "limit_ms", "read_ms", "api_ms"}
+    assert set(read) == {"event", "reason", "rows", "ms", "token_ms", "limit_ms", "read_ms", "api_ms", "cli"}
     assert all(isinstance(read[k], int | float) for k in ("token_ms", "limit_ms", "read_ms", "api_ms"))
     assert ID_TOKEN not in err and "fdrl_example" not in err and ORG not in err
 

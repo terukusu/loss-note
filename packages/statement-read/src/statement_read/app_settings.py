@@ -12,3 +12,8 @@ APP_TIMEOUT_SECONDS = 20
 # （20 行・銘柄の名前 40 字の漢字・手数料 8 欄・桁の多い数）でも JSON で約 12,000 B
 # （整形しても約 15,000 B。トークン数 ≤ バイト数）。合成 14 枚の実測の出力は平均 720 トークン以下
 APP_MAX_OUTPUT_TOKENS = 16_000
+# 先立ての CLI（Issue #65・ADR-0013）: 使われない先立ては作ってから 10 分で捨てる（federation の ID トークンの
+# 期限 1 時間より十分短く、Cloud Run が使われないインスタンスを止めるまでの目安より短い）
+APP_WARM_TTL_SECONDS = 600
+# 先立ての CLI が立ち上がるまでの上限（秒）。準備の要求が待つ上限も同じ
+APP_WARM_STARTUP_SECONDS = 20

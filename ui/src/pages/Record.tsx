@@ -60,6 +60,7 @@ export function RecordScreen() {
         api,
         now: () => Date.now(),
         prepare: (file) => prepareImage(file, browserCodec),
+        warmRead: true,
       }),
     [],
   );

@@ -15,6 +15,7 @@ from firebase_admin import auth as fb_auth
 from helpers.memory_store import MemoryStore
 from helpers.tokens import bearer, cert_body, patch_certs, signed_token, unsigned_token
 from statement_read.agent_reader import credential_names_in
+from statement_read.warm import WarmPool
 
 from loss_note_api import statement_read, store, warmup
 from loss_note_api.app import create_app
@@ -93,7 +94,15 @@ def _drop_firebase_apps():
 
 
 @pytest.fixture
-def sdk_calls(monkeypatch):
+def cli_starts(monkeypatch):
+    """先立ての CLI（#65）を立て始めた回数（CLI は起動しない）"""
+    starts = []
+    monkeypatch.setattr(WarmPool, "start", lambda self: starts.append(1) or True)
+    return starts
+
+
+@pytest.fixture
+def sdk_calls(monkeypatch, cli_starts):
     calls = []
 
     def fake():
@@ -115,17 +124,18 @@ def owner_token() -> str:
 
 
 # ── AC-2・AC-3: 起動で 1 回ずつ・先取りした公開鍵を検証が使う ──
-def test_start_warms_each_once_before_requests(prod_env, certs, sdk_calls, capfd):
+def test_start_warms_each_once_before_requests(prod_env, certs, sdk_calls, cli_starts, capfd):
     records = MemoryStore()
     app = create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=records, warm=True)
     # 要求の前
     assert records.warm_calls == 1
     assert certs.hits == 1
-    assert sdk_calls == [1]
+    # 段 sdk と、先立ての段 cli（#65）が SDK を確かめ、先立てを 1 回立て始める
+    assert sdk_calls == [1, 1] and cli_starts == [1]
     lines = warm_lines(capfd)
     assert len(lines) == 1 and lines[0]["reason"] == "ok"
-    assert set(lines[0]) == WARM_KEYS | {"sdk_ms"}
-    assert all(isinstance(lines[0][k], int | float) for k in ("ms", "store_ms", "auth_ms", "sdk_ms"))
+    assert set(lines[0]) == WARM_KEYS | {"sdk_ms", "cli_ms"}
+    assert all(isinstance(lines[0][k], int | float) for k in ("ms", "store_ms", "auth_ms", "sdk_ms", "cli_ms"))
 
     # AC-3: 最初の検証は公開鍵を取りに行かない（cachecontrol のキャッシュ = 検証と同じ置き場）
     res = app.test_client().get("/api/trades", headers=bearer(owner_token()))
@@ -186,7 +196,7 @@ def test_firestore_client_failure_is_retried(monkeypatch):
     assert made == [PROD, PROD]
 
 
-def test_all_steps_fail_and_start_still_returns(prod_env, certs, sdk_calls, monkeypatch, capfd):
+def test_all_steps_fail_and_start_still_returns(prod_env, certs, sdk_calls, cli_starts, monkeypatch, capfd):
     def boom():
         raise RuntimeError("fictional")
 
@@ -195,7 +205,8 @@ def test_all_steps_fail_and_start_still_returns(prod_env, certs, sdk_calls, monk
     records = MemoryStore()
     records.fail_warm = RuntimeError("fictional")
     app = create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=records, warm=True)
-    assert [ln["reason"] for ln in warm_lines(capfd)] == ["store+auth+sdk"]
+    assert [ln["reason"] for ln in warm_lines(capfd)] == ["store+auth+sdk+cli"]
+    assert cli_starts == []
     assert app.test_client().get("/api/health").status_code == 200
 
 
@@ -302,7 +313,7 @@ def test_unconfigured_start_does_not_warm(monkeypatch, capfd):
 
 
 # ── KEEP-1: 資格情報の名前を環境から外した後に準備する（環境変数から起動する経路）──
-def test_process_start_warms_after_scrub(prod_env, certs, monkeypatch, capfd):
+def test_process_start_warms_after_scrub(prod_env, certs, cli_starts, monkeypatch, capfd):
     import os
 
     # os.environ を写しに差し替える（テストの process の環境を変えない。create_app が写しから資格情報の名前を外す）
@@ -321,7 +332,8 @@ def test_process_start_warms_after_scrub(prod_env, certs, monkeypatch, capfd):
     create_app(store=records)  # env を渡さない = 本番の gunicorn と同じ経路（既定で準備する）
     assert records.warm_calls == 1
     assert certs.hits == 1  # 既定の経路でも公開鍵を要求の前に 1 回取る（AC-2）
-    assert seen == [[], []]
+    assert seen == [[], [], []]  # 保存先・段 sdk・段 cli（#65）
+    assert cli_starts == [1]
     assert [ln["reason"] for ln in warm_lines(capfd)] == ["ok"]
 
 
@@ -341,3 +353,26 @@ def test_warmup_log_has_only_names_and_numbers(capfd):
 def test_warmup_rejects_unknown_step_name():
     with pytest.raises(KeyError):
         warmup.run([("other", lambda: None)])
+
+
+# ── #65 KEEP-3: 起動の段は明細の読み取りの CLI の立ち上がりを待たない ──
+def test_cli_step_does_not_wait(prod_env, certs, monkeypatch, capfd):
+    import time
+
+    from helpers import fake_agent_sdk
+
+    fake = fake_agent_sdk.install(monkeypatch)
+    fake.startup_delay = 2.0
+    t = time.monotonic()
+    app = create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=MemoryStore(), warm=True)
+    took = time.monotonic() - t
+    pool = app.extensions["statement_read_warm"]
+    try:
+        assert took < 2.0
+        (line,) = warm_lines(capfd)
+        assert line["reason"] == "ok" and line["cli_ms"] < 2000
+        # 先立ては立ち上げ中（起動の段の後に立ち上がる）。AI へは何も送らない
+        assert pool.prepare(5) is True
+        assert len(fake.calls) == 1 and fake.calls[0]["message"] is None
+    finally:
+        pool.close()

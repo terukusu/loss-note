@@ -84,6 +84,10 @@ export const NETWORK_FAILED =
 /** 読み取りの要求の時間の上限（API の締め切り 20 秒 + 後始末 約 5 秒 + 余裕。R3） */
 export const READ_TIMEOUT_MS = 30_000;
 export const READ_PATH = '/api/statement-reads';
+/** 読み取りの準備（#65）: 開いたときに 1 回送り、API が明細の読み取りの CLI を先に立てる。応答は使わない */
+export const READ_PREPARE_PATH = '/api/statement-reads/prepare';
+/** 準備の要求の時間の上限（API が待つ上限 20 秒 + 余裕） */
+export const READ_PREPARE_TIMEOUT_MS = 25_000;
 export const ROWS_DONE = '明細の行を最後まで見ました';
 export const rowSaved = (index: number, total: number) =>
   `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;
@@ -235,6 +239,8 @@ export function createRecordController(deps: {
   /** 画像を送る形に描き直す（画面が statement-image.ts の prepareImage を渡す。テストは偽物） */
   readonly prepare?: (file: Blob) => Promise<PrepareResult>;
   readonly readTimeoutMs?: number;
+  /** 開いたときに読み取りの準備を送る（#65。画面が true を渡す。失敗は画面に出さない） */
+  readonly warmRead?: boolean;
 }): RecordController {
   const { now } = deps;
   const timeoutMs = deps.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -327,6 +333,11 @@ export function createRecordController(deps: {
 
   const load = async () => {
     set({ phase: 'loading', error: null, readBlocked: null }, true);
+    if (deps.warmRead) {
+      void request(READ_PREPARE_PATH, { method: 'POST' }, { ms: READ_PREPARE_TIMEOUT_MS }).catch(
+        () => undefined,
+      );
+    }
     try {
       const [t, i, s] = await Promise.all([
         request('/api/trades').then((r) => getJson<{ items: StoredTrade[] }>(r, 200)),

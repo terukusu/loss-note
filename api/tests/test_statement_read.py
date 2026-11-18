@@ -471,12 +471,12 @@ def test_read_log_shape(make_client, sdk, capture, capfd):
     assert [ln["reason"] for ln in reads_] == ["ok", "image_format"]
     assert reads_[0]["rows"] == 1 and reads_[1]["rows"] == 0
     # 時間の内訳（#60）: AI へ送った回は上限の予約・送り口の全体・CLI が報告した API の時間（偽の SDK は 1,200 ms）。
-    # 送る前に返した回は内訳なし
-    assert set(reads_[0]) == {"event", "reason", "rows", "ms", "limit_ms", "read_ms", "api_ms"}
-    assert reads_[0]["api_ms"] == 1200.0
+    # 送る前に返した回は内訳なし。送った回は先立てを使ったか（#65。準備をしていないので cold）
+    assert set(reads_[0]) == {"event", "reason", "rows", "ms", "limit_ms", "read_ms", "api_ms", "cli"}
+    assert reads_[0]["api_ms"] == 1200.0 and reads_[0]["cli"] == "cold"
     assert set(reads_[1]) == {"event", "reason", "rows", "ms"}
     for ln in reads_:
-        for k in set(ln) - {"event", "reason", "rows"}:
+        for k in set(ln) - {"event", "reason", "rows", "cli"}:
             assert isinstance(ln[k], (int, float)) and not isinstance(ln[k], bool)
     # 既存の request の行もそのまま
     assert any(ln.get("event") == "request" and ln.get("route") == PATH for ln in lines)

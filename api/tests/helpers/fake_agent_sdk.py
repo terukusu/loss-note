@@ -17,6 +17,10 @@
 - ``"no_result"``: 結果も例外も無いまま終わる（CLI の異常終了の真似）
 - ``"hang"``: 締め切りまで返さない（取り消されたら shield の中で後始末をする。``cleaned`` に記録）
 
+先立て（#65）の試験: ``startup_delay`` 秒（CLI の起動の真似）を prompt を読む前に眠る。``startup_fail`` が真なら、
+prompt を読む前に例外（送る前の失敗）。``calls[*]["token_at_send"]`` は message を受けた時点の ID トークンのファイルの
+中身（federation）。終わり（取り消し・正常の終わり・例外）は ``closed`` に数える。
+
 ResultMessage の使用量・合計額は ``result_usage``・``result_cost``（既定は入力 1,500・出力 300・0.01 USD。#44 の精算）。
 
 ``write_tmp`` が真なら、CLI の振る舞い（画像を CLAUDE_CODE_TMPDIR・CLAUDE_CONFIG_DIR・HOME・TMPDIR・XDG の置き場所に
@@ -24,8 +28,10 @@ ResultMessage の使用量・合計額は ``result_usage``・``result_cost``（�
 """
 
 import base64
+import contextlib
 import os
 import sys
+import threading
 import types
 
 import anyio
@@ -101,6 +107,11 @@ class FakeSdk(types.ModuleType):
         self.raise_text = "upstream failed"
         self.write_tmp = False
         self.cleaned = 0
+        self.startup_delay = 0.0
+        self.startup_fail = False
+        self.closed = 0
+        self.prompt_errors: list[str] = []
+        self._lock = threading.Lock()
         # ResultMessage の使用量と合計額（#44 の精算の試験。None = 返さない）
         self.result_usage: dict | None = dict(DEFAULT_USAGE)
         self.result_cost: float | None = DEFAULT_COST
@@ -110,11 +121,37 @@ class FakeSdk(types.ModuleType):
         return ResultMessage(is_error=is_error, usage=self.result_usage, cost=self.result_cost)
 
     async def _query(self, *, prompt, options):
-        call = {"options": options, "message": None, "child_env": spawn_env(os.environ, options.env)}
-        self.calls.append(call)
-        async for m in prompt:  # 最初の user の message を受け取る
-            call["message"] = m
-            break
+        call = {"options": options, "message": None, "child_env": spawn_env(os.environ, options.env),
+                "token_at_send": None}
+        with self._lock:
+            self.calls.append(call)
+        try:
+            async for m in self._run(call, prompt, options):
+                yield m
+        finally:
+            with self._lock:
+                self.closed += 1
+
+    async def _run(self, call, prompt, options):
+        if self.startup_delay:
+            await anyio.sleep(self.startup_delay)
+        if self.startup_fail:
+            raise ConnectionError(self.raise_text)
+        # 最初の user の message を受け取り、prompt の generator を閉じる（本物は close で読む task を取り消す）。
+        # prompt の例外は本物と同じく握る（本物の SDK は文言をログに出して入力を閉じる）
+        try:
+            async with contextlib.aclosing(prompt) as stream:
+                async for m in stream:
+                    call["message"] = m
+                    f = options.env.get("ANTHROPIC_IDENTITY_TOKEN_FILE")
+                    if f:
+                        with open(f, encoding="ascii") as fh:
+                            call["token_at_send"] = fh.read()
+                    break
+        except Exception as e:  # noqa: BLE001
+            self.prompt_errors.append(type(e).__name__)
+        if call["message"] is None:  # 何も送られなかった: 入力が閉じて CLI が止まる（結果なし）
+            return
         if self.write_tmp:
             self._write_like_cli(options, call["message"])
         if self.script == "raise":
@@ -140,8 +177,10 @@ class FakeSdk(types.ModuleType):
         server_name, server = next(iter(options.mcp_servers.items()))
         cli_name = f"mcp__{server_name}__{server['tools'][0].name}"
         hook = options.hooks["PreToolUse"][0].hooks[0]
-        await hook({"tool_name": cli_name, "tool_input": self.tool_input}, "toolu_1", None)
-        yield AssistantMessage([ToolUseBlock(cli_name, self.tool_input)])
+        # tool_input が関数なら、受けた message から結果を作る（同時の要求の取り違えを見分ける。#65）
+        tool_input = self.tool_input(call["message"]) if callable(self.tool_input) else self.tool_input
+        await hook({"tool_name": cli_name, "tool_input": tool_input}, "toolu_1", None)
+        yield AssistantMessage([ToolUseBlock(cli_name, tool_input)])
         yield self._result()
 
     @staticmethod

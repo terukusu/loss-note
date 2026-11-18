@@ -668,7 +668,10 @@ async function installFakeApi(context, opts = {}) {
         return route.fulfill({ status: 204, body: '' });
       }
       if (req.method() === 'PUT') {
-        api.puts.push({ id, body });
+        // ?snapshot=current（#31）: 銘柄・口座が同じでも今の値で写し直す（routes.py の update_trade と同じ）
+        const query = new URL(req.url()).search;
+        const resnap = query === '?snapshot=current';
+        api.puts.push({ id, body, query });
         const inst = api.instruments.find((i) => i.id === body.instrumentId);
         if (!inst) return json(route, 400, { error: 'invalid' });
         for (const slot of ['entry', 'exit']) {
@@ -678,14 +681,15 @@ async function installFakeApi(context, opts = {}) {
         }
         // 口座を付け替えたときだけ、付け替え先の今の資金・許容リスクで写し直す（本文に口座が無ければ前の口座のまま）
         const prevAcc = prev.record.accountId || 'default';
+        const target = body.accountId ?? prevAcc;
         let moved = null;
-        if (body.accountId !== undefined && body.accountId !== prevAcc) {
+        if (resnap || target !== prevAcc) {
           ensureDefault();
-          moved = api.accounts.find((a) => a.id === body.accountId);
+          moved = api.accounts.find((a) => a.id === target);
           if (!moved) return json(route, 400, { error: 'invalid' });
         }
         clock += 1;
-        const changed = inst.id !== prev.record.instrumentId;
+        const changed = resnap || inst.id !== prev.record.instrumentId;
         const snap = changed
           ? {
               ...prev.snapshot,
@@ -4415,6 +4419,177 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return 'チャートの無い枠の時間足を外す旨を出し、何も変えずに保存 → 200、保存の後 A';
+  });
+
+  // Issue #31: 記録したときの値と今の値（AC-1・AC-3・AC-4・AC-6・AC-7・N-3・N-5）。値はすべて架空。
+  // x-e3 / x-e4 は L1 と同じ値（イン 100.00・LC 99.50・決済 99.50・数量 10,000・明細の損益 −5,000 円 → −1.0R・1R 5,000 円）。
+  // 口座は 2 つ（オーナーの場面）。口座 1 の今の資金 200,000 円 → 5,000 / 200,000 = 2.5% で過剰リスクの B
+  const OWNER_ACCOUNTS = () => [acct('default', '口座 1', 200000), ACC_B];
+  const resnapTrade = (id, createdAt, capitalYen, days) =>
+    exampleTrade(
+      id,
+      createdAt,
+      { exit: { ...TX_L1.record.exit, time: T_1110 - days * DAY_MS } },
+      { snapshot: { ...SNAP, capitalYen } },
+    );
+  const overflowX = (p) =>
+    p.evaluate(() => Math.max(document.documentElement.scrollWidth - window.innerWidth, 0));
+  /** 360 ライト・1440 ダークで、枠を見える所に寄せて撮る（全体と見えている範囲の 2 枚） */
+  const shootPair = async (p, sel, slug) => {
+    if (!opts.shots) return;
+    for (const [w, h, theme] of [
+      [360, 780, 'light'],
+      [1440, 900, 'dark'],
+    ]) {
+      await p.setViewportSize({ width: w, height: h });
+      await p.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+      await p.locator(sel).first().scrollIntoViewIfNeeded();
+      await p.mouse.move(0, 0);
+      await p.screenshot({
+        path: join(opts.shots, `${w}x${h}-${theme}-${slug}.png`),
+        fullPage: true,
+      });
+      await p.screenshot({ path: join(opts.shots, `${w}x${h}-${theme}-${slug}-viewport.png`) });
+    }
+    await p.setViewportSize({ width: 360, height: 780 });
+    await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+  };
+
+  await check('T-E3', async () => {
+    const { c, p, fake, errors } = await recordContext({ accounts: OWNER_ACCOUNTS() });
+    try {
+      fake.trades.push(resnapTrade('x-e3', 1700000000008, null, 30));
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades/x-e3/edit`);
+      await waitReady(p, '取引を編集');
+      await p.locator('#edit-submit').waitFor();
+      const panel = p.locator('section.resnap');
+      await panel.waitFor();
+      const ptext = (await panel.textContent()) ?? '';
+      if (
+        !ptext.includes('この取引には資金が保存されていないため、過剰リスクを判定していません。') ||
+        !ptext.includes('200,000円') ||
+        !ptext.includes('2.5%') ||
+        !ptext.includes('「A いい損失」から「B 悪い損失」に変わります') ||
+        ptext.includes('写')
+      )
+        throw new Error(`枠: ${ptext}`);
+      const v0 = await verdictOf(p);
+      expectEq(v0.badge, 'A いい損失', '開いたとき');
+      if (!v0.text.includes('資金が未設定なので過剰リスクは見ていない'))
+        throw new Error(`注記: ${v0.text}`);
+      const near = p.locator('.verdict .verdict__action button');
+      expectEq((await near.textContent())?.trim(), '今の値で再計算', '注記のそばのボタン');
+      expectEq(
+        await p.locator('input[name="edit-resnapshot"][value="recorded"]').isChecked(),
+        true,
+        '2 択の既定',
+      );
+      expectEq(await overflowX(p), 0, '360px の横スクロール（選ぶ前）');
+      await shootPair(p, '.verdict__action', 'edit-resnapshot-owner-before');
+      await near.scrollIntoViewIfNeeded();
+      await near.focus();
+      await p.keyboard.press('Enter');
+      await expectPollAsync(
+        async () => (await verdictOf(p)).badge === 'B 悪い損失',
+        '選んだ後のプレビュー',
+      );
+      // N-3: 押したボタンは消えるので、フォーカスは「今の値」へ
+      await expectPollAsync(
+        () =>
+          p.evaluate(() => {
+            const a = document.activeElement;
+            return (
+              a instanceof HTMLInputElement && a.name === 'edit-resnapshot' && a.value === 'current'
+            );
+          }),
+        'フォーカスの行き先',
+      );
+      const v1 = await verdictOf(p);
+      if (v1.text.includes('資金が未設定') || !v1.text.includes('2.5%'))
+        throw new Error(`選んだ後: ${v1.text}`);
+      expectEq(
+        await p.locator('.verdict .verdict__action').count(),
+        0,
+        '選んだ後の注記のそばのボタン',
+      );
+      expectEq(
+        await p.locator('#edit-change').textContent(),
+        '今の値で再計算 · 判定: A いい損失 −1.0R → B 悪い損失 −1.0R',
+        '保存の帯',
+      );
+      if (
+        !((await p.locator('#edit-resnapshot-status').textContent()) ?? '').includes(
+          '戻すには「記録したとき」',
+        )
+      )
+        throw new Error('戻し方の文');
+      expectEq(await overflowX(p), 0, '360px の横スクロール（選んだ後）');
+      await shootPair(p, 'section.resnap', 'edit-resnapshot-owner-after');
+      await p.locator('#edit-submit').click();
+      await waitReady(p, 'US30 · L');
+      expectEq(path(p), '/trades/x-e3', '保存の後の URL');
+      expectEq(fake.puts.length, 1, 'PUT の数');
+      expectEq(fake.puts[0].query, '?snapshot=current', 'PUT のクエリ');
+      expectEq(
+        fake.trades.find((t) => t.id === 'x-e3').snapshot.capitalYen,
+        200000,
+        '保存した資金',
+      );
+      await p.locator('.verdict .badge').first().waitFor();
+      const after = await verdictOf(p);
+      expectEq(after.badge, 'B 悪い損失', '保存の後');
+      if (!after.text.includes('2.5%') || after.text.includes('資金が未設定'))
+        throw new Error(`保存の後: ${after.text}`);
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '口座 2 つ・資金が空の取引: 目立つ枠（未設定 → 200,000円・— → 2.5%・A → B の 1 文）と注記のそばの [今の値で再計算] → Enter で B・帯「今の値で再計算 · 判定: A → B」・フォーカスは「今の値」→ 保存で ?snapshot=current・保存した資金 200,000 円・詳細 2.5%（360px 横スクロール 0）';
+  });
+
+  await check('T-E4', async () => {
+    const { c, p, fake, errors } = await recordContext({ accounts: OWNER_ACCOUNTS() });
+    try {
+      // 記録したとき 1,000,000 円（0.5% = A）、今 200,000 円（2.5% = B）。勧めない（折りたたみ）
+      fake.trades.push(resnapTrade('x-e4', 1700000000009, 1000000, 31));
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades/x-e4/edit`);
+      await waitReady(p, '取引を編集');
+      await p.locator('#edit-submit').waitFor();
+      expectEq(await p.locator('section.resnap').count(), 0, '目立つ枠');
+      const fold = p.locator('details.resnap');
+      expectEq(await fold.evaluate((d) => d.open), false, '開いたときは畳む');
+      const sum = (await fold.locator('summary').textContent()) ?? '';
+      if (!sum.includes('記録したときの値') || !sum.includes('今の値と 1 か所違います'))
+        throw new Error(`見出し: ${sum}`);
+      expectEq(await p.locator('.verdict .verdict__action').count(), 0, '注記のそばのボタン');
+      await fold.locator('summary').click();
+      const ftext = (await fold.textContent()) ?? '';
+      if (
+        !ftext.includes('1,000,000円') ||
+        !ftext.includes('「A いい損失」から「B 悪い損失」に変わります')
+      )
+        throw new Error(`中身: ${ftext}`);
+      await p.locator('input[name="edit-resnapshot"][value="current"]').check();
+      expectEq((await verdictOf(p)).badge, 'B 悪い損失', '今の値のプレビュー');
+      expectEq(await overflowX(p), 0, '360px の横スクロール');
+      await shootPair(p, 'details.resnap', 'edit-resnapshot-fold-open');
+      await p.locator('input[name="edit-resnapshot"][value="recorded"]').check();
+      expectEq((await verdictOf(p)).badge, 'A いい損失', '戻した後');
+      await p.locator('#edit-submit').click();
+      await waitReady(p, 'US30 · L');
+      expectEq(fake.puts[0].query, '', '戻した後の PUT にクエリなし');
+      expectEq(
+        fake.trades.find((t) => t.id === 'x-e4').snapshot.capitalYen,
+        1000000,
+        '資金は記録したときのまま',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '資金が入っていた取引: 折りたたみ「記録したときの値（今の値と 1 か所違います）」・注記のそばのボタンなし → 開くと A → B の 1 文 →「今の値」で B →「記録したとき」で戻して保存はクエリなし・資金はそのまま';
   });
 
   await check('T-X1', async () => {

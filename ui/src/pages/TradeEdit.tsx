@@ -9,6 +9,7 @@ import { accountIdOf, DEFAULT_ACCOUNT_ID } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { Button } from '../components/Button';
 import { PageHeader } from '../components/PageHeader';
+import { ResnapshotPanel } from '../components/Resnapshot';
 import { Segment } from '../components/Segment';
 import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
 import { Verdict } from '../components/Verdict';
@@ -26,6 +27,7 @@ import { createEditController, type EditState } from '../lib/edit-controller';
 import { changeText } from '../lib/edit-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
+import { BAR_PREFIX, CHOICE_NAME, RESNAPSHOT_LABEL } from '../lib/resnapshot';
 import { NavigatorContext } from '../lib/router';
 import { notFoundState } from './TradeDetail';
 import { LoadState } from './Trades';
@@ -35,7 +37,7 @@ export function TradeEdit({ id }: { readonly id: string }) {
     <>
       <PageHeader
         title="取引を編集"
-        description="資金・許容リスクは記録したときの値で計算します。チャートは記録したときのままです（時間足だけ選び直せます）。"
+        description="資金・許容リスクと銘柄の値は、記録したときの値で計算します。チャートは変更できません（時間足だけ変更できます）。"
       />
       <TradeEditScreen id={id} notFound={notFoundState()} />
     </>
@@ -82,6 +84,16 @@ function TradeEditScreen({
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       onUpdate={controller.update}
+      onSetRefresh={controller.setRefresh}
+      onRecalcNow={() => {
+        // 判定の枠のそばのボタンは押すと消えるので、行き先の「今の値」へフォーカスを移す（N-3）
+        controller.setRefresh(true);
+        requestAnimationFrame(() => {
+          document
+            .querySelector<HTMLInputElement>(`input[name="${CHOICE_NAME}"][value="current"]`)
+            ?.focus();
+        });
+      }}
       onSave={() => {
         void controller.save();
       }}
@@ -101,6 +113,10 @@ export interface TradeEditViewProps {
   readonly hidden: ReadonlySet<string>;
   readonly notFound: JSX.Element;
   readonly onUpdate: (action: DraftAction) => void;
+  /** 計算に使う値（#31）: true = 今の値、false = 記録したとき。省けば何もしない */
+  readonly onSetRefresh?: (on: boolean) => void;
+  /** 判定の枠のそばの [今の値で再計算]（#31。押すと「今の値」を選び、そこへフォーカスを移す） */
+  readonly onRecalcNow?: () => void;
   readonly onSave: () => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
@@ -147,6 +163,9 @@ export function TradeEditView(p: TradeEditViewProps) {
   const original = state.trade ? accountIdOf(state.trade.record) : DEFAULT_ACCOUNT_ID;
   const accountId = selectedAccountId(d.accountId, original);
   const accountHint = switchHint(findAccount(accountId, state.accounts), accountId !== original);
+  // 記録したときの値と今の値（#31）: 違うときだけ。資金が空でリスク（%）が出せるなら、判定の枠の注記のそばにも
+  const offer = state.offer;
+  const refresh = state.refresh && offer !== null;
   return (
     <form
       class="record"
@@ -208,6 +227,9 @@ export function TradeEditView(p: TradeEditViewProps) {
             {notice}
           </p>
         ) : null}
+        {offer ? (
+          <ResnapshotPanel offer={offer} on={refresh} onChoose={(on) => p.onSetRefresh?.(on)} />
+        ) : null}
         <Verdict
           summary={state.preview}
           side={d.side ?? 'L'}
@@ -227,6 +249,15 @@ export function TradeEditView(p: TradeEditViewProps) {
           pending={state.preview.judgment === undefined}
           hasErrors={errorFields.length > 0}
           before={state.before}
+          {...(offer?.nearVerdict && !refresh
+            ? {
+                asideAction: (
+                  <Button variant="secondary" onClick={() => p.onRecalcNow?.()}>
+                    {RESNAPSHOT_LABEL}
+                  </Button>
+                ),
+              }
+            : {})}
         />
         <TradeMoreFields
           draft={d}
@@ -240,6 +271,7 @@ export function TradeEditView(p: TradeEditViewProps) {
 
       <div class="record__submit edit__submit">
         <p class="edit__change" id="edit-change" aria-live="polite">
+          {refresh ? BAR_PREFIX : ''}
           {changeText(state.before, state.preview)}
         </p>
         {state.error ? (

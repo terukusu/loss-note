@@ -1,0 +1,517 @@
+// 今の値で写し直す（Issue #31。AC-1〜AC-4・AC-6・AC-7・KEEP-1・例 E1〜E8）。値はすべて架空。
+// 場面: L、円建て（価格の通貨 JPY）、乗数 100、イン 38,000、LC 37,800、決済 37,800、数量 1、明細の損益 −20,000 円、
+// 3 つのタップは計画どおり。R = (37,800 − 38,000) / (38,000 − 37,800) = −1.0、
+// 1R = |−20,000| × |38,000 − 37,800| / |37,800 − 38,000| = 20,000 円、
+// リスク（%）= 20,000 / 資金 × 100（1,000,000 円 → 2.0%、500,000 円 → 4.0% = 過剰リスクの B）
+import type { VNode } from 'preact';
+import { describe, expect, it } from 'vitest';
+import type { InstrumentRecord, StoredTrade, TradeSnapshot } from '../../core/record';
+import { createEditController, EDIT_VALUES_CHANGED } from '../../ui/src/lib/edit-controller';
+import { type Summary, summarize } from '../../ui/src/lib/record-form';
+import {
+  CHOICE_NAME,
+  gradeChangeText,
+  NO_OUTCOME_CHANGE,
+  outcomeRows,
+  RESNAPSHOT_LABEL,
+  resnapshotOffer,
+  snapshotDiffs,
+} from '../../ui/src/lib/resnapshot';
+import { Link } from '../../ui/src/lib/router';
+import { notFoundState } from '../../ui/src/pages/TradeDetail';
+import { TradeEditView } from '../../ui/src/pages/TradeEdit';
+import { account } from './helpers/accounts';
+import { createFakeApi } from './helpers/fake-api';
+import { stored } from './helpers/trade-examples';
+
+const IDX: InstrumentRecord = {
+  id: 'inst-idx',
+  name: '架空指数A',
+  underlyingKind: 'index',
+  productForm: 'spotCfd',
+  priceCurrency: 'JPY',
+  multiplier: 100,
+  quantityStep: 1,
+  createdAt: 1_700_000_000_000,
+  updatedAt: 1_700_000_000_000,
+};
+
+const SNAP: TradeSnapshot = {
+  instrument: {
+    multiplier: 100,
+    quantityStep: 1,
+    priceCurrency: 'JPY',
+    underlyingKind: 'index',
+    productForm: 'spotCfd',
+  },
+  capitalYen: null,
+  riskTolerancePct: 1,
+};
+
+const RECORD: Parameters<typeof stored>[1] = {
+  instrumentId: IDX.id,
+  lc: 37_800,
+  entries: [{ price: 38_000, quantity: 1 }],
+  exit: {
+    time: Date.UTC(2026, 10, 10, 0, 0),
+    price: 37_800,
+    orderType: 'unknown' as const,
+    reason: 'lc' as const,
+    gapSlip: 'unanswered' as const,
+  },
+  statementPnlYen: -20_000,
+};
+
+/** E1: 資金が未設定のときに記録した取引 */
+const X1 = stored('x1', RECORD, { snapshot: SNAP });
+/** E6・E7: 資金 1,000,000 円で記録した取引（E7 は明細の損益なし = 1R は価格から） */
+const X6 = stored('x6', RECORD, { snapshot: { ...SNAP, capitalYen: 1_000_000 } });
+const X7 = stored(
+  'x7',
+  { ...RECORD, statementPnlYen: undefined },
+  { snapshot: { ...SNAP, capitalYen: 1_000_000 } },
+);
+
+const put = (fake: ReturnType<typeof createFakeApi>) =>
+  fake.calls.filter((x) => x.method === 'PUT');
+
+async function open(
+  t: StoredTrade,
+  capitalYen: number | null,
+  instruments: readonly InstrumentRecord[] = [IDX],
+) {
+  const fake = createFakeApi({ trades: [t], instruments: [...instruments], capitalYen });
+  const c = createEditController({ api: fake.api, id: t.id });
+  await c.load();
+  expect(c.getState().phase).toBe('editing');
+  return { fake, c };
+}
+
+describe('純関数: snapshotDiffs・resnapshotOffer・outcomeRows', () => {
+  it('E1: 資金 未設定 → 1,000,000円、capitalFromEmpty、リスク — → 2.0%（判定は A のまま）', () => {
+    const now = { ...SNAP, capitalYen: 1_000_000 };
+    const offer = resnapshotOffer(SNAP, now, X1.record);
+    expect(offer?.diffs).toEqual([{ label: '資金', from: '未設定', to: '1,000,000円' }]);
+    expect(offer?.capitalFromEmpty).toBe(true);
+    const rows = outcomeRows(offer?.before as Summary, offer?.after as Summary);
+    // 変わる行が先（デザイン 5）
+    expect(rows.map((r) => [r.label, r.from, r.to, r.changed])).toEqual([
+      ['リスク', '—', '2.0%', true],
+      ['判定', 'A いい損失', 'A いい損失', false],
+      ['R', '−1.0R', '−1.0R', false],
+    ]);
+    expect(offer?.prominent).toBe(true);
+    expect(offer?.nearVerdict).toBe(true);
+    expect(gradeChangeText(offer?.before as Summary, offer?.after as Summary)).toBeNull();
+    expect(offer?.before?.judgment?.reasons.some((r) => r.kind === 'riskNotChecked')).toBe(true);
+    expect(offer?.after?.judgment?.reasons.some((r) => r.kind === 'riskNotChecked')).toBe(false);
+  });
+
+  it('E3: 今の資金 500,000 円なら B（過剰リスク 4.0%）', () => {
+    const offer = resnapshotOffer(SNAP, { ...SNAP, capitalYen: 500_000 }, X1.record);
+    expect(offer?.after?.judgment?.grade).toBe('B');
+    expect(offer?.after?.riskPct).toBeCloseTo(4, 9);
+    expect(offer?.after?.judgment?.reasons.some((r) => r.kind === 'overRisk')).toBe(true);
+    expect(gradeChangeText(offer?.before as Summary, offer?.after as Summary)).toBe(
+      '今の値で再計算すると、判定が「A いい損失」から「B 悪い損失」に変わります。',
+    );
+  });
+
+  it('N-5: 資金が入っていた取引は勧めない（折りたたみ）。良い方へ変わるときも 1 文ではっきり書く', () => {
+    // 記録したとき 500,000 円（4.0% = B）→ 今 2,000,000 円（1.0% = A）
+    const was = { ...SNAP, capitalYen: 500_000 };
+    const offer = resnapshotOffer(was, { ...SNAP, capitalYen: 2_000_000 }, X1.record);
+    expect(offer?.prominent).toBe(false);
+    expect(offer?.nearVerdict).toBe(false);
+    expect(offer?.before?.judgment?.grade).toBe('B');
+    expect(offer?.after?.judgment?.grade).toBe('A');
+    expect(gradeChangeText(offer?.before as Summary, offer?.after as Summary)).toBe(
+      '今の値で再計算すると、判定が「B 悪い損失」から「A いい損失」に変わります。',
+    );
+  });
+
+  it('価格の通貨が空 → 今の値ありは目立つ枠（資金の注記のそばのボタンは出さない）', () => {
+    const now = { ...X6.snapshot, instrument: { ...X6.snapshot.instrument, priceCurrency: 'JPY' } };
+    const was = { ...X6.snapshot, instrument: { ...X6.snapshot.instrument, priceCurrency: null } };
+    const offer = resnapshotOffer(was, now, X6.record);
+    expect(offer?.prominent).toBe(true);
+    expect(offer?.nearVerdict).toBe(false);
+  });
+
+  it('N-7: LC なしの取引は、資金が空でも注記のそばのボタンを出さない（再計算してもリスク（%）が出ない）', () => {
+    const noLc = { ...X1.record, lcDecidedBeforeEntry: false } as typeof X1.record;
+    const { lc: _lc, ...rest } = noLc;
+    const offer = resnapshotOffer(
+      SNAP,
+      { ...SNAP, capitalYen: 1_000_000 },
+      rest as typeof X1.record,
+    );
+    expect(offer?.capitalFromEmpty).toBe(true);
+    expect(offer?.after?.riskPct).toBeUndefined();
+    expect(offer?.nearVerdict).toBe(false);
+  });
+
+  it('E6: 同じ値なら null（枠も操作も出さない）', () => {
+    expect(resnapshotOffer(X6.snapshot, X6.snapshot, X6.record)).toBeNull();
+  });
+
+  it('E7: 乗数 100 → 10（明細の損益なし）で 1R 20,000 → 2,000 円、リスク 2.0% → 0.2%', () => {
+    const now = { ...X7.snapshot, instrument: { ...X7.snapshot.instrument, multiplier: 10 } };
+    const offer = resnapshotOffer(X7.snapshot, now, X7.record);
+    expect(offer?.diffs).toEqual([{ label: '乗数', from: '100', to: '10' }]);
+    expect(offer?.before?.oneRYen).toBeCloseTo(20_000, 6);
+    expect(offer?.after?.oneRYen).toBeCloseTo(2_000, 6);
+    expect(outcomeRows(offer?.before as Summary, offer?.after as Summary)[0]).toEqual({
+      label: 'リスク',
+      from: '2.0%',
+      to: '0.2%',
+      changed: true,
+    });
+  });
+
+  it('E8: 資金 1,000,000 円 → 未設定は出すが、capitalFromEmpty ではない', () => {
+    const offer = resnapshotOffer(X6.snapshot, SNAP, X6.record);
+    expect(offer?.diffs).toEqual([{ label: '資金', from: '1,000,000円', to: '未設定' }]);
+    expect(offer?.capitalFromEmpty).toBe(false);
+  });
+
+  it('保存する記録がそろっていなければ、違う値だけ（判定の前 → 後は出さない）', () => {
+    const offer = resnapshotOffer(SNAP, { ...SNAP, capitalYen: 1 }, undefined);
+    expect(offer?.diffs).toHaveLength(1);
+    expect(offer?.before).toBeUndefined();
+    expect(offer?.after).toBeUndefined();
+  });
+
+  it('許容リスク・銘柄の値の行は決まった順で、言葉は利用者の言葉', () => {
+    const now: TradeSnapshot = {
+      capitalYen: 2_000_000,
+      riskTolerancePct: 1.5,
+      instrument: {
+        multiplier: 10,
+        quantityStep: 0.1,
+        priceCurrency: 'USD',
+        underlyingKind: 'fx',
+        productForm: 'future',
+      },
+    };
+    expect(snapshotDiffs({ ...SNAP, capitalYen: 1_000_000 }, now)).toEqual([
+      { label: '資金', from: '1,000,000円', to: '2,000,000円' },
+      { label: '許容リスク', from: '1%', to: '1.5%' },
+      { label: '乗数', from: '100', to: '10' },
+      { label: '数量の刻み', from: '1', to: '0.1' },
+      { label: '価格の通貨', from: 'JPY', to: 'USD' },
+      { label: '原資産の種類', from: '株価指数', to: 'FX' },
+      { label: '商品の形', from: '現物・CFD', to: '先物' },
+    ]);
+  });
+
+  it('性質: 同じ snapshot なら差 0、行の数 = 違う値の数（種つき乱数 300 件）', () => {
+    let seed = 31;
+    const rnd = () => {
+      seed = (seed * 1_103_515_245 + 12_345) % 2_147_483_648;
+      return seed / 2_147_483_648;
+    };
+    const pick = <T,>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)] as T;
+    const make = (): TradeSnapshot => ({
+      capitalYen: pick([null, 500_000, 1_000_000]),
+      riskTolerancePct: pick([0.5, 1, 2]),
+      instrument: {
+        multiplier: pick([1, 10, 100]),
+        quantityStep: pick([0.01, 1]),
+        priceCurrency: pick([null, 'JPY', 'USD']),
+        underlyingKind: pick(['index', 'fx'] as const),
+        productForm: pick(['spotCfd', 'future'] as const),
+      },
+    });
+    for (let i = 0; i < 300; i++) {
+      const a = make();
+      const b = make();
+      expect(snapshotDiffs(a, a)).toEqual([]);
+      const n =
+        Number(a.capitalYen !== b.capitalYen) +
+        Number(a.riskTolerancePct !== b.riskTolerancePct) +
+        (Object.keys(a.instrument) as (keyof TradeSnapshot['instrument'])[]).filter(
+          (k) => a.instrument[k] !== b.instrument[k],
+        ).length;
+      expect(snapshotDiffs(a, b)).toHaveLength(n);
+      expect(resnapshotOffer(a, b, X1.record) === null).toBe(n === 0);
+    }
+  });
+});
+
+describe('controller: 選んだときだけ今の値で計算し、保存に ?snapshot=current を付ける', () => {
+  it('E1 → E2: 開いただけでは写した値（リスクなし・注記あり）。選ぶ → 保存で写した資金 1,000,000 円', async () => {
+    const { fake, c } = await open(X1, 1_000_000);
+    let s = c.getState();
+    expect(s.offer?.capitalFromEmpty).toBe(true);
+    expect(s.refresh).toBe(false);
+    expect(s.preview.riskPct).toBeUndefined();
+    expect(s.preview.judgment?.reasons.some((r) => r.kind === 'riskNotChecked')).toBe(true);
+    c.setRefresh(true);
+    s = c.getState();
+    expect(s.refresh).toBe(true);
+    expect(s.preview.riskPct).toBeCloseTo(2, 9);
+    expect(s.preview.judgment?.grade).toBe('A');
+    expect(s.preview.judgment?.reasons.some((r) => r.kind === 'riskNotChecked')).toBe(false);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    expect(put(fake).map((x) => x.path)).toEqual(['/api/trades/x1?snapshot=current']);
+    const saved = c.getState().trade as StoredTrade;
+    expect(saved.snapshot.capitalYen).toBe(1_000_000);
+    expect(saved.snapshot.instrument).toEqual(SNAP.instrument);
+    expect(summarize(saved).riskPct).toBeCloseTo(2, 9);
+  });
+
+  it('E3: 選ぶとプレビュー B・過剰リスク 4.0%、直す前の判定は A のまま', async () => {
+    const { c } = await open(X1, 500_000);
+    c.setRefresh(true);
+    const s = c.getState();
+    expect(s.before.judgment?.grade).toBe('A');
+    expect(s.preview.judgment?.grade).toBe('B');
+    expect(s.preview.riskPct).toBeCloseTo(4, 9);
+  });
+
+  it('E4: 選ばずに保存 → クエリなし・写した資金は空のまま（KEEP-1）', async () => {
+    const { fake, c } = await open(X1, 500_000);
+    await c.save();
+    expect(put(fake).map((x) => x.path)).toEqual(['/api/trades/x1']);
+    expect((c.getState().trade as StoredTrade).snapshot).toEqual(SNAP);
+  });
+
+  it('E5: 選ぶ → 戻す → 保存 → クエリなし。戻すとプレビューも元の計算', async () => {
+    const { fake, c } = await open(X1, 500_000);
+    const first = c.getState().preview;
+    c.setRefresh(true);
+    c.setRefresh(false);
+    expect(c.getState().refresh).toBe(false);
+    expect(c.getState().preview).toEqual(first);
+    await c.save();
+    expect(put(fake).map((x) => x.path)).toEqual(['/api/trades/x1']);
+    expect((c.getState().trade as StoredTrade).snapshot.capitalYen).toBeNull();
+  });
+
+  it('E6: 違いが無ければ offer は null。選んでも保存にクエリを付けない', async () => {
+    const { fake, c } = await open(X6, 1_000_000);
+    expect(c.getState().offer).toBeNull();
+    c.setRefresh(true);
+    await c.save();
+    expect(put(fake).map((x) => x.path)).toEqual(['/api/trades/x6']);
+  });
+
+  it('E7: 銘柄の乗数を 10 に直した後、選んで保存で写した乗数 10（1R 2,000 円・0.2%）', async () => {
+    const { fake, c } = await open(X7, 1_000_000, [{ ...IDX, multiplier: 10 }]);
+    expect(c.getState().offer?.diffs.map((d) => d.label)).toEqual(['乗数']);
+    c.setRefresh(true);
+    expect(c.getState().preview.riskPct).toBeCloseTo(0.2, 9);
+    await c.save();
+    expect(put(fake)[0]?.path).toBe('/api/trades/x7?snapshot=current');
+    const saved = c.getState().trade as StoredTrade;
+    expect(saved.snapshot.instrument.multiplier).toBe(10);
+    expect(summarize(saved).oneRYen).toBeCloseTo(2_000, 6);
+  });
+
+  it('N-6: 開いてから口座の資金が変わったら、保存せずに知らせて表示を今の値にする', async () => {
+    const { fake, c } = await open(X1, 1_000_000);
+    c.setRefresh(true);
+    // 別の画面で口座 1 の資金を 500,000 円に
+    const res = await fake.api('/api/accounts/default', {
+      method: 'PUT',
+      body: JSON.stringify({ name: '口座 1', capitalYen: 500_000, riskTolerancePct: 1 }),
+    });
+    expect(res.status).toBe(200);
+    await c.save();
+    const s = c.getState();
+    expect(s.phase).toBe('editing');
+    expect(s.error).toBe(EDIT_VALUES_CHANGED);
+    expect(put(fake).filter((x) => x.path.startsWith('/api/trades/'))).toHaveLength(0);
+    expect(s.offer?.snapshot.capitalYen).toBe(500_000);
+    expect(s.preview.judgment?.grade).toBe('B');
+    // 確かめてもう一度押すと、その値で保存する
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    expect((c.getState().trade as StoredTrade).snapshot.capitalYen).toBe(500_000);
+  });
+
+  it('N-8: 選んだ後に口座を付け替えて違いが無くなったら、選択も戻す（元に戻しても「記録したとき」）', async () => {
+    const fake = createFakeApi({
+      trades: [X1],
+      instruments: [IDX],
+      capitalYen: 1_000_000,
+      accounts: [account('b', '口座 B', 300_000)],
+    });
+    const c = createEditController({ api: fake.api, id: 'x1' });
+    await c.load();
+    c.setRefresh(true);
+    expect(c.getState().refresh).toBe(true);
+    c.update({ type: 'set', field: 'accountId', value: 'b' });
+    expect(c.getState().offer).toBeNull();
+    expect(c.getState().refresh).toBe(false);
+    c.update({ type: 'set', field: 'accountId', value: 'default' });
+    expect(c.getState().offer).not.toBeNull();
+    expect(c.getState().refresh).toBe(false);
+  });
+
+  it('選んだ後に欄を直しても、今の値で計算し続ける', async () => {
+    const { c } = await open(X1, 1_000_000);
+    c.setRefresh(true);
+    c.update({ type: 'set', field: 'lcMove', value: 'widened' });
+    const s = c.getState();
+    expect(s.refresh).toBe(true);
+    expect(s.preview.judgment?.grade).toBe('B');
+    expect(s.preview.riskPct).toBeCloseTo(2, 9);
+  });
+});
+
+// ── 画面（hook を持たない View を、部品を呼んで要素の木にして見る） ──
+interface El {
+  readonly type: string;
+  readonly props: Record<string, unknown>;
+  readonly children: Node[];
+}
+type Node = El | string;
+
+function expand(v: unknown): Node[] {
+  if (v === null || v === undefined || typeof v === 'boolean') return [];
+  if (typeof v === 'string' || typeof v === 'number') return [String(v)];
+  if (Array.isArray(v)) return v.flatMap(expand);
+  const vn = v as VNode<Record<string, unknown>>;
+  if (vn.type === (Link as unknown)) {
+    const { children, ...props } = vn.props ?? {};
+    return [{ type: 'a', props, children: expand(children) }];
+  }
+  if (typeof vn.type === 'function') {
+    return expand((vn.type as (p: unknown) => unknown)(vn.props));
+  }
+  const { children, ...props } = vn.props ?? {};
+  return [{ type: String(vn.type), props, children: expand(children) }];
+}
+
+function all(nodes: Node[], pred: (e: El) => boolean, out: El[] = []): El[] {
+  for (const n of nodes) {
+    if (typeof n === 'string') continue;
+    if (pred(n)) out.push(n);
+    all(n.children, pred, out);
+  }
+  return out;
+}
+
+const text = (n: Node | Node[]): string =>
+  Array.isArray(n) ? n.map(text).join('') : typeof n === 'string' ? n : text(n.children);
+const hasClass = (c: string) => (e: El) =>
+  String(e.props.class ?? '')
+    .split(' ')
+    .includes(c);
+const noop = () => {};
+const nearButtons = (tree: Node[]) =>
+  all(tree, (e) => e.type === 'button' && text(e).includes(RESNAPSHOT_LABEL));
+const choices = (tree: Node[]) =>
+  all(tree, (e) => e.type === 'input' && e.props.name === CHOICE_NAME).map((e) => ({
+    value: e.props.value,
+    checked: e.props.checked,
+    onChange: e.props.onChange as () => void,
+  }));
+
+function view(c: ReturnType<typeof createEditController>, id: string) {
+  return expand(
+    <TradeEditView
+      id={id}
+      state={c.getState()}
+      hidden={new Set()}
+      notFound={notFoundState()}
+      onUpdate={c.update}
+      onSetRefresh={c.setRefresh}
+      onRecalcNow={() => c.setRefresh(true)}
+      onSave={noop}
+      onReload={noop}
+      onRelogin={noop}
+    />,
+  );
+}
+
+describe('画面: 枠と、判定の枠の注記のそばのボタン', () => {
+  it('AC-1・AC-6: E1 は目立つ枠（未設定 → 1,000,000円・— → 2.0%）と、注記のすぐ後のボタン', async () => {
+    const { c } = await open(X1, 1_000_000);
+    const tree = view(c, 'x1');
+    const panel = all(tree, hasClass('resnap'))[0] as El;
+    expect(panel.type).toBe('section');
+    const t = text(panel);
+    expect(t).toContain('この取引には資金が保存されていないため、過剰リスクを判定していません。');
+    expect(t).toContain('未設定');
+    expect(t).toContain('1,000,000円');
+    expect(t).toContain('2.0%');
+    expect(t).toContain('−1.0R（変わらず）');
+    expect(t).not.toMatch(/写/);
+    const verdict = all(tree, hasClass('verdict'))[0] as El;
+    const action = all(verdict.children, hasClass('verdict__action'))[0] as El;
+    const kids = verdict.children.filter((n): n is El => typeof n !== 'string');
+    expect(text(kids[kids.indexOf(action) - 1] as El)).toContain(
+      '資金が未設定なので過剰リスクは見ていない',
+    );
+    expect(nearButtons(tree)).toHaveLength(1);
+    // 2 択は「記録したとき」が選ばれている
+    expect(choices(tree).map((x) => [x.value, x.checked])).toEqual([
+      ['recorded', true],
+      ['current', false],
+    ]);
+    // 注記のそばのボタンを押す → 「今の値」が選ばれ、注記もボタンも消える（AC-3）
+    const recalc = nearButtons(tree)[0]?.props.onClick as () => void;
+    recalc();
+    const after = view(c, 'x1');
+    expect(text(all(after, hasClass('verdict'))[0] as El)).not.toContain('資金が未設定');
+    expect(nearButtons(after)).toEqual([]);
+    expect(choices(after).map((x) => [x.value, x.checked])).toEqual([
+      ['recorded', false],
+      ['current', true],
+    ]);
+    expect(text(all(after, (e) => e.props.id === 'edit-resnapshot-status')[0] as El)).toContain(
+      '戻すには「記録したとき」を選びます',
+    );
+    expect(text(all(after, (e) => e.props.id === 'edit-change')[0] as El)).toBe(
+      '今の値で再計算 · 判定は変わりません: A いい損失 −1.0R',
+    );
+    // 「記録したとき」を選ぶと戻る
+    choices(after)[0]?.onChange();
+    expect(c.getState().refresh).toBe(false);
+  });
+
+  it('E3: 選ぶと保存の帯に A → B、枠に判定が変わる 1 文', async () => {
+    const { c } = await open(X1, 500_000);
+    expect(text(view(c, 'x1'))).toContain('判定が「A いい損失」から「B 悪い損失」に変わります');
+    c.setRefresh(true);
+    const tree = view(c, 'x1');
+    expect(text(all(tree, (e) => e.props.id === 'edit-change')[0] as El)).toBe(
+      '今の値で再計算 · 判定: A いい損失 −1.0R → B 悪い損失 −1.0R',
+    );
+  });
+
+  it('AC-2: E6 は枠もボタンも無い', async () => {
+    const { c } = await open(X6, 1_000_000);
+    const tree = view(c, 'x6');
+    expect(all(tree, hasClass('resnap'))).toEqual([]);
+    expect(nearButtons(tree)).toEqual([]);
+    expect(choices(tree)).toEqual([]);
+  });
+
+  it('E8・N-5: 資金が入っていた取引は折りたたみ「記録したときの値」の中（勧めない）。注記のそばのボタンは無い', async () => {
+    const { c } = await open(X6, null);
+    const tree = view(c, 'x6');
+    const fold = all(tree, hasClass('resnap'))[0] as El;
+    expect(fold.type).toBe('details');
+    expect(fold.props.open).toBeUndefined();
+    expect(text(fold)).toContain('記録したときの値');
+    expect(text(fold)).toContain('今の値と 1 か所違います');
+    // 開けば違いと判定・R・リスクの 前 → 後 が必ずある
+    expect(text(fold)).toContain('1,000,000円');
+    expect(text(fold)).toContain('2.0%');
+    expect(all(tree, hasClass('verdict__action'))).toEqual([]);
+    expect(choices(tree)).toHaveLength(2);
+  });
+
+  it('デザイン 3: 判定・R・リスクが変わらないときは 1 行に畳む', async () => {
+    const { c } = await open(X7, 1_000_000, [{ ...IDX, underlyingKind: 'other' }]);
+    const tree = view(c, 'x7');
+    const fold = all(tree, hasClass('resnap'))[0] as El;
+    expect(text(fold)).toContain(NO_OUTCOME_CHANGE);
+    expect(all([fold], (e) => e.props.id === 'edit-resnapshot-outcomes')).toEqual([]);
+  });
+});

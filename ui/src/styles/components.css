@@ -2330,6 +2330,92 @@ summary.settings__subtitle {
   font-variant-numeric: tabular-nums;
 }
 
+/* 編集の画面の、記録したときの値と今の値（#31）。前 → 後は文字と矢印だけ（色で意味を持たせない）。
+   変わる行は太く本文の色、変わらない行は「（変わらず）」の 1 つの値を控えめに。幅 360px では値の側を折り返す */
+.resnap__lead {
+  text-wrap: pretty;
+}
+
+.resnap__caption {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+}
+
+.resnap__list {
+  display: flex;
+  flex-direction: column;
+}
+
+.resnap__caption + .resnap__list,
+.resnap__grade + .resnap__list {
+  margin-top: calc(var(--sp-3) * -1);
+}
+
+.resnap__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-4);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.resnap__row:last-child {
+  border-bottom: 0;
+}
+
+.resnap__label {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.resnap__value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-2);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.resnap__row--changed .resnap__value {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.resnap__arrow {
+  color: var(--ink-3);
+}
+
+.resnap__grade {
+  font-weight: var(--fw-bold);
+  text-wrap: pretty;
+}
+
+.resnap__status {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.resnap__summary {
+  flex-wrap: wrap;
+  gap: 0 var(--sp-3);
+}
+
+.resnap__summary-note {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--ink-3);
+}
+
+/* 判定の枠の「見ていないもの」の注記のすぐ後の操作（#31） */
+.verdict__action {
+  margin-top: calc(var(--sp-1) * -1);
+}
+
 /* 直す画面の、チャートの無い枠の時間足を外す旨（#9） */
 .edit__orphans {
   font-weight: var(--fw-medium);

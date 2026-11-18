@@ -15,6 +15,7 @@
 //   形式と大きさだけを残す（バイト列は持たない）。チャートの無い枠に時間足 → 400 noChart（本物と同じ）。応答に charts の要約
 // - GET /api/trades/<id>・PUT /api/trades/<id>・DELETE /api/trades/<id>・GET /api/trades/<id>/charts/<slot>（#9）: 無い ID は 404。
 //   PUT は本文で record を置き換え、銘柄を別の銘柄に変えたときだけ snapshot の銘柄の値をその銘柄の今の値で写し直す
+//   （?snapshot=current を付けたら、銘柄・口座が同じでも今の値で写し直す。#31）
 //   （資金・許容リスクは変えない。C36）。チャートの無い枠に時間足 → 400 noChart。DELETE は取引と 2 枠のチャートを消して 204。
 //   チャートの GET は opts.chartData（鍵 = 取引 ID-枠）のバイト列を返す（無ければ 404）
 // - 口座（#47）: GET /api/accounts = { items }（名前の順）。既定の口座 default（「口座 1」）が無ければ、口座を読む・使う
@@ -245,8 +246,10 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
         headers: { 'Content-Type': meta.contentType },
       });
     }
-    const tradePath = /^\/api\/trades\/([^/]+)$/.exec(path);
+    // ?snapshot=current（#31）: PUT で銘柄・口座の今の値で写し直す（本物の update_trade と同じ）
+    const tradePath = /^\/api\/trades\/([^/?]+)(\?snapshot=current)?$/.exec(path);
     if (tradePath) {
+      const resnap = tradePath[2] !== undefined;
       const id = decodeURIComponent(tradePath[1] ?? '');
       const idx = trades.findIndex((x) => x.id === id);
       if (idx < 0) return json(404, { error: 'not_found' });
@@ -271,12 +274,12 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
           }
         }
         // 口座: 本文に無ければ前の口座のまま。付け替えたときだけ付け替え先の今の値で写し直す（#47 A4・B7）
-        const accountMoved =
-          record.accountId !== undefined && record.accountId !== accountIdOf(prev.record);
+        const target = record.accountId ?? accountIdOf(prev.record);
+        const accountMoved = resnap || target !== accountIdOf(prev.record);
         let movedTo: AccountRecord | undefined;
         if (accountMoved) {
           ensureDefault();
-          movedTo = accounts.find((a) => a.id === record.accountId);
+          movedTo = accounts.find((a) => a.id === target);
           if (!movedTo) {
             return json(400, {
               error: 'invalid',
@@ -285,7 +288,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
           }
         }
         clock += 1;
-        const changed = inst.id !== prev.record.instrumentId;
+        const changed = resnap || inst.id !== prev.record.instrumentId;
         const snap0 = changed
           ? {
               ...prev.snapshot,

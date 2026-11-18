@@ -26,7 +26,7 @@ from collections.abc import Callable
 from flask import Blueprint, Response, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from loss_note_api import accounts, ai_usage, allowlist, chart_read, charts, schema, statement_read
+from loss_note_api import accounts, ai_usage, allowlist, chart_read, charts, schema, statement_read, trade_pages
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import ReadLimits
@@ -170,10 +170,8 @@ def settings_response(doc: dict | None) -> dict:
     }
 
 
-def trade_sort_key(item: tuple[str, dict]):
-    """決済の時刻の新しい順、同じなら作った時刻の新しい順、さらに ID（並びを決まったものにする）"""
-    tid, doc = item
-    return (-doc["record"]["exit"]["time"], -doc["createdAt"], tid)
+# 一覧の並び（決済の時刻の新しい順 → 作った時刻の新しい順 → ID の昇順）。ページ分けと同じ鍵（Issue #87。trade_pages.py）
+trade_sort_key = trade_pages.exit_key
 
 
 def next_updated_at(now: int, prev: int | None) -> int:
@@ -224,8 +222,17 @@ def make_blueprint(
     # ── 取引 ──
     @bp.get("/trades")
     def list_trades():
-        items = sorted(store.list_trades(g.uid), key=trade_sort_key)
-        return {"items": [trade_response(tid, doc) for tid, doc in items]}
+        # ページ分け（Issue #87・ADR-0016）: limit を付けたときだけ。付けなければ今と同じ全件（古い画面が壊れない）
+        try:
+            params = trade_pages.parse_page_params(request.args)
+        except trade_pages.PageParamError as e:
+            return invalid(e.issues)
+        if params is None:
+            items = sorted(store.list_trades(g.uid), key=trade_sort_key)
+            return {"items": [trade_response(tid, doc) for tid, doc in items]}
+        order, limit, after = params
+        page, next_cursor = trade_pages.split_page(order, store.list_trades_page(g.uid, order, after, limit), limit)
+        return {"items": [trade_response(tid, doc) for tid, doc in page], "next": next_cursor}
 
     @bp.post("/trades")
     def create_trade():

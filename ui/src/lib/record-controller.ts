@@ -107,6 +107,7 @@ import {
   rowLabel,
 } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
+import { DELIVERED_LIMIT, tradesPath } from './trade-pages';
 import { CHART_PREPARING } from './verdict-notes';
 
 export type { ApiFn, FailureKind };
@@ -498,7 +499,10 @@ export function createRecordController(deps: {
     }
     try {
       const [t, i, a] = await Promise.all([
-        request('/api/trades').then((r) => getJson<{ items: StoredTrade[] }>(r, 200)),
+        // 既定に使うのは前回（作った時刻が最大）の 1 件だけ。全件を読まない（Issue #87）
+        request(tradesPath({ order: 'created', limit: 1 })).then((r) =>
+          getJson<{ items: StoredTrade[] }>(r, 200),
+        ),
         request('/api/instruments').then((r) => getJson<{ items: InstrumentRecord[] }>(r, 200)),
         request('/api/accounts').then((r) => getJson<{ items: AccountRecord[] }>(r, 200)),
       ]);
@@ -530,9 +534,12 @@ export function createRecordController(deps: {
   const resolveInstrument = (name: string, matchedId: string | undefined) =>
     resolveInstrumentId(request, name, matchedId, state.instruments);
 
-  /** 前の保存が届いていたか（同じ本文の取引が一覧にあるか） */
+  /** 前の保存が届いていたか（同じ本文の取引が、作った時刻の新しい順の先頭 DELIVERED_LIMIT 件にあるか。Issue #87） */
   const findDelivered = async (record: TradeRecord): Promise<StoredTrade | undefined> => {
-    const list = await getJson<{ items: StoredTrade[] }>(await request('/api/trades'), 200);
+    const list = await getJson<{ items: StoredTrade[] }>(
+      await request(tradesPath({ order: 'created', limit: DELIVERED_LIMIT })),
+      200,
+    );
     if (!Array.isArray(list.items)) throw new Failed('other');
     const want = canonical(record);
     return list.items.find((t) => canonical(t.record) === want);

@@ -67,13 +67,19 @@ export function TradeList({
           </li>
         ))}
       </ul>
-      {notes.length > 0 ? (
-        <ul class="tradelist__notes" aria-label="値が出ない理由">
-          {notes.map((n) => (
-            <li key={n}>{n}</li>
-          ))}
-        </ul>
-      ) : null}
+      <TradeNotes notes={notes} />
     </div>
+  );
+}
+
+/** 「—」の理由の脚注（無ければ描かない）。一覧はページ分けの末尾の段の後に置く（#87） */
+export function TradeNotes({ notes }: { readonly notes: readonly string[] }) {
+  if (notes.length === 0) return null;
+  return (
+    <ul class="tradelist__notes" aria-label="値が出ない理由">
+      {notes.map((n) => (
+        <li key={n}>{n}</li>
+      ))}
+    </ul>
   );
 }

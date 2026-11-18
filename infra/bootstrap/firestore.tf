@@ -57,3 +57,26 @@ resource "google_project_iam_member" "runtime_datastore" {
   role    = "roles/datastore.user"
   member  = google_service_account.runtime.member
 }
+
+# 取引の一覧のページ分け（Issue #87・ADR-0016）の複合索引: 決済の時刻の新しい順 → 作った時刻の新しい順 → ID の昇順
+# （API の trade_sort_key と同じ並び）。作った時刻の新しい順の並びは単一フィールドの索引で足りるので宣言しない
+# （不要な複合索引は API が受け付けない）。索引が作成中の間は、API が全件を読んで切る形に一時的に戻す
+resource "google_firestore_index" "trades_by_exit" {
+  project     = var.project_id
+  database    = google_firestore_database.default.name
+  collection  = "trades"
+  query_scope = "COLLECTION"
+
+  fields {
+    field_path = "record.exit.time"
+    order      = "DESCENDING"
+  }
+  fields {
+    field_path = "createdAt"
+    order      = "DESCENDING"
+  }
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+}

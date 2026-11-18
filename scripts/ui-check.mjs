@@ -15,6 +15,10 @@
 // 取引の一覧・詳細・直す（Issue #9）は、取引のある一覧・ホーム・詳細（チャート 2 枚）・直すを同じ幅とテーマで測り
 // （トーストの出た一覧も）、手順 T-L4・T-H1・T-D1・T-D2・T-D3・T-E1・T-E2・T-X1・T-X2（例の表の L4・H1・D1・D2・E1・E2・X1・X2 と #34 の物差し）を流す。
 // 例の取引とチャートの画像（このスクリプトが作る小さな PNG）はすべて架空。
+// 一覧のページ分け（Issue #87）は、合成の取引 120 件で手順 TL-P1（末尾へ送ると続きが自動で出て「全 120 件」・要求 3 回・
+// 幅 360 で横スクロール 0）・TL-P2（80 行目の詳細から戻ると行の数と位置が保たれる）・TL-P3（続きの読みの失敗と
+// [もう一度読み込む]）・TL-P4（キーで押したときのフォーカスと末尾の段の高さ）・TL-P5（5 つの状態を 360 / 1440 × ダーク /
+// ライトで測って撮る）を流す。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
@@ -512,6 +516,8 @@ const tradeSort = (a, b) =>
   b.record.exit.time - a.record.exit.time ||
   b.createdAt - a.createdAt ||
   (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+/** API の order=created と同じ並び（作った時刻の新しい順 → ID の降順。Issue #87） */
+const createdSort = (a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 
 // ── 偽の読み取りの応答の行（Issue #15 の例の表。値は架空。形は normalize_row と同じ 12 の鍵） ──
 const pad2 = (n) => String(n).padStart(2, '0');
@@ -574,6 +580,10 @@ async function installFakeApi(context, opts = {}) {
       : [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000), ...EXAMPLE_TRADES],
     /** 取引の PUT・DELETE・チャートの GET（Issue #9） */
     puts: [],
+    /** 取引の一覧の GET のクエリ（Issue #87。件数・カーソル・並び） */
+    tradeGets: [],
+    /** 取引の一覧のページの応答を待たせる（ミリ秒。Issue #87 の読み込み中の確かめ） */
+    tradesPageDelayMs: 0,
     deletes: [],
     chartGets: [],
     posts: [],
@@ -691,7 +701,34 @@ async function installFakeApi(context, opts = {}) {
       body = req.postData() ? JSON.parse(req.postData()) : undefined;
     }
     if (key === 'GET /api/trades') {
-      return json(route, 200, { items: [...api.trades].sort(tradeSort) });
+      // ページ分け（Issue #87。本物の trade_pages.py と同じ並びと切り出し。カーソルは並びの鍵の JSON）
+      const q = new URL(req.url()).searchParams;
+      api.tradeGets.push(q.toString());
+      if (!q.has('limit')) return json(route, 200, { items: [...api.trades].sort(tradeSort) });
+      const limit = Number(q.get('limit'));
+      const order = q.get('order') ?? 'exit';
+      if (!(limit >= 1 && limit <= 100) || (order !== 'exit' && order !== 'created')) {
+        return json(route, 400, { error: 'invalid' });
+      }
+      const cmp = order === 'exit' ? tradeSort : createdSort;
+      const sorted = [...api.trades].sort(cmp);
+      let start = 0;
+      if (q.has('cursor')) {
+        const k = JSON.parse(Buffer.from(q.get('cursor'), 'base64url').toString('utf8'));
+        const at = { id: k.id, createdAt: k.c, record: { exit: { time: k.t } } };
+        start = sorted.findIndex((t) => cmp(t, at) > 0);
+        if (start < 0) start = sorted.length;
+      }
+      if (api.tradesPageDelayMs) await new Promise((ok) => setTimeout(ok, api.tradesPageDelayMs));
+      const items = sorted.slice(start, start + limit);
+      const last = items.at(-1);
+      const next =
+        start + limit < sorted.length && last
+          ? Buffer.from(
+              JSON.stringify({ t: last.record.exit.time, c: last.createdAt, id: last.id }),
+            ).toString('base64url')
+          : null;
+      return json(route, 200, { items, next });
     }
     // 取引 1 件・チャート（Issue #9。形は routes.py の get_trade / update_trade / delete_trade / get_chart）
     const chartM = /^\/api\/trades\/([^/]+)\/charts\/([^/]+)$/.exec(path);
@@ -2695,7 +2732,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -4740,6 +4777,264 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return 'ホームに新しい順の 5 件、2 件目の危ない勝ちは B と同じ崩れの段';
+  });
+
+  // ── 一覧のページ分け（Issue #87 の例 #8〜#10・AC-12）。合成の取引 120 件（架空の値）で流す
+  const manyTrades = (n) =>
+    Array.from({ length: n }, (_, i) => {
+      const t = fakeTrade(`p${String(i).padStart(3, '0')}`, FAKE_US30.id, 1, 1600000000000 + i);
+      return {
+        ...t,
+        record: { ...t.record, exit: { ...t.record.exit, time: T_1110 - i * 60000 } },
+      };
+    });
+  const scrollToBottom = (p) =>
+    p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const countText = (p) => p.locator('.tradelist-card__count').textContent();
+
+  await check('TL-P1', async () => {
+    const { c, p, fake, errors } = await recordContext({ trades: manyTrades(120) });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('a.traderow').nth(49).waitFor();
+      expectEq(await p.locator('a.traderow').count(), 50, '最初の行の数');
+      expectEq(
+        (await countText(p))?.trim(),
+        '50 件を表示中（決済の新しい順・続きあり）',
+        '最初の件数の文',
+      );
+      expectEq(fake.tradeGets.join(' | '), 'limit=50', '最初の要求');
+      // 末尾へ送ると続きが自動で出る（ボタンを押さない）
+      await scrollToBottom(p);
+      await p.locator('a.traderow').nth(99).waitFor({ timeout: 5000 });
+      await scrollToBottom(p);
+      await p.getByText('全 120 件（決済の新しい順）').waitFor({ timeout: 5000 });
+      expectEq(await p.locator('a.traderow').count(), 120, '最後の行の数');
+      expectEq(await p.locator('.tradelist-more').count(), 0, '最後まで読んだ後の末尾の段');
+      expectEq(
+        (await p.locator('.tradelist-end').textContent())?.trim(),
+        '全 120 件を表示しました',
+        '末尾の文',
+      );
+      expectEq(
+        (await p.locator('main [role="status"]').last().textContent())?.trim(),
+        '全 120 件を表示しました',
+        '読み上げの欄',
+      );
+      const gets = fake.tradeGets.length;
+      expectEq(gets, 3, '一覧の要求の数');
+      await scrollToBottom(p);
+      await p.waitForTimeout(300);
+      expectEq(fake.tradeGets.length, gets, '最後まで読んだ後の要求');
+      const overflow = await p.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expectEq(overflow, 0, '幅 360 の横スクロール');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '120 件: 最初 50 行 → 末尾へ送ると 100 → 120 行で「全 120 件」・要求 3 回で止まる・幅 360 で横スクロール 0';
+  });
+
+  await check('TL-P2', async () => {
+    const { c, p, fake, errors } = await recordContext({ trades: manyTrades(120) });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('a.traderow').nth(49).waitFor();
+      await scrollToBottom(p);
+      await p.locator('a.traderow').nth(99).waitFor({ timeout: 5000 });
+      // 80 行目まで送ってから詳細を開き、戻る
+      const row = p.locator('a.traderow').nth(79);
+      await row.scrollIntoViewIfNeeded();
+      await p.waitForTimeout(200);
+      const before = await p.evaluate(() => window.scrollY);
+      const rowsBefore = await p.locator('a.traderow').count();
+      await row.click();
+      await waitReady(p, 'US30 · L');
+      fake.tradesPageDelayMs = 1500;
+      await p.goBack();
+      await waitReady(p, '取引の一覧');
+      // 読み直しを待たせている間も、読み込み済みの行と位置が出ている
+      expectEq(await p.locator('a.traderow').count(), rowsBefore, '戻った直後の行の数');
+      const after = await p.evaluate(() => window.scrollY);
+      if (Math.abs(after - before) > 4)
+        throw new Error(`戻った後の位置 ${after}px（期待 ${before}px）`);
+      fake.tradesPageDelayMs = 0;
+      await p.waitForTimeout(1800);
+      expectEq(await p.locator('a.traderow').count(), rowsBefore, '読み直しの後の行の数');
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `${rowsBefore} 行まで読んで 80 行目の詳細 → 戻る: ${rowsBefore} 行と位置（${after}px / ${before}px）が保たれ、読み直しの後も同じ`;
+    } finally {
+      await c.close();
+    }
+  });
+
+  await check('TL-P3', async () => {
+    const { c, p, errors } = await recordContext({ trades: manyTrades(70) });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('a.traderow').nth(49).waitFor();
+      // 続きの読みを失敗させる → 50 行は残り、文言と [もう一度読み込む]
+      const nextPage = (url) => url.pathname === '/api/trades' && url.searchParams.has('cursor');
+      await p.route(nextPage, (r) =>
+        r.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: '{"error":"unavailable"}',
+        }),
+      );
+      await scrollToBottom(p);
+      await p.getByText('続きを読み込めませんでした。').waitFor({ timeout: 5000 });
+      expectEq(await p.locator('a.traderow').count(), 50, '失敗の後の行の数');
+      if (opts.shots) {
+        await p.screenshot({ path: join(opts.shots, '360x780-trades-more-failed.png') });
+      }
+      await p.unroute(nextPage);
+      await p.getByRole('button', { name: 'もう一度読み込む' }).click();
+      await p.getByText('全 70 件（決済の新しい順）').waitFor({ timeout: 5000 });
+      const overflow = await p.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expectEq(overflow, 0, '幅 360 の横スクロール');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '続きの読みの失敗: 50 行が残り、文言と [もう一度読み込む] → 押すと「全 70 件」・横スクロール 0';
+  });
+
+  // TL-P4（#87 のコードレビュー 1・2）: キーで [続きを読み込む] を押すと、読み込み中も同じボタンにフォーカスが残り
+  // （aria-busy）、末尾の段の高さが変わらない。最後まで読むとフォーカスは読み足した最初の行へ移る（body に落ちない）
+  await check('TL-P4', async () => {
+    const { c, p, fake, errors } = await recordContext({ trades: manyTrades(70) });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('a.traderow').nth(49).waitFor();
+      fake.tradesPageDelayMs = 1500;
+      const btn = p.locator('#trades-more');
+      const h0 = await p
+        .locator('.tradelist-more')
+        .evaluate((e) => e.getBoundingClientRect().height);
+      await btn.focus();
+      await p.keyboard.press('Enter');
+      await p.locator('#trades-more[aria-busy="true"]').waitFor({ timeout: 3000 });
+      expectEq(
+        await p.evaluate(() => document.activeElement?.id),
+        'trades-more',
+        '読み込み中のフォーカス',
+      );
+      const h1 = await p
+        .locator('.tradelist-more')
+        .evaluate((e) => e.getBoundingClientRect().height);
+      if (Math.abs(h1 - h0) > 0.5) throw new Error(`末尾の段の高さ ${h0}px → ${h1}px`);
+      await p.getByText('全 70 件（決済の新しい順）').waitFor({ timeout: 5000 });
+      const active = await p.evaluate(() => ({
+        tag: document.activeElement?.tagName,
+        href: document.activeElement?.getAttribute('href'),
+      }));
+      expectEq(`${active.tag} ${active.href}`, 'A /trades/p050', '最後まで読んだ後のフォーカス');
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `Enter → 読み込み中も同じボタンにフォーカス（高さ ${h0}px のまま）→ 最後まで読むと 51 行目へフォーカス`;
+    } finally {
+      await c.close();
+    }
+  });
+
+  // TL-P5（#87 のデザインレビュー）: 続きを読んでいる・最後まで読んだ・件数の多い一覧・戻った位置・続きの読みの失敗を
+  // 360 / 1440 × ダーク / ライトで測り（横スクロール 0）、--shots なら撮る
+  await check('TL-P5', async () => {
+    const out = [];
+    for (const [w, hgt] of [
+      [360, 780],
+      [1440, 900],
+    ]) {
+      for (const theme of THEMES) {
+        const ctx = await browser.newContext({
+          viewport: { width: w, height: hgt },
+          storageState: signedIn,
+          ...(w < 720 ? { hasTouch: true } : {}),
+        });
+        await setupContext(ctx, theme);
+        const fake = await installFakeApi(ctx, { trades: manyTrades(120) });
+        const p = await ctx.newPage();
+        const errors = [];
+        p.on('pageerror', (e) => errors.push(e.message));
+        const snap = async (slug) => {
+          const overflow = await p.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          );
+          if (overflow !== 0) throw new Error(`${w} ${theme} ${slug}: 横スクロール ${overflow}px`);
+          if (opts.shots) {
+            await p.screenshot({
+              path: join(opts.shots, `${w}x${hgt}-${theme}-trades-${slug}.png`),
+            });
+          }
+        };
+        try {
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引の一覧');
+          await p.locator('a.traderow').nth(49).waitFor();
+          await snap('more-many');
+          // 続きを読んでいる（応答を待たせる）
+          fake.tradesPageDelayMs = 3000;
+          await scrollToBottom(p);
+          await p.locator('#trades-more[aria-busy="true"]').waitFor({ timeout: 3000 });
+          await p.evaluate(() =>
+            document.querySelector('.tradelist-more')?.scrollIntoView({ block: 'end' }),
+          );
+          await snap('more-loading');
+          fake.tradesPageDelayMs = 0;
+          await p.locator('a.traderow').nth(99).waitFor({ timeout: 6000 });
+          await scrollToBottom(p);
+          await p.locator('.tradelist-end').waitFor({ timeout: 5000 });
+          await scrollToBottom(p);
+          await p.waitForTimeout(200);
+          await snap('more-end');
+          // 80 行目の詳細から戻った位置
+          const row = p.locator('a.traderow').nth(79);
+          await row.scrollIntoViewIfNeeded();
+          await p.waitForTimeout(200);
+          await row.click();
+          await waitReady(p, 'US30 · L');
+          await p.goBack();
+          await waitReady(p, '取引の一覧');
+          await p.waitForTimeout(300);
+          await snap('more-restored');
+          // 続きの読みの失敗（開き直して 2 ページ目を断る）
+          const nextPage = (url) =>
+            url.pathname === '/api/trades' && url.searchParams.has('cursor');
+          await p.route(nextPage, (r) =>
+            r.fulfill({
+              status: 503,
+              contentType: 'application/json',
+              body: '{"error":"unavailable"}',
+            }),
+          );
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引の一覧');
+          await p.locator('a.traderow').nth(49).waitFor();
+          await scrollToBottom(p);
+          await p.getByText('続きを読み込めませんでした。').waitFor({ timeout: 5000 });
+          await scrollToBottom(p);
+          await p.waitForTimeout(200);
+          await snap('more-failed');
+          if (errors.length > 0) throw new Error(`${w} ${theme}: ページのエラー ${errors.length}`);
+          out.push(`${w}-${theme}`);
+        } finally {
+          await ctx.close();
+        }
+      }
+    }
+    return `${out.join('・')}: 件数の多い一覧・続きを読んでいる・最後まで・戻った位置・続きの読みの失敗で横スクロール 0`;
   });
 
   await check('T-D1', async () => {

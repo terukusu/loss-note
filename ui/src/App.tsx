@@ -13,6 +13,7 @@ import { DeletionsContext } from './lib/deletions-context';
 import { type Navigator, NavigatorContext, useCurrent } from './lib/router';
 import { hrefOf, type Route, titleOf } from './lib/routes';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
+import { createTradesCache, TradesCacheContext } from './lib/trades-cache';
 import { Forbidden } from './pages/Forbidden';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
@@ -110,6 +111,8 @@ export function App(props: AppProps) {
     [],
   );
   const [delState, setDelState] = useState<DeletionsState>(deletions.getState());
+  // 取引の一覧の読み込み済みの分と位置（Issue #87）: 戻るで一覧に戻ったときに使う。ログインしていなければ空にする
+  const tradesCache = useMemo(() => createTradesCache(), []);
   useEffect(() => deletions.subscribe(setDelState), [deletions]);
   /** [消す] の直後の画面の移りでは、見出しではなく [元に戻す] へフォーカスを移す（8 秒の間にキーで届くように） */
   const focusUndo = useRef(false);
@@ -141,6 +144,9 @@ export function App(props: AppProps) {
   }, [deletions]);
 
   useEffect(() => session.subscribe(setAuth), [session]);
+  useEffect(() => {
+    if (auth.kind !== 'signedIn') tradesCache.clear();
+  }, [auth.kind, tradesCache]);
   useEffect(() => forbiddenFlag.subscribe(setForbidden), []);
   // 使えないアカウント（#43）: ログイン・ログアウトで旗を下ろし、ログインしたら 1 度だけ読んで確かめる
   // （ホームは /api を読まないので、403 をすぐ受けて「このアカウントでは使えません」を出す。forbidden.ts）
@@ -175,7 +181,10 @@ export function App(props: AppProps) {
     deletions
       .flush()
       .then(() => session.signOut())
-      .then(() => deletions.reset())
+      .then(() => {
+        deletions.reset();
+        tradesCache.clear();
+      })
       .then(() => nav.replace('/login'))
       .catch(() => setSignOutError(SIGN_OUT_FAILED))
       .finally(() => setSignOutBusy(false));
@@ -268,7 +277,7 @@ export function App(props: AppProps) {
   return (
     <NavigatorContext.Provider value={nav}>
       <DeletionsContext.Provider value={{ state: delState, deletions, remove: removeTrade }}>
-        {body}
+        <TradesCacheContext.Provider value={tradesCache}>{body}</TradesCacheContext.Provider>
       </DeletionsContext.Provider>
     </NavigatorContext.Provider>
   );

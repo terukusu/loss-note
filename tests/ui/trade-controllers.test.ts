@@ -59,7 +59,7 @@ describe('一覧・ホームの controller', () => {
     expect(fake.calls.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
       'GET /api/accounts',
       'GET /api/instruments',
-      'GET /api/trades',
+      'GET /api/trades?limit=50',
     ]);
   });
 

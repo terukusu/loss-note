@@ -543,8 +543,10 @@ def test_timeout_is_504(make_client, sdk):
 def test_default_timeout_is_app_setting():
     from loss_note_api.statement_read import read_config
 
-    assert read_config(base_env(ANTHROPIC_API_KEY="x")).timeout == app_settings.APP_TIMEOUT_SECONDS == 20
-    assert "SECRET-REPR" not in repr(read_config(base_env(ANTHROPIC_API_KEY="SECRET-REPR")))
+    config = read_config(base_env(ANTHROPIC_API_KEY="x"), mode="emulator")
+    assert config.timeout == app_settings.APP_TIMEOUT_SECONDS == 20
+    secret = read_config(base_env(ANTHROPIC_API_KEY="SECRET-REPR"), mode="emulator")
+    assert "SECRET-REPR" not in repr(secret)
 
 
 # ---- KEEP-2: 読み取り以外の本文の上限は 64 KiB のまま ----

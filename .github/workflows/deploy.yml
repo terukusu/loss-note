@@ -37,7 +37,8 @@ defaults:
 
 # プロジェクト固有の値（プロジェクト ID・SA・state のバケット・Firebase の Web の設定・WIF のプロバイダ）はすべて repository secrets
 # から読む（公開リポジトリの Actions のログは誰でも読めるので、見出しの env の一覧・コマンドの出力に値を出さない。secrets は
-# GitHub が自動で伏せる。repository variables は使わない）
+# GitHub が自動で伏せる。repository variables は使わない。例外は値を伏せる必要の無い真偽の切り替え STATEMENT_READ_KEY だけ
+# = 下の TF_VAR_statement_read_key。secrets にするとログの true がすべて伏せ字になり、plan・検査のログが読めなくなるため）
 env:
   TF_IN_AUTOMATION: "1"
   # プロジェクト固有の値は repository secrets で渡す（infra/README.md「GitHub の設定」）
@@ -46,6 +47,10 @@ env:
   GCP_SA_TF_PLAN: ${{ secrets.GCP_SA_TF_PLAN }}
   GCP_SA_TF_APPLY: ${{ secrets.GCP_SA_TF_APPLY }}
   TF_VAR_project_id: ${{ secrets.GCP_PROJECT_ID }}
+  # 明細の読み取りのキーの参照を Cloud Run に付けるか（#44）。オーナーが Secret Manager にキーの版を入れた後に、repository variable
+  # STATEMENT_READ_KEY を true にする（未設定・true 以外なら false = 参照を付けない。版の無い参照ではインスタンスが起動しないため）。
+  # 秘密ではない真偽の切り替えなので、例外として variables に置く（値を伏せる必要が無く、secrets だと true が伏せ字になる）
+  TF_VAR_statement_read_key: ${{ vars.STATEMENT_READ_KEY == 'true' }}
   # 画面のビルドに渡す Firebase の Web の設定（公開の JS に入る値。秘密ではない）。プロジェクト ID は GCP_PROJECT_ID を兼ねる
   VITE_FIREBASE_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}

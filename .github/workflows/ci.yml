@@ -110,6 +110,9 @@ jobs:
         run: .github/scripts/tf-iam-grants.test.sh
       - name: IAM の付与の宣言が期待の集合だけか（bootstrap。権威的な型・*.tf.json・module は 0 件）
         run: .github/scripts/tf-iam-grants.sh
+      # 明細の読み取りの資格情報（#44）: Secret Manager の版の宣言が 0 件・追跡中のファイルに API キーの接頭辞が 0 件
+      - name: 資格情報の値がリポジトリに無いか
+        run: .github/scripts/secret-check.sh
       # infra/prod（#42。Cloud Run。deploy.yml が承認の後に apply する）。資格情報なし: validate とモックのプロバイダの test だけ
       - name: terraform validate（prod）
         run: |

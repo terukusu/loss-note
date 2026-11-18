@@ -3,6 +3,9 @@
 API のテストはこれとエミュレーターの Firestore の両方で同じテストを回す（conftest の ``store_kind``）。
 チャート（Issue #12）は ``users[uid]["charts"]["{tradeId}-{slot}"]``。``fail_charts`` を立てると、チャートに触れる
 書き込みが何も書かずに StoreUnavailable になる（取引とチャートを一緒に書く約束の試験。AC-6）。
+明細の読み取りの計上（Issue #44）は ``read_days[uid][day]``（Firestore の ``users/{uid}/statement_read_days/{day}``。
+記録の ``users`` と分けて持ち、記録に書き込みが無いことを確かめるテストに混ざらない）と ``spend[day]``。
+``fail_limits`` を立てると予約が、``fail_settle`` を立てると精算が、何も書かずに StoreUnavailable になる。
 """
 
 import copy
@@ -27,6 +30,10 @@ class MemoryStore:
         self.fail_with: Exception | None = None  # 次の呼び出しで投げる例外（500 の試験）
         self.unavailable = False
         self.fail_charts = False  # チャートの書き込みで失敗する（何も書かない）
+        self.fail_limits = False  # 読み取りの予約で失敗する（何も書かない）
+        self.fail_settle = False  # 読み取りの精算で失敗する（何も書かない）
+        self.read_days: dict[str, dict[str, dict]] = {}  # 利用者の日の計上（users/{uid}/statement_read_days/{day}）
+        self.spend: dict[str, dict] = {}  # 全体の日の計上（statement_read_spend/{day}）
 
     def _col(self, uid, name):
         if self.fail_with is not None:
@@ -161,6 +168,35 @@ class MemoryStore:
                 raise Conflict("inUse")
             del col[instrument_id]
             return True
+
+    # ── 明細の読み取りの計上（#44）──
+    def reserve_read(self, uid, day, decide, reserve_micro):
+        with self._lock:
+            if self.fail_limits:
+                raise StoreUnavailable("test")
+            if self.fail_with is not None:
+                raise self.fail_with
+            if self.unavailable:
+                raise StoreUnavailable("test")
+            days = self.read_days.setdefault(uid, {})
+            user = days.get(day, {})
+            spend = self.spend.get(day, {})
+            count = int(user.get("count", 0))
+            spent = int(spend.get("microUsd", 0))
+            decision = decide(count, spent)
+            if decision == "ok":
+                days[day] = {"count": count + 1}
+                self.spend[day] = {"count": int(spend.get("count", 0)) + 1, "microUsd": spent + reserve_micro}
+            return decision
+
+    def settle_read(self, day, delta_micro):
+        with self._lock:
+            if self.fail_settle:
+                raise StoreUnavailable("test")
+            if delta_micro == 0:
+                return
+            doc = self.spend.setdefault(day, {})
+            doc["microUsd"] = int(doc.get("microUsd", 0)) + delta_micro
 
     # ── 設定 ──
     def get_settings(self, uid):

@@ -313,15 +313,21 @@ export const READ_MSG = {
   rejected: 'この画像は読み取れません。別の画像を貼るか、手で入れてください。',
   unavailable: '今は読み取りを使えません。手で入れてください。',
   failed: '読み取れませんでした。もう一度貼るか、手で入れてください。',
+  // 1 日の上限（429 read_limited。#44）。回数と費用のどちらで止まったかは出さない
+  limited: '今日の読み取りの上限に達しました。手で入れてください。',
   notImage: '画像を読み込めませんでした。PNG か JPEG のスクショを貼ってください。',
 } as const;
 
-export type ReadFailure = 'rejected' | 'unavailable' | 'auth' | 'failed';
+export type ReadFailure = 'rejected' | 'unavailable' | 'limited' | 'auth' | 'failed';
 
-/** 読み取りの応答の状態 → 失敗の種類（400 → 断られた・503 → 使えない・401 → ログイン・ほか → 読み取れなかった） */
+/**
+ * 読み取りの応答の状態 → 失敗の種類（400 → 断られた・503 → 使えない・429 → 今日の上限・401 → ログイン・
+ * ほか → 読み取れなかった）
+ */
 export function readFailureOf(status: number): ReadFailure {
   if (status === 400) return 'rejected';
   if (status === 503) return 'unavailable';
+  if (status === 429) return 'limited';
   if (status === 401) return 'auth';
   return 'failed';
 }

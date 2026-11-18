@@ -30,6 +30,12 @@ echo "ok: import（create_app・verify・STATIC_DIR=/app/static）"
 # gunicorn がある（CMD の入口）
 docker run --rm --entrypoint gunicorn "$img" --version > /dev/null || fail "gunicorn が無い"
 echo "ok: gunicorn"
+# 起動の設定（CMD）のワーカーのタイムアウトが 30 秒（画面の待ち）より長い（#44 の AC-11。読み取りの締め切り 20 秒 + 後始末 約 5 秒）
+cmd=$(docker inspect --format '{{json .Config.Cmd}}' "$img")
+worker_timeout=$(printf '%s\n' "$cmd" | grep -oE -- '--timeout[ =][0-9]+' | grep -oE '[0-9]+$' || true)
+[ -n "$worker_timeout" ] || fail "CMD に gunicorn の --timeout が無い"
+[ "$worker_timeout" -gt 30 ] || fail "gunicorn の --timeout が 30 秒以下: ${worker_timeout}"
+echo "ok: gunicorn の --timeout ${worker_timeout} 秒（30 秒より長い）"
 
 # 2. 明細の読み取りの送り口（claude-agent-sdk。依存グループ ai。#44）: import でき、同梱の CLI が非 root・ネットワークなしで
 #    --version に答え、その版が SDK の同梱の版と同じこと（Anthropic には触れない）

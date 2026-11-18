@@ -46,6 +46,7 @@ const snapshot: TradeSnapshot = {
   instrument: DEFAULT_INSTRUMENT,
   capitalYen: null,
   riskTolerancePct: 1,
+  accountCurrency: 'JPY',
 };
 
 /** 比べる理由（資金が未設定の注記は時間足と関係ないので除く。fixture は資金なしで作る） */

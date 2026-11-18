@@ -4,7 +4,10 @@
 // - 読み取りの欄 9 つに値を入れ「読み取り」の印。null は空にして「読み取れませんでした」（開いたときの既定を残さない）
 // - 貼った後に利用者が触った欄は上書きしない。LC・一言・3 つのタップ（逆指値の既定を除く）・LC の根拠には触れない
 // - 時間帯が明細に無い時刻は、書かれた時刻を入れて「時間帯が明細にありません」。確かめるまで保存しない
+// - 口座の通貨が JPY でなければ損益・手数料は入れない（#47 PR-2・R7）
+import { DEFAULT_CURRENCY } from '../../../core/record';
 import type { ExitOrderType, Side } from '../../../core/trade';
+import { statementFillsMoney } from './currency';
 import { toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import type { Draft, DraftField, DraftReading } from './record-form';
@@ -183,12 +186,22 @@ export interface Filled {
   readonly marks: Marks;
 }
 
+/** 読み取りの金額の欄（口座の通貨が JPY でないときは流し込まない。R7） */
+const MONEY_FIELDS = ['pnlYen', 'feeYen'] as const satisfies readonly DraftField[];
+
 /**
  * 行の値を下書きに流し込む。touched（貼った後に利用者が触った欄）は値も印も変えない。
+ * 口座の通貨が JPY でなければ、損益・手数料は空・印なし（今の読み取りは円の損益を読むため。R7・F13。#47 PR-2）。
  * 逆指値 → 決済の理由 = LC・決めていた（触っていなければ。印「明細から」）・逆指値を入れた = 入れた。
  * それ以外 → 決めていたかは触らず、決済の理由 = その他（触っていなければ）・逆指値を入れたか = 未回答
  */
-export function fillFromRow(draft: Draft, row: ReadRow, touched: ReadonlySet<DraftField>): Filled {
+export function fillFromRow(
+  draft: Draft,
+  row: ReadRow,
+  touched: ReadonlySet<DraftField>,
+  opts: { readonly accountCurrency?: string } = {},
+): Filled {
+  const fillsMoney = statementFillsMoney(opts.accountCurrency ?? DEFAULT_CURRENCY);
   const exit = timeField(row.exitTime);
   const entry = timeField(row.entryTime);
   const read: Record<ReadField, { value: Draft[ReadField]; mark: FieldMark }> = {
@@ -206,6 +219,10 @@ export function fillFromRow(draft: Draft, row: ReadRow, touched: ReadonlySet<Dra
   const marks: Partial<Record<DraftField, FieldMark>> = {};
   for (const f of READ_FIELDS) {
     if (touched.has(f)) continue;
+    if (!fillsMoney && (MONEY_FIELDS as readonly string[]).includes(f)) {
+      values[f] = '';
+      continue;
+    }
     values[f] = read[f].value;
     marks[f] = read[f].mark;
   }
@@ -232,6 +249,39 @@ export function fillFromRow(draft: Draft, row: ReadRow, touched: ReadonlySet<Dra
     },
     marks,
   };
+}
+
+/**
+ * 明細を貼った後に口座を切り替えたときの損益・手数料（ux 2.1・5.5）。外貨の口座へ替えたら、印のある（読み取りで入れた）
+ * 損益・手数料だけを空に戻して印を外す。JPY の口座へ替えたら、今の行から入れ直す。手で打った値・touched の欄は触らない
+ */
+export function refillMoney(
+  filled: Filled,
+  row: ReadRow,
+  touched: ReadonlySet<DraftField>,
+  accountCurrency: string,
+): Filled {
+  const fillsMoney = statementFillsMoney(accountCurrency);
+  const values: Partial<Record<(typeof MONEY_FIELDS)[number], string>> = {};
+  const marks: Partial<Record<DraftField, FieldMark>> = { ...filled.marks };
+  for (const f of MONEY_FIELDS) {
+    if (touched.has(f)) continue;
+    const mark = filled.marks[f];
+    if (!fillsMoney) {
+      if (mark === 'read' || mark === 'unread') {
+        values[f] = '';
+        delete marks[f];
+      }
+      continue;
+    }
+    // JPY: 印が無く値も空の欄（外貨の口座で空にした欄）だけを入れ直す（手で打った値は残す）
+    if (mark === undefined && filled.draft[f] === '') {
+      const n = f === 'pnlYen' ? row.pnlYen : row.feesTotalYen;
+      values[f] = num(n);
+      marks[f] = n === null ? 'unread' : 'read';
+    }
+  }
+  return { draft: { ...filled.draft, ...values }, marks };
 }
 
 /** 利用者が欄を直した後の印（「明細から」は外す、ほかの印は「直した」。印の無い欄はそのまま） */

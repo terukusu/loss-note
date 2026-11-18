@@ -1,7 +1,7 @@
 // 設定の画面の通信と状態（Issue #5 契約・AC-1〜AC-6・KEEP-2）。偽の API（tests/ui/helpers/fake-api.ts）で確かめる。
 // 値はすべて架空
 import { describe, expect, it } from 'vitest';
-import type { AccountRecord, InstrumentRecord } from '../../core/record';
+import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../core/record';
 import { ACCOUNT_MSG } from '../../ui/src/lib/accounts';
 import { NotSignedIn } from '../../ui/src/lib/api';
 import { AUTH_EXPIRED } from '../../ui/src/lib/request';
@@ -63,6 +63,7 @@ describe('読み込み', () => {
     expect(s.instruments.map((i) => i.name)).toEqual(['US30', 'XAU', '日経225']);
     // 移し替え: 既定の口座「口座 1」が設定の資金で 1 つ
     expect(s.accounts.map((a) => [a.name, a.capitalYen])).toEqual([['口座 1', 1_000_000]]);
+    // 取引の一覧は開いたときには読まない（通貨を変える操作のときだけ。#47 PR-2 のレビュー 6）
     expect(fake.calls.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
       'GET /api/accounts',
       'GET /api/instruments',
@@ -135,13 +136,18 @@ describe('口座（#47 AC-1・AC-2・U14・U15）', () => {
     }
     expect(c.getState().accounts.map((a) => a.name)).toEqual(['口座 1', '口座 A', '口座 B']);
     expect(posts(fake, '/api/accounts').map((x) => x.body)).toEqual([
-      { name: '口座 B', capitalYen: 200_000, riskTolerancePct: 1 },
-      { name: '口座 A', capitalYen: null, riskTolerancePct: 1 },
+      { name: '口座 B', currency: 'JPY', capitalYen: 200_000, riskTolerancePct: 1 },
+      { name: '口座 A', currency: 'JPY', capitalYen: null, riskTolerancePct: 1 },
     ]);
     const a = c.getState().accounts.find((x) => x.name === '口座 A') as AccountRecord;
     expect(a.capitalHistory).toHaveLength(0);
     c.openAccount(a.id);
-    expect(c.getState().account?.draft).toEqual({ name: '口座 A', capital: '', risk: '1' });
+    expect(c.getState().account?.draft).toEqual({
+      name: '口座 A',
+      currency: 'JPY',
+      capital: '',
+      risk: '1',
+    });
     c.updateAccount('capital', '500000');
     await c.saveAccount();
     const after = c.getState().accounts.find((x) => x.id === a.id) as AccountRecord;
@@ -568,5 +574,142 @@ describe('focusAfter（押した後のフォーカスの移し先。レビュー
     expect(focusAfter('add', c.getState())).toBe('settings-add');
     await c.addInstrument();
     expect(focusAfter('add', c.getState())).toBeNull();
+  });
+});
+
+describe('口座の通貨（#47 PR-2・F14・U30・U31・AC-18）', () => {
+  const A = account('accA', '口座 A', 1_000_000);
+  const D = account('accD', '口座 D', 10_000, 1, { currency: 'USD' });
+  const tradeIn = (accountId: string | undefined) =>
+    ({
+      id: `t-${accountId ?? 'none'}`,
+      schemaVersion: 1,
+      createdAt: 1,
+      updatedAt: 1,
+      snapshot: {
+        instrument: {
+          multiplier: 1,
+          quantityStep: 1,
+          priceCurrency: null,
+          underlyingKind: 'other',
+          productForm: 'spotCfd',
+        },
+        capitalYen: null,
+        riskTolerancePct: 1,
+      },
+      record: {
+        status: 'closed',
+        source: 'manual',
+        instrumentId: 'i-us30',
+        ...(accountId === undefined ? {} : { accountId }),
+        side: 'L',
+        lc: 99.5,
+        lcBasis: 'chart',
+        stopOrderPlaced: 'unanswered',
+        lcDecidedBeforeEntry: true,
+        lcMove: { kind: 'none' },
+        timeframeChange: 'none',
+        entries: [{ price: 100, quantity: 1 }],
+        exit: {
+          time: 1,
+          price: 99.5,
+          orderType: 'unknown',
+          reason: 'other',
+          gapSlip: 'unanswered',
+        },
+        fees: [],
+      },
+    }) as StoredTrade;
+
+  it('開いたときは取引を読まず、通貨を今と違う値にしたときだけ 1 回読む。取引の無い口座は直せる（USD・小数 2 桁まで）', async () => {
+    const { fake, c } = await open({
+      accounts: [defaultAccount(1_000_000), A, D],
+      trades: [tradeIn(undefined), tradeIn('accD')],
+    });
+    const tradeGets = () => fake.calls.filter((x) => x.path === '/api/trades').length;
+    expect(tradeGets()).toBe(0);
+    c.openAccount('accA');
+    // 名前・資金だけを直す・同じ通貨を打つ操作では読まない
+    c.updateAccount('capital', '900,000');
+    c.updateAccount('currency', 'jpy');
+    expect(tradeGets()).toBe(0);
+    c.updateAccount('currency', 'usd');
+    await c.settled();
+    expect(tradeGets()).toBe(1);
+    expect([...(c.getState().accountsInUse ?? [])].sort()).toEqual(['accD', 'default']);
+    expect(c.getState().account?.draft.currency).toBe('usd');
+    c.updateAccount('capital', '10,000.505');
+    expect(c.getState().account?.reading.errors.capital).toBe(SETTINGS_MSG.capitalTooManyDecimals);
+    c.updateAccount('capital', '10,000.50');
+    await c.saveAccount();
+    expect(puts(fake, '/api/accounts/accA')[0]?.body).toEqual({
+      name: '口座 A',
+      currency: 'USD',
+      capitalYen: 10_000.5,
+      riskTolerancePct: 1,
+    });
+    expect(c.getState().accounts.find((a) => a.id === 'accA')?.currency).toBe('USD');
+    // 一度読んだら読み直さない
+    c.openAccount('accA');
+    c.updateAccount('currency', 'EUR');
+    await c.settled();
+    expect(tradeGets()).toBe(1);
+  });
+
+  it('取引のある口座（accountId なしの取引がある既定の口座も）で通貨を変えると、元に戻して文字にし知らせる。本文に通貨なし', async () => {
+    for (const [id, cur] of [
+      ['accD', 'USD'],
+      ['default', 'JPY'],
+    ] as const) {
+      const { c } = await open({
+        accounts: [defaultAccount(1_000_000), A, D],
+        trades: [tradeIn(undefined), tradeIn('accD')],
+      });
+      c.openAccount(id);
+      c.updateAccount('currency', 'EUR');
+      await c.settled();
+      const s = c.getState();
+      expect(s.account?.draft.currency, id).toBe(cur);
+      expect(s.accountsInUse?.has(id), id).toBe(true);
+      expect(s.notice?.text, id).toBe(`通貨: ${cur}（取引があるので変更できません）`);
+      expect(s.account?.reading.body, id).not.toHaveProperty('currency');
+    }
+  });
+
+  it('取引の一覧が読めなければ欄のまま（守りは API の 409）。読み込みは失敗にしない', async () => {
+    const { c } = await open({
+      accounts: [defaultAccount(1_000_000), A],
+      fail: { 'GET /api/trades': 503 },
+    });
+    expect(c.getState().phase).toBe('ready');
+    c.openAccount('accA');
+    c.updateAccount('currency', 'USD');
+    await c.settled();
+    expect(c.getState().accountsInUse).toBeNull();
+    expect(c.getState().account?.reading.body).toHaveProperty('currency', 'USD');
+  });
+
+  it('API の 409 currencyLocked: その口座を取引のある口座に入れ、通貨を元に戻して知らせる', async () => {
+    const { fake, c } = await open({ accounts: [defaultAccount(1_000_000), A] });
+    // 開いた後にほかの端末で口座 A に記録された
+    fake.trades.push(tradeIn('accA'));
+    c.openAccount('accA');
+    c.updateAccount('currency', 'USD');
+    await c.saveAccount();
+    const s = c.getState();
+    expect(s.notice).toEqual({
+      area: 'accounts',
+      kind: 'error',
+      text: '通貨: JPY（取引があるので変更できません）',
+    });
+    expect(s.accountsInUse?.has('accA')).toBe(true);
+    expect(s.account?.draft.currency).toBe('JPY');
+    expect(s.account?.saving).toBe(false);
+    expect(s.accounts.find((a) => a.id === 'accA')?.currency).toBe('JPY');
+    // 次の保存は通貨を送らない（名前・資金だけ直せる）
+    c.updateAccount('capital', '900,000');
+    await c.saveAccount();
+    const last = puts(fake, '/api/accounts/accA').at(-1)?.body;
+    expect(last).toEqual({ name: '口座 A', capitalYen: 900_000, riskTolerancePct: 1 });
   });
 });

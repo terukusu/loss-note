@@ -115,17 +115,17 @@ describe('verdictNotes: 判定の枠の注記・脇の 1 行・理由（AC-8・�
     expect(n.notes).toEqual([]);
   });
 
-  it('E11（資金あり・1R が出ない）: 「リスクの「—」: 損益（円）を入れると出ます」が 1 回', () => {
+  it('E11（資金あり・1R が出ない）: 「リスクの「—」: 損益を入力すると表示されます」が 1 回', () => {
     const n = verdictNotes(readDraft(E11, CAPITAL_1M).preview, { pending: false });
-    expect(n.notes).toEqual(['リスクの「—」: 損益（円）を入れると出ます']);
+    expect(n.notes).toEqual(['リスクの「—」: 損益を入力すると表示されます']);
   });
 
-  it('E16（LC なし）: R・リスクの段を出さず、注記「LC が無いので R・リスクは出ません」が 1 回。C の noLc は理由の一覧に重ねない', () => {
+  it('E16（LC なし）: R・リスクの段を出さず、注記「LC が無いので R・リスクは表示されません」が 1 回。C の noLc は理由の一覧に重ねない', () => {
     const n = verdictNotes(readDraft(E16, NO_CAPITAL).preview, { pending: false });
     expect(n.rNone).toBe(true);
     expect(n.riskNone).toBe(true);
     expect(n.hideRisk).toBe(true);
-    expect(n.notes).toEqual(['LC が無いので R・リスクは出ません']);
+    expect(n.notes).toEqual(['LC が無いので R・リスクは表示されません']);
     expect(n.reasons.map((r) => r.kind)).not.toContain('noLc');
   });
 

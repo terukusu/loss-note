@@ -1,4 +1,4 @@
-// 口座の例（Issue #47 PR-1）。値・名前はすべて架空（「口座 A」など）。
+// 口座の例（Issue #47。通貨は既定 JPY、外貨の口座は over で currency を渡す）。値・名前はすべて架空（「口座 A」など）。
 import { type AccountRecord, DEFAULT_ACCOUNT_ID, DEFAULT_ACCOUNT_NAME } from '../../../core/record';
 
 /** 口座を 1 つ作る（履歴は空・時刻は決まった値） */
@@ -12,6 +12,7 @@ export function account(
   return {
     id,
     name,
+    currency: 'JPY',
     capitalYen,
     riskTolerancePct,
     capitalHistory: [],

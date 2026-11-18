@@ -1,7 +1,9 @@
 // 保存の形（記録の API が返す取引・銘柄・口座・設定。設計書 4 章・Issue #4・#47・ADR-0004・ADR-0012）と、計算の入力への写し。
 // 取引は記録したときの銘柄の値（乗数・数量の刻み・価格の通貨・原資産の種類・商品の形）と、その取引の口座の資金・許容リスクを
 // snapshot に写して持つ。後で銘柄・口座を直しても過去の取引は変わらない（C36・C41）。判定・R・損益は保存しない（4.2 導出）。
-// 価格は銘柄の価格の通貨、金額は円、時点はエポックからのミリ秒（core/trade.ts と同じ）。表示の丸めはしない
+// 価格は銘柄の価格の通貨、金額は口座の通貨、時点はエポックからのミリ秒（core/trade.ts と同じ）。表示の丸めはしない。
+// 金額の鍵の名前（capitalYen・statementPnlYen・amountYen・valueYen）は歴史的に `…Yen` のまま。外貨の口座ではその通貨の金額
+// （#47 PR-2・C43。鍵を変えると保存済みの取引・口座を書き換えることになるため。円の口座では今と同じ円）
 import type {
   Entry,
   ExitOrderType,
@@ -24,7 +26,7 @@ export type UnderlyingKind = 'index' | 'fx' | 'commodity' | 'crypto' | 'stock' |
 export type ProductForm = 'spotCfd' | 'future' | 'option';
 export type PerformanceUnit = 'R' | 'yen';
 
-/** 明細の手数料の欄（円。費用を正の数。7.5） */
+/** 明細の手数料の欄（口座の通貨。費用を正の数。7.5） */
 export interface Fee {
   readonly label?: string;
   readonly amountYen: number;
@@ -78,7 +80,7 @@ export interface TradeRecord {
 export interface InstrumentSnapshot {
   readonly multiplier: number;
   readonly quantityStep: number;
-  /** ISO 4217 の 3 文字。null = 未設定（円とみなさない） */
+  /** ISO 4217 の 3 文字。null = 未設定（口座の通貨と同じとみなさない） */
   readonly priceCurrency: string | null;
   readonly underlyingKind: UnderlyingKind;
   readonly productForm: ProductForm;
@@ -87,10 +89,20 @@ export interface InstrumentSnapshot {
 /** 記録したときに API が写した値（本文では送らない） */
 export interface TradeSnapshot {
   readonly instrument: InstrumentSnapshot;
-  /** 記録したときの、その取引の口座の資金（円。#47 PR-1 の口座はすべて円）。資金が未設定の口座で記録した取引は null */
+  /** 記録したときの、その取引の口座の資金（口座の通貨）。資金が未設定の口座で記録した取引は null */
   readonly capitalYen: number | null;
   /** 記録したときの、その取引の口座の許容リスク（%） */
   readonly riskTolerancePct: number;
+  /** 記録したとき（付け替えたとき）の口座の通貨（ISO 4217 の 3 文字。#47 PR-2）。無い = JPY（移す前・PR-1 の取引） */
+  readonly accountCurrency?: string;
+}
+
+/** 口座の通貨の既定（口座の `currency`・snapshot の `accountCurrency` が無いときの値） */
+export const DEFAULT_CURRENCY = 'JPY';
+
+/** 取引の口座の通貨（snapshot に無ければ JPY。API の accounts.account_snapshot と同じ） */
+export function accountCurrencyOf(snapshot: Pick<TradeSnapshot, 'accountCurrency'>): string {
+  return snapshot.accountCurrency || DEFAULT_CURRENCY;
 }
 
 /** 保存したチャート画像の要約（形式と大きさだけ。バイト列は API の /api/trades/{id}/charts/{slot} から読む。Issue #12） */
@@ -158,15 +170,20 @@ export function accountIdOf(record: Pick<TradeRecord, 'accountId'>): string {
 
 /** 資金の履歴の 1 件（古い順に積む） */
 export interface CapitalHistoryEntry {
+  /** 資金（その行の通貨。鍵の名前は歴史的に `…Yen`） */
   readonly valueYen: number | null;
   readonly at: number;
+  /** その行の通貨（口座の履歴の #47 PR-2 からの行だけ。無い = JPY。設定の履歴には無い） */
+  readonly currency?: string;
 }
 
-/** 口座（#47 PR-1。通貨は持たない = すべて円） */
+/** 口座（#47） */
 export interface AccountRecord {
   readonly id: string;
   readonly name: string;
-  /** 資金（円）。未設定は null */
+  /** 口座の通貨（ISO 4217 の 3 文字。API はいつも返す。保存に無い = JPY。#47 PR-2） */
+  readonly currency: string;
+  /** 資金（口座の通貨）。未設定は null */
   readonly capitalYen: number | null;
   readonly riskTolerancePct: number;
   readonly capitalHistory: readonly CapitalHistoryEntry[];
@@ -174,21 +191,23 @@ export interface AccountRecord {
   readonly updatedAt: number;
 }
 
-/** 口座を足す本文（省いた資金は未設定・許容リスクは 1） */
+/** 口座を足す本文（省いた通貨は JPY・資金は未設定・許容リスクは 1） */
 export interface AccountBody {
   readonly name: string;
+  readonly currency?: string;
   readonly capitalYen?: number | null;
   readonly riskTolerancePct?: number;
 }
 
-/** 口座を直す本文（3 欄を丸ごと） */
+/** 口座を直す本文（3 欄を丸ごと。通貨は省くと今のまま。取引のある口座の通貨を変えると 409） */
 export interface AccountPut {
   readonly name: string;
+  readonly currency?: string;
   readonly capitalYen: number | null;
   readonly riskTolerancePct: number;
 }
 
-/** 手数料の欄の合計（円。空なら 0。丸めない） */
+/** 手数料の欄の合計（口座の通貨。空なら 0。丸めない） */
 export function feesTotalYen(fees: readonly Fee[]): number {
   let sum = 0;
   for (const f of fees) sum += f.amountYen;
@@ -207,7 +226,9 @@ export function toTradeInput(stored: Pick<StoredTrade, 'record' | 'snapshot'>): 
     instrument: {
       multiplier: s.instrument.multiplier,
       quantityStep: s.instrument.quantityStep,
-      isJpy: s.instrument.priceCurrency === 'JPY',
+      // 未設定（null）は口座の通貨と同じとみなさない（F11）。snapshot に口座の通貨が無ければ JPY（F15）
+      priceInAccountCurrency:
+        s.instrument.priceCurrency !== null && s.instrument.priceCurrency === accountCurrencyOf(s),
     },
     entries: r.entries,
     ...(r.lc === undefined ? {} : { lc: r.lc }),

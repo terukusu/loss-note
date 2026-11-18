@@ -8,7 +8,7 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 export function trade(over: Partial<TradeInput> = {}): TradeInput {
   return {
     side: 'L',
-    instrument: { multiplier: 1, quantityStep: 1, isJpy: true },
+    instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: true },
     entries: [{ price: 100, quantity: 10_000 }],
     lc: 99.5,
     lcBasis: 'chart',

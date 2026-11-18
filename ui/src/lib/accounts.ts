@@ -2,7 +2,8 @@
 // DOM・通信・現在時刻に触れない純関数。口座の並び（API と同じ）・記録する画面の口座の欄の形（無し / Segment / select）・
 // 既定の口座（最後に記録した取引の口座）・判定の枠と保存の後の文・設定の口座の行の要約と、口座の下書き
 // （設定の直す・足す欄、記録する画面の名前 + 資金の 2 欄）の検査。数の読み方・資金と許容リスクの規則は設定の画面と同じ
-// （settings-form.ts の readCapital・readRisk・riskWarning・allowanceYen）。PR-1 の口座はすべて円
+// （settings-form.ts の readCapital・readRisk・riskWarning・allowanceIn）。
+// 口座の通貨（#47 PR-2）: 金額は口座の通貨で書き（formatAmount）、設定の欄に「通貨」（取引のある口座は文字。U30・U31）
 import {
   type AccountBody,
   type AccountPut,
@@ -10,14 +11,16 @@ import {
   accountIdOf,
   DEFAULT_ACCOUNT_ID,
   DEFAULT_ACCOUNT_NAME,
+  DEFAULT_CURRENCY,
   type StoredTrade,
 } from '../../../core/record';
-import { formatAmountYen, formatPlain } from './format';
+import { formatAmount, formatPlain } from './format';
 import { nameKey } from './instrument-name';
 import { hasBadChar, lengthOf, NAME_MAX } from './record-form';
 import {
-  allowanceYen,
+  allowanceIn,
   type ReadResult,
+  readAccountCurrency,
   readCapital,
   readRisk,
   riskWarning,
@@ -142,11 +145,16 @@ export function tradeAccountName(
 export function verdictAsideText(
   name: string,
   capitalYen: number | null,
-  opts: { readonly recorded?: boolean } = {},
+  opts: { readonly recorded?: boolean; readonly currency?: string } = {},
 ): string {
   if (capitalYen === null) return `${name}（資金は未設定）`;
   const when = opts.recorded ? '（記録したとき）' : ' ';
-  return `${name} の資金 ${formatAmountYen(capitalYen)}${when}に対して`;
+  return `${name} の資金 ${formatAmount(capitalYen, opts.currency ?? DEFAULT_CURRENCY)}${when}に対して`;
+}
+
+/** 口座の通貨（API はいつも返す。古い応答・テストの口座で無ければ JPY） */
+export function currencyOfAccount(a: { readonly currency?: string }): string {
+  return a.currency || DEFAULT_CURRENCY;
 }
 
 /** 保存の後の知らせ（U11）: 口座が 2 つ以上なら「口座 A に記録しました」、1 つなら「記録しました」 */
@@ -160,30 +168,40 @@ export function switchHint(account: AccountRecord | undefined, changed: boolean)
   if (account.capitalYen === null) {
     return `${account.name} は資金が未設定です。リスク（%）は出なくなります`;
   }
-  return `${account.name} の今の資金 ${formatAmountYen(account.capitalYen)} で計算し直します`;
+  return `${account.name} の今の資金 ${formatAmount(account.capitalYen, currencyOfAccount(account))} で計算し直します`;
 }
 
-/** 設定の口座の行の 2 行目（U12・U13）: 「1,000,000円 · 許容 1%」/「資金 未設定 · 許容 1%」 */
-export function accountLine(a: Pick<AccountRecord, 'capitalYen' | 'riskTolerancePct'>): string {
+/**
+ * 設定の口座の行の 2 行目（U12・U13・U30）: 「1,000,000円 · 許容 1%」/「10,000.00 USD · 許容 1%」/
+ * 「資金 未設定 · 許容 1%」
+ */
+export function accountLine(
+  a: Pick<AccountRecord, 'capitalYen' | 'riskTolerancePct'> & { readonly currency?: string },
+): string {
   const risk = `許容 ${formatPlain(a.riskTolerancePct)}%`;
   return a.capitalYen === null
     ? `資金 未設定 · ${risk}`
-    : `${formatAmountYen(a.capitalYen)} · ${risk}`;
+    : `${formatAmount(a.capitalYen, currencyOfAccount(a))} · ${risk}`;
 }
 
-/** 設定の口座の行の 3 行目: 「1 回の負けは 10,000円 まで」/「資金を入れるとリスク（%）が出ます」 */
+/**
+ * 設定の口座の行の 3 行目: 「1 回の負けは 10,000円 まで」/「1 回の負けは 100.00 USD まで」/
+ * 「資金を入れるとリスク（%）が出ます」
+ */
 export function accountAllowanceLine(
-  a: Pick<AccountRecord, 'capitalYen' | 'riskTolerancePct'>,
+  a: Pick<AccountRecord, 'capitalYen' | 'riskTolerancePct'> & { readonly currency?: string },
 ): string {
   if (a.capitalYen === null) return '資金を入れるとリスク（%）が出ます';
-  return `1 回の負けは ${formatAmountYen(allowanceYen(a.capitalYen, a.riskTolerancePct))} まで`;
+  const c = currencyOfAccount(a);
+  return `1 回の負けは ${formatAmount(allowanceIn(a.capitalYen, a.riskTolerancePct, c), c)} まで`;
 }
 
 // ── 口座の下書き ─────────────────────────────
 
-/** 設定の直す欄・足す欄（3 欄。文字は打ったまま） */
+/** 設定の直す欄・足す欄（4 欄。文字は打ったまま。通貨は #47 PR-2） */
 export interface AccountDraft {
   readonly name: string;
+  readonly currency: string;
   readonly capital: string;
   readonly risk: string;
 }
@@ -193,11 +211,23 @@ export type AccountField = keyof AccountDraft;
 /** 欄の名前（画面の並びの順） */
 export const ACCOUNT_FIELD_LABEL: Readonly<Record<AccountField, string>> = {
   name: '名前',
+  currency: '通貨',
   capital: '資金',
   risk: '許容リスク',
 };
 
-export const EMPTY_ACCOUNT_DRAFT: AccountDraft = { name: '', capital: '', risk: '1' };
+export const EMPTY_ACCOUNT_DRAFT: AccountDraft = {
+  name: '',
+  currency: DEFAULT_CURRENCY,
+  capital: '',
+  risk: '1',
+};
+
+/** 欄の資金の単位（入れた通貨に追従。読めない通貨の間は今の口座の通貨か JPY。U30） */
+export function draftCurrencyOf(draft: Pick<AccountDraft, 'currency'>, fallback: string): string {
+  const c = readAccountCurrency(draft.currency);
+  return c.ok ? c.value : fallback;
+}
 
 export interface AccountReading<B> {
   readonly errors: Readonly<Partial<Record<AccountField, string>>>;
@@ -206,11 +236,16 @@ export interface AccountReading<B> {
   readonly body: B | null;
 }
 
-/** 保存値から直す欄の下書き（資金は 3 桁区切り、未設定は空） */
+/** 保存値から直す欄の下書き（資金は 3 桁区切り、未設定は空。外貨は小数 2 桁） */
 export function accountDraftOf(a: AccountRecord): AccountDraft {
+  const currency = currencyOfAccount(a);
   return {
     name: a.name,
-    capital: a.capitalYen === null ? '' : formatAmountYen(a.capitalYen).replace('円', ''),
+    currency,
+    capital:
+      a.capitalYen === null
+        ? ''
+        : formatAmount(a.capitalYen, currency).replace(/円$| [A-Z]{3}$/, ''),
     risk: formatPlain(a.riskTolerancePct),
   };
 }
@@ -235,27 +270,44 @@ export function readAccountName(
 
 /**
  * 設定の口座の下書きを読む。selfId = 直している口座（null = 足す）、savedCapital = 直す前の資金（設定済みなら空は誤り。
- * 足すときは null = 空でよい）
+ * 足すときは null = 空でよい）。currencyLocked = 取引のある口座（通貨は欄でなく文字。本文に通貨を入れない = 今のまま。U31）。
+ * savedCurrency = 直す前の通貨（固定のとき資金の検査に使う）
  */
 export function readAccountDraft(
   draft: AccountDraft,
   list: readonly AccountRecord[],
   selfId: string | null,
   savedCapital: number | null,
+  opts: { readonly currencyLocked?: boolean; readonly savedCurrency?: string } = {},
 ): AccountReading<AccountPut> {
   const errors: Partial<Record<AccountField, string>> = {};
   const name = readAccountName(draft.name, list, selfId);
   if (!name.ok) errors.name = name.error;
-  const capital = readCapital(draft.capital, savedCapital);
+  const locked = opts.currencyLocked === true;
+  const currency: ReadResult<string> = locked
+    ? { ok: true, value: opts.savedCurrency ?? DEFAULT_CURRENCY }
+    : readAccountCurrency(draft.currency);
+  if (!currency.ok) errors.currency = currency.error;
+  // 資金の検査は通貨で変わる（JPY = 整数・外貨 = 小数 2 桁まで）。通貨が読めない間は今の通貨か JPY で見る
+  const capital = readCapital(
+    draft.capital,
+    savedCapital,
+    currency.ok ? currency.value : (opts.savedCurrency ?? DEFAULT_CURRENCY),
+  );
   if (!capital.ok) errors.capital = capital.error;
   const risk = readRisk(draft.risk);
   if (!risk.ok) errors.risk = risk.error;
   const warning = risk.ok ? riskWarning(risk.value) : null;
-  if (!name.ok || !capital.ok || !risk.ok) return { errors, warning, body: null };
+  if (!name.ok || !currency.ok || !capital.ok || !risk.ok) return { errors, warning, body: null };
   return {
     errors,
     warning,
-    body: { name: name.value, capitalYen: capital.value, riskTolerancePct: risk.value },
+    body: {
+      name: name.value,
+      ...(locked ? {} : { currency: currency.value }),
+      capitalYen: capital.value,
+      riskTolerancePct: risk.value,
+    },
   };
 }
 

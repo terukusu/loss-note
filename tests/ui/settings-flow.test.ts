@@ -49,7 +49,7 @@ async function settingsOpen(fake: FakeApi) {
 describe('AC-1: 資金を保存した後の記録にリスク（%）が出る', () => {
   it('E1: 資金 1,000,000 を保存 → 記録する画面で E1 の取引のリスクは 0.5%', async () => {
     const fake = createFakeApi({ instruments: [{ ...XAU, id: 'i-us30', name: 'US30' }] });
-    // 保存する前は「資金を設定すると出ます」（KEEP-3: 文言はそのまま）
+    // 保存する前は「資金を設定すると表示されます」（KEEP-3: 文言はそのまま）
     const before = await recordOpen(fake);
     expect(before.getState().read.preview.riskPct).toBeUndefined();
     expect(before.getState().read.preview.riskNote).toBe(RISK_NOTE.noCapital);

@@ -2,7 +2,7 @@
 // 要素の木に展開して見る（SettingsView と部品は hook を持たない）。状態は偽の API で controller を動かして作る。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
-import type { InstrumentRecord } from '../../core/record';
+import type { InstrumentRecord, StoredTrade } from '../../core/record';
 import { formatDateTime } from '../../ui/src/lib/datetime';
 import { AUTH_EXPIRED } from '../../ui/src/lib/request';
 import {
@@ -356,5 +356,128 @@ describe('読み込み・失敗', () => {
     );
     expect(text(save)).toContain(AUTH_EXPIRED);
     expect(all(save, (e) => e.type === 'button').map(text)).toContain('ログインし直す');
+  });
+});
+
+describe('口座の通貨（#47 PR-2・U30・U31）', () => {
+  const D = account('accD', '口座 D', 10_000, 1, { currency: 'USD' });
+  const lockedTrade = {
+    id: 't-d',
+    schemaVersion: 1,
+    createdAt: 1,
+    updatedAt: 1,
+    snapshot: {
+      instrument: {
+        multiplier: 1,
+        quantityStep: 1,
+        priceCurrency: null,
+        underlyingKind: 'other',
+        productForm: 'spotCfd',
+      },
+      capitalYen: 10_000,
+      riskTolerancePct: 1,
+      accountCurrency: 'USD',
+    },
+    record: {
+      status: 'closed',
+      source: 'manual',
+      instrumentId: 'i-us30',
+      accountId: 'accD',
+      side: 'L',
+      lc: 99.5,
+      lcBasis: 'chart',
+      stopOrderPlaced: 'unanswered',
+      lcDecidedBeforeEntry: true,
+      lcMove: { kind: 'none' },
+      timeframeChange: 'none',
+      entries: [{ price: 100, quantity: 1 }],
+      exit: { time: 1, price: 99.5, orderType: 'unknown', reason: 'other', gapSlip: 'unanswered' },
+      fees: [],
+    },
+  } as StoredTrade;
+
+  it('U30: 外貨の口座の行は「10,000.00 USD · 許容 1%」「1 回の負けは 100.00 USD まで」', async () => {
+    const tree = render(await ready({ accounts: [defaultAccount(1_000_000), D] }));
+    const t = text(tree);
+    expect(t).toContain('10,000.00 USD · 許容 1%');
+    expect(t).toContain('1 回の負けは 100.00 USD まで');
+    expect(t).toContain('1,000,000円 · 許容 1%');
+  });
+
+  it('U30: 足す欄に「通貨」（既定 JPY）、資金の単位は入れた通貨に追従', async () => {
+    const st = await ready({}, (c) => {
+      c.openAccount(null);
+      c.updateAccount('currency', 'usd');
+    });
+    const tree = render(st);
+    const cur = byId(tree, 'settings-account-currency') as El;
+    expect(cur.type).toBe('input');
+    expect(cur.props.value).toBe('usd');
+    const capitalField = all(tree, (e) =>
+      String(e.props.class ?? '')
+        .split(' ')
+        .includes('field'),
+    ).find((e) => all([e], (x) => x.props.id === 'settings-account-capital').length === 1) as El;
+    expect(text(all([capitalField], (e) => e.props.class === 'numfield__unit'))).toBe('USD');
+    const fresh = render(await ready({}, (c) => c.openAccount(null)));
+    expect((byId(fresh, 'settings-account-currency') as El).props.value).toBe('JPY');
+  });
+
+  it('U31: 取引のある口座の直す欄は、通貨が文字「通貨: USD（取引があるので変更できません）」で欄ではない', async () => {
+    const tree = render(
+      await ready(
+        { accounts: [defaultAccount(1_000_000), D], trades: [lockedTrade] },
+        async (c) => {
+          c.openAccount('accD');
+          // 通貨を変える操作で取引を確かめ、取引のある口座なら文字になる（開いたときは読まない）
+          c.updateAccount('currency', 'JPY');
+          await c.settled();
+        },
+      ),
+    );
+    const cur = byId(tree, 'settings-account-currency') as El;
+    expect(cur.type).toBe('p');
+    expect(text(cur)).toBe('通貨: USD（取引があるので変更できません）');
+    expect(
+      all(tree, (e) => e.type === 'input' && e.props.id === 'settings-account-currency'),
+    ).toEqual([]);
+  });
+
+  it('資金の履歴は行の通貨で（USD の行は「10,000.00 USD」、通貨の無い行は円）', async () => {
+    const withHistory = {
+      ...D,
+      capitalHistory: [
+        { valueYen: 1_000_000, at: 1_700_000_000_000 },
+        { valueYen: 10_000, at: 1_700_000_100_000, currency: 'USD' },
+      ],
+    };
+    const tree = render(
+      await ready({ accounts: [defaultAccount(1_000_000), withHistory] }, (c) =>
+        c.openAccount('accD'),
+      ),
+    );
+    const rows = all(tree, (e) => e.props.class === 'settings__history-row').map((e) => text(e));
+    expect(rows.some((r) => r.endsWith('10,000.00 USD'))).toBe(true);
+    expect(rows.some((r) => r.endsWith('1,000,000円'))).toBe(true);
+  });
+});
+
+describe('文の中の金額は数と単位を 1 つの塊にする（#47 PR-2 デザイン 8）', () => {
+  it('設定の口座の行: 「10,000.00 USD」「100.00 USD」「1,000,000円」が .num-money の塊', async () => {
+    const tree = render(
+      await ready({
+        accounts: [
+          defaultAccount(1_000_000),
+          account('accD', '口座 D', 10_000, 1, { currency: 'USD' }),
+        ],
+      }),
+    );
+    const chunks = all(tree, (e) => e.props.class === 'num-money').map((e) => text(e));
+    expect(chunks).toContain('10,000.00 USD');
+    expect(chunks).toContain('100.00 USD');
+    expect(chunks).toContain('1,000,000円');
+    expect(chunks).toContain('10,000円');
+    // 行の文字そのものは変わらない
+    expect(text(tree)).toContain('1 回の負けは 100.00 USD まで');
   });
 });

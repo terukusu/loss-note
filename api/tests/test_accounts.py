@@ -1,4 +1,4 @@
-"""口座の API（Issue #47 PR-1。AC-1〜AC-4・AC-8・例 A1〜A4・A6〜A8・B7）。
+"""口座の API（Issue #47。PR-1 の AC-1〜AC-4・AC-8・例 A1〜A4・A6〜A8・B7、PR-2 の AC-18・AC-19・例 F14・A9）。
 保存先 2 つ（記憶・エミュレーターの Firestore）で
 同じテストを回す。値・名前はすべて架空（「口座 A」など）。
 
@@ -69,7 +69,9 @@ def test_add_list_edit_in_name_order(api):
     assert items[a["id"]]["capitalYen"] == 1_000_000
     assert items[a["id"]]["riskTolerancePct"] == 1.5
     assert len(items[a["id"]]["capitalHistory"]) == 1
-    assert items[b["id"]]["capitalHistory"] == [{"valueYen": 200_000, "at": b["createdAt"]}]
+    # 口座の履歴の行は、その行の通貨を持つ（#47 PR-2）
+    assert items[b["id"]]["capitalHistory"] == [{"valueYen": 200_000, "at": b["createdAt"], "currency": "JPY"}]
+    assert all(x["currency"] == "JPY" for x in items.values())
     assert api.get(f"/api/accounts/{a['id']}", A).get_json() == items[a["id"]]
 
 
@@ -139,7 +141,9 @@ def test_risk_range(api):
 @pytest.mark.parametrize(
     ("body", "issue"),
     [
-        ({"name": "口座 F", "currency": "USD"}, {"field": "", "kind": "unknownField"}),
+        ({"name": "口座 F", "color": "red"}, {"field": "", "kind": "unknownField"}),
+        ({"name": "口座 F", "currency": "usd"}, {"field": "currency", "kind": "format"}),
+        ({"name": "口座 F", "currency": None}, {"field": "currency", "kind": "format"}),
         ({"name": ""}, {"field": "name", "kind": "length"}),
         ({"name": "   "}, {"field": "name", "kind": "length"}),
         ({"name": "x" * 41}, {"field": "name", "kind": "length"}),
@@ -282,6 +286,118 @@ def test_edit_unassigned_trade_keeps_snapshot(api):
     assert got["snapshot"] == legacy["snapshot"]
     assert got["record"]["accountId"] == "default"
     assert risk_pct(got) == pytest.approx(risk_pct(legacy))
+
+
+# ── PR-2: 口座の通貨（F14・A9・AC-18・AC-19）──────────────
+
+
+def put_currency(api, aid: str, name: str, currency: str | None, capital=None, risk=1):
+    body = {"name": name, "capitalYen": capital, "riskTolerancePct": risk}
+    if currency is not None:
+        body["currency"] = currency
+    return api.put(f"/api/accounts/{aid}", A, body)
+
+
+def test_account_currency_on_create(api):
+    """足すときの通貨は既定 JPY。USD を指定すれば USD。既定の口座（移し替え）も JPY と返す"""
+    a = add_account(api, "口座 A")
+    assert a["currency"] == "JPY"
+    res = api.post("/api/accounts", A, {"name": "口座 D", "currency": "USD", "capitalYen": 10_000})
+    assert res.status_code == 201
+    d = res.get_json()
+    assert d["currency"] == "USD"
+    assert d["capitalHistory"] == [{"valueYen": 10_000, "at": d["createdAt"], "currency": "USD"}]
+    assert api.get("/api/accounts/default", A).get_json()["currency"] == "JPY"
+
+
+def test_currency_change(api, clock):
+    """F14: 取引の無い口座は JPY → USD に直せる（200）。取引が 1 件ある口座・accountId の無い取引がある既定の口座は
+    409 currencyLocked で通貨は元のまま。同じ通貨・通貨を省いた PUT はいつも 200"""
+    inst = jpy(api)
+    a = add_account(api, "口座 A", 1_000_000)
+    b = add_account(api, "口座 B", 200_000)
+    clock.advance(1000)
+    res = put_currency(api, a["id"], "口座 A", "USD", 1_000_000)
+    assert res.status_code == 200
+    got = api.get(f"/api/accounts/{a['id']}", A).get_json()
+    assert got["currency"] == "USD"
+    # 資金が同じでも通貨を直したら履歴に 1 行（その行の通貨つき）
+    assert [(h["valueYen"], h["currency"]) for h in got["capitalHistory"]] == [(1_000_000, "JPY"), (1_000_000, "USD")]
+    # 戻すのも取引が無い間はできる
+    assert put_currency(api, a["id"], "口座 A", "JPY", 1_000_000).status_code == 200
+
+    # 口座 B に取引が 1 件
+    api.post("/api/trades", A, p_trade(inst["id"], b["id"]))
+    before = api.get(f"/api/accounts/{b['id']}", A).get_json()
+    res = put_currency(api, b["id"], "口座 B", "USD", 200_000)
+    assert res.status_code == 409
+    assert res.get_json() == {"error": "conflict", "reason": "currencyLocked"}
+    assert api.get(f"/api/accounts/{b['id']}", A).get_json() == before
+    # 同じ通貨・通貨を省いた直しは通る（資金も直る）
+    assert put_currency(api, b["id"], "口座 B", "JPY", 300_000).status_code == 200
+    res = put_currency(api, b["id"], "口座 B 改", None, 300_000)
+    assert res.status_code == 200
+    assert res.get_json()["currency"] == "JPY" and res.get_json()["name"] == "口座 B 改"
+
+    # 既定の口座: accountId の無い取引（移す前・口座 1 つの利用者）があるだけで通貨は変えられない
+    assert put_currency(api, "default", "口座 1", "USD").status_code == 200
+    assert put_currency(api, "default", "口座 1", "JPY").status_code == 200
+    legacy = api.post("/api/trades", A, p_trade(inst["id"])).get_json()
+    assert "accountId" not in legacy["record"]
+    res = put_currency(api, "default", "口座 1", "USD")
+    assert res.status_code == 409
+    assert res.get_json() == {"error": "conflict", "reason": "currencyLocked"}
+    assert api.get("/api/accounts/default", A).get_json()["currency"] == "JPY"
+    # ほかの利用者の取引は数えない
+    other = add_account(api, "口座 X", uid="userB")
+    body = {"name": "口座 X", "currency": "USD", "capitalYen": None, "riskTolerancePct": 1}
+    assert api.put(f"/api/accounts/{other['id']}", "userB", body).status_code == 200
+
+
+def test_currency_locked_by_explicit_default_id(api):
+    """既定の口座: accountId = "default" と書いた取引も取引として数える"""
+    inst = jpy(api)
+    api.post("/api/trades", A, p_trade(inst["id"], "default"))
+    assert put_currency(api, "default", "口座 1", "USD").status_code == 409
+
+
+def test_usd_account_snapshot(api):
+    """F9: USD の口座で記録すると snapshot に accountCurrency USD と口座の資金を写す"""
+    usd_inst = api.instrument(A, "架空指数U", priceCurrency="USD", underlyingKind="index")
+    d = api.post("/api/accounts", A, {"name": "口座 D", "currency": "USD", "capitalYen": 10_000}).get_json()
+    got = api.post("/api/trades", A, p_trade(usd_inst["id"], d["id"], 100)).get_json()
+    assert got["snapshot"]["accountCurrency"] == "USD"
+    assert got["snapshot"]["capitalYen"] == 10_000
+    # 口座の通貨を後で直そうとしても 409（取引が付いた）
+    assert put_currency(api, d["id"], "口座 D", "JPY", 10_000).status_code == 409
+
+
+def test_reassign_to_other_currency(api):
+    """A9: 口座 A（JPY）の取引（明細 −9,000・手数料 100）を、損益と手数料を空にした本文で口座 D（USD）へ付け替える
+    → 本文のとおり保存（API は勝手に消さない）、snapshot は口座 D の今の資金・通貨。口座 A へ戻すと JPY・口座 A の値"""
+    inst = jpy(api)
+    a = add_account(api, "口座 A", 1_000_000)
+    d = api.post("/api/accounts", A, {"name": "口座 D", "currency": "USD", "capitalYen": 10_000}).get_json()
+    body = {**p_trade(inst["id"], a["id"]), "statementPnlYen": -9_000, "fees": [{"label": "手数料", "amountYen": 100}]}
+    created = api.post("/api/trades", A, body).get_json()
+    assert created["snapshot"]["accountCurrency"] == "JPY"
+    moved = p_trade(inst["id"], d["id"])  # 画面が損益・手数料を空に戻した本文
+    res = api.put(f"/api/trades/{created['id']}", A, moved)
+    assert res.status_code == 200
+    got = res.get_json()
+    assert got["snapshot"]["accountCurrency"] == "USD"
+    assert got["snapshot"]["capitalYen"] == 10_000
+    assert "statementPnlYen" not in got["record"] and got["record"]["fees"] == []
+    back = api.put(f"/api/trades/{created['id']}", A, p_trade(inst["id"], a["id"])).get_json()
+    assert back["snapshot"]["accountCurrency"] == "JPY" and back["snapshot"]["capitalYen"] == 1_000_000
+
+
+def test_legacy_trade_snapshot_has_no_currency_until_reassigned(api):
+    """KEEP-2: 口座を付け替えない直しは snapshot を変えない（移す前の取引に accountCurrency を足さない）"""
+    inst = jpy(api)
+    legacy = api.post("/api/trades", A, p_trade(inst["id"])).get_json()
+    got = api.put(f"/api/trades/{legacy['id']}", A, p_trade(inst["id"], brokenCondition="直した")).get_json()
+    assert got["snapshot"] == legacy["snapshot"]
 
 
 def test_unconfigured_returns_503_for_accounts(monkeypatch):

@@ -117,21 +117,21 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
     expect(rows[0]?.text).toContain('+2.0R');
     // 行には「—」だけ。理由は一覧の上に 1 回だけ
     expect(rows[0]?.text).toContain('—');
-    expect(rows[0]?.text).not.toContain('資金を設定すると出ます');
+    expect(rows[0]?.text).not.toContain('資金を設定すると表示されます');
     expect(rows[1]?.badge).toBe('危ない勝ち');
     expect(rows[1]?.badgeClass).toContain('badge--break');
     expect(rows[1]?.text).not.toContain('R なし');
-    expect(rows[1]?.text).not.toContain('LC が無いので出ません');
+    expect(rows[1]?.text).not.toContain('LC が無いので表示されません');
     const notes = all(tree, hasClass('tradelist__notes')).map(text).join('');
-    expect(notes).toContain('リスクの「—」: 資金を設定すると出ます（1 件）');
-    expect(notes).toContain('R・リスクの「—」: LC が無いので出ません（1 件）');
+    expect(notes).toContain('リスクの「—」: 資金を設定すると表示されます（1 件）');
+    expect(notes).toContain('R・リスクの「—」: LC が無いので表示されません（1 件）');
     expect(rows[2]?.badge).toBe('A いい損失');
     expect(rows[2]?.text).toContain('−1.0R');
     expect(rows[2]?.text).toContain('0.5%');
     expect(text(tree)).toContain('全 3 件');
     // 行の読み上げの名前
     expect(rows[2]?.label).toContain('US30 L ロング A いい損失 R −1.0R リスク 0.5%');
-    expect(rows[1]?.label).toContain('R LC が無いので出ません');
+    expect(rows[1]?.label).toContain('R LC が無いので表示されません');
     // 列（日付・銘柄・L / S・判定・R・リスク）が行ごとに同じ順でそろう
     const row = all(tree, hasClass('traderow'))[0] as El;
     expect(row.children.map((c) => (typeof c === 'string' ? c : cls(c)))).toEqual([
@@ -778,5 +778,77 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
     expect(all(tree, hasClass('fields__row')).map(text).join('')).not.toContain(
       '許容リスクに対する数量',
     );
+  });
+});
+
+describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
+  it('U33: 直す画面で通貨の違う口座へ替えると、1 行に「通貨が違うので…」と出て「ほかの欄」が開き、損益・手数料の欄が空', async () => {
+    const t = {
+      ...L1,
+      snapshot: { ...L1.snapshot, accountCurrency: 'JPY' },
+      record: { ...L1.record, fees: [{ amountYen: 100 }] },
+    } as StoredTrade;
+    const fake = createFakeApi({
+      trades: [t],
+      instruments: [US30],
+      accounts: [
+        defaultAccount(1_000_000),
+        account('accD', '口座 D', 10_000, 1, { currency: 'USD' }),
+      ],
+    });
+    const c = createEditController({ api: fake.api, id: t.id });
+    await c.load();
+    const tree = () =>
+      expand(
+        <TradeEditView
+          id={t.id}
+          state={c.getState()}
+          hidden={EMPTY}
+          notFound={notFoundState()}
+          onUpdate={c.update}
+          onSave={noop}
+          onReload={noop}
+          onRelogin={noop}
+        />,
+      );
+    expect(all(tree(), hasClass('more'))[0]?.props.open).toBeUndefined();
+    c.update({ type: 'set', field: 'accountId', value: 'accD' });
+    const t1 = tree();
+    expect(text(all(t1, (e) => e.props.id === 'record-account-hint'))).toBe(
+      '口座 D の今の資金 10,000.00 USD で計算し直します。通貨が違うので、損益と手数料を空に戻しました',
+    );
+    expect(all(t1, hasClass('more'))[0]?.props.open).toBe(true);
+    const value = (id: string) =>
+      all(t1, (e) => e.type === 'input' && e.props.id === id)[0]?.props.value;
+    expect(value('record-pnl')).toBe('');
+    expect(value('record-fee')).toBe('');
+    // 元の口座へ戻すと値が戻り、1 行も消える
+    c.update({ type: 'set', field: 'accountId', value: 'default' });
+    const t2 = tree();
+    expect(all(t2, (e) => e.props.id === 'record-account-hint')).toEqual([]);
+    expect(all(t2, (e) => e.type === 'input' && e.props.id === 'record-pnl')[0]?.props.value).toBe(
+      '-5000',
+    );
+  });
+
+  it('D2: F1 の取引の詳細の「すべての欄」に「建ての通貨 USD 建て」「為替 150（1 USD = 150円）」「1R 7,500円」', () => {
+    const { statementPnlYen: _s, ...rec } = L1.record;
+    const f1 = {
+      ...L1,
+      snapshot: {
+        ...L1.snapshot,
+        accountCurrency: 'JPY',
+        instrument: { ...L1.snapshot.instrument, priceCurrency: 'USD' },
+      },
+      record: {
+        ...rec,
+        entries: [{ price: 100, quantity: 100 }],
+        exit: { ...rec.exit, fxRate: 150 },
+      },
+    } as StoredTrade;
+    const rows = all(detailTree(f1), hasClass('fields__row')).map(text);
+    expect(rows).toContain('建ての通貨USD');
+    expect(rows).toContain('為替1 USD = 150円');
+    expect(rows).toContain('1R7,500円');
   });
 });

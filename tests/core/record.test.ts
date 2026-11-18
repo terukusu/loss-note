@@ -4,6 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { evaluateTrade } from '../../core/evaluate';
 import {
+  accountCurrencyOf,
+  DEFAULT_CURRENCY,
   feesTotalYen,
   type InstrumentBody,
   type SettingsBody,
@@ -107,6 +109,23 @@ describe('5.6 の表を保存の形で往復（AC-10）', () => {
   });
 });
 
+describe('移す前の取引（snapshot に口座の通貨が無い）は JPY の口座と同じ（#47 KEEP-2・F15・P6）', () => {
+  it('design-table.json の全件: accountCurrency を足さない写しと JPY を足した写しで計算の入力と結果が同じ', () => {
+    const items = JSON.parse(fs.readFileSync(DESIGN_FIXTURE, 'utf8')) as DesignFixtureItem[];
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect('accountCurrency' in item.snapshot, `#${item.scene}`).toBe(false);
+      const without = toTradeInput(item);
+      const withJpy = toTradeInput({
+        ...item,
+        snapshot: { ...item.snapshot, accountCurrency: 'JPY' },
+      });
+      expect(withJpy, `#${item.scene}`).toEqual(without);
+      expect(evaluateTrade(withJpy), `#${item.scene}`).toEqual(evaluateTrade(without));
+    }
+  });
+});
+
 describe('写しは snapshot（記録したときの値）だけを使う', () => {
   // T1: L・イン 100.00・LC 99.50・数量 10,000・決済 99.50（理由 LC）・明細 −5,200 円・手数料 200 円・資金 1,000,000 円
   const t1 = fromTradeInput(
@@ -162,18 +181,34 @@ describe('写しは snapshot（記録したときの値）だけを使う', () =
   });
 
   it.each([
-    ['JPY', true],
-    ['USD', false],
-    [null, false],
-  ] as const)('価格の通貨 %s → isJpy %s（未設定は円とみなさない）', (currency, isJpy) => {
-    const input = toTradeInput({
-      ...t1,
-      snapshot: {
-        ...t1.snapshot,
-        instrument: { ...t1.snapshot.instrument, priceCurrency: currency },
-      },
-    });
-    expect(input.instrument.isJpy).toBe(isJpy);
+    ['JPY', undefined, true],
+    ['USD', undefined, false],
+    [null, undefined, false],
+    ['JPY', 'JPY', true],
+    ['USD', 'USD', true],
+    ['JPY', 'USD', false],
+    ['EUR', 'USD', false],
+    [null, 'USD', false],
+  ] as const)(
+    '価格の通貨 %s × 口座の通貨 %s → 為替 1 で固定 %s（未設定は同じとみなさない・口座の通貨が無い = JPY）',
+    (currency, accountCurrency, same) => {
+      const input = toTradeInput({
+        ...t1,
+        snapshot: {
+          ...t1.snapshot,
+          ...(accountCurrency === undefined ? {} : { accountCurrency }),
+          instrument: { ...t1.snapshot.instrument, priceCurrency: currency },
+        },
+      });
+      expect(input.instrument.priceInAccountCurrency).toBe(same);
+    },
+  );
+
+  it('accountCurrencyOf: 無い・空は JPY、ほかはその値', () => {
+    expect(accountCurrencyOf({})).toBe('JPY');
+    expect(accountCurrencyOf({ accountCurrency: '' })).toBe('JPY');
+    expect(accountCurrencyOf({ accountCurrency: 'USD' })).toBe('USD');
+    expect(DEFAULT_CURRENCY).toBe('JPY');
   });
 
   it.each([
@@ -255,6 +290,19 @@ describe('全項目の取引（full-record.json）', () => {
     };
   }
 
+  it('口座の通貨が無い写しと JPY を足した写しで同じ（KEEP-2。USD 建て・fxRate つきの full を含む）', () => {
+    for (const item of full.trades) {
+      const base = asStored(item);
+      const without = toTradeInput(base);
+      const withJpy = toTradeInput({
+        ...base,
+        snapshot: { ...base.snapshot, accountCurrency: 'JPY' },
+      });
+      expect(withJpy, item.name).toEqual(without);
+      expect(evaluateTrade(withJpy), item.name).toEqual(evaluateTrade(without));
+    }
+  });
+
   it('すべて受け付けられる（検査を通る）', () => {
     expect(full.trades.map((t) => t.name)).toEqual(['full', 'E11', 'E12', 'E18']);
     for (const item of full.trades) judged(toTradeInput(asStored(item)));
@@ -294,7 +342,7 @@ describe('全項目の取引（full-record.json）', () => {
     const input = toTradeInput(asStored(item));
     expect(input.feesTotalYen).toBe(200.5);
     expect(input.gapSlipAnswer).toBe(false);
-    expect(input.instrument.isJpy).toBe(false);
+    expect(input.instrument.priceInAccountCurrency).toBe(false);
     expect(input.plannedAt).toBe(1_699_990_000_000);
     expect(JSON.stringify(input)).not.toContain('崩れる');
     expect(FILL.instrumentId).toBe(item.record.instrumentId);

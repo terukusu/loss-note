@@ -52,7 +52,7 @@ def test_account_bodies_are_accepted_as_sent(api):
     資金を入れて足すと履歴 1 件"""
     put_settings(api, {"capitalYen": 1_000_000, "riskTolerancePct": 1, "performanceUnit": "R"})
     items = load_fixture("settings-bodies.json")["accounts"]
-    assert [x["name"] for x in items] == ["E1", "E2", "E3b", "A7", "edit", "B5"]
+    assert [x["name"] for x in items] == ["E1", "E2", "E3b", "A7", "F9", "edit", "B5"]
     for item in items:
         sent = item["body"]
         if item["kind"] == "create":
@@ -68,6 +68,8 @@ def test_account_bodies_are_accepted_as_sent(api):
             # 省いた許容リスクは 1（記録する画面の 2 欄。B5）、資金を入れて足すと履歴 1 件
             assert got["riskTolerancePct"] == sent.get("riskTolerancePct", 1), item["name"]
             assert len(got["capitalHistory"]) == (0 if got["capitalYen"] is None else 1), item["name"]
+            # 口座の通貨: 本文に無ければ JPY（記録する画面の 2 欄）、あれば本文の値（#47 PR-2 F9 は USD）
+            assert got["currency"] == sent.get("currency", "JPY"), item["name"]
         again = api.get(f"/api/accounts/{got['id']}", A).get_json()
         assert {k: again[k] for k in sent} == sent, item["name"]
     # 直した既定の口座: 設定から写した履歴（1 件）+ 直した資金の 1 件

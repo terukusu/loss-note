@@ -1,4 +1,4 @@
-// 損益（円）・R 倍数・1R（円）・リスク（%）（設計書 5.1・C18・C32）。丸めずに返す
+// 損益・R 倍数・1R・リスク（%）・明細から逆算した為替（設計書 5.1・C18・C32・C43）。金額は口座の通貨。丸めずに返す
 import { signOf, TOL } from './numeric';
 import { hasPrePlan } from './pre-plan';
 import type { TradeInput } from './trade';
@@ -19,14 +19,14 @@ export function allLcs(t: TradeInput): number[] | undefined {
   return lcs;
 }
 
-/** 決済の為替（円建ては 1） */
+/** 決済の為替（価格の通貨 = 口座の通貨なら 1） */
 function exitFx(t: TradeInput): number | undefined {
-  return t.instrument.isJpy ? 1 : t.exit?.fxRate;
+  return t.instrument.priceInAccountCurrency ? 1 : t.exit?.fxRate;
 }
 
-/** 計画時の為替（円建ては 1） */
+/** 計画時の為替（価格の通貨 = 口座の通貨なら 1） */
 function planFx(t: TradeInput): number | undefined {
-  return t.instrument.isJpy ? 1 : t.planFxRate;
+  return t.instrument.priceInAccountCurrency ? 1 : t.planFxRate;
 }
 
 /** 事後の記録でエントリーが 1 つか（C18） */
@@ -42,7 +42,7 @@ export function priceMove(t: TradeInput): number | undefined {
   return t.entries.reduce((sum, e) => sum + s * (exitPrice - e.price) * e.quantity, 0);
 }
 
-/** 損益（円）。明細の損益があればそれ（C18）、無ければ Σ s(決済 − イン_i) × 数量_i × 乗数 × 決済の為替 */
+/** 損益（口座の通貨）。明細の損益があればそれ（C18）、無ければ Σ s(決済 − イン_i) × 数量_i × 乗数 × 決済の為替 */
 export function pnlYen(t: TradeInput): number | undefined {
   if (t.exit === undefined) return undefined;
   if (t.statementPnlYen !== undefined) return t.statementPnlYen;
@@ -52,7 +52,7 @@ export function pnlYen(t: TradeInput): number | undefined {
   return move * t.instrument.multiplier * fx;
 }
 
-/** R 倍数（価格だけ）: Σ s(決済 − イン_i) × 数量_i ÷ Σ |イン_i − LC_i| × 数量_i */
+/** R 倍数（価格だけ。為替・口座の通貨・資金に依らない）: Σ s(決済 − イン_i) × 数量_i ÷ Σ |イン_i − LC_i| × 数量_i */
 export function rMultiple(t: TradeInput): number | undefined {
   const move = priceMove(t);
   const lcs = allLcs(t);
@@ -65,7 +65,34 @@ export function rMultiple(t: TradeInput): number | undefined {
   return move / risk;
 }
 
-/** 1R（円）（5.1・C32） */
+/**
+ * 手数料を除いた明細の損益（net）と値動き（move = Σ s(決済 − イン_i) × 数量_i）が、明細から逆算してよい組か。
+ * 決済が無い・明細の損益が無い・move が 0・net が 0・符号が食い違う、のどれかなら無し（C32 と R6 の共通の条件）
+ */
+function statementNetAndMove(t: TradeInput): { net: number; move: number } | undefined {
+  if (t.exit === undefined || t.statementPnlYen === undefined) return undefined;
+  const move = priceMove(t);
+  if (move === undefined || move === 0) return undefined;
+  const net = t.statementPnlYen + (t.feesTotalYen ?? 0);
+  if (net === 0 || Math.sign(net) !== Math.sign(move)) return undefined;
+  return { net, move };
+}
+
+/**
+ * 明細の損益から逆算した為替（価格の通貨 1 単位 = 口座の通貨。R6・C43）= net ÷ (move × 乗数)。
+ * 価格の通貨 = 口座の通貨・エントリーが 2 つ以上・入る前の計画あり（C32 の逆算をしない取引）なら無し。
+ * 見せるだけで保存しない。出るなら正の有限の数
+ */
+export function statementFxRate(t: TradeInput): number | undefined {
+  // C32 の 1R の逆算と同じく、事後の記録のエントリーが 1 つの取引だけ（買い増しの取引では為替と 1R の根拠が分かれるため）
+  if (t.instrument.priceInAccountCurrency || !isPostSingleEntry(t)) return undefined;
+  const nm = statementNetAndMove(t);
+  if (nm === undefined) return undefined;
+  const fx = nm.net / (nm.move * t.instrument.multiplier);
+  return Number.isFinite(fx) && fx > 0 ? fx : undefined;
+}
+
+/** 1R（口座の通貨）（5.1・C32） */
 export function oneRYen(t: TradeInput): number | undefined {
   const lcs = allLcs(t);
   if (lcs === undefined) return undefined;

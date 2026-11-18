@@ -61,7 +61,13 @@ function item(name: string, d: Draft, capitalYen: number | null): Item {
       exit: { ...read.body.exit, time: EXIT_TIME },
       instrumentId: PLACEHOLDER,
     },
-    snapshot: { instrument: DEFAULT_INSTRUMENT, capitalYen, riskTolerancePct: 1 },
+    // API は記録したときの口座の通貨も写す（#47 PR-2。口座 1 つ = 既定の口座 = JPY）
+    snapshot: {
+      instrument: DEFAULT_INSTRUMENT,
+      capitalYen,
+      riskTolerancePct: 1,
+      accountCurrency: 'JPY',
+    },
     expect: { grade: read.preview.judgment.grade, r: read.preview.r ?? null },
   };
 }

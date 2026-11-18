@@ -55,6 +55,8 @@ def test_design_table_fixture_round_trip(api):
         where = f"#{item['scene']} 場面 {item['index'] + 1}"
         assert got["record"] == sent, where
         assert same_typed(got["record"], sent), where
-        assert got["snapshot"] == item["snapshot"], where
-        assert same_typed(got["snapshot"], item["snapshot"]), where
+        # fixture は移す前の保存の形（口座の通貨が無い = JPY）。今の API は作るときに口座の通貨を写す（#47 PR-2）
+        expected = {**item["snapshot"], "accountCurrency": "JPY"}
+        assert got["snapshot"] == expected, where
+        assert same_typed(got["snapshot"], expected), where
     assert len(api.trades(A)) == len(items)

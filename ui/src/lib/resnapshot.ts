@@ -6,12 +6,20 @@
 //   ほかは折りたたみの中に置き、開いたときに違いと判定・R・リスクの 前 → 後 を必ず見せる。判定が良い方へ変わるときも
 //   変わることをはっきり書く（隠さない・勧めない。#31 Phase 4 N-5 の main の決定）
 // - 利用者が「今の値」を選んで保存したときだけ、API が保存の時点の今の値で保存し直す（PUT の ?snapshot=current）
-import type { InstrumentSnapshot, TradeRecord, TradeSnapshot } from '../../../core/record';
+// - 口座の通貨（#47 PR-2）: 今の値には口座の通貨も入る（無い = JPY と読んで比べる）。資金は各々の口座の通貨で書く。
+//   今の値で為替が意味を失う（口座の通貨が変わる・決まった価格の通貨どうしが違う）なら、打った為替を外して計算し・送る
+//   （withoutStaleFx。価格の通貨が未設定 → 決まった通貨では保つ）
+import {
+  accountCurrencyOf,
+  type InstrumentSnapshot,
+  type TradeRecord,
+  type TradeSnapshot,
+} from '../../../core/record';
 import { badgeModel } from './badge';
 import { editSnapshot } from './edit-form';
-import { formatAmountYen, formatPct, formatPlain, formatR } from './format';
+import { formatAmount, formatPct, formatPlain, formatR } from './format';
 import type { Draft, DraftContext, DraftReading, Summary } from './record-form';
-import { summarize } from './record-form';
+import { fxStale, summarize } from './record-form';
 import { PRODUCT_FORM_LABEL, UNDERLYING_KIND_LABEL } from './settings-form';
 
 /** 取引の PUT に付けるクエリ（API の SNAPSHOT_CURRENT と同じ） */
@@ -35,7 +43,8 @@ export interface SnapshotDiff {
 
 const NOT_SET = '未設定';
 
-const capitalText = (v: number | null) => (v === null ? NOT_SET : formatAmountYen(v));
+const capitalText = (v: number | null, currency: string) =>
+  v === null ? NOT_SET : formatAmount(v, currency);
 const pctText = (v: number) => `${formatPlain(v)}%`;
 const currencyText = (v: string | null) => v ?? NOT_SET;
 
@@ -58,8 +67,17 @@ const INSTRUMENT_ROWS: readonly InstrumentRow[] = [
 /** 違う値の行（資金・許容リスク・銘柄の 5 つの値の順。同じ値は出さない） */
 export function snapshotDiffs(from: TradeSnapshot, to: TradeSnapshot): readonly SnapshotDiff[] {
   const out: SnapshotDiff[] = [];
-  if (from.capitalYen !== to.capitalYen) {
-    out.push({ label: '資金', from: capitalText(from.capitalYen), to: capitalText(to.capitalYen) });
+  const fromCurrency = accountCurrencyOf(from);
+  const toCurrency = accountCurrencyOf(to);
+  if (from.capitalYen !== to.capitalYen || fromCurrency !== toCurrency) {
+    out.push({
+      label: '資金',
+      from: capitalText(from.capitalYen, fromCurrency),
+      to: capitalText(to.capitalYen, toCurrency),
+    });
+  }
+  if (fromCurrency !== toCurrency) {
+    out.push({ label: '口座の通貨', from: fromCurrency, to: toCurrency });
   }
   if (from.riskTolerancePct !== to.riskTolerancePct) {
     out.push({
@@ -77,6 +95,26 @@ export function snapshotDiffs(from: TradeSnapshot, to: TradeSnapshot): readonly 
     }
   }
   return out;
+}
+
+/**
+ * 写し直す先（to）で為替が意味を失うなら、記録の為替を外す（為替は「価格の通貨 1 単位 = 口座の通貨」）。外すのは口座の通貨が
+ * 変わる、または決まった価格の通貨どうしが違う（USD → EUR）ときだけ。価格の通貨が未設定 → 決まった通貨（取り込んだ取引に
+ * 価格の通貨を入れた）は為替を保つ（未設定の銘柄の為替も同じ意味で計算に使っているため。#47 PR-2 の再レビュー block。
+ * record-form.ts の fxStale と同じ規則）
+ */
+export function withoutStaleFx(
+  record: TradeRecord,
+  from: TradeSnapshot,
+  to: TradeSnapshot,
+): TradeRecord {
+  const stale = fxStale(
+    { price: from.instrument.priceCurrency, account: accountCurrencyOf(from) },
+    { price: to.instrument.priceCurrency, account: accountCurrencyOf(to) },
+  );
+  if (!stale || record.exit.fxRate === undefined) return record;
+  const { fxRate: _stale, ...exit } = record.exit;
+  return { ...record, exit };
 }
 
 export interface ResnapshotOffer {
@@ -112,7 +150,7 @@ export function resnapshotOffer(
   if (merged === undefined) {
     return { diffs, snapshot: current, capitalFromEmpty, prominent, nearVerdict: false };
   }
-  const after = summarize({ record: merged, snapshot: current });
+  const after = summarize({ record: withoutStaleFx(merged, stored, current), snapshot: current });
   return {
     diffs,
     snapshot: current,
@@ -180,7 +218,9 @@ export const CHOICE_NAME = 'edit-resnapshot';
 export function resnapshotLead(offer: ResnapshotOffer): string {
   if (offer.capitalFromEmpty) {
     const yen =
-      offer.snapshot.capitalYen === null ? '' : formatAmountYen(offer.snapshot.capitalYen);
+      offer.snapshot.capitalYen === null
+        ? ''
+        : formatAmount(offer.snapshot.capitalYen, accountCurrencyOf(offer.snapshot));
     return offer.nearVerdict
       ? `この取引には資金が保存されていないため、過剰リスクを判定していません。今の資金 ${yen} で再計算すると判定します。`
       : `この取引には資金が保存されていません。今の資金は ${yen} です。`;

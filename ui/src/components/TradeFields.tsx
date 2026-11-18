@@ -3,6 +3,8 @@
 // hook を持たない（テストは関数を呼んで木にする）。値はテキストのノードだけ（HTML の文字列を DOM に入れない）
 // 口座（#47）: 「取引」の先頭（銘柄の上）に口座の欄（口座が 2 つ以上のとき）。記録する画面は見出しの行の右端に
 // [＋ 口座を足す]（accountAction）と、開いたときの 2 欄（accountAdd。開いている間は口座の欄を隠す）を渡す
+// 通貨と為替（#47 PR-2・U22〜U28・U33）: 銘柄の下の 1 行（建ての通貨）、通貨が違うときだけ「数量 | 為替」の 2 列と、
+// その下に通しの 1 行（1 USD = ? 円）。「ほかの欄」の損益・手数料の単位は口座の通貨、その下に注記（外貨の口座・付け替え）
 import type { ComponentChildren } from 'preact';
 import type { AccountRecord, InstrumentRecord } from '../../../core/record';
 import type { ExitReason, TimeframeChange } from '../../../core/trade';
@@ -40,9 +42,28 @@ export interface TradeFieldsProps {
   readonly accountAdd?: ComponentChildren;
   /** 3 つ目のタップの下に添える 1 行（チャートの時間足の違いと食い違うとき。記録する画面だけ。#27） */
   readonly timeframeHint?: string | null;
+  /** 通貨と為替（#47 PR-2）。省けば円の口座・円建てと同じ（欄も文言も増えない） */
+  readonly currency?: CurrencyView;
 }
 
+/** 通貨と為替の見せ方（画面が lib/currency.ts の純関数で作る） */
+export interface CurrencyView {
+  /** 銘柄の下の 1 行（「USD 建て」「価格の通貨 未設定」。U22） */
+  readonly instrumentHint?: string;
+  /** 為替の欄（通貨が違うときだけ。unit = 口座の通貨の単位、line = 欄の下の 1 行。U23・U24） */
+  readonly fx?: { readonly unit: string; readonly line: string };
+  /** 損益・手数料の単位（「円」/「USD」。U27） */
+  readonly moneyUnit: string;
+  /** 損益・手数料の下の 1 行（外貨の口座で明細を貼った・通貨の違う口座へ替えた。U28・U33） */
+  readonly moneyNote?: string;
+}
+
+/** 為替の欄の下の 1 行の ID（為替の欄の読み上げの説明） */
+export const FX_LINE_ID = 'record-fx-line';
+
 export const INSTRUMENT_LIST_ID = 'record-instruments';
+/** 損益・手数料の下の 1 行の ID */
+export const MONEY_NOTE_ID = 'record-money-note';
 
 export const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
   { value: 'lc', label: 'LC（崩れの条件に当たった）' },
@@ -81,6 +102,28 @@ export function TradeMainFields(p: TradeFieldsProps) {
     ['none', 'tightened', 'widened'] as const
   ).map((k) => ({ value: k, label: lcMoveLabel(k, side) }));
   const widenWord = side === 'S' ? '上げた' : '下げた';
+  const fx = p.currency?.fx;
+  const quantity = (
+    <NumberField
+      id="record-quantity"
+      label="数量"
+      value={d.quantity}
+      onInput={set('quantity')}
+      {...mark('quantity')}
+      {...(e.quantity ? { error: e.quantity } : {})}
+    />
+  );
+  const exitTime = (
+    <TextField
+      id="record-exit-time"
+      label="決済の時刻"
+      type="datetime-local"
+      value={d.exitTime}
+      onInput={set('exitTime')}
+      {...mark('exitTime')}
+      {...(e.exitTime ? { error: e.exitTime } : {})}
+    />
+  );
   return (
     <>
       <section class="card section" aria-labelledby="record-trade-title">
@@ -113,6 +156,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
           onInput={set('instrumentName')}
           list={INSTRUMENT_LIST_ID}
           placeholder="例: 架空指数A"
+          {...(p.currency?.instrumentHint ? { hint: p.currency.instrumentHint } : {})}
           {...mark('instrumentName')}
           {...(e.instrumentName ? { error: e.instrumentName } : {})}
         />
@@ -154,25 +198,32 @@ export function TradeMainFields(p: TradeFieldsProps) {
             {...(e.exitPrice ? { error: e.exitPrice } : {})}
           />
         </div>
-        <div class="record__pair">
-          <NumberField
-            id="record-quantity"
-            label="数量"
-            value={d.quantity}
-            onInput={set('quantity')}
-            {...mark('quantity')}
-            {...(e.quantity ? { error: e.quantity } : {})}
-          />
-          <TextField
-            id="record-exit-time"
-            label="決済の時刻"
-            type="datetime-local"
-            value={d.exitTime}
-            onInput={set('exitTime')}
-            {...mark('exitTime')}
-            {...(e.exitTime ? { error: e.exitTime } : {})}
-          />
-        </div>
+        {fx ? (
+          <>
+            {/* 通貨が違うときだけ「数量 | 為替」の 2 列（どの幅でも 2 列）、その下に通しの 1 行、決済の時刻は 1 列 */}
+            <div class="record__pair record__pair--prices">
+              {quantity}
+              <NumberField
+                id="record-fx"
+                label="為替"
+                value={d.fxRate}
+                onInput={set('fxRate')}
+                unit={fx.unit}
+                describedBy={FX_LINE_ID}
+                {...(e.fxRate ? { error: e.fxRate } : {})}
+              />
+            </div>
+            <p id={FX_LINE_ID} class="field__hint record__pairnote">
+              {fx.line}
+            </p>
+            {exitTime}
+          </>
+        ) : (
+          <div class="record__pair">
+            {quantity}
+            {exitTime}
+          </div>
+        )}
       </section>
 
       <section class="card section" aria-labelledby="record-lc-title">
@@ -265,6 +316,8 @@ export function TradeMainFields(p: TradeFieldsProps) {
 /** 畳んだ「ほかの欄（任意）」（open = 開いて見せる: 誤りがある・読み取りの値がある） */
 export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }) {
   const { d, e, set, mark, onUpdate, marks } = fieldHelpers(p);
+  const unit = p.currency?.moneyUnit ?? '円';
+  const note = p.currency?.moneyNote;
   return (
     <details class="card more" {...(p.open ? { open: true } : {})}>
       <summary class="more__summary">ほかの欄（任意）</summary>
@@ -272,24 +325,31 @@ export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }
         <div class="record__pair">
           <NumberField
             id="record-pnl"
-            label="損益（円。明細の値）"
+            label="損益（明細の値）"
             inputMode="text"
             value={d.pnlYen}
             onInput={set('pnlYen')}
-            unit="円"
+            unit={unit}
+            {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
             {...mark('pnlYen')}
             {...(e.pnlYen ? { error: e.pnlYen } : {})}
           />
           <NumberField
             id="record-fee"
-            label="手数料（円）"
+            label="手数料"
             value={d.feeYen}
             onInput={set('feeYen')}
-            unit="円"
+            unit={unit}
+            {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
             {...mark('feeYen')}
             {...(e.feeYen ? { error: e.feeYen } : {})}
           />
         </div>
+        {note ? (
+          <p id={MONEY_NOTE_ID} class="field__hint record__pairnote">
+            {note}
+          </p>
+        ) : null}
         <TextField
           id="record-entry-time"
           label="建てた時刻"

@@ -445,21 +445,39 @@ def validate_settings(body: Any) -> tuple[dict | None, list[Issue]]:
     return out, []
 
 
-# ── 口座（#47 PR-1。通貨は持たない = すべて円）──────────────
+# ── 口座（#47。通貨は PR-2）──────────────
 
-_ACCOUNT_FIELDS = ("name", "capitalYen", "riskTolerancePct")
+_ACCOUNT_FIELDS = ("name", "currency", "capitalYen", "riskTolerancePct")
 DEFAULT_ACCOUNT_RISK_PCT = 1
+DEFAULT_ACCOUNT_CURRENCY = "JPY"
+
+
+def _account_currency_check(c: _Checker) -> Callable[[Any, str], Any]:
+    """口座の通貨: ISO 4217 の 3 文字（銘柄の priceCurrency と同じ形。null は受けない）"""
+
+    def check(v: Any, path: str) -> Any:
+        if not isinstance(v, str) or not _CURRENCY.match(v):
+            c.add(path, "format")
+            return INVALID
+        return v
+
+    return check
 
 
 def validate_account(body: Any, *, create: bool) -> tuple[dict | None, list[Issue]]:
-    """作成: name 必須・capitalYen 任意（既定 null）・riskTolerancePct 任意（既定 1）。直す: 3 欄とも必須。
-    ほかの欄（通貨など）は unknownField"""
+    """作成: name 必須・currency 任意（既定 JPY）・capitalYen 任意（既定 null）・riskTolerancePct 任意（既定 1）。
+    直す: name・capitalYen・riskTolerancePct は必須、currency は任意（省くと今のまま = 応答に入れない）。
+    ほかの欄は unknownField"""
     c = _Checker()
     src = c.obj(body, "", _ACCOUNT_FIELDS)
     if src is None:
         return None, c.issues
     out: dict = {}
     _put(out, "name", c.field(src, "name", "", _name_check(c), required=True))
+    if create:
+        _put(out, "currency", c.field(src, "currency", "", _account_currency_check(c)), DEFAULT_ACCOUNT_CURRENCY)
+    else:
+        _put(out, "currency", c.field(src, "currency", "", _account_currency_check(c)))
     if create:
         _put(out, "capitalYen", c.field(src, "capitalYen", "", _capital_check(c)), None)
         _put(out, "riskTolerancePct", c.field(src, "riskTolerancePct", "", _risk_check(c)), DEFAULT_ACCOUNT_RISK_PCT)

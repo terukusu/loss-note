@@ -319,9 +319,26 @@ def test_trade_account_id_is_optional_and_checked():
 
 def test_account_create_defaults():
     assert validate_account({"name": " 口座 A "}, create=True) == (
-        {"name": "口座 A", "capitalYen": None, "riskTolerancePct": 1}, [])  # fmt: skip
-    body = {"name": "口座 B", "capitalYen": 200_000, "riskTolerancePct": 2.5}
+        {"name": "口座 A", "currency": "JPY", "capitalYen": None, "riskTolerancePct": 1}, [])  # fmt: skip
+    body = {"name": "口座 B", "currency": "USD", "capitalYen": 200_000, "riskTolerancePct": 2.5}
     assert validate_account(body, create=True) == (body, [])
+
+
+def test_account_update_currency_optional():
+    """#47 PR-2: 直すの currency は任意（省くと値に入らない = 今のまま）"""
+    body = {"name": "口座 A", "capitalYen": None, "riskTolerancePct": 1}
+    assert validate_account(body, create=False) == (body, [])
+    assert validate_account({**body, "currency": "USD"}, create=False) == ({**body, "currency": "USD"}, [])
+
+
+@pytest.mark.parametrize("currency", ["usd", "US", "USDX", "", None, 1, "円円円"])
+@pytest.mark.parametrize("create", [True, False])
+def test_account_currency_format(currency, create):
+    """口座の通貨は英大文字 3 文字だけ（違えば 400 format。値を返さない）"""
+    body = {"name": "口座", "capitalYen": None, "riskTolerancePct": 1, "currency": currency}
+    value, issues = validate_account(body, create=create)
+    assert value is None
+    assert kinds(issues) == {("currency", "format")}
 
 
 def test_account_update_requires_all():
@@ -335,7 +352,7 @@ def test_account_update_requires_all():
 @pytest.mark.parametrize(
     ("body", "expected"),
     [
-        ({"name": "口座", "currency": "USD"}, ("", "unknownField")),
+        ({"name": "口座", "color": "USD"}, ("", "unknownField")),
         ({"name": "x" * 41}, ("name", "length")),
         ({"name": "  "}, ("name", "length")),
         ({"name": "口座\u202e"}, ("name", "control")),

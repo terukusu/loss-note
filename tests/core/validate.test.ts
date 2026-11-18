@@ -63,7 +63,9 @@ describe('受け付けない入力', () => {
       field: 'capitalYen',
     });
     expect(
-      validateTrade(trade({ instrument: { multiplier: -1, quantityStep: 1, isJpy: true } })),
+      validateTrade(
+        trade({ instrument: { multiplier: -1, quantityStep: 1, priceInAccountCurrency: true } }),
+      ),
     ).toContainEqual({ kind: 'invalidNumber', field: 'instrument.multiplier' });
   });
 });

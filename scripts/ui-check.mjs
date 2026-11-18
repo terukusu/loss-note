@@ -26,6 +26,8 @@
 // 数量と提案の数量（Issue #67）: 手順 SZ1（幅 360 の記録する画面・詳細・編集の画面で、判定の枠の数量の行が区切りの中で折れず・
 // --ink-3・数の段の直後・横スクロール 0。2〜3 桁の比・小数 / 7 桁の提案の数量・1R が出ない・エントリー 2 つも。詳細の「すべての欄」に 2 行）を流す。
 // R12 は口座 1 つの形の全長 2,550px に加えて、口座 2 つ・3 つの形に 2,646px（欄 1 つ分 96px まで）の上限を見る。
+// 通貨と為替（Issue #47 PR-2・U34）: 記録する画面の為替の欄（USD 建て）・為替 7 桁・明細から逆算した為替・為替の誤り・USD の口座、
+// 設定の USD の口座の行と通貨を直せない口座の直す欄、詳細（外貨建て）を同じ幅とテーマで測る。円の口座・円建ての形は今のまま。
 // 記録する画面の密度と階層（Issue #33）: 全状態で枠の入れ子（線か、最も近い面と違う面の色を持つ箱の祖先）が 3 段以上の要素を
 // 数え、幅 360 の記録する画面の全状態で貼り付きの帯の高さ（64px まで）と状態の文の行数（1 行まで）・切れ（scrollWidth）、直す画面の帯の高さ
 // （変える前の 161.1px まで）を測る。手順 R11（最後のタップの直後に判定のバッジと R が見える）・R12（開いた直後の 1 画面・
@@ -420,6 +422,45 @@ const TX_R3 = exampleTrade('x-r3', 1700000000013, {
   statementPnlYen: -8000,
 });
 const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2, TX_R1, TX_R2, TX_R3];
+/** #47 PR-2: JPY の口座 × USD 建て・為替 150 の取引（詳細の外貨建ての測りで一時だけ足す。架空の値） */
+const TX_FX = exampleTrade(
+  'x-fx',
+  1700000000021,
+  {
+    instrumentId: 'inst-usd',
+    entries: [{ price: 100, quantity: 100 }],
+    exit: { ...rulerExit(30, 99.5, 'lc'), fxRate: 150 },
+    statementPnlYen: undefined,
+  },
+  {
+    snapshot: {
+      ...SNAP,
+      instrument: { ...SNAP.instrument, priceCurrency: 'USD' },
+      accountCurrency: 'JPY',
+    },
+  },
+);
+/** #47 PR-2: USD の口座・USD 建ての取引（明細の損益 −51.50 USD・手数料 1.50 USD。詳細の測りで一時だけ足す。架空の値） */
+const TX_FXU = exampleTrade(
+  'x-fxu',
+  1700000000022,
+  {
+    instrumentId: 'inst-usd',
+    accountId: 'acc-usd',
+    entries: [{ price: 100, quantity: 100 }],
+    exit: rulerExit(31, 99.5, 'lc'),
+    statementPnlYen: -51.5,
+    fees: [{ amountYen: 1.5 }],
+  },
+  {
+    snapshot: {
+      ...SNAP,
+      instrument: { ...SNAP.instrument, priceCurrency: 'USD' },
+      capitalYen: 10000,
+      accountCurrency: 'USD',
+    },
+  },
+);
 /** H1: 決済の時刻の違う 7 件（新しい方から 2 件目が危ない勝ち = L3 の形） */
 const TX_H1 = Array.from({ length: 7 }, (_, i) => {
   const base = i === 1 ? TX_L3 : TX_L1;
@@ -522,6 +563,8 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
  * 付け替えたときだけ付け替え先の今の値で写し直す。opts.failAccounts は PUT /api/accounts/<id> の状態
  * POST /api/chart-reads（Issue #27）は api.chartTimeframes の先頭から順に時間足を返す（無ければ null = 読めなかった）。
  * api.chartRead（{ status, kind, holdMs }。後から書き換えてよい）で状態・種類・待ちを変える。要求の数を api.chartReads に残す
+ * 口座の通貨（Issue #47 PR-2）: 口座はいつも currency を返す（無い = JPY）。POST / PUT の currency は任意（PUT の省略は今のまま）。
+ * 取引のある口座の通貨を変える PUT は 409 currencyLocked。取引の snapshot に口座の通貨（accountCurrency）を写す
  */
 async function installFakeApi(context, opts = {}) {
   const api = {
@@ -577,6 +620,9 @@ async function installFakeApi(context, opts = {}) {
     );
   const okCap = (cap) => cap === null || (typeof cap === 'number' && cap > 0);
   const okRisk = (risk) => typeof risk === 'number' && risk >= 0.5 && risk <= 3;
+  const okCurrency = (c) => typeof c === 'string' && /^[A-Z]{3}$/.test(c);
+  const currencyOf = (a) => a.currency || 'JPY';
+  const withCurrency = (a) => ({ ...a, currency: currencyOf(a) });
   const json = (route, status, body) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await context.route('**/api/**', async (route) => {
@@ -708,7 +754,12 @@ async function installFakeApi(context, opts = {}) {
           ...prev,
           updatedAt: clock,
           snapshot: moved
-            ? { ...snap, capitalYen: moved.capitalYen, riskTolerancePct: moved.riskTolerancePct }
+            ? {
+                ...snap,
+                capitalYen: moved.capitalYen,
+                riskTolerancePct: moved.riskTolerancePct,
+                accountCurrency: currencyOf(moved),
+              }
             : snap,
           record:
             body.accountId === undefined && prev.record.accountId !== undefined
@@ -721,7 +772,7 @@ async function installFakeApi(context, opts = {}) {
     }
     if (key === 'GET /api/accounts') {
       ensureDefault();
-      return json(route, 200, { items: sortedAccounts() });
+      return json(route, 200, { items: sortedAccounts().map(withCurrency) });
     }
     if (key === 'POST /api/accounts') {
       api.writes.push({ key, body });
@@ -729,7 +780,8 @@ async function installFakeApi(context, opts = {}) {
       const name = typeof body.name === 'string' ? body.name.trim() : '';
       const cap = body.capitalYen ?? null;
       const risk = body.riskTolerancePct ?? 1;
-      if (name === '' || !okCap(cap) || !okRisk(risk))
+      const currency = body.currency ?? 'JPY';
+      if (name === '' || !okCap(cap) || !okRisk(risk) || !okCurrency(currency))
         return json(route, 400, { error: 'invalid' });
       if (api.accounts.some((a) => nameKey(a.name) === nameKey(name))) {
         return json(route, 409, { error: 'conflict', reason: 'duplicateName' });
@@ -738,9 +790,10 @@ async function installFakeApi(context, opts = {}) {
       const acc = {
         id: `acc-${++seq}`,
         name,
+        currency,
         capitalYen: cap,
         riskTolerancePct: risk,
-        capitalHistory: cap === null ? [] : [{ valueYen: cap, at: clock }],
+        capitalHistory: cap === null ? [] : [{ valueYen: cap, at: clock, currency }],
         createdAt: clock,
         updatedAt: clock,
       };
@@ -754,13 +807,26 @@ async function installFakeApi(context, opts = {}) {
       const idx = api.accounts.findIndex((a) => a.id === id);
       if (idx < 0) return json(route, 404, { error: 'not_found' });
       const prev = api.accounts[idx];
-      if (req.method() === 'GET') return json(route, 200, prev);
+      if (req.method() === 'GET') return json(route, 200, withCurrency(prev));
       if (req.method() === 'PUT') {
         api.writes.push({ key, body });
         if (opts.failAccounts) return json(route, opts.failAccounts, { error: 'unavailable' });
         const name = typeof body.name === 'string' ? body.name.trim() : '';
-        if (name === '' || !okCap(body.capitalYen) || !okRisk(body.riskTolerancePct)) {
+        const prevCurrency = currencyOf(prev);
+        const currency = body.currency ?? prevCurrency;
+        if (
+          name === '' ||
+          !okCap(body.capitalYen) ||
+          !okRisk(body.riskTolerancePct) ||
+          !okCurrency(currency)
+        ) {
           return json(route, 400, { error: 'invalid' });
+        }
+        if (
+          currency !== prevCurrency &&
+          api.trades.some((t) => (t.record.accountId || 'default') === id)
+        ) {
+          return json(route, 409, { error: 'conflict', reason: 'currencyLocked' });
         }
         if (api.accounts.some((a) => a.id !== id && nameKey(a.name) === nameKey(name))) {
           return json(route, 409, { error: 'conflict', reason: 'duplicateName' });
@@ -769,12 +835,13 @@ async function installFakeApi(context, opts = {}) {
         const next = {
           id,
           name,
+          currency,
           capitalYen: body.capitalYen,
           riskTolerancePct: body.riskTolerancePct,
           capitalHistory:
-            body.capitalYen === prev.capitalYen
+            body.capitalYen === prev.capitalYen && currency === prevCurrency
               ? prev.capitalHistory
-              : [...prev.capitalHistory, { valueYen: body.capitalYen, at: clock }],
+              : [...prev.capitalHistory, { valueYen: body.capitalYen, at: clock, currency }],
           createdAt: prev.createdAt,
           updatedAt: clock,
         };
@@ -880,6 +947,7 @@ async function installFakeApi(context, opts = {}) {
           },
           capitalYen: s.capitalYen,
           riskTolerancePct: s.riskTolerancePct,
+          accountCurrency: currencyOf(s),
         },
         record: body,
         ...(chartParts && Object.keys(chartParts).length > 0
@@ -1185,9 +1253,10 @@ function imageInfoOf(b) {
 
 /** 記録する画面の状態（幅 × テーマで測る）。fn は開いた画面をその状態にする（api は偽の API。読み取りの応答を決める） */
 /** 口座の例（Issue #47。名前・値はすべて架空） */
-const acct = (id, name, capitalYen, riskTolerancePct = 1) => ({
+const acct = (id, name, capitalYen, riskTolerancePct = 1, currency = 'JPY') => ({
   id,
   name,
+  currency,
   capitalYen,
   riskTolerancePct,
   capitalHistory: capitalYen === null ? [] : [{ valueYen: capitalYen, at: 1799000000000 }],
@@ -1199,11 +1268,32 @@ const ACC_B = acct('acc-b', '口座 B', 200000);
 const ACC_C = acct('acc-c', '口座 C', null);
 const ACC_D = acct('acc-d', '口座 D', 500000);
 const ACC_LONG = acct('acc-long', '架空の長い名前の口座 B（長期の積み立てと短期の売買）', 200000);
+/** USD の口座（#47 PR-2。架空の値） */
+const ACC_USD = acct('acc-usd', '口座 D', 10000, 1, 'USD');
 const ACCOUNTS_2 = [ACC_ONE, ACC_B];
 const ACCOUNTS_3_LONG = [ACC_ONE, ACC_LONG, ACC_C];
 const ACCOUNTS_4 = [ACC_ONE, ACC_B, ACC_C, ACC_D];
 /** 偽の API の口座を入れ替える（空 = 既定の口座を設定から作り直す） */
 const setAccounts = (api, list) => api.accounts.splice(0, api.accounts.length, ...list);
+/** EUR 建ての架空の銘柄（#47 PR-2） */
+const FAKE_EUR_IDX = { ...FAKE_US30, id: 'inst-eur', name: '架空指数E', priceCurrency: 'EUR' };
+/** USD 建ての架空の銘柄（#47 PR-2）を一覧に足す（何度呼んでも 1 つ） */
+const FAKE_USD_IDX = { ...FAKE_US30, id: 'inst-usd', name: '架空指数U', priceCurrency: 'USD' };
+const withUsdInstrument = (api) => {
+  if (!api.instruments.some((i) => i.id === FAKE_USD_IDX.id)) api.instruments.push(FAKE_USD_IDX);
+};
+/** USD 建ての銘柄で場面 P（L・100.00 / 99.50 / 99.50 or 99.40・数量 100）を入れる */
+async function fillFx(page, exit = '99.50') {
+  await page.locator('#record-instrument').fill(FAKE_USD_IDX.name);
+  await seg(page, 'L / S', 'L ロング').click();
+  await page.locator('#record-entry').fill('100.00');
+  await page.locator('#record-exit').fill(exit);
+  await page.locator('#record-quantity').fill('100');
+  await page.locator('#record-lc').fill('99.50');
+  await seg(page, 'LC を入る前に決めていたか', '決めていた').click();
+  await seg(page, 'LC を動かしたか', 'そのまま').click();
+  await seg(page, '時間足を変えたか', '変えず').click();
+}
 
 const RECORD_STATES = [
   { slug: 'record-1-open', name: '開いた直後', fn: async () => {} },
@@ -1487,6 +1577,127 @@ const RECORD_STATES = [
         .waitFor();
     },
   },
+  // 通貨と為替（Issue #47 PR-2・U23〜U26・U34）
+  {
+    slug: 'record-21-fx',
+    name: '為替の欄（USD 建て）',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: withUsdInstrument,
+    fn: async (p) => {
+      await fillFx(p);
+      await p.locator('#record-fx').fill('150');
+      await p.locator('#record-fx-line', { hasText: '1 USD = 150円' }).waitFor();
+      await p.locator('#record-instrument-hint', { hasText: 'USD 建て' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-22-fx-7digits',
+    name: '為替 7 桁',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: withUsdInstrument,
+    fn: async (p) => {
+      await fillFx(p);
+      await p.locator('#record-fx').fill('1234567');
+      await p.locator('#record-fx-line', { hasText: '1 USD = 1234567円' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-23-fx-derived',
+    name: '明細から逆算した為替',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: withUsdInstrument,
+    fn: async (p) => {
+      await fillFx(p, '99.40');
+      await p.locator('details.more > summary').click();
+      await p.locator('#record-pnl').fill('-9100');
+      await p.locator('#record-fee').fill('100');
+      await p.locator('#record-fx-line', { hasText: '明細から 1 USD = 150.00円' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-24-fx-error',
+    name: '為替の誤り',
+    // 撮るのは為替の欄そのもの（.field--error と文言）
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: withUsdInstrument,
+    fn: async (p) => {
+      await fillFx(p);
+      await p.locator('#record-fx').fill('0');
+      await p.locator('.record__status', { hasText: '誤り 1 欄' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-25-fx-none',
+    name: '為替も損益も無い',
+    // 資金のある口座で（資金が未設定だと注記は「資金を設定すると…」になる）
+    prep: (api) => {
+      withUsdInstrument(api);
+      setAccounts(api, [ACC_ONE]);
+    },
+    fn: async (p) => {
+      await fillFx(p);
+      await p.locator('.verdict__why', { hasText: '為替か損益を入力すると表示されます' }).waitFor();
+    },
+  },
+  {
+    // 為替が空で明細の損益も無い取引の欄（「1 USD = ?円（空でも記録できます）」）
+    slug: 'record-25b-fx-empty',
+    name: '為替が空（取引の欄）',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => {
+      withUsdInstrument(api);
+      setAccounts(api, [ACC_ONE]);
+    },
+    fn: async (p) => {
+      await fillFx(p);
+      await p
+        .locator('#record-fx-line', { hasText: '1 USD = ?円（空でも記録できます）' })
+        .waitFor();
+    },
+  },
+  {
+    slug: 'record-26-usd-account',
+    name: 'USD の口座',
+    prep: (api) => {
+      withUsdInstrument(api);
+      setAccounts(api, [{ ...ACC_USD, id: 'default' }]);
+    },
+    fn: async (p) => {
+      await fillFx(p);
+      await p.locator('.verdict', { hasText: '50.00' }).waitFor();
+    },
+  },
+  {
+    // USD の口座の取引の枠の上（EUR 建て: 銘柄の下の「EUR 建て」・為替の単位「USD」・「1 EUR = ? USD」）
+    slug: 'record-27-usd-eur',
+    name: 'USD の口座・EUR 建て',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => {
+      withUsdInstrument(api);
+      if (!api.instruments.some((i) => i.id === FAKE_EUR_IDX.id))
+        api.instruments.push(FAKE_EUR_IDX);
+      setAccounts(api, [{ ...ACC_USD, id: 'default' }]);
+    },
+    fn: async (p) => {
+      await fillFx(p);
+      await p.locator('#record-instrument').fill(FAKE_EUR_IDX.name);
+      await p.locator('#record-fx-line', { hasText: '1 EUR = ? USD' }).waitFor();
+      await p.locator('#record-instrument-hint', { hasText: 'EUR 建て' }).waitFor();
+    },
+  },
+  {
+    // USD の口座で明細を貼った（U28: 損益・手数料は空、その下に「USD の口座では…」・単位 USD）
+    slug: 'record-28-usd-statement',
+    name: 'USD の口座で明細',
+    anchor: 'details.more',
+    prep: (api) => setAccounts(api, [{ ...ACC_USD, id: 'default' }]),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor();
+      await p.locator('#record-money-note', { hasText: 'USD の口座では' }).waitFor();
+    },
+  },
   {
     slug: 'record-10-read-failed',
     name: '読み取りの失敗',
@@ -1600,6 +1811,37 @@ const SETTINGS_STATES = [
       await p.locator('#settings-account-save').click();
       await p
         .locator('#settings-account-name-error', { hasText: '同じ名前の口座があります' })
+        .waitFor();
+    },
+  },
+  {
+    // #47 PR-2 U30: USD の口座の行
+    slug: 'settings-8-usd-row',
+    name: 'USD の口座の行',
+    prep: (api) => {
+      seedSettings(api);
+      setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_USD]);
+    },
+    fn: async (p) => {
+      await p.locator('.instlist__item', { hasText: '10,000.00 USD · 許容 1%' }).waitFor();
+      await p.getByRole('button', { name: '口座 D を編集' }).click();
+      await p.locator('#settings-account-currency').waitFor();
+    },
+  },
+  {
+    // #47 PR-2 U31: 取引のある口座（既定の口座。例の取引は口座が付いていない）の直す欄は通貨が文字
+    slug: 'settings-9-currency-locked',
+    name: '通貨を変更できない口座',
+    prep: (api) => {
+      seedSettings(api);
+      setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_USD]);
+    },
+    fn: async (p) => {
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      // 通貨を変える操作のときだけ取引を確かめる（開いたときは読まない）。取引のある口座は文字に戻る
+      await p.locator('input#settings-account-currency').fill('USD');
+      await p
+        .locator('#settings-account-currency', { hasText: '取引があるので変更できません' })
         .waitFor();
     },
   },
@@ -2369,6 +2611,82 @@ async function main() {
             setAccounts(recApi, []);
           }
         }
+        // 詳細と編集（外貨建て。#47 PR-2 U32・U33・U34）: 外貨の取引を一時だけ足して測る
+        for (const fx of [
+          {
+            path: '/trades/x-fx',
+            h1: '架空指数U · L',
+            slug: 'trade-x-fx',
+            name: '外貨建て',
+            trade: TX_FX,
+            after: async (pg) => {
+              await pg.locator('details.more > summary', { hasText: 'すべての欄' }).first().click();
+              await pg.locator('.fields__row', { hasText: '1 USD = 150円' }).waitFor();
+            },
+          },
+          {
+            path: '/trades/x-fxu',
+            h1: '架空指数U · L',
+            slug: 'trade-x-fxu',
+            name: 'USD の口座の取引',
+            trade: TX_FXU,
+            after: async (pg) => {
+              await pg.locator('details.more > summary', { hasText: 'すべての欄' }).first().click();
+              await pg.locator('.fields__row', { hasText: '50.00 USD' }).first().waitFor();
+            },
+          },
+          {
+            path: '/trades/x-fx/edit',
+            h1: '取引を編集',
+            slug: 'trade-x-fx-edit-usd',
+            name: '編集で USD の口座へ',
+            trade: TX_FX,
+            after: async (pg) => {
+              await seg(pg, '口座', '口座 D').click();
+              await pg.locator('#record-account-hint', { hasText: '通貨が違うので' }).waitFor();
+              await pg.locator('#record-account-field').scrollIntoViewIfNeeded();
+            },
+          },
+        ]) {
+          const tp = pageFor.get(false);
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`${fx.path}（${fx.name}）`, 22)}`;
+          withUsdInstrument(recApi);
+          setAccounts(recApi, [ACC_ONE, ACC_USD]);
+          recApi.trades.push(fx.trade);
+          try {
+            await tp.goto(base + fx.path);
+            await waitReady(tp, fx.h1);
+            await tp.locator('.verdict').first().waitFor({ timeout: 15000 });
+            await fx.after(tp);
+            await tp.mouse.move(0, 0);
+            const m = await measure(tp, w === 360, TAP);
+            states++;
+            worstH = Math.max(worstH, m.h);
+            smallTotal += m.small.length;
+            clippedTotal += m.clipped.length;
+            const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;
+            const targetCol = w === 360 ? `当たり<44 ${m.small.length}件` : '';
+            console.log(`${label} 横 ${m.h}px  ${targetCol}${ng ? '  NG' : ''}`);
+            if (m.h > 0) problems.push(`${label}: 横スクロール ${m.h}px`);
+            for (const x of m.clipped) problems.push(`${label}: はみ出し ${x}`);
+            for (const x of m.small) problems.push(`${label}: 当たり<44 ${x}`);
+            checkNest(label, m);
+            for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
+            if (opts.shots) {
+              await tp.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-${fx.slug}.png`),
+                fullPage: true,
+              });
+            }
+          } catch (e) {
+            const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+            console.log(`${label} 開けない  NG`);
+            problems.push(`${label}: 開けない ${msg}`);
+          } finally {
+            recApi.trades.splice(recApi.trades.indexOf(fx.trade), 1);
+            setAccounts(recApi, []);
+          }
+        }
         for (const c of contexts) await c.close();
       }
     }
@@ -2377,7 +2695,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -3873,7 +4191,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('#settings-inst-step').fill('0.1');
       await p.locator('form.instedit button[type="submit"]').click();
       await p.getByRole('status').filter({ hasText: 'US30 を保存しました' }).waitFor();
-      const want = '株価指数 · 現物・CFD · 通貨 USD · 乗数 1 · 刻み 0.1';
+      const want = '株価指数 · 現物・CFD · USD 建て · 乗数 1 · 刻み 0.1';
       await p.locator('.instlist__item', { hasText: want }).waitFor();
       // フォーカスは描き直しの後の effect で移る（待つ）
       await expectPollAsync(
@@ -3920,7 +4238,9 @@ async function runFlows(browser, base, signedIn) {
       await p.getByRole('status').filter({ hasText: 'GOLD を足しました' }).waitFor();
       const row = p.locator('.instlist__item', { hasText: 'GOLD' });
       await row.filter({ hasText: '仮の値' }).waitFor();
-      await row.filter({ hasText: 'その他 · 現物・CFD · 通貨 未設定 · 乗数 1 · 刻み 1' }).waitFor();
+      await row
+        .filter({ hasText: 'その他 · 現物・CFD · 価格の通貨 未設定 · 乗数 1 · 刻み 1' })
+        .waitFor();
       const post = fake.writes.find((x) => x.key === 'POST /api/instruments');
       expectEq(JSON.stringify(post?.body), JSON.stringify({ name: 'GOLD' }), '足す本文');
       // E7（A7）: 口座 1 の許容リスク 2.5 → 警告を出して保存できる
@@ -4053,6 +4373,39 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return '口座 2 つ: Segment の 1 タップで口座 B → リスク 0.5% → 2.5%・過剰リスクの理由・判定の枠の 1 行がその場で変わる、横スクロール 0、「口座 B に記録しました」';
+  });
+
+  // ── 通貨と為替（Issue #47 PR-2。FX1）。幅 360 で、USD 建ての銘柄を選ぶと為替の欄が出て、円建てに戻すと消える（AC-21）
+  await check('FX1', async () => {
+    const { c, p, fake, errors } = await recordContext({ capitalYen: 1000000 });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      fake.instruments[0] = { ...FAKE_US30, priceCurrency: 'JPY' };
+      withUsdInstrument(fake);
+      await openRecord(p, base);
+      await fillFx(p);
+      await p.locator('#record-fx').waitFor();
+      await p.locator('#record-instrument-hint', { hasText: 'USD 建て' }).waitFor();
+      const h1 = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expectEq(h1, 0, '横スクロール（為替の欄あり）');
+      await p.locator('#record-fx').fill('150');
+      await p.locator('#record-fx-line', { hasText: '1 USD = 150円' }).waitFor();
+      // 円建ての銘柄へ戻す → 為替の欄・建ての 1 行が消える（消えた欄の値は本文に入れない）
+      await p.locator('#record-instrument').fill('US30');
+      await p.locator('#record-fx').waitFor({ state: 'detached' });
+      expectEq(await p.locator('#record-instrument-hint').count(), 0, '建ての 1 行');
+      const h2 = await p.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expectEq(h2, 0, '横スクロール（為替の欄なし）');
+      // 数量を円建ての例に合わせて記録する（本文に為替が無い）
+      await p.locator('#record-quantity').fill('10000');
+      await p.locator('#record-submit').click();
+      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      expectEq(JSON.stringify(fake.posts.at(-1)?.exit?.fxRate), undefined, '本文の為替');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'USD 建てで為替の欄と「USD 建て」が出て、円建てに戻すと消える。横スクロール 0、本文に為替なし';
   });
 
   await check('ACC2', async () => {
@@ -4352,8 +4705,8 @@ async function runFlows(browser, base, signedIn) {
         throw new Error(`L3 の行: ${rows[1].text}`);
       const notes = (await p.locator('.tradelist__notes').textContent()) ?? '';
       for (const want of [
-        'リスクの「—」: 資金を設定すると出ます（1 件）',
-        'R・リスクの「—」: LC が無いので出ません（1 件）',
+        'リスクの「—」: 資金を設定すると表示されます（1 件）',
+        'R・リスクの「—」: LC が無いので表示されません（1 件）',
       ]) {
         if (!notes.includes(want)) throw new Error(`一覧の下の理由に「${want}」が無い`);
       }

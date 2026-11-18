@@ -48,10 +48,10 @@ function texts(r: DraftReading): string[] {
   return (r.preview.judgment?.reasons ?? []).map((x) => reasonText(x, side));
 }
 
-/** 同じ取引を、画面の下書きを通さず計算の入力に直接組む（AC-3 の突き合わせ。価格の通貨 未設定 = isJpy false） */
+/** 同じ取引を、画面の下書きを通さず計算の入力に直接組む（AC-3 の突き合わせ。価格の通貨 未設定 = priceInAccountCurrency false） */
 function direct(over: Partial<TradeInput>, exit: number, ctx: DraftContext): TradeInput {
   const t = trade({
-    instrument: { multiplier: 1, quantityStep: 1, isJpy: false },
+    instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: false },
     riskTolerancePct: moneyOf(ctx.accounts).riskTolerancePct,
     ...over,
   });
@@ -184,7 +184,7 @@ describe('例の表（AC-1・AC-3）', () => {
     expectSameAsCore(r, direct({}, 100, NO_CAPITAL));
   });
 
-  it('E11: 資金あり・損益（円）空・通貨未設定 → R −1.0R、リスクの場所は「損益（円）を入れると出ます」', () => {
+  it('E11: 資金あり・損益空・通貨未設定 → R −1.0R、リスクの場所は「損益を入力すると表示されます」', () => {
     const r = readDraft(E11, CAPITAL_1M);
     expect(formatR(r.preview.r)).toBe(`${MINUS}1.0R`);
     expect(r.preview.riskPct).toBeUndefined();
@@ -219,7 +219,7 @@ describe('例の表（AC-1・AC-3）', () => {
     expect(r.body?.lcMove).toEqual({ kind: 'none' });
   });
 
-  it('E16: 資金があっても LC なしは「1R が出ないので過剰リスクは見ていない」とリスクの場所の「LC が無いので出ません」', () => {
+  it('E16: 資金があっても LC なしは「1R が出ないので過剰リスクは見ていない」とリスクの場所の「LC が無いので表示されません」', () => {
     const r = readDraft(E16, CAPITAL_1M);
     expect(texts(r)).toContain('1R が出ないので過剰リスクは見ていない');
     expect(r.preview.riskNote).toBe(RISK_NOTE.noLc);

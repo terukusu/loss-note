@@ -1612,3 +1612,170 @@ describe('口座（#47 B5・B6・U9・KEEP-3）', () => {
     expect(posts(fake, '/api/trades')[0]?.body).toMatchObject({ accountId: ACC_B.id });
   });
 });
+
+describe('外貨の口座で明細を貼る・口座を替える（#47 PR-2・R7・F13・AC-17）', () => {
+  /** 口座 A（既定・JPY）と口座 D（USD）。最後の取引は口座 A */
+  async function openedTwo(accountId?: string) {
+    const fake = createFakeApi({
+      instruments: [B],
+      trades: [storedTrade('t-b', B.id, 1, 1_000, 2_000)],
+      accounts: [
+        defaultAccount(1_000_000),
+        account('accD', '口座 D', 10_000, 1, { currency: 'USD' }),
+      ],
+      reads: [ok([ROW_E1])],
+    });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => ({ ok: true, image: preparedImage(fakePreview()) }),
+    });
+    await c.load();
+    if (accountId !== undefined) c.update({ type: 'set', field: 'accountId', value: accountId });
+    return { fake, c };
+  }
+
+  it('F13: USD の口座で貼る → 損益・手数料は空・印なし、ほかの 7 欄は読み取りの値と印', async () => {
+    const { c } = await openedTwo('accD');
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.draft.pnlYen).toBe('');
+    expect(s.draft.feeYen).toBe('');
+    expect(s.statement?.marks.pnlYen).toBeUndefined();
+    expect(s.statement?.marks.feeYen).toBeUndefined();
+    for (const f of READ_FIELDS) {
+      if (f === 'pnlYen' || f === 'feeYen') continue;
+      expect(s.statement?.marks[f], f).toBe('read');
+    }
+    expect(s.draft).toMatchObject({
+      instrumentName: '架空指数A',
+      entryPrice: '100',
+      quantity: '2',
+    });
+  });
+
+  it('JPY の口座で貼ってから USD の口座へ → 空に戻る。JPY へ戻すと入る。手で打った損益は残る', async () => {
+    const { c } = await openedTwo();
+    await c.readImage(img());
+    expect(c.getState().draft.pnlYen).toBe('-2000');
+    c.update({ type: 'set', field: 'accountId', value: 'accD' });
+    expect(c.getState().draft.pnlYen).toBe('');
+    expect(c.getState().draft.feeYen).toBe('');
+    expect(c.getState().statement?.marks.pnlYen).toBeUndefined();
+    c.update({ type: 'set', field: 'accountId', value: 'default' });
+    expect(c.getState().draft.pnlYen).toBe('-2000');
+    expect(c.getState().draft.feeYen).toBe('150');
+    expect(c.getState().statement?.marks.pnlYen).toBe('read');
+    // USD の口座で損益を手で打つ → JPY へ替えても残る（手数料は入れ直す）
+    c.update({ type: 'set', field: 'accountId', value: 'accD' });
+    c.update({ type: 'set', field: 'pnlYen', value: '-13.5' });
+    c.update({ type: 'set', field: 'accountId', value: 'default' });
+    expect(c.getState().draft.pnlYen).toBe('-13.5');
+    expect(c.getState().draft.feeYen).toBe('150');
+  });
+
+  it('USD の口座で記録した本文に損益・手数料が無く、snapshot は USD', async () => {
+    const { fake, c } = await openedTwo('accD');
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    const saved = added(fake)[0];
+    expect(saved?.record.statementPnlYen).toBeUndefined();
+    expect(saved?.record.fees).toEqual([]);
+    expect(saved?.record.accountId).toBe('accD');
+    expect(saved?.snapshot.accountCurrency).toBe('USD');
+  });
+});
+
+describe('記録する画面: 通貨の組が変わったら打った為替を空にする（#47 PR-2 のレビュー指摘 2）', () => {
+  const USD_I = { ...US30, id: 'inst-usd', name: '架空指数U', priceCurrency: 'USD' };
+  const EUR_I = { ...US30, id: 'inst-eur', name: '架空指数E', priceCurrency: 'EUR' };
+  async function openedFx() {
+    const fake = createFakeApi({
+      instruments: [USD_I, EUR_I],
+      accounts: [
+        defaultAccount(1_000_000),
+        account('accE', '口座 E', 10_000, 1, { currency: 'EUR' }),
+      ],
+    });
+    const c = createRecordController({ api: fake.api, now: () => NOW });
+    await c.load();
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数U' });
+    c.update({ type: 'set', field: 'fxRate', value: '150' });
+    return c;
+  }
+
+  it('口座の通貨が変わったら空にする（1 USD = 150 EUR にしない）', async () => {
+    const c = await openedFx();
+    expect(c.getState().draft.fxRate).toBe('150');
+    c.update({ type: 'set', field: 'accountId', value: 'accE' });
+    expect(c.getState().draft.fxRate).toBe('');
+  });
+
+  it('銘柄の価格の通貨が変わったら空にする。同じ組のままの操作では残す', async () => {
+    const c = await openedFx();
+    c.update({ type: 'set', field: 'quantity', value: '100' });
+    expect(c.getState().draft.fxRate).toBe('150');
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数E' });
+    expect(c.getState().draft.fxRate).toBe('');
+  });
+});
+
+describe('記録する画面: 銘柄の名前を打っている途中では為替を空にしない（#47 PR-2 の再レビュー 2）', () => {
+  it('USD 建てで 150 → 名前を打ち直している途中は残り、EUR 建てに当たったら空', async () => {
+    const fake = createFakeApi({
+      instruments: [
+        { ...US30, id: 'inst-usd', name: '架空指数U', priceCurrency: 'USD' },
+        { ...US30, id: 'inst-eur', name: '架空指数E', priceCurrency: 'EUR' },
+      ],
+    });
+    const c = createRecordController({ api: fake.api, now: () => NOW });
+    await c.load();
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数U' });
+    c.update({ type: 'set', field: 'fxRate', value: '150' });
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数' });
+    expect(c.getState().draft.fxRate).toBe('150');
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数U' });
+    expect(c.getState().draft.fxRate).toBe('150');
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数' });
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数E' });
+    expect(c.getState().draft.fxRate).toBe('');
+  });
+});
+
+describe('記録する画面の為替の基準（#47 PR-2 の 3 回目の再レビュー 1・3）', () => {
+  const USD_I = { ...US30, id: 'inst-usd', name: '架空指数U', priceCurrency: 'USD' };
+  const NONE_I = { ...US30, id: 'inst-none', name: '架空指数N', priceCurrency: null };
+  const EUR_I = { ...US30, id: 'inst-eur', name: '架空指数E', priceCurrency: 'EUR' };
+
+  it('USD 建て → 価格の通貨が未設定の銘柄 → EUR 建て: 未設定では残し、EUR で空にする（USD を未設定で上書きしない）', async () => {
+    const fake = createFakeApi({ instruments: [USD_I, NONE_I, EUR_I] });
+    const c = createRecordController({ api: fake.api, now: () => NOW });
+    await c.load();
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数U' });
+    c.update({ type: 'set', field: 'fxRate', value: '150' });
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数N' });
+    expect(c.getState().draft.fxRate).toBe('150');
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数E' });
+    expect(c.getState().draft.fxRate).toBe('');
+  });
+
+  it('明細の読み取りが銘柄を EUR 建てへ入れ替えたら、USD 建てで打った為替を空にする', async () => {
+    const fake = createFakeApi({
+      instruments: [USD_I, EUR_I],
+      reads: [ok([{ ...ROW_E1, symbol: '架空指数E' }])],
+    });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => NOW,
+      prepare: async () => ({ ok: true, image: preparedImage(fakePreview()) }),
+    });
+    await c.load();
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数U' });
+    c.update({ type: 'set', field: 'fxRate', value: '150' });
+    await c.readImage(img());
+    expect(c.getState().draft.instrumentName).toBe('架空指数E');
+    expect(c.getState().draft.fxRate).toBe('');
+  });
+});

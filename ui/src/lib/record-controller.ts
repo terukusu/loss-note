@@ -62,18 +62,22 @@ import {
   type ChartUpload,
   tradeFormData,
 } from './charts';
+import { accountCurrencyIn } from './currency';
 import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import { nameKey as nameKeyOf } from './instrument-name';
 import { resolveInstrument as resolveInstrumentId } from './instrument-resolve';
 import {
   applyDraft,
+  applyFxRule,
   type Draft,
   type DraftAction,
   type DraftContext,
   type DraftField,
   type DraftReading,
   EMPTY_DRAFT,
+  type FxPair,
+  fxPairOf,
   readDraft,
   type Summary,
   summarize,
@@ -99,6 +103,7 @@ import {
   READ_MSG,
   type ReadRow,
   readFailureOf,
+  refillMoney,
   rowLabel,
 } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
@@ -547,14 +552,48 @@ export function createRecordController(deps: {
     state = rest;
   };
 
+  /**
+   * 口座を替えた後の下書きと印（#47 PR-2・ux 2.1）: 明細の行が読めていて口座の通貨が変わったら、外貨の口座へは読み取りで
+   * 入れた損益・手数料を空に戻し、JPY の口座へは今の行から入れ直す（手で打った値・触った欄は触らない）
+   */
+  const afterAccountChange = (
+    draft: Draft,
+    accounts: readonly AccountRecord[],
+  ): { draft: Draft; statement?: StatementState } => {
+    const st = state.statement;
+    const row = st?.phase === 'ready' ? st.rows[st.index] : undefined;
+    if (!st || !row) return { draft };
+    const before = accountCurrencyIn(state.accounts, state.draft.accountId);
+    const after = accountCurrencyIn(accounts, draft.accountId);
+    if (before === after) return { draft };
+    const filled = refillMoney({ draft, marks: st.marks }, row, touched, after);
+    return { draft: filled.draft, statement: { ...st, marks: filled.marks } };
+  };
+
+  /** 為替を打ったときの通貨の組（打っていなければ null。#47 PR-2） */
+  let fxBasis: FxPair | null = null;
+  /** 下書きに為替の規則を当てる（typed = いま為替の欄を打った: 基準の組を今の組にする） */
+  const withFxRule = (draft: Draft, accounts: readonly AccountRecord[], typed = false): Draft => {
+    const now = fxPairOf(draft, { instruments: state.instruments, accounts });
+    if (typed) {
+      fxBasis = draft.fxRate === '' ? null : now;
+      return draft;
+    }
+    const r = applyFxRule(draft, fxBasis, now);
+    fxBasis = r.basis;
+    return r.draft;
+  };
+
   /** 行 index の下書き（読み取りの欄 = 行、LC・一言・3 つのタップ・下げた後の LC は空） */
   const showRow = (st: StatementState, index: number, notice: string | null) => {
     const row = st.rows[index];
     if (!row) return;
     touched = new Set();
     clearCharts();
-    // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）
-    const filled = fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched);
+    // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）。外貨の口座では損益・手数料を入れない（PR-2・R7）
+    const filled = fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched, {
+      accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
+    });
     set(
       {
         phase: 'editing',
@@ -675,9 +714,12 @@ export function createRecordController(deps: {
       const st = state.statement;
       const row = result.rows[0];
       if (!st || !row || state.phase !== 'editing') return;
-      const filled = fillFromRow(state.draft, row, touched);
+      const filled = fillFromRow(state.draft, row, touched, {
+        accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
+      });
       set({
-        draft: filled.draft,
+        // 読み取りが銘柄を入れ替えたときも為替の規則を当てる（#47 PR-2 の 3 回目の再レビュー 3）
+        draft: withFxRule(filled.draft, state.accounts),
         statement: {
           ...st,
           phase: 'ready',
@@ -1023,7 +1065,8 @@ export function createRecordController(deps: {
       accountTaken = null;
       uncertainAccount = null;
       closeAdd();
-      set({ accounts, draft: { ...state.draft, accountId: id } });
+      const moved = withFxRule({ ...state.draft, accountId: id }, accounts);
+      set({ accounts, ...afterAccountChange(moved, accounts) });
     };
     try {
       let res: Response;
@@ -1127,11 +1170,27 @@ export function createRecordController(deps: {
         }
       }
       const st = state.statement;
+      // 口座・銘柄を替えて為替が意味を失ったら、打った為替を空にする（#47 PR-2。fxStale の規則）
+      const nextDraft = withFxRule(
+        applyDraft(state.draft, action),
+        state.accounts,
+        action.type === 'set' && action.field === 'fxRate',
+      );
+      if (st && action.type === 'set' && action.field === 'accountId') {
+        // 口座は読み取りの欄ではない（触った欄に入れない）。通貨が変われば損益・手数料を合わせる
+        set({
+          ...afterAccountChange(nextDraft, state.accounts),
+          error: null,
+          readBlocked: null,
+          chartBlocked: null,
+        });
+        return;
+      }
       if (st && action.type === 'set') {
         touched.add(action.field);
         const marks = markEdited(st.marks, action.field);
         set({
-          draft: applyDraft(state.draft, action),
+          draft: nextDraft,
           error: null,
           readBlocked: null,
           chartBlocked: null,
@@ -1140,7 +1199,7 @@ export function createRecordController(deps: {
         return;
       }
       set({
-        draft: applyDraft(state.draft, action),
+        draft: nextDraft,
         error: null,
         readBlocked: null,
         chartBlocked: null,

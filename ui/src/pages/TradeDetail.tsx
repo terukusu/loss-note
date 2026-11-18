@@ -7,6 +7,7 @@
 // TradeDetail は hook を持たない（App・経路のテストが 1 段だけ呼ぶ）。「見つかりません」の面は TradeDetail が作って渡す
 import type { JSX } from 'preact';
 import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
+import { accountCurrencyOf } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
@@ -186,6 +187,7 @@ function DetailBody(p: TradeDetailViewProps) {
   const accountLine = hasManyAccounts(state.accounts)
     ? verdictAsideText(tradeAccountName(t, state.accounts), t.snapshot.capitalYen, {
         recorded: true,
+        currency: accountCurrencyOf(t.snapshot),
       })
     : undefined;
   return (

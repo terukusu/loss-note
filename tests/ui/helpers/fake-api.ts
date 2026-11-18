@@ -25,6 +25,9 @@
 //   から写す。PUT で口座を付け替えたときだけ付け替え先の今の値で写し直す（本文に口座が無ければ前の口座を保つ）。無い口座は 400
 // - POST /api/chart-reads（#27）: opts.chartReads の台本を順に返す（無ければ { kind: 'chart', timeframe: null } =
 //   時間足を読めなかった）。要求は calls に Content-Type とバイト数だけを残す。holdChartReads / releaseChartReads で止める
+// - 口座の通貨（#47 PR-2）: 口座はいつも currency を返す（無い = JPY）。POST の currency は任意（既定 JPY）、PUT の currency は
+//   任意（省くと今のまま）。形は英大文字 3 文字。取引のある口座の通貨を変える PUT は 409 currencyLocked。履歴の新しい行は
+//   currency を持つ（通貨だけを変えても 1 行）。取引の snapshot に口座の通貨（accountCurrency）を写す
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 import {
   type AccountBody,
@@ -147,6 +150,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     accounts.push({
       id: DEFAULT_ACCOUNT_ID,
       name: DEFAULT_ACCOUNT_NAME,
+      currency: 'JPY',
       capitalYen: current.capitalYen,
       riskTolerancePct: current.riskTolerancePct,
       capitalHistory: [...current.capitalHistory],
@@ -163,6 +167,9 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   const okCapital = (cap: unknown) =>
     cap === null || (typeof cap === 'number' && cap > 0 && cap <= 1e12);
   const okRisk = (risk: unknown) => typeof risk === 'number' && risk >= 0.5 && risk <= 3;
+  const okCurrency = (c: unknown) => typeof c === 'string' && /^[A-Z]{3}$/.test(c);
+  const currencyOf = (a: Pick<AccountRecord, 'currency'>) => a.currency || 'JPY';
+  const withCurrency = (a: AccountRecord): AccountRecord => ({ ...a, currency: currencyOf(a) });
 
   const api: ApiFn = async (path, init = {}) => {
     const method = (init.method ?? 'GET').toUpperCase();
@@ -309,6 +316,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
                 ...snap0,
                 capitalYen: movedTo.capitalYen,
                 riskTolerancePct: movedTo.riskTolerancePct,
+                accountCurrency: currencyOf(movedTo),
               }
             : snap0,
           record: {
@@ -327,7 +335,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     }
     if (key === 'GET /api/accounts') {
       ensureDefault();
-      return json(200, { items: sortedAccounts() });
+      return json(200, { items: sortedAccounts().map(withCurrency) });
     }
     if (key === 'POST /api/accounts') {
       ensureDefault();
@@ -335,11 +343,13 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const name = typeof b.name === 'string' ? b.name.trim() : '';
       const cap = b.capitalYen ?? null;
       const risk = b.riskTolerancePct ?? 1;
-      const known = new Set(['name', 'capitalYen', 'riskTolerancePct']);
+      const currency = b.currency ?? 'JPY';
+      const known = new Set(['name', 'currency', 'capitalYen', 'riskTolerancePct']);
       if (
         name === '' ||
         !okCapital(cap) ||
         !okRisk(risk) ||
+        !okCurrency(currency) ||
         Object.keys(b).some((k) => !known.has(k))
       ) {
         return json(400, { error: 'invalid', issues: [{ field: 'account' }] });
@@ -351,9 +361,10 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const created: AccountRecord = {
         id: `acc-new-${++seq}`,
         name,
+        currency,
         capitalYen: cap,
         riskTolerancePct: risk,
-        capitalHistory: cap === null ? [] : [{ valueYen: cap, at: clock }],
+        capitalHistory: cap === null ? [] : [{ valueYen: cap, at: clock, currency }],
         createdAt: clock,
         updatedAt: clock,
       };
@@ -367,14 +378,25 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       const idx = accounts.findIndex((a) => a.id === id);
       if (idx < 0) return json(404, { error: 'not_found' });
       const prev = accounts[idx] as AccountRecord;
-      if (method === 'GET') return json(200, prev);
+      if (method === 'GET') return json(200, withCurrency(prev));
       if (method === 'PUT') {
         const b = body as Record<string, unknown>;
         const name = typeof b.name === 'string' ? b.name.trim() : '';
         const cap = b.capitalYen;
         const risk = b.riskTolerancePct;
-        if (name === '' || !('capitalYen' in b) || !okCapital(cap) || !okRisk(risk)) {
+        const prevCurrency = currencyOf(prev);
+        const currency = 'currency' in b ? b.currency : prevCurrency;
+        if (
+          name === '' ||
+          !('capitalYen' in b) ||
+          !okCapital(cap) ||
+          !okRisk(risk) ||
+          !okCurrency(currency)
+        ) {
           return json(400, { error: 'invalid', issues: [{ field: 'account' }] });
+        }
+        if (currency !== prevCurrency && trades.some((t) => accountIdOf(t.record) === id)) {
+          return json(409, { error: 'conflict', reason: 'currencyLocked' });
         }
         if (accounts.some((a) => a.id !== id && nameKey(a.name) === nameKey(name))) {
           return json(409, { error: 'conflict', reason: 'duplicateName' });
@@ -383,12 +405,16 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
         const next: AccountRecord = {
           id,
           name,
+          currency: currency as string,
           capitalYen: cap as number | null,
           riskTolerancePct: risk as number,
           capitalHistory:
-            cap === prev.capitalYen
+            cap === prev.capitalYen && currency === prevCurrency
               ? prev.capitalHistory
-              : [...prev.capitalHistory, { valueYen: cap as number | null, at: clock }],
+              : [
+                  ...prev.capitalHistory,
+                  { valueYen: cap as number | null, at: clock, currency: currency as string },
+                ],
           createdAt: prev.createdAt,
           updatedAt: Math.max(clock, prev.updatedAt + 1),
         };
@@ -508,6 +534,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
           },
           capitalYen: s.capitalYen,
           riskTolerancePct: s.riskTolerancePct,
+          accountCurrency: currencyOf(acc),
         },
         // API が既定を埋める欄（本文にあれば同じ値）
         record: {

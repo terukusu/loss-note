@@ -203,7 +203,11 @@ class MemoryStore:
             prev, pending = self._read_account(uid, account_id, build_default)
             if prev is None:
                 return None
-            new = mutate(copy.deepcopy(prev))
+            def in_use():
+                return any(accounts.account_id_of(t["record"]) == account_id
+                           for t in self._col(uid, "trades").values())  # fmt: skip
+
+            new = mutate(copy.deepcopy(prev), in_use)
             if self._name_taken(uid, new["nameKey"], except_id=account_id, collection="accounts"):
                 raise Conflict("duplicateName")
             if pending is not None:

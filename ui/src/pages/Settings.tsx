@@ -14,18 +14,27 @@ import type {
 import { api, signOutActive } from '../auth/session';
 import { AiUsageCard } from '../components/AiUsage';
 import { Button, buttonClass } from '../components/Button';
+import { AmountText } from '../components/Num';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
 import { TextField } from '../components/TextField';
-import { type AccountField, accountAllowanceLine, accountLine } from '../lib/accounts';
+import {
+  type AccountField,
+  accountAllowanceLine,
+  accountLine,
+  currencyOfAccount,
+  draftCurrencyOf,
+} from '../lib/accounts';
+import { currencyLockedText, unitOf } from '../lib/currency';
 import { formatDateTime } from '../lib/datetime';
-import { formatAmountYen } from '../lib/format';
+import { formatAmount } from '../lib/format';
 import {
   ACCOUNT_FIELD_ID,
   ADD_ACCOUNT_ID,
   accountEditButtonId,
   createSettingsController,
+  currencyLocked,
   type EditingAccount,
   type EditingInstrument,
   focusAfter,
@@ -328,8 +337,12 @@ function AccountRow({
         <p class="instlist__name">
           <span>{rec.name}</span>
         </p>
-        <p class="accountlist__line">{accountLine(rec)}</p>
-        <p class="instlist__summary accountlist__summary">{accountAllowanceLine(rec)}</p>
+        <p class="accountlist__line">
+          <AmountText text={accountLine(rec)} />
+        </p>
+        <p class="instlist__summary accountlist__summary">
+          <AmountText text={accountAllowanceLine(rec)} />
+        </p>
       </div>
       <button
         type="button"
@@ -356,8 +369,14 @@ function AccountEditor(
   const d = editing.draft;
   const e = editing.reading.errors;
   const body = editing.reading.body as AccountPut | null;
+  // 口座の通貨（#47 PR-2・U30・U31）: 取引のある口座は文字（欄にしない）。資金の単位は入れた通貨に追従
+  const savedCurrency = rec ? currencyOfAccount(rec) : 'JPY';
+  const locked = rec !== null && currencyLocked(p.state.accountsInUse, rec.id);
+  const currency = locked ? savedCurrency : draftCurrencyOf(d, savedCurrency);
   // 入れた値で、すぐに「1 回の負けの上限」を出す（どれかの欄に誤りがある間は出さない）
-  const allowance = body ? allowanceText(body.capitalYen, body.riskTolerancePct) : null;
+  const allowance = body
+    ? allowanceText(body.capitalYen, body.riskTolerancePct, body.currency ?? currency)
+    : null;
   const history = rec ? historyRows(rec.capitalHistory) : [];
   const title = rec ? `${rec.name} を編集` : '口座を足す';
   return (
@@ -386,14 +405,33 @@ function AccountEditor(
           placeholder="例: 口座 B"
           {...(e.name ? { error: e.name } : {})}
         />
+        {locked ? (
+          <p class="field__hint accountedit__currency" id={ACCOUNT_FIELD_ID.currency}>
+            {currencyLockedText(savedCurrency)}
+          </p>
+        ) : (
+          <TextField
+            id={ACCOUNT_FIELD_ID.currency}
+            label="通貨"
+            value={d.currency}
+            onInput={(v) => p.onAccount('currency', v)}
+            placeholder="例: JPY"
+            hint="英字 3 文字（例: JPY・USD）。取引を記録すると変更できません。"
+            {...(e.currency ? { error: e.currency } : {})}
+          />
+        )}
         <NumberField
           id={ACCOUNT_FIELD_ID.capital}
           label={rec ? '資金' : '資金（任意）'}
-          unit="円"
+          unit={unitOf(currency)}
           value={d.capital}
           onInput={(v) => p.onAccount('capital', v)}
-          placeholder="例: 1,000,000"
-          hint="円の整数。全角の数字・3 桁区切りのカンマも受けます。"
+          placeholder={currency === 'JPY' ? '例: 1,000,000' : '例: 10,000.00'}
+          hint={
+            currency === 'JPY'
+              ? '円の整数。全角の数字・3 桁区切りのカンマも受けます。'
+              : '小数 2 桁まで。全角の数字・3 桁区切りのカンマも受けます。'
+          }
           {...(e.capital ? { error: e.capital } : {})}
         />
         <NumberField
@@ -411,10 +449,14 @@ function AccountEditor(
           {editing.reading.warning}
         </p>
       ) : null}
-      {allowance ? <p class="settings__allowance">{allowance}</p> : null}
+      {allowance ? (
+        <p class="settings__allowance">
+          <AmountText text={allowance} />
+        </p>
+      ) : null}
       {/* 欄ごとの誤りが出ているときは要約を出さない（欄の下の文言だけ。記録する画面の足す欄と同じ。再レビュー 4）。
           欄に結べない知らせ（通信の失敗・見つからない）だけを [保存] / [足す] のすぐ上に出す */}
-      {p.notice && !(p.notice.kind === 'error' && (e.name || e.capital || e.risk)) ? (
+      {p.notice && !(p.notice.kind === 'error' && (e.name || e.currency || e.capital || e.risk)) ? (
         <Notice notice={p.notice} onRelogin={p.onRelogin} />
       ) : null}
       <div class="instedit__actions">
@@ -435,7 +477,11 @@ function AccountEditor(
                 {history.map((h) => (
                   <li key={`${h.at}-${h.valueYen}`} class="settings__history-row">
                     <time dateTime={new Date(h.at).toISOString()}>{formatDateTime(h.at)}</time>
-                    <span>{h.valueYen === null ? '未設定' : formatAmountYen(h.valueYen)}</span>
+                    <span>
+                      {h.valueYen === null
+                        ? '未設定'
+                        : formatAmount(h.valueYen, h.currency ?? 'JPY')}
+                    </span>
                   </li>
                 ))}
               </ol>
@@ -614,7 +660,7 @@ function InstrumentEditor(
           value={d.priceCurrency}
           onInput={set('priceCurrency')}
           placeholder="例: USD"
-          hint="英字 3 文字（例: USD・JPY）。空なら未設定（円とはみなしません）。"
+          hint="英字 3 文字（例: USD・JPY）。空なら未設定。為替の欄は表示されません。"
           {...(e.priceCurrency ? { error: e.priceCurrency } : {})}
         />
         <div class="settings__pair">

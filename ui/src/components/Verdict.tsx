@@ -6,12 +6,12 @@ import type { Side } from '../../../core/trade';
 import { badgeModel } from '../lib/badge';
 import { formatPct } from '../lib/format';
 import { reasonText } from '../lib/reasons';
-import type { Preview, Summary } from '../lib/record-form';
+import { type Preview, RISK_NOTE, type Summary } from '../lib/record-form';
 import { MISSING, OFF_PLAN_TEXT, TAPS_LABEL, type TapAnswer } from '../lib/trade-view';
-import { sizingLine, verdictNotes } from '../lib/verdict-notes';
+import { FX_NOT_CHECKED, sizingLine, verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
 import { JudgeBadge } from './JudgeBadge';
-import { RNum, YenNum } from './Num';
+import { MoneyNum, RNum } from './Num';
 import { Ruler } from './Ruler';
 
 export const VERDICT_TITLE_ID = 'record-verdict-title';
@@ -167,10 +167,28 @@ export function Verdict(v: VerdictProps) {
             </>
           )}
           {v.summary.pnlYen !== undefined ? (
+            <div
+              class={
+                (v.summary.currency ?? 'JPY') === 'JPY'
+                  ? 'verdict__stat'
+                  : 'verdict__stat verdict__stat--pnl-row'
+              }
+            >
+              <dt class="verdict__label">損益</dt>
+              <dd>
+                <MoneyNum
+                  value={v.summary.pnlYen}
+                  currency={v.summary.currency ?? 'JPY'}
+                  size="lg"
+                />
+              </dd>
+            </div>
+          ) : !n.hideRisk && v.summary.riskNote === RISK_NOTE.noOneRFx ? (
+            // 外貨建てで為替も損益も無い: 損益も「—」（注記は「為替か損益を入力すると表示されます」の 1 回。U26・F2）
             <div class="verdict__stat">
               <dt class="verdict__label">損益</dt>
               <dd>
-                <YenNum value={v.summary.pnlYen} size="lg" />
+                <None />
               </dd>
             </div>
           ) : null}
@@ -210,7 +228,9 @@ export function Verdict(v: VerdictProps) {
       ) : null}
       {n.aside.map((r, i) => (
         <p key={`${r.kind}-${i}`} class="verdict__aside">
-          {reasonText(r, v.side)}
+          {n.fxMissing && r.kind === 'riskNotChecked' && r.cause === 'noOneR'
+            ? FX_NOT_CHECKED
+            : reasonText(r, v.side)}
         </p>
       ))}
       {v.asideAction && n.aside.length > 0 ? (

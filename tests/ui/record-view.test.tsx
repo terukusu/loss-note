@@ -27,6 +27,7 @@ import {
   STATEMENT_NOTICE,
 } from '../../ui/src/pages/Record';
 import { account, defaultAccount } from './helpers/accounts';
+import { CTX_A, CTX_D, INST_JPY, INST_NONE, pDraft } from './helpers/currency-examples';
 import {
   CAPITAL_1M,
   draft,
@@ -183,7 +184,12 @@ describe('判定の段と数字の色（AC-5・C34）', () => {
     const e4 = text(all(view(stateFor(E4, CAPITAL_1M)), hasClass('num')));
     expect(e4).toContain('+1.0R');
     expect(e4).toContain('2.5%');
-    expect(e4).toContain('+25,000円');
+    // 円は数の外に小さく出す（#47 PR-2 デザイン 7）。数の要素は符号つきの数、すぐ後ろに単位の「円」
+    expect(e4).toContain('+25,000');
+    const money = all(view(stateFor(E4, CAPITAL_1M)), hasClass('num-money'));
+    expect(money.map((m) => text(m))).toContain('+25,000円');
+    for (const m of money)
+      expect(all([m], hasClass('num-unit')).map((u) => text(u))).toEqual(['円']);
   });
 
   it('C（LC なしの負け）は極悪の段', () => {
@@ -208,20 +214,20 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
     const v = text(verdictOf(tree));
     expect(v).toContain('−1.6R');
     expect(count(v, '資金')).toBe(1);
-    expect(v).not.toContain('資金を設定すると出ます');
+    expect(v).not.toContain('資金を設定すると表示されます');
     expect(text(all(tree, hasClass('verdict__none')))).toContain('—');
   });
 
-  it('E11: リスクの場所は「—」、理由は注記に 1 回「損益（円）を入れると出ます」', () => {
+  it('E11: リスクの場所は「—」、理由は注記に 1 回「損益を入力すると表示されます」（#47 PR-2 で「（円）」を取った）', () => {
     const v = text(verdictOf(view(stateFor(E11, CAPITAL_1M))));
-    expect(count(v, '損益（円）を入れると出ます')).toBe(1);
+    expect(count(v, '損益を入力すると表示されます')).toBe(1);
   });
 
   it('E16（例 7）: R は出ず、R・リスクの段の代わりに出ない理由を枠の中に 1 回だけ。C の添え書きと同じ理由を箇条に重ねない', () => {
     const tree = view(stateFor(E16, NO_CAPITAL));
     const t = text(verdictOf(tree));
     expect(count(t, 'LC が無いので')).toBe(1);
-    expect(t).toContain('LC が無いので R・リスクは出ません');
+    expect(t).toContain('LC が無いので R・リスクは表示されません');
     expect(all(tree, hasClass('num--xl'))).toEqual([]);
     expect(all(tree, hasClass('verdict__none'))).toEqual([]);
     expect(all(tree, hasClass('verdict__stats'))).toEqual([]);
@@ -270,7 +276,7 @@ describe('足りない欄と [記録する]（AC-2）', () => {
     // 待ちの間の案内は 1 回だけ（R・リスクの場所に「出ます」の文を重ねない。AC-8）
     const v = text(verdictOf(tree));
     expect(count(v, '判定と理由が出ます')).toBe(1);
-    expect(v).not.toContain('資金を設定すると出ます');
+    expect(v).not.toContain('資金を設定すると表示されます');
     expect(v).not.toContain('イン・決済・LC で出ます');
   });
 
@@ -490,7 +496,7 @@ describe('畳んだ欄の誤り（レビュー指摘 1）', () => {
     const details = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
     expect(details.props.open).toBe(true);
     expect(text(statusOf(tree))).toBe('誤り 1 欄');
-    expect(text(hintOf(tree))).toBe('誤りのある欄（手数料（円））を直すと、判定と理由が出ます。');
+    expect(text(hintOf(tree))).toBe('誤りのある欄（手数料）を直すと、判定と理由が出ます。');
     expect(count(text(verdictOf(tree)), '直すと')).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
   });
@@ -1494,5 +1500,126 @@ describe('判定の枠の数量の 1 行（#67）', () => {
     ] as const) {
       expect(all(view(stateFor(d, ctx)), hasClass('verdict__sizing'))).toEqual([]);
     }
+  });
+});
+
+describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消える）', () => {
+  const byId = (tree: Node[], id: string) => all(tree, (e) => e.props.id === id);
+  const fxInput = (tree: Node[]) =>
+    all(tree, (e) => e.type === 'input' && e.props.id === 'record-fx');
+
+  it('F1: JPY の口座 × USD 建て → 銘柄の下に「USD 建て」、「数量 | 為替」の 2 列（単位 円）と下の 1 行', () => {
+    const tree = view(stateFor(pDraft({}), CTX_A));
+    expect(fxInput(tree)).toHaveLength(1);
+    expect(text(byId(tree, 'record-instrument-hint'))).toBe('USD 建て');
+    expect(text(byId(tree, 'record-fx-line'))).toBe('1 USD = ?円（空でも記録できます）');
+    // 為替の欄の読み上げの説明に下の 1 行が入る
+    expect(String(fxInput(tree)[0]?.props['aria-describedby'])).toContain('record-fx-line');
+    const pair = all(tree, hasClass('record__pair--prices')).find(
+      (e) => all([e], (x) => x.props.id === 'record-fx').length === 1,
+    ) as El;
+    expect(all([pair], (e) => e.type === 'input').map((e) => e.props.id)).toEqual([
+      'record-quantity',
+      'record-fx',
+    ]);
+    const unit = all([pair], hasClass('numfield__unit'));
+    expect(text(unit)).toBe('円');
+  });
+
+  it('入れた為替は「1 USD = 150円」、明細から逆算できれば「明細から 1 USD = 150.00円」（欄は空のまま）', () => {
+    expect(text(byId(view(stateFor(pDraft({ fxRate: '150' }), CTX_A)), 'record-fx-line'))).toBe(
+      '1 USD = 150円',
+    );
+    const tree = view(
+      stateFor(pDraft({ exitPrice: '99.40', pnlYen: '-9100', feeYen: '100' }), CTX_A),
+    );
+    expect(text(byId(tree, 'record-fx-line'))).toBe('明細から 1 USD = 150.00円');
+    expect(fxInput(tree)[0]?.props.value).toBe('');
+  });
+
+  it('F8・F9・F11: 為替の欄は無い。F8・F9 は建ての 1 行も無く、F11 は外貨の口座だけ「価格の通貨 未設定」', () => {
+    for (const [d, ctx] of [
+      [pDraft({ instrumentName: INST_JPY.name }), CTX_A],
+      [pDraft({}), CTX_D],
+    ] as const) {
+      const tree = view(stateFor(d, ctx));
+      expect(fxInput(tree)).toHaveLength(0);
+      expect(byId(tree, 'record-fx-line')).toHaveLength(0);
+      expect(byId(tree, 'record-instrument-hint')).toHaveLength(0);
+    }
+    // 未設定の 1 行は外貨の口座のときだけ（J9 の直し）
+    const f11 = view(stateFor(pDraft({ instrumentName: INST_NONE.name }), CTX_A));
+    expect(fxInput(f11)).toHaveLength(0);
+    expect(byId(f11, 'record-instrument-hint')).toHaveLength(0);
+    const f11usd = view(stateFor(pDraft({ instrumentName: INST_NONE.name }), CTX_D));
+    expect(text(byId(f11usd, 'record-instrument-hint'))).toBe('価格の通貨 未設定');
+  });
+
+  it('U25: 為替の誤りは欄の下に文言', () => {
+    const tree = view(stateFor(pDraft({ fxRate: '0' }), CTX_A));
+    expect(text(byId(tree, 'record-fx-error'))).toBe('0 より大きい数を入れてください');
+  });
+
+  it('U26（F2）: 為替も損益も無い → 損益も「—」、注記「為替か損益を入力すると表示されます」が 1 回', () => {
+    const tree = view(stateFor(pDraft({}), CTX_A));
+    const v = verdictOf(tree);
+    expect(text(v).split('為替か損益を入力すると表示されます').length - 1).toBe(1);
+    // 注記は「リスク・損益の「—」」の 1 行、脇の理由は直せる原因の言葉（デザインレビュー 2）
+    expect(text(v)).toContain('リスク・損益の「—」: 為替か損益を入力すると表示されます');
+    expect(text(v)).toContain('為替が無いので過剰リスクは見ていない');
+    expect(text(v)).not.toContain('1R が出ないので');
+    const labels = all([v], hasClass('verdict__label')).map((e) => text(e));
+    expect(labels).toContain('損益');
+  });
+
+  it('U27・U29: 「ほかの欄」の名前は「損益（明細の値）」「手数料」、USD の口座では単位 USD・判定の枠の損益は「−50.00 USD」', () => {
+    const tree = view(stateFor(pDraft({}), CTX_D));
+    const labels = all(tree, (e) => e.type === 'label').map((e) => text(e));
+    expect(labels).toContain('損益（明細の値）');
+    expect(labels).toContain('手数料');
+    const units = ['record-pnl', 'record-fee'].map((id) => {
+      const field = all(tree, hasClass('field')).find(
+        (e) => all([e], (x) => x.props.id === id).length === 1,
+      ) as El;
+      return text(all([field], hasClass('numfield__unit')));
+    });
+    expect(units).toEqual(['USD', 'USD']);
+    expect(text(verdictOf(tree))).toContain('−50.00 USD');
+  });
+
+  it('U28（F13）: USD の口座で明細を貼った → 損益・手数料の下に「USD の口座では…」', () => {
+    const base = stateFor(pDraft({}), CTX_D);
+    const st: RecordState = {
+      ...base,
+      statement: {
+        phase: 'ready',
+        rows: [ROW_E1],
+        index: 0,
+        marks: {},
+        message: null,
+        notice: null,
+        preview: null,
+      },
+    };
+    expect(text(byId(view(st), 'record-money-note'))).toBe(
+      'USD の口座では、損益と手数料は明細から入力されません（手入力してください）',
+    );
+    // 円の口座・明細なしでは出ない
+    expect(byId(view(stateFor(pDraft({}), CTX_A)), 'record-money-note')).toHaveLength(0);
+  });
+
+  it('KEEP-3: 口座 1 つ・円建てでは為替の欄・建ての 1 行・注記が無く、入力の欄の数が通貨の無い形と同じ', () => {
+    const inputs = (tree: Node[]) =>
+      all(tree, (e) => e.type === 'input' || e.type === 'select').map((e) => e.props.id);
+    const jpy = view(stateFor(pDraft({ instrumentName: INST_JPY.name }), CTX_A));
+    const noCurrency = view({
+      ...stateFor(pDraft({ instrumentName: INST_JPY.name }), CTX_A),
+      read: (() => {
+        const { currency: _c, ...r } = readDraft(pDraft({ instrumentName: INST_JPY.name }), CTX_A);
+        return r;
+      })(),
+    });
+    expect(inputs(jpy)).toEqual(inputs(noCurrency));
+    expect(byId(jpy, 'record-instrument-hint')).toHaveLength(0);
   });
 });

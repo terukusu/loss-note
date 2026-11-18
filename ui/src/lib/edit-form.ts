@@ -12,6 +12,9 @@
 // - 口座（#47）: 下書きの口座は取引の口座（accountId の無い取引は既定の口座）。口座が元と同じなら写した資金・許容リスク、
 //   付け替えたら付け替え先の今の値で計算する（API と同じ）。本文の口座は、口座が 2 つ以上なら下書きの口座、
 //   1 つなら元の値（元に無ければ入れない）
+// - 為替（#47 PR-2）: 為替の欄が出ている取引（価格の通貨 ≠ 口座の通貨）では下書きの値が正（空 = 外す）、出ていない取引では
+//   元の exit.fxRate を保つ（mergeEdit の fxShown）。ただし通貨の組（価格の通貨 / 口座の通貨）が開いたときと違えば、元の為替は
+//   意味を失うので保たない（keepOriginalFx = false）。損益・手数料・為替の空への戻しは edit-controller
 import type {
   AccountRecord,
   InstrumentRecord,
@@ -61,6 +64,7 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
     entryPrice: formatPlain(e.price),
     exitPrice: formatPlain(x.price),
     quantity: formatPlain(e.quantity),
+    fxRate: x.fxRate === undefined ? '' : formatPlain(x.fxRate),
     exitTime: toLocalInput(x.time),
     entryTime: e.time === undefined ? '' : toLocalInput(e.time),
     pnlYen: r.statementPnlYen === undefined ? '' : formatPlain(r.statementPnlYen),
@@ -134,7 +138,7 @@ const KEPT_KEYS = [
   'planFxRate',
   'plannedAt',
 ] as const satisfies readonly (keyof TradeRecord)[];
-const KEPT_EXIT_KEYS = ['fxRate', 'emotion', 'review'] as const;
+const KEPT_EXIT_KEYS = ['emotion', 'review'] as const;
 
 function pick<T extends object, K extends keyof T>(o: T, keys: readonly K[]): Partial<Pick<T, K>> {
   const out: Partial<Pick<T, K>> = {};
@@ -144,7 +148,7 @@ function pick<T extends object, K extends keyof T>(o: T, keys: readonly K[]): Pa
 
 /**
  * 直しの保存の本文。original = 元の記録、initial = 開いたときの下書き、draft = 今の下書き、body = readDraft の本文、
- * instrumentId = 保存のときに決めた銘柄の ID
+ * instrumentId = 保存のときに決めた銘柄の ID。fxShown = 為替の欄が出ているか（出ていれば本文の為替、出ていなければ元の為替）
  */
 export function mergeEdit(
   original: TradeRecord,
@@ -152,7 +156,13 @@ export function mergeEdit(
   draft: Draft,
   body: TradeBody,
   instrumentId: string,
+  opts: { readonly fxShown?: boolean; readonly keepOriginalFx?: boolean } = {},
 ): TradeRecord {
+  const fxRate = opts.fxShown
+    ? body.exit.fxRate
+    : opts.keepOriginalFx === false
+      ? undefined
+      : original.exit.fxRate;
   const e0 = original.entries[0];
   const be = body.entries[0];
   const keepEntryTime = draft.entryTime === initial.entryTime && e0.time !== undefined;
@@ -196,6 +206,7 @@ export function mergeEdit(
       ...pick(original.exit, KEPT_EXIT_KEYS),
       time: keepExitTime ? original.exit.time : body.exit.time,
       price: body.exit.price,
+      ...(fxRate === undefined ? {} : { fxRate }),
       orderType: body.exit.orderType,
       reason: body.exit.reason,
       gapSlip: keepGapSlip ? original.exit.gapSlip : body.exit.gapSlip,

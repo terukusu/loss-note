@@ -1,7 +1,9 @@
 """口座（Issue #47 PR-1・ADR-0012・設計書 4.5・C41）の純関数。
 
-口座 = ``users/{uid}/accounts/{id}`` の文書 ``{name, nameKey, capitalYen, riskTolerancePct, capitalHistory,
-createdAt, updatedAt}``。PR-1 の口座はすべて円（通貨の欄を持たない。無い = JPY）。
+口座 = ``users/{uid}/accounts/{id}`` の文書 ``{name, nameKey, currency, capitalYen, riskTolerancePct, capitalHistory,
+createdAt, updatedAt}``。``currency`` は口座の通貨（ISO 4217 の 3 文字。#47 PR-2・C43）。無い = JPY（PR-1 で作った口座・
+移し替えで作った口座）。資金・資金の履歴の金額は口座の通貨（鍵の名前 ``capitalYen``・``valueYen`` は歴史的な名前）。
+口座の通貨は、その口座に取引が 1 件でもあれば変えられない（routes の 409 ``currencyLocked``）。
 既定の口座は決まった ID ``default``（名前「口座 1」）。口座を読む・使う入口で無ければ、決まった ID の create で
 設定 ``users/{uid}/settings/current`` の資金・許容リスク・資金の履歴から 1 回だけ作る
 （移し替え。取引・設定は書かない）。
@@ -20,6 +22,7 @@ from loss_note_api.logs import log_event
 DEFAULT_ACCOUNT_ID = "default"
 DEFAULT_ACCOUNT_NAME = "口座 1"
 DEFAULT_RISK_TOLERANCE_PCT = 1
+DEFAULT_CURRENCY = "JPY"
 
 Doc = dict
 # 既定の口座を作る: 設定の文書（無ければ None）-> 口座の文書
@@ -59,11 +62,17 @@ def log_default_created(settings: Doc | None, doc: Doc) -> None:
               history=len(doc.get("capitalHistory") or []))  # fmt: skip
 
 
+def currency_of(doc: Doc) -> str:
+    """口座の通貨（無ければ JPY）"""
+    return doc.get("currency") or DEFAULT_CURRENCY
+
+
 def account_response(account_id: str, doc: Doc) -> dict:
-    """応答の形（nameKey は返さない）"""
+    """応答の形（nameKey は返さない。currency はいつも返す）"""
     return {
         "id": account_id,
         "name": doc["name"],
+        "currency": currency_of(doc),
         "capitalYen": doc.get("capitalYen"),
         "riskTolerancePct": doc.get("riskTolerancePct", DEFAULT_RISK_TOLERANCE_PCT),
         "capitalHistory": doc.get("capitalHistory", []),
@@ -79,18 +88,26 @@ def account_sort_key(item: tuple[str, Doc]):
 
 
 def account_snapshot(account: Doc) -> dict:
-    """取引の snapshot に写す口座の値（鍵は今の snapshot と同じ。資金は円）"""
+    """取引の snapshot に写す口座の値（資金は口座の通貨。口座の通貨も写す。#47 PR-2）"""
     return {
         "capitalYen": account.get("capitalYen"),
         "riskTolerancePct": account.get("riskTolerancePct", DEFAULT_RISK_TOLERANCE_PCT),
+        "accountCurrency": currency_of(account),
     }
 
 
-def next_capital_history(history: list, prev_capital: float | None, new_capital: float | None, now: int) -> list:
-    """資金が変わったときだけ ``{valueYen, at}`` を末尾に足し、末尾の MAX_CAPITAL_HISTORY 件に切る（設定と口座で共有）。
-    入力を書き換えない"""
+def next_capital_history(history: list, prev_capital: float | None, new_capital: float | None, now: int,
+                         currency: str | None = None, prev_currency: str | None = None) -> list:  # fmt: skip
+    """資金が変わったとき（口座では、通貨が変わったときも）だけ ``{valueYen, at}`` を末尾に足し、末尾の
+    MAX_CAPITAL_HISTORY 件に切る（設定と口座で共有）。``currency`` を渡したときだけ行に ``currency`` を書く
+    （口座だけ。設定は渡さない = 設定の履歴の形は変えない）。``prev_currency`` が None なら通貨の変化とみなさない
+    （作るとき）。入力を書き換えない"""
     out = list(history or [])
-    if new_capital != prev_capital:
-        out.append({"valueYen": new_capital, "at": now})
+    currency_changed = currency is not None and prev_currency is not None and currency != prev_currency
+    if new_capital != prev_capital or currency_changed:
+        row: dict = {"valueYen": new_capital, "at": now}
+        if currency is not None:
+            row["currency"] = currency
+        out.append(row)
         out = out[-schema.MAX_CAPITAL_HISTORY :]
     return out

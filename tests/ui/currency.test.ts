@@ -11,10 +11,9 @@ import {
   formatFxDerived,
   fxFieldVisible,
   fxLine,
-  statementFillsMoney,
-  statementMoneyNote,
   unitOf,
 } from '../../ui/src/lib/currency';
+import { CURRENCY_UNREAD_NOTE } from '../../ui/src/lib/statement-account';
 import { forAll } from '../core/helpers/prng';
 import { ACC_A, ACC_D } from './helpers/currency-examples';
 
@@ -88,13 +87,6 @@ describe('単位・明細の流し込み・知らせの文言', () => {
     expect(unitOf('JPY')).toBe('円');
     expect(unitOf('USD')).toBe('USD');
   });
-  it('R7: 明細の損益・手数料を流し込むのは JPY の口座だけ。外貨の口座の注記（U28）', () => {
-    expect(statementFillsMoney('JPY')).toBe(true);
-    expect(statementFillsMoney('USD')).toBe(false);
-    expect(statementMoneyNote('USD')).toBe(
-      'USD の口座では、損益と手数料は明細から入力されません（手入力してください）',
-    );
-  });
   it('U31・U33 の文言', () => {
     expect(currencyLockedText('USD')).toBe('通貨: USD（取引があるので変更できません）');
     expect(CURRENCY_CLEARED_NOTE).toBe('通貨が違うので、損益と手数料を空に戻しました');
@@ -137,8 +129,8 @@ describe('currencyView（取引の欄の見せ方）', () => {
     const v = currencyView(
       { price: null, account: 'USD', matched: false, fxShown: false },
       undefined,
-      statementMoneyNote('USD'),
+      CURRENCY_UNREAD_NOTE,
     );
-    expect(v).toEqual({ moneyUnit: 'USD', moneyNote: statementMoneyNote('USD') });
+    expect(v).toEqual({ moneyUnit: 'USD', moneyNote: CURRENCY_UNREAD_NOTE });
   });
 });

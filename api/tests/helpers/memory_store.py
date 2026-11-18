@@ -9,6 +9,9 @@ API のテストはこれとエミュレーターの Firestore の両方で同�
 口座（Issue #47）は ``users[uid]["accounts"]``。既定の口座 ``default`` は口座を読む・使う入口で無ければ、ロックの中で
 設定から 1 回だけ作る（FirestoreStore と同じ約束。``default_created`` に作った回数を数える）。取引の作成・直しでは
 取引より先に書く（FirestoreStore と同じく、取引の書き込みが失敗しても既定の口座は残る）。
+明細の特徴の覚え（Issue #66）は ``users[uid]["statement_profiles"][鍵]``。読むだけでは ``users`` に何も足さない
+（読み取りの前後で記録が同じかを確かめるテストのため）。``fail_profiles`` を立てると覚えの読み書きが何も書かずに
+StoreUnavailable になる。
 """
 
 import copy
@@ -49,6 +52,7 @@ class MemoryStore:
         self.trade_page_reads: list[int] = []
         # 索引の不足（FailedPrecondition）の逃げ道を通す（#87。FirestoreStore と同じログを出して全件から切る）
         self.page_index_missing = False
+        self.fail_profiles = False  # 明細の特徴の覚えの読み書きで失敗する（#66）
 
     def _col(self, uid, name):
         if self.fail_with is not None:
@@ -325,6 +329,27 @@ class MemoryStore:
             self.warm_calls += 1
             if self.fail_warm is not None:
                 raise self.fail_warm
+
+    # ── 明細の特徴の覚え（#66）──
+    def _profiles_failing(self):
+        if self.fail_profiles or self.unavailable:
+            raise StoreUnavailable("test")
+        if self.fail_with is not None:
+            raise self.fail_with
+
+    def get_statement_profile(self, uid, key):
+        with self._lock:
+            self._profiles_failing()
+            return copy.deepcopy(self.users.get(uid, {}).get("statement_profiles", {}).get(key))
+
+    def put_statement_profile(self, uid, key, doc, build_default):
+        with self._lock:
+            self._profiles_failing()
+            acc, pending = self._read_account(uid, doc["accountId"], build_default)
+            if acc is None:
+                raise MissingAccount()
+            self._write_default(uid, pending)
+            self._col(uid, "statement_profiles")[key] = copy.deepcopy(doc)
 
     # ── 設定 ──
     def get_settings(self, uid):

@@ -72,15 +72,8 @@ export function fxLine(args: {
   return `1 ${args.price} = ${withUnit('?', a)}（空でも記録できます）`;
 }
 
-/** 明細の読み取りの損益・手数料を欄に入れてよい口座か（JPY だけ。今の読み取りは円の損益を読む指示のため。R7） */
-export function statementFillsMoney(accountCurrency: string): boolean {
-  return accountCurrency === DEFAULT_CURRENCY;
-}
-
-/** 外貨の口座で明細を貼ったときの、損益・手数料の欄の下の 1 行（U28） */
-export function statementMoneyNote(accountCurrency: string): string {
-  return `${accountCurrency} の口座では、損益と手数料は明細から入力されません（手入力してください）`;
-}
+// 明細の読み取りの損益・手数料を入れるか・入れないときの理由は statement-account.ts の pnlFillOf（#66・R6。
+// #47 PR-2 の R7「外貨の口座では入れない」・U28 の注記を置き換えた）
 
 /** 編集の画面で通貨の違う口座へ替えたときの知らせ（U33。打ってあった為替も空にしたときは FX 付き） */
 export const CURRENCY_CLEARED_NOTE = '通貨が違うので、損益と手数料を空に戻しました';

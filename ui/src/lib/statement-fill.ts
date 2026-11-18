@@ -1,16 +1,17 @@
 // 決済明細の読み取りの応答を記録する画面の下書きに流し込む規則（Issue #15 のルール R4〜R8。純関数）。
 // DOM・通信・今の時刻・保存先に触れない（時刻の欄の文字は端末の時間帯で datetime-local に写す。datetime.ts と同じ）。
-// - 応答の形は画面の側でも確かめる（parseReadResponse。行は 12 の鍵だけを写し、型違い・範囲の外の欄は null）
+// - 応答の形は画面の側でも確かめる（parseReadResponse。行は 13 の鍵だけを写し、型違い・範囲の外の欄は null）
 // - 読み取りの欄 9 つに値を入れ「読み取り」の印。null は空にして「読み取れませんでした」（開いたときの既定を残さない）
 // - 貼った後に利用者が触った欄は上書きしない。LC・一言・3 つのタップ（逆指値の既定を除く）・LC の根拠には触れない
 // - 時間帯が明細に無い時刻は、書かれた時刻を入れて「時間帯が明細にありません」。確かめるまで保存しない
-// - 口座の通貨が JPY でなければ損益・手数料は入れない（#47 PR-2・R7）
+// - 損益・手数料は、読んだ通貨が口座の通貨と同じとき（口座が JPY なら通貨が読めなかったときも）だけ入れる（#66・R6。
+//   statement-account.ts の pnlFillOf。#47 PR-2 の R7「外貨の口座では入れない」を置き換えた）
 import { DEFAULT_CURRENCY } from '../../../core/record';
 import type { ExitOrderType, Side } from '../../../core/trade';
-import { statementFillsMoney } from './currency';
 import { toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import type { Draft, DraftField, DraftReading } from './record-form';
+import { currencyOf, parseProfile, pnlFillOf, type StatementProfile } from './statement-account';
 
 /** API の応答の行の数の上限（ADR-0005） */
 export const MAX_ROWS = 20;
@@ -29,25 +30,31 @@ export interface ReadTime {
   readonly epochMs: number | null;
 }
 
-/** 応答の 1 行（API の normalize_row と同じ 12 の鍵） */
+/**
+ * 応答の 1 行（API の normalize_row の鍵のうち画面が使う 13 の鍵）。損益・手数料の合計は明細の通貨のまま（pnl・
+ * feesTotal）と、その通貨（英字 3 文字か unknown。#66）。API が並べて返す円の欄（pnlYen・feesTotalYen）は使わない
+ */
 export interface ReadRow {
   readonly symbol: string | null;
   readonly side: Side | null;
   readonly entryPrice: number | null;
   readonly exitPrice: number | null;
   readonly quantity: number | null;
-  readonly pnlYen: number | null;
+  readonly pnl: number | null;
+  readonly pnlCurrency: string;
   readonly entryTime: ReadTime | null;
   readonly exitTime: ReadTime | null;
   readonly timeZoneNeedsCheck: boolean;
   readonly fees: readonly number[] | null;
-  readonly feesTotalYen: number | null;
+  readonly feesTotal: number | null;
   readonly exitOrderType: ExitOrderType;
 }
 
 export interface ReadResult {
   readonly kind: 'statement' | 'notStatement';
   readonly rows: readonly ReadRow[];
+  /** 明細の特徴（鍵と提案の口座。#66）。鍵が無い・形が外れていれば null */
+  readonly profile: StatementProfile | null;
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -116,19 +123,21 @@ function rowOf(v: unknown): ReadRow | null {
     entryPrice: positive(v.entryPrice),
     exitPrice: positive(v.exitPrice),
     quantity: positive(v.quantity),
-    pnlYen: finite(v.pnlYen),
+    pnl: finite(v.pnl),
+    pnlCurrency: currencyOf(v.pnlCurrency),
     entryTime: timeOf(v.entryTime),
     exitTime: timeOf(v.exitTime),
     timeZoneNeedsCheck: v.timeZoneNeedsCheck === true,
     fees,
-    feesTotalYen: finite(v.feesTotalYen),
+    feesTotal: finite(v.feesTotal),
     exitOrderType: order,
   };
 }
 
 /**
  * 応答の本文 → 読み取りの結果。kind が statement / notStatement で、rows が 0〜20 の配列（行はすべてオブジェクト）の
- * ときだけ。ほかは null（「読み取れませんでした」）。行は 12 の鍵だけを写し、ほかの鍵を持たない
+ * ときだけ。ほかは null（「読み取れませんでした」）。行は 13 の鍵だけを写し、ほかの鍵を持たない。
+ * profile は形を確かめて写す（外れていれば null。読み取りの結果は捨てない）
  */
 export function parseReadResponse(json: unknown): ReadResult | null {
   if (!isObj(json)) return null;
@@ -140,13 +149,16 @@ export function parseReadResponse(json: unknown): ReadResult | null {
     if (row === null) return null;
     rows.push(row);
   }
-  return { kind: json.kind, rows };
+  return { kind: json.kind, rows, profile: parseProfile(json.profile) };
 }
 
 // ── 欄の印 ──
 
-/** 欄の印: 読み取り / 読み取れませんでした / 直した / 時間帯が明細にありません / 明細から（逆指値の既定） */
-export type FieldMark = 'read' | 'unread' | 'edited' | 'tz' | 'statement';
+/**
+ * 欄の印: 読み取り / 読み取れませんでした / 直した / 時間帯が明細にありません / 明細から（逆指値の既定）/
+ * 自動で選択（前にこの明細で選んだ口座。#66）
+ */
+export type FieldMark = 'read' | 'unread' | 'edited' | 'tz' | 'statement' | 'auto';
 export type Marks = Readonly<Partial<Record<DraftField, FieldMark>>>;
 
 export const MARK_LABEL: Readonly<Record<FieldMark, string>> = {
@@ -155,6 +167,7 @@ export const MARK_LABEL: Readonly<Record<FieldMark, string>> = {
   edited: '直した',
   tz: '時間帯が明細にありません',
   statement: '明細から',
+  auto: '自動で選択',
 };
 
 /** 読み取りの欄（画面の並びの順） */
@@ -186,12 +199,20 @@ export interface Filled {
   readonly marks: Marks;
 }
 
-/** 読み取りの金額の欄（口座の通貨が JPY でないときは流し込まない。R7） */
+/** 読み取りの金額の欄（読んだ通貨が口座の通貨と合わないときは流し込まない。#66・R6） */
 const MONEY_FIELDS = ['pnlYen', 'feeYen'] as const satisfies readonly DraftField[];
+
+/** 行の損益・手数料を口座に入れるか（通貨の名前の文は画面が pnlFillOf で作る） */
+const fillsMoneyOf = (
+  row: ReadRow,
+  accountCurrency: string,
+  priceCurrency: string | null | undefined,
+): boolean => pnlFillOf(row.pnlCurrency, accountCurrency, '', priceCurrency).fills;
 
 /**
  * 行の値を下書きに流し込む。touched（貼った後に利用者が触った欄）は値も印も変えない。
- * 口座の通貨が JPY でなければ、損益・手数料は空・印なし（今の読み取りは円の損益を読むため。R7・F13。#47 PR-2）。
+ * 読んだ通貨が口座の通貨と合わなければ、損益・手数料は空・印なし（R6・C3・C5・C6。口座が JPY で通貨が読めなければ
+ * 今と同じく入れる = C2）。
  * 逆指値 → 決済の理由 = LC・決めていた（触っていなければ。印「明細から」）・逆指値を入れた = 入れた。
  * それ以外 → 決めていたかは触らず、決済の理由 = その他（触っていなければ）・逆指値を入れたか = 未回答
  */
@@ -199,9 +220,17 @@ export function fillFromRow(
   draft: Draft,
   row: ReadRow,
   touched: ReadonlySet<DraftField>,
-  opts: { readonly accountCurrency?: string } = {},
+  opts: {
+    readonly accountCurrency?: string;
+    /** 行の銘柄の価格の通貨（一覧に無い・未設定は null。通貨が読めない円の口座での判断に使う。#66 P3） */
+    readonly priceCurrency?: string | null | undefined;
+  } = {},
 ): Filled {
-  const fillsMoney = statementFillsMoney(opts.accountCurrency ?? DEFAULT_CURRENCY);
+  const fillsMoney = fillsMoneyOf(
+    row,
+    opts.accountCurrency ?? DEFAULT_CURRENCY,
+    opts.priceCurrency,
+  );
   const exit = timeField(row.exitTime);
   const entry = timeField(row.entryTime);
   const read: Record<ReadField, { value: Draft[ReadField]; mark: FieldMark }> = {
@@ -212,8 +241,8 @@ export function fillFromRow(
     quantity: { value: num(row.quantity), mark: row.quantity === null ? 'unread' : 'read' },
     exitTime: exit,
     entryTime: entry,
-    pnlYen: { value: num(row.pnlYen), mark: row.pnlYen === null ? 'unread' : 'read' },
-    feeYen: { value: num(row.feesTotalYen), mark: row.feesTotalYen === null ? 'unread' : 'read' },
+    pnlYen: { value: num(row.pnl), mark: row.pnl === null ? 'unread' : 'read' },
+    feeYen: { value: num(row.feesTotal), mark: row.feesTotal === null ? 'unread' : 'read' },
   };
   const values: Record<string, unknown> = {};
   const marks: Partial<Record<DraftField, FieldMark>> = {};
@@ -252,16 +281,18 @@ export function fillFromRow(
 }
 
 /**
- * 明細を貼った後に口座を切り替えたときの損益・手数料（ux 2.1・5.5）。外貨の口座へ替えたら、印のある（読み取りで入れた）
- * 損益・手数料だけを空に戻して印を外す。JPY の口座へ替えたら、今の行から入れ直す。手で打った値・touched の欄は触らない
+ * 明細を貼った後に口座を切り替えたときの損益・手数料（ux 2.1・5.5。#66 の R6・C7）。読んだ通貨が替えた先の口座に
+ * 合わなければ、印のある（読み取りで入れた）損益・手数料だけを空に戻して印を外す。合えば今の行から入れ直す。
+ * 手で打った値・touched の欄は触らない
  */
 export function refillMoney(
   filled: Filled,
   row: ReadRow,
   touched: ReadonlySet<DraftField>,
   accountCurrency: string,
+  priceCurrency?: string | null,
 ): Filled {
-  const fillsMoney = statementFillsMoney(accountCurrency);
+  const fillsMoney = fillsMoneyOf(row, accountCurrency, priceCurrency);
   const values: Partial<Record<(typeof MONEY_FIELDS)[number], string>> = {};
   const marks: Partial<Record<DraftField, FieldMark>> = { ...filled.marks };
   for (const f of MONEY_FIELDS) {
@@ -274,9 +305,9 @@ export function refillMoney(
       }
       continue;
     }
-    // JPY: 印が無く値も空の欄（外貨の口座で空にした欄）だけを入れ直す（手で打った値は残す）
+    // 合う口座: 印が無く値も空の欄（合わない口座で空にした欄）だけを入れ直す（手で打った値は残す）
     if (mark === undefined && filled.draft[f] === '') {
-      const n = f === 'pnlYen' ? row.pnlYen : row.feesTotalYen;
+      const n = f === 'pnlYen' ? row.pnl : row.feesTotal;
       values[f] = num(n);
       marks[f] = n === null ? 'unread' : 'read';
     }
@@ -284,12 +315,12 @@ export function refillMoney(
   return { draft: { ...filled.draft, ...values }, marks };
 }
 
-/** 利用者が欄を直した後の印（「明細から」は外す、ほかの印は「直した」。印の無い欄はそのまま） */
+/** 利用者が欄を直した後の印（「明細から」「自動で選択」は外す、ほかの印は「直した」。印の無い欄はそのまま） */
 export function markEdited(marks: Marks, field: DraftField): Marks {
   const m = marks[field];
   if (m === undefined || m === 'edited') return marks;
   const { [field]: _old, ...rest } = marks;
-  return m === 'statement' ? rest : { ...rest, [field]: 'edited' };
+  return m === 'statement' || m === 'auto' ? rest : { ...rest, [field]: 'edited' };
 }
 
 /**

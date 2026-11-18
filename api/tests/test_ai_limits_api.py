@@ -1,7 +1,8 @@
 """AI の利用者ごとの費用の上限とバイパスのリスト（Issue #51 の AC-1〜AC-5・AC-7・AC-8・KEEP-4。ADR-0014）。
 
 保存先 2 つ（記憶 / エミュレーターの Firestore）で回す。上限は環境変数から読む（``create_app`` に ``read_limits`` を
-渡さない = 本番と同じ経路）。予約額は本物（Sonnet 5.5 で P = 278,736 µUSD）。実際の AI は呼ばない（偽の
+渡さない = 本番と同じ経路）。予約額は本物（Sonnet 5.5 で P = 282,012 µUSD。
+値は pricing から取る）。実際の AI は呼ばない（偽の
 claude_agent_sdk。精算の既定は 料金表 6,000 と SDK の合計 10,000 の大きい方 = 10,000 µUSD）。メール・値はすべて架空。
 """
 
@@ -14,6 +15,7 @@ from helpers.charts import png
 from helpers.emulator import PROJECT, clear_firestore, emulator_hosts, require_emulator
 from helpers.memory_store import MemoryStore
 from helpers.tokens import unsigned_token
+from statement_read import app_settings, pricing
 
 from loss_note_api.allowlist import ALLOWED_EMAILS_VAR
 from loss_note_api.app import create_app
@@ -29,14 +31,21 @@ IMAGE = png(800, 600, size=2_000)
 BYPASS = "fictional.bypass@example.com"
 OTHER = "fictional.normal@example.com"
 P = ReadLimits().reserve_micro_usd
+# 例の表の境界（P の式。#66 で予約額が変わっても表の意味を保つ）: 計上額 + P がちょうど利用者の上限 1.00 USD /
+# 1 µUSD 越える / 全体の上限 2.00 USD を 1 µUSD 越える
+AT_USER = 1_000_000 - P
+OVER_USER = AT_USER + 1
+OVER_DAILY = 2_000_000 - P + 1
 SETTLED = 10_000  # 偽の SDK の既定の精算の額
 NOON_1118 = 1_794_970_800_000  # 2026-11-18 03:00 UTC = 日本時間 11-18 の 12:00
 D1118 = "2026-11-18"
 
 
 def test_reserve_is_the_issue_value():
-    # 例の表の前提（予約額が変わったら例の表の境界を作り直す）
-    assert P == 278_736
+    # 例の表の前提: 予約額は pricing の式から（値を固定するのは packages の test_pricing.py の 1 か所。#66 AC-9）。
+    # 例の表の境界は P の式で書き、利用者 1.00 USD に 3 回分・全体 2.00 USD に 7 回分が入る形は変わらない
+    assert P == pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_MAX_OUTPUT_TOKENS)
+    assert 3 * P <= 1_000_000 < 4 * P and 7 * P <= 2_000_000 < 8 * P
 
 
 class Ledger:
@@ -121,12 +130,12 @@ EXAMPLES = [
     # (行, メール, 確かめ済み, 利用者の文書, 全体の文書, 追加の環境変数, 状態, ログの理由)
     ("#1", OTHER, True, None, None, {}, 200, "ok"),
     ("#2", OTHER, True, {"count": 30, "microUsd": 0}, None, {}, 429, "limited_user"),
-    ("#3", OTHER, True, {"count": 3, "microUsd": 721_264}, {"count": 3, "microUsd": 721_264}, {}, 200, "ok"),
-    ("#4", OTHER, True, {"count": 3, "microUsd": 721_265}, {"count": 3, "microUsd": 721_265}, {}, 429,
+    ("#3", OTHER, True, {"count": 3, "microUsd": AT_USER}, {"count": 3, "microUsd": AT_USER}, {}, 200, "ok"),
+    ("#4", OTHER, True, {"count": 3, "microUsd": OVER_USER}, {"count": 3, "microUsd": OVER_USER}, {}, 429,
      "limited_user_spend"),
-    ("#5", OTHER, True, None, {"count": 9, "microUsd": 1_721_265}, {}, 429, "limited_spend"),
+    ("#5", OTHER, True, None, {"count": 9, "microUsd": OVER_DAILY}, {}, 429, "limited_spend"),
     ("#6", BYPASS, True, {"count": 30, "microUsd": 5_000_000}, None, {}, 200, "ok"),
-    ("#7", BYPASS, True, None, {"count": 9, "microUsd": 1_721_265}, {}, 429, "limited_spend"),
+    ("#7", BYPASS, True, None, {"count": 9, "microUsd": OVER_DAILY}, {}, 429, "limited_spend"),
     ("#8", BYPASS, False, {"count": 30, "microUsd": 0}, None, {}, 429, "limited_user"),
     ("#9", OTHER, True, None, None, {USER_USD_VAR: "0.10"}, 429, "limited_user_spend"),
 ]

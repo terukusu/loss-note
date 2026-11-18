@@ -1,7 +1,8 @@
 """AI の利用状況の入口 ``GET /api/ai-usage``（Issue #62 の AC-1〜AC-4・KEEP-2）と純関数 ``read_limits.usage_of``。
 
 保存先 2 つ（記憶 / エミュレーターの Firestore）で回す。上限は環境変数から読む（本番と同じ経路）。予約額は本物
-（Sonnet 5.5 で P = 278,736 µUSD）。AI は呼ばない（偽の claude_agent_sdk を入れて、呼ばれないことを見る）。
+（Sonnet 5.5 で P = 282,012 µUSD。
+値は pricing から取る）。AI は呼ばない（偽の claude_agent_sdk を入れて、呼ばれないことを見る）。
 メール・値はすべて架空。
 """
 
@@ -13,6 +14,7 @@ from helpers import fake_agent_sdk
 from helpers.emulator import PROJECT, clear_firestore, emulator_hosts, require_emulator
 from helpers.memory_store import MemoryStore
 from helpers.tokens import unsigned_token
+from statement_read import app_settings, pricing
 
 from loss_note_api.allowlist import ALLOWED_EMAILS_VAR
 from loss_note_api.app import create_app
@@ -34,6 +36,11 @@ PATH = "/api/ai-usage"
 BYPASS = "fictional.usage.bypass@example.com"
 OTHER = "fictional.usage.normal@example.com"
 P = ReadLimits().reserve_micro_usd
+# 例の表の境界（P の式。#66 で予約額が変わっても表の意味を保つ）: 計上額 + P がちょうど利用者の上限 1.00 USD /
+# 1 µUSD 越える / 全体の上限 2.00 USD を 1 µUSD 越える
+AT_USER = 1_000_000 - P
+OVER_USER = AT_USER + 1
+OVER_DAILY = 2_000_000 - P + 1
 
 
 def _ms(y: int, mo: int, d: int, h: int, mi: int = 0) -> int:
@@ -48,8 +55,10 @@ KEYS = {"today", "month", "limits", "bypass", "blocked"}
 
 
 def test_reserve_is_the_issue_value():
-    # 例の表の前提（予約額が変わったら例の表の境界を作り直す）
-    assert P == 278_736
+    # 例の表の前提: 予約額は pricing の式から（値を固定するのは packages の test_pricing.py の 1 か所。#66 AC-9）。
+    # 例の表の境界は P の式で書き、利用者 1.00 USD に 3 回分・全体 2.00 USD に 7 回分が入る形は変わらない
+    assert P == pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_MAX_OUTPUT_TOKENS)
+    assert 3 * P <= 1_000_000 < 4 * P and 7 * P <= 2_000_000 < 8 * P
 
 
 class Ledger:
@@ -141,9 +150,9 @@ EXAMPLES = [
      (False, False)),
     ("#4", OTHER, {"count": 30, "microUsd": 400_000}, {}, NOON_1118, {}, (30, 400_000), (30, 400_000), False,
      (True, False)),
-    ("#5", OTHER, {"count": 3, "microUsd": 721_265}, {}, NOON_1118, {}, (3, 721_265), (3, 721_265), False,
+    ("#5", OTHER, {"count": 3, "microUsd": OVER_USER}, {}, NOON_1118, {}, (3, OVER_USER), (3, OVER_USER), False,
      (False, True)),
-    ("#6", OTHER, {"count": 3, "microUsd": 721_264}, {}, NOON_1118, {}, (3, 721_264), (3, 721_264), False,
+    ("#6", OTHER, {"count": 3, "microUsd": AT_USER}, {}, NOON_1118, {}, (3, AT_USER), (3, AT_USER), False,
      (False, False)),
     ("#7", OTHER, {"count": 2}, {"2026-11-17": {"count": 1, "microUsd": -1}}, NOON_1118, {}, (2, 2 * P), (3, 3 * P),
      False, (False, False)),
@@ -302,9 +311,9 @@ def test_usage_of_pure_examples():
     body = usage_of("2026-11-18", {}, limits, bypass=False)
     assert body["today"] == {"date": "2026-11-18", "count": 0, "microUsd": 0}
     # 境目: 等しいときは止まらない
-    eq = usage_of("2026-11-18", {"2026-11-18": {"count": 1, "microUsd": 1_000_000 - P}}, limits, bypass=False)
+    eq = usage_of("2026-11-18", {"2026-11-18": {"count": 1, "microUsd": AT_USER}}, limits, bypass=False)
     assert eq["blocked"] == {"count": False, "microUsd": False}
-    over = usage_of("2026-11-18", {"2026-11-18": {"count": 1, "microUsd": 1_000_000 - P + 1}}, limits, bypass=False)
+    over = usage_of("2026-11-18", {"2026-11-18": {"count": 1, "microUsd": OVER_USER}}, limits, bypass=False)
     assert over["blocked"] == {"count": False, "microUsd": True}
     # ほかの月・今日より後の鍵は入れない（入口が範囲で読んでも、渡されたら除く）
     mixed = usage_of("2026-11-18", {"2026-10-31": {"count": 5, "microUsd": 5},

@@ -61,7 +61,7 @@ def test_scenes_cover_all_nine():
             hit(f"day_le_12:{forms[f]['date_order']}", f)
         hit(f"rows:{len(rows)}", f)
         for r in rows:
-            p = Decimal(r["pnl_jpy"])
+            p = Decimal(r["pnl"])
             if p == 0:
                 hit("pnl_zero", f)
             if p < 0:
@@ -70,7 +70,7 @@ def test_scenes_cover_all_nine():
                 hit(f"order_type:{r['exit_order_type']}", f)
             if "." in r["entry_price"] or "." in r["exit_price"]:
                 hit("decimal", f)
-            if abs(Decimal(r["pnl_jpy"])) >= 1_000_000 or abs(Decimal(r["qty"])) >= 1000:
+            if abs(Decimal(r["pnl"])) >= 1_000_000 or abs(Decimal(r["qty"])) >= 1000:
                 hit("big_number", f)
     for scene in (
         "form1_long", "form1_short", "form2_future_close_sell", "form2_option_close_buy",
@@ -146,7 +146,7 @@ def test_layout_shows_values_matching_answers():
         for cells, a in zip(lay.cells, ans, strict=True):
             joined = [c.replace("\n", " ") for c in cells]
             nums = {normalize_number(c) for c in joined} - {None}
-            for k in ("entry_price", "exit_price", "qty", "pnl_jpy"):
+            for k in ("entry_price", "exit_price", "qty", "pnl"):
                 assert normalize_number(a[k]) in nums
             order = "DMY" if s.form == "form1" else "YMD"
             times = {parse_statement_datetime(c, order) for c in joined if c.count(":") == 1 and "/" in c}

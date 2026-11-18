@@ -487,3 +487,29 @@ def validate_account(body: Any, *, create: bool) -> tuple[dict | None, list[Issu
     if c.issues:
         return None, c.issues
     return out, []
+
+
+# ── 明細の特徴の覚え（#66）─────────────────────────────
+
+_STATEMENT_PROFILE_FIELDS = ("accountId",)
+
+
+def validate_statement_profile(body: Any) -> tuple[dict | None, list[Issue]]:
+    """覚える入口の本文: accountId（ID の形）だけ。必須。ほかの欄は unknownField"""
+    c = _Checker()
+    src = c.obj(body, "", _STATEMENT_PROFILE_FIELDS)
+    if src is None:
+        return None, c.issues
+
+    def check_id(v: Any, path: str) -> Any:
+        # 形は取引の accountId と同じ検査
+        if not isinstance(v, str) or not ID_PATTERN.match(v):
+            c.add(path, "format")
+            return INVALID
+        return v
+
+    out: dict = {}
+    _put(out, "accountId", c.field(src, "accountId", "", check_id, required=True))
+    if c.issues:
+        return None, c.issues
+    return out, []

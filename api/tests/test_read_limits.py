@@ -137,7 +137,14 @@ def test_default_limits():
 
 # ---- #51: 利用者ごとの費用の上限・バイパス・環境変数（ADR-0014） ----
 
-P = 278_736  # Sonnet 5.5 の予約額（ADR-0010 決定 4）
+# Sonnet 5.5 の予約額（ADR-0010 決定 4）。値は pricing から取る（固定するのは packages の test_pricing.py の 1 か所。
+# #66 AC-9）。例の表の境界は P の式で書く
+P = pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_MAX_OUTPUT_TOKENS)
+# 例の表の境界（P の式。#66 で予約額が変わっても表の意味を保つ）: 計上額 + P がちょうど利用者の上限 1.00 USD /
+# 1 µUSD 越える / 全体の上限 2.00 USD を 1 µUSD 越える
+AT_USER = 1_000_000 - P
+OVER_USER = AT_USER + 1
+OVER_DAILY = 2_000_000 - P + 1
 D = ReadLimits(per_user=30, daily_micro_usd=2_000_000, reserve_micro_usd=P, per_user_micro_usd=1_000_000)
 BYPASS = "bypass.owner@example.com"
 
@@ -156,11 +163,11 @@ def test_default_per_user_spend():
     [
         ("#1", 0, 0, 0, False, "ok"),
         ("#2", 30, 0, 0, False, "user"),
-        ("#3", 3, 721_264, 721_264, False, "ok"),  # 721,264 + P = 1,000,000（等しいので送る）
-        ("#4", 3, 721_265, 721_265, False, "user_spend"),
-        ("#5", 0, 0, 1_721_265, False, "spend"),
+        ("#3", 3, AT_USER, AT_USER, False, "ok"),  # (1,000,000 − P) + P = 1,000,000（等しいので送る）
+        ("#4", 3, OVER_USER, OVER_USER, False, "user_spend"),
+        ("#5", 0, 0, OVER_DAILY, False, "spend"),
         ("#6", 30, 5_000_000, 0, True, "ok"),
-        ("#7", 0, 0, 1_721_265, True, "spend"),
+        ("#7", 0, 0, OVER_DAILY, True, "spend"),
         ("#8", 30, 0, 0, False, "user"),  # 確かめていないメール = バイパスでない（判定の入力は False）
     ],
 )

@@ -536,12 +536,13 @@ const READ_E1 = {
   entryPrice: 100,
   exitPrice: 99,
   quantity: 2,
-  pnlYen: -2000,
+  pnl: -2000,
+  pnlCurrency: 'JPY',
   entryTime: jstTime(2026, 11, 10, 9, 5),
   exitTime: jstTime(2026, 11, 10, 10, 30),
   timeZoneNeedsCheck: false,
   fees: [100, 50],
-  feesTotalYen: 150,
+  feesTotal: 150,
   exitOrderType: 'unknown',
 };
 /** 3 行。行 1 は決済の時刻の時間帯が明細に無い（E9 + E10） */
@@ -553,7 +554,7 @@ const READ_E10 = [
     timeZoneNeedsCheck: true,
   },
   { ...READ_E1, symbol: '架空指数C', side: 'S', entryPrice: 200, exitPrice: 201.5, quantity: 1 },
-  { ...READ_E1, symbol: '架空指数D', entryPrice: 50, exitPrice: 51, quantity: 3, pnlYen: 3000 },
+  { ...READ_E1, symbol: '架空指数D', entryPrice: 50, exitPrice: 51, quantity: 3, pnl: 3000 },
 ];
 const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
 
@@ -563,7 +564,8 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
  * 設定（Issue #5）: api.settings は書き換えてよい（PUT /api/settings で変わる。資金が変わったときだけ履歴に足す）。
  * PUT /api/instruments/<id> は本文に無い欄を既定に戻し、名前が自分以外と同じなら 409。設定・銘柄の書き込みは api.writes に残す
  * POST /api/statement-reads は api.read（{ status, rows, holdMs }。後から書き換えてよい）で答え、要求の
- * Content-Type と本文のバイト列を api.reads に残す（このスクリプトの記憶の中だけ）
+ * Content-Type と本文のバイト列を api.reads に残す（このスクリプトの記憶の中だけ）。api.read.profile（#66。明細の特徴の
+ * 鍵と提案の口座。省けば null）を応答に足す。PUT /api/statement-profiles/<鍵> は 204 で api.profiles に残す
  * 口座（Issue #47）: api.accounts（opts.accounts。書き換えてよい）。既定の口座 default（「口座 1」）が無ければ、口座を読む・使う
  * 入口で api.settings から作る（本物の移し替えと同じ）。取引の snapshot の資金・許容リスクは取引の口座から写し、PUT で口座を
  * 付け替えたときだけ付け替え先の今の値で写し直す。opts.failAccounts は PUT /api/accounts/<id> の状態
@@ -590,6 +592,7 @@ async function installFakeApi(context, opts = {}) {
     chartPosts: [],
     read: { status: 200, rows: [READ_E1], holdMs: 0 },
     reads: [],
+    profiles: [],
     chartTimeframes: [],
     chartRead: { status: 200, kind: 'chart', holdMs: 0 },
     chartReads: 0,
@@ -656,12 +659,17 @@ async function installFakeApi(context, opts = {}) {
           route,
           r.status,
           r.status === 200
-            ? { kind: 'statement', rows: r.rows }
+            ? { kind: 'statement', rows: r.rows, profile: r.profile ?? null }
             : { error: 'read_unavailable', detail: 'SECRET-本文' },
         );
       } catch {
         return undefined; // 待たせている間に画面を離れた
       }
+    }
+    const profileM = /^\/api\/statement-profiles\/([0-9a-f]{32})$/.exec(path);
+    if (req.method() === 'PUT' && profileM) {
+      api.profiles.push({ key: profileM[1], body: JSON.parse(req.postData() ?? '{}') });
+      return route.fulfill({ status: 204 });
     }
     if (key === 'POST /api/chart-reads') {
       api.chartReads++;
@@ -1311,6 +1319,16 @@ const ACCOUNTS_2 = [ACC_ONE, ACC_B];
 const ACCOUNTS_3_LONG = [ACC_ONE, ACC_LONG, ACC_C];
 const ACCOUNTS_4 = [ACC_ONE, ACC_B, ACC_C, ACC_D];
 /** 偽の API の口座を入れ替える（空 = 既定の口座を設定から作り直す） */
+/** 明細の特徴（#66）: 提案の口座の ID は API の ID の形（英数だけ） */
+/** 状態の中の確かめ（外れたら投げる = その状態は「開けない」） */
+const mustEq = (got, want, what) => {
+  if (got !== want)
+    throw new Error(`${what}: ${JSON.stringify(got)}（期待 ${JSON.stringify(want)}）`);
+};
+const ACCOUNTS_ALNUM = [ACC_ONE, { ...ACC_B, id: 'accB' }];
+const PROFILE_NEW = { key: 'd'.repeat(32), accountId: null };
+const PROFILE_B = { key: 'c'.repeat(32), accountId: 'accB' };
+const READ_USD = { ...READ_E1, pnl: -62, feesTotal: 2, fees: [2], pnlCurrency: 'USD' };
 const setAccounts = (api, list) => api.accounts.splice(0, api.accounts.length, ...list);
 /** EUR 建ての架空の銘柄（#47 PR-2） */
 const FAKE_EUR_IDX = { ...FAKE_US30, id: 'inst-eur', name: '架空指数E', priceCurrency: 'EUR' };
@@ -1592,7 +1610,7 @@ const RECORD_STATES = [
   },
   {
     slug: 'record-18-add-open',
-    name: '口座を足す欄',
+    name: '口座を追加する欄',
     anchor: 'section[aria-labelledby="record-trade-title"]',
     fn: async (p) => {
       await p.locator('#record-account-add').click();
@@ -1602,13 +1620,13 @@ const RECORD_STATES = [
   },
   {
     slug: 'record-19-add-error',
-    name: '口座を足す欄の誤り',
+    name: '口座を追加する欄の誤り',
     anchor: 'section[aria-labelledby="record-trade-title"]',
     fn: async (p) => {
       await p.locator('#record-account-add').click();
       await p.locator('#record-account-new-name').fill('口座 1');
       await p.locator('#record-account-new-capital').fill('0');
-      await p.locator('.accountadd').getByRole('button', { name: '足す', exact: true }).click();
+      await p.locator('.accountadd').getByRole('button', { name: '追加', exact: true }).click();
       await p
         .locator('#record-account-new-name-error', { hasText: '同じ名前の口座があります' })
         .waitFor();
@@ -1723,7 +1741,7 @@ const RECORD_STATES = [
     },
   },
   {
-    // USD の口座で明細を貼った（U28: 損益・手数料は空、その下に「USD の口座では…」・単位 USD）
+    // USD の口座で JPY の明細を貼った（#66 C5: 損益・手数料は空、その下に「明細の損益は JPY です（口座 D は USD）」）
     slug: 'record-28-usd-statement',
     name: 'USD の口座で明細',
     anchor: 'details.more',
@@ -1732,7 +1750,136 @@ const RECORD_STATES = [
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('.field__mark').first().waitFor();
-      await p.locator('#record-money-note', { hasText: 'USD の口座では' }).waitFor();
+      await p.locator('#record-money-note', { hasText: '明細の損益は JPY です' }).waitFor();
+    },
+  },
+  {
+    // 口座 2 つ・明細の特徴の覚えあり（#66 AC-11・R4: 提案の口座 B が選ばれ、口座の欄に印「自動で選択」）
+    slug: 'record-29-account-suggested',
+    name: '明細から口座',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    // 提案の口座の ID は API の ID の形（英数だけ）。画面は形の外れた ID を提案に使わない
+    prep: (api) => setAccounts(api, [ACC_ONE, { ...ACC_B, id: 'accB' }]),
+    fn: async (p, api) => {
+      api.read = {
+        status: 200,
+        rows: [READ_E1],
+        holdMs: 0,
+        profile: { key: 'c'.repeat(32), accountId: 'accB' },
+      };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('#record-account-mark', { hasText: '自動で選択' }).waitFor();
+      await p
+        .locator('[role="radiogroup"][aria-label="口座"] input:checked[value="accB"]')
+        .waitFor({ state: 'attached' });
+    },
+  },
+  {
+    // 初めての明細（#66 デザイン 1: 覚えが無い → 口座の欄の下に「この明細の口座を選んでください…」・印なし）
+    slug: 'record-31-account-first',
+    name: '初めての明細',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, ACCOUNTS_ALNUM),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0, profile: PROFILE_NEW };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p
+        .locator('#record-account-hint', { hasText: 'この明細の口座を選んでください' })
+        .waitFor();
+      await p.locator('.field__mark').first().waitFor();
+      mustEq(await p.locator('#record-account-mark').count(), 0, '初めての明細の口座の印');
+    },
+  },
+  {
+    // 自動で選んだ後に選び直した（#66 R4: 印「自動で選択」が消える・「直した」にしない）
+    slug: 'record-32-account-rechosen',
+    name: '選び直した口座',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, ACCOUNTS_ALNUM),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0, profile: PROFILE_B };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('#record-account-mark', { hasText: '自動で選択' }).waitFor();
+      await seg(p, '口座', '口座 1').click();
+      await p.locator('#record-account-mark').waitFor({ state: 'detached' });
+    },
+  },
+  {
+    // 覚えた口座の通貨が明細と違う（#66 デザイン 3・4: 選ぶが印は付けず、合う通貨の口座を口座の欄の下で案内）
+    slug: 'record-33-account-currency-mismatch',
+    name: '覚えた口座の通貨が違う',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => {
+      setAccounts(api, [...ACCOUNTS_ALNUM, { ...ACC_USD, id: 'accUsd' }]);
+      withUsdInstrument(api);
+    },
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_USD], holdMs: 0, profile: PROFILE_B };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('#record-account-hint', { hasText: 'USD の口座は 口座 D です' }).waitFor();
+      mustEq(await p.locator('#record-account-mark').count(), 0, '通貨の違う提案の口座の印');
+    },
+  },
+  {
+    // 口座 4 つ（select）+ 自動で選んだ（#66 デザイン 8）
+    slug: 'record-34-accounts-4-suggested',
+    name: '口座 4 つで自動で選択',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) =>
+      setAccounts(api, [...ACCOUNTS_ALNUM, { ...ACC_C, id: 'accC' }, { ...ACC_D, id: 'accD' }]),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0, profile: PROFILE_B };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('#record-account-mark', { hasText: '自動で選択' }).waitFor();
+      mustEq(await p.locator('select#record-account').inputValue(), 'accB', 'select の口座');
+    },
+  },
+  {
+    // 明細から記録した後（#66 デザイン 5: 覚えたことを保存の後の 1 行で 1 回だけ伝える）
+    slug: 'record-35-learned-saved',
+    name: '明細から記録した後',
+    noBar: true,
+    prep: (api) => setAccounts(api, ACCOUNTS_ALNUM),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0, profile: PROFILE_NEW };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor();
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      await p.getByText('次からこの明細は', { exact: false }).waitFor();
+      mustEq(api.profiles.length, 1, '覚えの送信');
+    },
+  },
+  {
+    // USD の口座に USD の明細（#66 C4: 損益・手数料が入る・注記なし）
+    slug: 'record-36-usd-statement-usd',
+    name: 'USD の口座に USD の明細',
+    anchor: 'details.more',
+    prep: (api) => setAccounts(api, [{ ...ACC_USD, id: 'default' }]),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_USD], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await expectPollAsync(
+        async () => (await p.locator('#record-pnl').inputValue()) === '-62',
+        'USD の損益',
+      );
+      mustEq(await p.locator('#record-money-note').count(), 0, '注記');
+    },
+  },
+  {
+    // 円の口座に USD の明細（#66 AC-11・C3: 損益・手数料は入らず、その下に「明細の損益は USD です（口座 1 は JPY）」）
+    slug: 'record-30-currency-mismatch',
+    name: '明細の通貨が違う',
+    anchor: 'details.more',
+    fn: async (p, api) => {
+      api.read = {
+        status: 200,
+        rows: [{ ...READ_E1, pnl: -62, feesTotal: 2, fees: [2], pnlCurrency: 'USD' }],
+        holdMs: 0,
+      };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.field__mark').first().waitFor();
+      await p.locator('#record-money-note', { hasText: '明細の損益は USD です' }).waitFor();
     },
   },
   {

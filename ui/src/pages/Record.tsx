@@ -50,7 +50,7 @@ import {
   isTimeframe,
   TIMEFRAME_CHOICES,
 } from '../lib/charts';
-import { currencyView, statementFillsMoney, statementMoneyNote } from '../lib/currency';
+import { currencyView } from '../lib/currency';
 import { formatPrice } from '../lib/format';
 import {
   createRecordController,
@@ -58,6 +58,7 @@ import {
   type RecordState,
 } from '../lib/record-controller';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
+import { accountHintOf, learnedText, pnlFillOf } from '../lib/statement-account';
 import {
   imageFileFromClipboard,
   needsTzCheck,
@@ -358,7 +359,14 @@ function SavedPanel(p: RecordViewProps) {
         side={r.side}
         status={savedText(saved.accountCount, saved.accountName)}
         caption={`${saved.instrumentName} · ${r.side === 'L' ? 'L ロング' : 'S ショート'} · イン ${formatPrice(entry.price)} → 決済 ${formatPrice(r.exit.price)} · 数量 ${formatPrice(entry.quantity)}`}
-        {...(charts > 0 ? { note: `チャート ${charts} 枚も保存しました` } : {})}
+        {...(() => {
+          // 保存の後の 1 行: チャートの枚数と、明細の口座を覚えたこと（#66 デザイン 5）
+          const notes = [
+            ...(charts > 0 ? [`チャート ${charts} 枚も保存しました`] : []),
+            ...(saved.learned ? [learnedText(saved.accountName)] : []),
+          ];
+          return notes.length > 0 ? { note: notes.join('。') } : {};
+        })()}
       />
       {/* 保存の後はボタン 1 つなので帯（カード）に包まず、判定の枠の下に直に置く */}
       <Button block icon="record" onClick={p.onNext}>
@@ -401,12 +409,23 @@ function RecordForm(p: RecordViewProps) {
         })
       : undefined;
   const add = state.addAccount;
-  // 通貨と為替（#47 PR-2）: 外貨の口座で明細を貼ったら、損益・手数料の下に「明細から入りません」（U28）
+  // 通貨と為替（#47 PR-2）: 明細の損益の通貨が口座と合わない・読めないときは、損益・手数料の下に理由（#66・R6・C3・C5・C6）
   const accountCurrency = read.currency?.account ?? 'JPY';
-  const moneyNote =
-    state.statement?.phase === 'ready' && !statementFillsMoney(accountCurrency)
-      ? statementMoneyNote(accountCurrency)
-      : undefined;
+  const st = state.statement;
+  const row = st?.phase === 'ready' ? st.rows[st.index] : undefined;
+  const moneyNote = row
+    ? pnlFillOf(row.pnlCurrency, accountCurrency, account?.name ?? '口座', read.currency?.price)
+        .note
+    : undefined;
+  // 口座の欄の下の 1 行（#66 デザイン 1・3b・4）: 通貨の合う口座の案内か、覚えの無い明細の「選んでください」
+  const accountHint = row
+    ? accountHintOf({
+        accounts: state.accounts,
+        accountId: d.accountId,
+        pnlCurrency: row.pnlCurrency,
+        firstTime: st?.firstTime === true,
+      })
+    : undefined;
   const currency = read.currency
     ? currencyView(read.currency, read.preview.derivedFx, moneyNote)
     : undefined;
@@ -433,6 +452,7 @@ function RecordForm(p: RecordViewProps) {
           onUpdate={onUpdate}
           accounts={state.accounts}
           accountId={accountId}
+          {...(accountHint ? { accountHint } : {})}
           {...(currency ? { currency } : {})}
           accountAction={
             <AccountAddButton

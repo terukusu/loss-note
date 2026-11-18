@@ -94,6 +94,13 @@ import {
   REQUEST_TIMEOUT_MS,
 } from './request';
 import {
+  learnedAccountId,
+  pnlFillOf,
+  profilePath,
+  type StatementProfile,
+  suggestedAccount,
+} from './statement-account';
+import {
   confirmTimeZone,
   fillFromRow,
   gateReading,
@@ -143,9 +150,9 @@ export const CHART_MSG = {
 export const CHART_LOCKED =
   '前の [記録する] が届いたか確かめるまで、チャートは変えられません。先に [記録する] をもう一度押してください。';
 /** その場で足す口座の失敗（足す欄の中の知らせ。欄の値は残る。U8） */
-export const ACCOUNT_ADD_FAILED = '口座を足せませんでした。もう一度 [足す] を押してください。';
+export const ACCOUNT_ADD_FAILED = '口座を追加できませんでした。もう一度 [追加] を押してください。';
 export const ACCOUNT_ADD_NETWORK_FAILED =
-  'つながりません。もう一度 [足す] を押してください（届いていた口座は二重に足しません）。';
+  '通信できませんでした。もう一度 [追加] を押してください（二重には追加されません）。';
 export { ACCOUNT_ADDING };
 export const READ_BLOCKED = {
   notReady: '記録の準備ができてから、もう一度貼ってください。',
@@ -171,6 +178,11 @@ export interface StatementState {
   readonly notice: string | null;
   /** 送るものと同じ画像のプレビュー（記憶の中だけ） */
   readonly preview: PreviewHandle | null;
+  /**
+   * 覚えの無い明細で、本人がまだ口座を選んでいない（口座の欄の下に「この明細の口座を選んでください。次から自動で
+   * 選びます」。#66 デザイン 1）。本人が口座を選ぶ・追加すると false
+   */
+  readonly firstTime?: boolean;
 }
 
 /** チャートの枠の段階: 描き直し中 / 使える（プレビューあり）/ 失敗（決まった文言） */
@@ -200,6 +212,8 @@ export interface SavedView {
   /** 保存した取引の口座の名前と、保存したときの口座の数（「口座 A に記録しました」。U11） */
   readonly accountName: string;
   readonly accountCount: number;
+  /** 明細の特徴を覚えた（覚えが無かった・覚えと違う口座で記録した。口座 2 つ以上のときだけ。#66 デザイン 5） */
+  readonly learned?: boolean;
 }
 
 /** その場で足す口座の欄（開いている間だけ。#47 B5・U5〜U9） */
@@ -347,6 +361,14 @@ export function createRecordController(deps: {
   let readAbort: AbortController | null = null;
   /** 貼った後に利用者が触った欄（応答で上書きしない） */
   let touched = new Set<DraftField>();
+  /**
+   * 明細の特徴（#66。応答の鍵と提案の口座。記憶の中だけ = 端末の保存先・URL・履歴に書かない）と、その明細で本人が
+   * 口座を選んだ・足したか（選んでいれば提案を使わない。R4・S3）。もう 1 枚・最後の行の後・やめた・離れたで捨てる
+   */
+  let profile: StatementProfile | null = null;
+  let accountTouched = false;
+  /** その明細で覚えを新しくした（記録の後の 1 行。#66 デザイン 5） */
+  let learnedInStatement = false;
   /** 空の下書きに戻すときの既定（開いたとき、保存の後は今保存した取引から） */
   let defaults: Partial<Draft> = {};
   /** その場で足す口座: [足す] を押した（空の名前の誤りを出す）・409 の名前の鍵・届いたか分からない名前 */
@@ -552,6 +574,9 @@ export function createRecordController(deps: {
     readAbort?.abort();
     readAbort = null;
     if (!keepTouched) touched = new Set();
+    profile = null;
+    accountTouched = false;
+    learnedInStatement = false;
     const prev = state.statement;
     if (!prev) return;
     prev.preview?.close();
@@ -573,8 +598,21 @@ export function createRecordController(deps: {
     const before = accountCurrencyIn(state.accounts, state.draft.accountId);
     const after = accountCurrencyIn(accounts, draft.accountId);
     if (before === after) return { draft };
-    const filled = refillMoney({ draft, marks: st.marks }, row, touched, after);
+    const filled = refillMoney(
+      { draft, marks: st.marks },
+      row,
+      touched,
+      after,
+      priceCurrencyOf(row.symbol),
+    );
     return { draft: filled.draft, statement: { ...st, marks: filled.marks } };
+  };
+
+  /** 行の銘柄の価格の通貨（一覧の名前と同じ名前の銘柄。無い・未設定は null。#66 P3） */
+  const priceCurrencyOf = (symbol: string | null): string | null => {
+    if (symbol === null) return null;
+    const key = nameKeyOf(symbol);
+    return state.instruments.find((i) => nameKeyOf(i.name) === key)?.priceCurrency ?? null;
   };
 
   /** 為替を打ったときの通貨の組（打っていなければ null。#47 PR-2） */
@@ -600,6 +638,7 @@ export function createRecordController(deps: {
     // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）。外貨の口座では損益・手数料を入れない（PR-2・R7）
     const filled = fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched, {
       accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
+      priceCurrency: priceCurrencyOf(row.symbol),
     });
     set(
       {
@@ -607,7 +646,15 @@ export function createRecordController(deps: {
         error: null,
         chartBlocked: null,
         draft: filled.draft,
-        statement: { ...st, phase: 'ready', index, marks: filled.marks, notice, message: null },
+        statement: {
+          ...st,
+          phase: 'ready',
+          index,
+          marks: filled.marks,
+          notice,
+          message: null,
+          firstTime: false,
+        },
       },
       true,
     );
@@ -721,20 +768,41 @@ export function createRecordController(deps: {
       const st = state.statement;
       const row = result.rows[0];
       if (!st || !row || state.phase !== 'editing') return;
-      const filled = fillFromRow(state.draft, row, touched, {
-        accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
-      });
+      // 明細から口座を選ぶ（#66・R4）: 口座 2 つ以上・提案の口座が一覧にある・本人がまだ選んでいないときだけ。
+      // 損益・手数料は選んだ口座の通貨で流し込む（R6）
+      profile = result.profile;
+      const suggested = suggestedAccount(profile, state.accounts, accountTouched);
+      const base = suggested === undefined ? state.draft : { ...state.draft, accountId: suggested };
+      const accountCurrency = accountCurrencyIn(state.accounts, base.accountId);
+      const priceCurrency = priceCurrencyOf(row.symbol);
+      const filled = fillFromRow(base, row, touched, { accountCurrency, priceCurrency });
+      // 印「自動で選択」は確かな提案のときだけ（提案の口座の通貨が明細の損益と合わなければ印を付けない。デザイン 4）
+      const sure =
+        suggested !== undefined &&
+        pnlFillOf(row.pnlCurrency, accountCurrency, '', priceCurrency).fills;
+      // 覚えの無い明細（鍵はあるが覚えが無い・覚えの口座が一覧に無い）で、本人がまだ選んでいない（デザイン 1）
+      const firstTime =
+        profile !== null &&
+        !accountTouched &&
+        state.accounts.length >= 2 &&
+        !state.accounts.some((a) => a.id === profile?.accountId);
+      const { accountId: _oldMark, ...prevMarks } = st.marks;
       set({
-        // 読み取りが銘柄を入れ替えたときも為替の規則を当てる（#47 PR-2 の 3 回目の再レビュー 3）
+        // 読み取りが銘柄・口座を入れ替えたときも為替の規則を当てる（#47 PR-2 の 3 回目の再レビュー 3）
         draft: withFxRule(filled.draft, state.accounts),
         statement: {
           ...st,
           phase: 'ready',
           rows: result.rows,
           index: 0,
-          marks: { ...st.marks, ...filled.marks },
+          marks: {
+            ...prevMarks,
+            ...filled.marks,
+            ...(sure ? { accountId: 'auto' as const } : {}),
+          },
           message: null,
           notice: null,
+          firstTime,
         },
       });
     } catch (e) {
@@ -965,6 +1033,22 @@ export function createRecordController(deps: {
       }
       uncertain = null;
       const found = trade;
+      // 覚える（#66・R5）: 明細から作った下書きを記録したら、鍵 → その取引の口座を上書きで覚える。失敗は黙って捨てる
+      // （記録は成功のまま・知らせを出さない）。鍵が無ければ送らない
+      const fromStatement = state.statement?.phase === 'ready';
+      const learnedId = learnedAccountId(accountIdOf(found.record));
+      // 記録の後の 1 行（デザイン 5）: 覚えが無かった・覚えと違う口座で記録したとき（口座 2 つ以上だけ）
+      const learned =
+        fromStatement &&
+        profile !== null &&
+        state.accounts.length >= 2 &&
+        profile.accountId !== learnedId;
+      if (fromStatement && profile) {
+        learn(profile.key, learnedId);
+        profile = { ...profile, accountId: learnedId };
+      }
+      if (learned) learnedInStatement = true;
+      const learnedOnce = learnedInStatement;
       const name = inst.instruments.find((i) => i.id === found.record.instrumentId)?.name ?? '';
       defaults = {
         instrumentName: name,
@@ -989,6 +1073,7 @@ export function createRecordController(deps: {
           summary: summarize(found),
           accountName: accountNameOf(accountIdOf(found.record), state.accounts),
           accountCount: state.accounts.length,
+          ...(learnedOnce ? { learned: true } : {}),
         },
         error: null,
         chartBlocked: null,
@@ -999,6 +1084,17 @@ export function createRecordController(deps: {
       // 記録が失敗して編集に戻った: 記録の前に止めた時間足の読み取りを送り直す（1 つずつ・明細が先の順のまま。#27 R1）
       requeueCharts(stopped);
     }
+  };
+
+  /** 明細の特徴の鍵 → 口座を覚える（PUT /api/statement-profiles/{鍵}。待たない・失敗は捨てる。#66） */
+  const learn = (key: string, accountId: string) => {
+    const path = profilePath(key);
+    if (path === undefined) return;
+    void request(path, {
+      method: 'PUT',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ accountId }),
+    }).catch(() => undefined);
   };
 
   /** 止めた枠の読み取りを待ち行列に戻す（枠の画像が残っているときだけ。結果の当て方は今までどおり） */
@@ -1072,8 +1168,18 @@ export function createRecordController(deps: {
       accountTaken = null;
       uncertainAccount = null;
       closeAdd();
+      // その場で足して選んだ口座も本人が選んだ口座（提案で上書きしない。#66・S10）
+      if (state.statement) accountTouched = true;
       const moved = withFxRule({ ...state.draft, accountId: id }, accounts);
-      set({ accounts, ...afterAccountChange(moved, accounts) });
+      const changed = afterAccountChange(moved, accounts);
+      const st = changed.statement ?? state.statement;
+      set({
+        accounts,
+        ...changed,
+        ...(st
+          ? { statement: { ...st, marks: markEdited(st.marks, 'accountId'), firstTime: false } }
+          : {}),
+      });
     };
     try {
       let res: Response;
@@ -1184,9 +1290,15 @@ export function createRecordController(deps: {
         action.type === 'set' && action.field === 'fxRate',
       );
       if (st && action.type === 'set' && action.field === 'accountId') {
-        // 口座は読み取りの欄ではない（触った欄に入れない）。通貨が変われば損益・手数料を合わせる
+        // 口座は読み取りの欄ではない（触った欄に入れない）。通貨が変われば損益・手数料を合わせる。
+        // 本人が選んだので、この明細では提案を使わず、印「自動で選択」は外す（「直した」にはしない。#66・R4・S3）
+        accountTouched = true;
+        const moved = afterAccountChange(nextDraft, state.accounts);
+        const base = moved.statement ?? st;
+        const marks = markEdited(base.marks, 'accountId');
         set({
-          ...afterAccountChange(nextDraft, state.accounts),
+          ...moved,
+          statement: { ...base, marks, firstTime: false },
           error: null,
           readBlocked: null,
           chartBlocked: null,

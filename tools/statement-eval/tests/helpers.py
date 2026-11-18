@@ -15,7 +15,8 @@ def answer_row(**kw) -> dict:
         "exit_time": "2026-03-04T06:40",
         "qty": "10",
         "fees": None,
-        "pnl_jpy": "3600",
+        "pnl": "3600",
+        "pnl_currency": "JPY",
         "exit_order_type": "unknown",
     }
     row.update(kw)
@@ -44,7 +45,8 @@ def read_from_answer(a: dict, **kw) -> dict:
         "time_zone": "unknown",
         "qty": _num(a["qty"]),
         "fees": None if a["fees"] is None else [_num(x) for x in a["fees"]],
-        "pnl_jpy": _num(a["pnl_jpy"]),
+        "pnl": _num(a["pnl"]),
+        "pnl_currency": a["pnl_currency"],
         "exit_order_type": a["exit_order_type"],
     }
     row.update(kw)

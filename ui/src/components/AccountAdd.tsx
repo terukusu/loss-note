@@ -36,7 +36,7 @@ export function AccountAddButton(p: {
       <span class="accountadd__plus" aria-hidden="true">
         ＋
       </span>
-      <span> 口座を足す</span>
+      <span> 口座を追加</span>
     </button>
   );
 }
@@ -65,7 +65,7 @@ export function AccountAddForm(p: AccountAddFormProps) {
         }
       }}
     >
-      <legend class="sr-only">口座を足す</legend>
+      <legend class="sr-only">口座を追加</legend>
       <TextField
         id={NEW_ACCOUNT_NAME_ID}
         label="名前"
@@ -97,7 +97,7 @@ export function AccountAddForm(p: AccountAddFormProps) {
       ) : null}
       <div class="accountadd__actions">
         <Button onClick={p.onAdd} disabled={s.saving}>
-          {s.saving ? '足しています…' : '足す'}
+          {s.saving ? '追加しています…' : '追加'}
         </Button>
         <Button variant="ghost" onClick={p.onClose} disabled={s.saving}>
           キャンセル

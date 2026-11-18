@@ -53,7 +53,8 @@ def read_row(**kw) -> dict:
         "time_zone": "GMT",
         "qty": 0.5,
         "fees": None,
-        "pnl_jpy": 6500,
+        "pnl": 6500,
+        "pnl_currency": "JPY",
         "exit_order_type": "unknown",
     }
     row.update(kw)
@@ -328,12 +329,14 @@ def post_result(reads, sdk, tool_input) -> dict:
 
 def test_success_example_17(reads, sdk):
     body = post_result(reads, sdk, statement(read_row()))
-    assert body == {"kind": "statement", "rows": [{
+    assert body == {"kind": "statement", "profile": None, "rows": [{
         "symbol": "US30",
         "side": "L",
         "entryPrice": 39012.5,
         "exitPrice": 39100.0,
         "quantity": 0.5,
+        "pnl": 6500,
+        "pnlCurrency": "JPY",
         "pnlYen": 6500,
         "entryTime": {"written": "2026-03-04T01:15", "timeZone": "GMT", "jst": "2026-03-04T10:15",
                       "epochMs": epoch_ms(2026, 3, 4, 1, 15)},
@@ -341,18 +344,20 @@ def test_success_example_17(reads, sdk):
                      "epochMs": epoch_ms(2026, 3, 4, 6, 40)},
         "timeZoneNeedsCheck": False,
         "fees": None,
+        "feesTotal": None,
         "feesTotalYen": None,
         "exitOrderType": "unknown",
     }]}
 
 
 def test_success_example_18(reads, sdk):
-    body = post_result(reads, sdk, statement(read_row(pnl_jpy=0), read_row(pnl_jpy=-12340)))
+    body = post_result(reads, sdk, statement(read_row(pnl=0), read_row(pnl=-12340)))
     assert [r["pnlYen"] for r in body["rows"]] == [0, -12340]
 
 
 def test_success_example_19(reads, sdk):
-    assert post_result(reads, sdk, statement(kind="not_statement")) == {"kind": "notStatement", "rows": []}
+    assert post_result(reads, sdk, statement(kind="not_statement")) == {"kind": "notStatement", "rows": [],
+                                                                        "profile": None}
 
 
 @pytest.mark.parametrize("symbol", ["X" * 41, "US30;x", "US30@x"])
@@ -428,7 +433,7 @@ def capture(caplog, monkeypatch):
 def test_markers_not_in_logs_or_errors(make_client, sdk, capture, capfd):
     client = make_client(read_timeout=0.05)
     image = png(1600, 900, size=100_000, filler=IMG_MARKER)
-    marked = statement(read_row(symbol=SYM_MARKER, entry_price=NUM_MARKER, pnl_jpy=NUM_MARKER, fees=[NUM_MARKER]))
+    marked = statement(read_row(symbol=SYM_MARKER, entry_price=NUM_MARKER, pnl=NUM_MARKER, fees=[NUM_MARKER]))
     error_bodies = []
     # 成功
     sdk.script, sdk.tool_input = "tool", marked
@@ -472,11 +477,12 @@ def test_read_log_shape(make_client, sdk, capture, capfd):
     assert reads_[0]["rows"] == 1 and reads_[1]["rows"] == 0
     # 時間の内訳（#60）: AI へ送った回は上限の予約・送り口の全体・CLI が報告した API の時間（偽の SDK は 1,200 ms）。
     # 送る前に返した回は内訳なし。送った回は先立てを使ったか（#65。準備をしていないので cold）
-    assert set(reads_[0]) == {"event", "reason", "rows", "ms", "limit_ms", "read_ms", "api_ms", "cli"}
-    assert reads_[0]["api_ms"] == 1200.0 and reads_[0]["cli"] == "cold"
+    assert set(reads_[0]) == {"event", "reason", "rows", "ms", "limit_ms", "read_ms", "api_ms", "cli",
+                              "profile"}
+    assert reads_[0]["api_ms"] == 1200.0 and reads_[0]["cli"] == "cold" and reads_[0]["profile"] == "none"
     assert set(reads_[1]) == {"event", "reason", "rows", "ms"}
     for ln in reads_:
-        for k in set(ln) - {"event", "reason", "rows", "cli"}:
+        for k in set(ln) - {"event", "reason", "rows", "cli", "profile"}:
             assert isinstance(ln[k], (int, float)) and not isinstance(ln[k], bool)
     # 既存の request の行もそのまま
     assert any(ln.get("event") == "request" and ln.get("route") == PATH for ln in lines)

@@ -165,6 +165,34 @@
         "pnl_zero_and_loss",
         "decimal_and_separator"
       ]
+    },
+    {
+      "file": "s15.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_long",
+        "day_le_12",
+        "pnl_zero_and_loss",
+        "decimal_and_separator",
+        "pnl_usd"
+      ]
+    },
+    {
+      "file": "s16.png",
+      "form": "form1",
+      "order_type_column": false,
+      "date_order": "DMY",
+      "scenes": [
+        "form1_long",
+        "form1_short",
+        "day_le_12",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator",
+        "pnl_usd"
+      ]
     }
   ]
 }

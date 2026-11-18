@@ -140,7 +140,7 @@ def _good_input():
     return {"kind": "statement", "rows": [{
         "symbol": "JP225", "side_written": "buy", "side_of": "position", "entry_price": 38250,
         "entry_time": "2026-03-04T01:15", "exit_price": 38610, "exit_time": "2026-03-04T06:40", "time_zone": "GMT",
-        "qty": 10, "fees": None, "pnl_jpy": 3600, "exit_order_type": "unknown"}]}
+        "qty": 10, "fees": None, "pnl": 3600, "exit_order_type": "unknown"}]}
 
 
 def _fake_query(messages, seen: dict):

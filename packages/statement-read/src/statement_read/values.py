@@ -6,6 +6,7 @@
   - 形 1（1 行 1 取引で「方向」の欄に「売約定」「買約定」）: 建玉そのものの向き → 売約定 = S、買約定 = L
   - 形 2（「決済売」「決済買」）: 決済の向き → 決済売 = L、決済買 = S
 - 手数料は欄ごとの配列の合計（合計は AI でなくここで出す）
+- 明細を出した会社の名前の比べる形（``issuer_key``。API の明細の特徴の鍵と評価の道具の採点が共有する。#66）
 """
 
 import re
@@ -103,3 +104,12 @@ def sum_fees(v: list | None) -> Decimal | None:
             return None
         total += d
     return total
+
+
+def issuer_key(issuer) -> str | None:
+    """明細を出した会社の名前 → 比べる形（NFKC・大文字小文字・前後と間の空白の違いを同じとみなす。#66 の S15）。
+    文字列でない・空白だけなら None（鍵を作らない）"""
+    if not isinstance(issuer, str):
+        return None
+    k = "".join(unicodedata.normalize("NFKC", issuer).casefold().split())
+    return k or None

@@ -38,7 +38,7 @@ STARTUP = 2.0  # 偽の CLI の起動（秒。例の表の「CLI の起動 = 2.0
 def row(symbol: str) -> dict:
     return {"symbol": symbol, "side_written": "buy", "side_of": "position", "entry_price": 39012.5,
             "entry_time": "2026-03-04T01:15", "exit_price": 39100.0, "exit_time": "2026-03-04T06:40",
-            "time_zone": "GMT", "qty": 0.5, "fees": None, "pnl_jpy": 6500, "exit_order_type": "unknown"}
+            "time_zone": "GMT", "qty": 0.5, "fees": None, "pnl": 6500, "exit_order_type": "unknown"}
 
 
 @pytest.fixture

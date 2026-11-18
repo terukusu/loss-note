@@ -24,6 +24,12 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 交換・AI の API・後始末）・``api_ms`` = CLI が報告する AI の API の時間（``read_ms - api_ms`` がおおよそ CLI の側の
 時間）。``cli`` = 先立ての CLI を使ったか（``warm`` / ``cold``。#65）。
 
+明細の特徴（Issue #66・ADR-0017）: 検査を通った結果の会社の名前（``issuer``）を ``statement_profile.profile_key`` で
+利用者ごとの鍵に変え、名前はすぐ捨てる（応答・ログ・保存先に出さない）。鍵があれば覚え
+``users/{uid}/statement_profiles/{鍵}`` を 1 つ読み（書かない）、応答に ``profile: {key, accountId}``（鍵が無ければ
+null、覚えが無い・読めなければ accountId = null。読めなくても 200 のまま）を足す。ログは ``profile`` =
+``hit`` / ``miss`` / ``none`` / ``unavailable`` だけ（鍵・名前・口座を出さない）。
+
 先立ての CLI（Issue #65・ADR-0013・``statement_read.warm``）: 起動の段（``app.py`` の準備）と準備の要求
 ``POST /api/statement-reads/prepare`` のときだけ、CLI を 1 つ先に起動して待たせる。読み取りは先立てがあれば使い
 （1 回で捨てる）、無い・期限切れ・画像を送る前に失敗したら、残りの時間でその場で立てる（AI へ送るのは 1 回）。
@@ -55,7 +61,7 @@ from statement_read.warm import WarmPool
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from loss_note_api import identity_token as id_token
-from loss_note_api import read_limits
+from loss_note_api import read_limits, statement_profile
 from loss_note_api.logs import log_event
 from loss_note_api.store import Store
 
@@ -273,4 +279,19 @@ def register(
             body = normalize_result(outcome.result)
         except Bad:
             return reply(502, {"error": "read_invalid_result"}, "invalid_result")
+        # 明細の特徴（#66）: 会社の名前を鍵に変えて捨てる。覚えが読めなくても読み取りは止めない
+        issuer = outcome.result.get("issuer")
+        key = statement_profile.profile_key(g.uid, issuer, outcome.result.get("rows") or [])
+        del issuer
+        outcome.result.pop("issuer", None)
+        doc = None
+        if key is None:
+            tags["profile"] = "none"
+        else:
+            try:
+                doc = store.get_statement_profile(g.uid, key)
+                tags["profile"] = "hit" if doc is not None else "miss"
+            except Exception:  # noqa: BLE001 - 覚えが読めなくても 200（提案なし）。例外の文言は出さない
+                tags["profile"] = "unavailable"
+        body["profile"] = statement_profile.profile_response(key, doc)
         return reply(200, body, "ok", rows=len(body["rows"]))

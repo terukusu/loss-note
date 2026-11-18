@@ -1264,11 +1264,11 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
     expect(all(tree, (e) => e.props.id === 'record-account')).toEqual([]);
     expect(all(tree, hasClass('verdict__account'))).toEqual([]);
     const add = all(tree, (e) => e.props.id === 'record-account-add')[0];
-    expect(text(add ? [add] : [])).toBe('＋ 口座を足す');
+    expect(text(add ? [add] : [])).toBe('＋ 口座を追加');
     expect(add?.props['aria-expanded']).toBe('false');
     // 見出しの行の中（取引の枠の見出しと同じ行）
     const head = all(tree, hasClass('section__head'))[0];
-    expect(text(head ? [head] : [])).toBe('取引＋ 口座を足す');
+    expect(text(head ? [head] : [])).toBe('取引＋ 口座を追加');
   });
 
   it('U2: 口座 2〜3 つ → 「取引」の先頭（銘柄の上）に Segment「口座」。選ばれた項目にチェック', () => {
@@ -1302,6 +1302,48 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
       '口座 C',
       '口座 D',
     ]);
+  });
+
+  it('#66 R4・デザイン 2: 自動で選んだ → 口座の欄の見出しに印「自動で選択」と読み上げの理由（Segment も select も）', () => {
+    const st = (n: number): RecordState => ({
+      ...stateFor(E11, withAccounts(n)),
+      statement: {
+        phase: 'ready',
+        rows: [ROW_E1],
+        index: 0,
+        marks: { accountId: 'auto' },
+        message: null,
+        notice: null,
+        preview: null,
+      },
+    });
+    for (const n of [2, 4]) {
+      const tree = view(st(n));
+      const mark = all(tree, (e) => e.props.id === 'record-account-mark')[0];
+      expect(text(mark ? [mark] : []), `${n}`).toBe('自動で選択');
+      expect(cls(mark as El)).toBe('field__mark');
+      const desc = all(tree, (e) => e.props.id === 'record-account-auto-desc')[0];
+      expect(text(desc ? [desc] : [])).toBe(
+        '前にこの明細で選んだ口座を自動で選びました。違うときは選び直してください',
+      );
+      expect(cls(desc as El)).toBe('sr-only');
+    }
+    const sel = all(view(st(4)), (e) => e.type === 'select' && e.props.id === 'record-account')[0];
+    expect(sel?.props['aria-describedby']).toBe('record-account-mark record-account-auto-desc');
+    // 覚えの無い明細: 印なし・口座の欄の下に「この明細の口座を選んでください…」（デザイン 1）
+    const first: RecordState = {
+      ...st(2),
+      statement: {
+        ...(st(2).statement as NonNullable<RecordState['statement']>),
+        marks: {},
+        firstTime: true,
+      },
+    };
+    const hint = all(view(first), (e) => e.props.id === 'record-account-hint')[0];
+    expect(text(hint ? [hint] : [])).toBe('この明細の口座を選んでください。次から自動で選びます');
+    // 口座 1 つは欄も印も出ない（S7）
+    const one = view({ ...st(1), accounts: withAccounts(1).accounts });
+    expect(all(one, (e) => e.props.id === 'record-account-mark')).toEqual([]);
   });
 
   it('U4: 長い名前は省略の印（seg__text）を持つ項目の文字。全文は文字のまま', () => {
@@ -1365,7 +1407,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     expect(box?.type).toBe('fieldset');
     const b = box ? [box] : [];
     expect(all(b, (e) => e.type === 'label').map(text)).toEqual(['名前', '資金（任意）']);
-    expect(all(b, (e) => e.type === 'button').map(text)).toEqual(['足す', 'キャンセル']);
+    expect(all(b, (e) => e.type === 'button').map(text)).toEqual(['追加', 'キャンセル']);
     expect(text(b)).toContain('空でも足せます。資金を入れるとリスク（%）が出ます');
     expect(
       all(tree, (e) => e.props['aria-label'] === '口座' && e.props.role === 'radiogroup'),
@@ -1399,7 +1441,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
         draft: { name: '口座 1', capital: '0' },
         errors: { name: '同じ名前の口座があります', capital: '0 より大きい数を入れてください' },
         message:
-          'つながりません。もう一度 [足す] を押してください（届いていた口座は二重に足しません）。',
+          '通信できませんでした。もう一度 [追加] を押してください（二重には追加されません）。',
       }),
     );
     expect(text(all(tree, (e) => e.props.id === 'record-account-new-name-error'))).toBe(
@@ -1409,7 +1451,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
       '口座 1',
     );
     const alert = all(tree, (e) => e.props.role === 'alert').map(text);
-    expect(alert.some((t) => t.startsWith('つながりません。もう一度 [足す]'))).toBe(true);
+    expect(alert.some((t) => t.startsWith('通信できませんでした。もう一度 [追加]'))).toBe(true);
   });
 
   it('U9: 送っている間は欄と [足す] が押せない', () => {
@@ -1417,7 +1459,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     const box = all(tree, hasClass('accountadd'))[0];
     const buttons = all(box ? [box] : [], (e) => e.type === 'button');
     expect(buttons.map((b) => b.props.disabled)).toEqual([true, true]);
-    expect(text(buttons)).toContain('足しています…');
+    expect(text(buttons)).toContain('追加しています…');
   });
 });
 
@@ -1460,6 +1502,21 @@ describe('保存の後の知らせ（#47 U11）', () => {
       ).map(text);
     expect(saved('口座 B', 2)).toEqual(['口座 B に記録しました']);
     expect(saved('口座 1', 1)).toEqual(['記録しました']);
+    // #66 デザイン 5: 明細の口座を覚えたら、保存の後の 1 行で一度だけ伝える
+    const learnedTree = view(
+      stateFor(E11, CAPITAL_1M, {
+        phase: 'saved',
+        saved: {
+          trade,
+          instrumentName: 'US30',
+          summary: summarize(trade),
+          accountName: '口座 B',
+          accountCount: 2,
+          learned: true,
+        },
+      }),
+    );
+    expect(text(learnedTree)).toContain('次からこの明細は 口座 B を自動で選ぶようにしました');
   });
 });
 
@@ -1587,22 +1644,34 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
     expect(text(verdictOf(tree))).toContain('−50.00 USD');
   });
 
-  it('U28（F13）: USD の口座で明細を貼った → 損益・手数料の下に「USD の口座では…」', () => {
-    const base = stateFor(pDraft({}), CTX_D);
-    const st: RecordState = {
-      ...base,
+  it('#66 C4〜C6: USD の口座で明細を貼った → 通貨が合わない・読めないときだけ損益・手数料の下に理由', () => {
+    const withRow = (ctx: typeof CTX_D, row: typeof ROW_E1): RecordState => ({
+      ...stateFor(pDraft({}), ctx),
       statement: {
         phase: 'ready',
-        rows: [ROW_E1],
+        rows: [row],
         index: 0,
         marks: {},
         message: null,
         notice: null,
         preview: null,
       },
-    };
-    expect(text(byId(view(st), 'record-money-note'))).toBe(
-      'USD の口座では、損益と手数料は明細から入力されません（手入力してください）',
+    });
+    // C5: JPY の明細を USD の口座 D に
+    expect(text(byId(view(withRow(CTX_D, ROW_E1)), 'record-money-note'))).toBe(
+      '明細の損益は JPY です（口座 D は USD）。JPY の口座を選ぶか、USD の損益を入力してください',
+    );
+    // C6: 通貨が読めない
+    const unread = { ...ROW_E1, pnlCurrency: 'unknown' };
+    expect(text(byId(view(withRow(CTX_D, unread)), 'record-money-note'))).toBe(
+      '明細の損益の通貨が読めませんでした。USD の損益を入力してください',
+    );
+    // C4: USD の明細は入るので理由は出ない
+    const usd = { ...ROW_E1, pnlCurrency: 'USD' };
+    expect(byId(view(withRow(CTX_D, usd)), 'record-money-note')).toHaveLength(0);
+    // C3: 円の口座 A に USD の明細
+    expect(text(byId(view(withRow(CTX_A, usd)), 'record-money-note'))).toBe(
+      '明細の損益は USD です（口座 A は JPY）。USD の口座を選ぶか、円の損益を入力してください',
     );
     // 円の口座・明細なしでは出ない
     expect(byId(view(stateFor(pDraft({}), CTX_A)), 'record-money-note')).toHaveLength(0);

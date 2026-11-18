@@ -134,6 +134,8 @@ curl -s -X POST -H "$AUTH" -H 'Content-Type: image/png' \
   --data-binary @tools/statement-eval/synthetic/s01.png "$API/statement-reads"
 ```
 
+応答の行の `pnl`・`feesTotal` は明細に書かれた通貨のままの損益・手数料の合計で、`pnlCurrency` がその通貨（英字 3 文字か `unknown`）です。明細の上部に会社の名前が写っていれば、応答の `profile.key` はその名前から作った短い鍵です（名前そのものは返しません）。記録する画面は、その明細から作った取引を記録したあと `PUT /api/statement-profiles/<鍵>`（本文 `{"accountId": "<口座の ID>"}`）で鍵と口座を覚え、次に同じ会社の明細を貼ったとき `profile.accountId` の口座を選びます（[`docs/adr-0017-statement-profile.md`](docs/adr-0017-statement-profile.md)）。
+
 終わったら `(cd api && uv sync --locked)` で AI の SDK を外し、確認コマンドと同じ状態に戻します。
 
 ## 確認コマンド

@@ -3,6 +3,7 @@
   "images": [
     {
       "file": "s01.png",
+      "issuer": "架空 FX Y",
       "rows": [
         {
           "symbol": "JP225",
@@ -13,13 +14,15 @@
           "exit_time": "2026-03-04T06:40",
           "qty": "10",
           "fees": null,
-          "pnl_jpy": "3600",
+          "pnl": "3600",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s02.png",
+      "issuer": "架空 FX Y",
       "rows": [
         {
           "symbol": "US30",
@@ -30,13 +33,15 @@
           "exit_time": "2026-02-17T15:05",
           "qty": "2",
           "fees": null,
-          "pnl_jpy": "-37500",
+          "pnl": "-37500",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s03.png",
+      "issuer": "架空 FX Y",
       "rows": [
         {
           "symbol": "JP225",
@@ -47,7 +52,8 @@
           "exit_time": "2026-01-20T02:10",
           "qty": "5",
           "fees": null,
-          "pnl_jpy": "1250",
+          "pnl": "1250",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -59,7 +65,8 @@
           "exit_time": "2026-01-21T12:30",
           "qty": "100000",
           "fees": null,
-          "pnl_jpy": "30000",
+          "pnl": "30000",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -71,13 +78,15 @@
           "exit_time": "2026-01-22T16:55",
           "qty": "10",
           "fees": null,
-          "pnl_jpy": "0",
+          "pnl": "0",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s04.png",
+      "issuer": "架空 FX Y",
       "rows": [
         {
           "symbol": "JP225",
@@ -88,7 +97,8 @@
           "exit_time": "2026-01-09T03:35",
           "qty": "4",
           "fees": null,
-          "pnl_jpy": "-500",
+          "pnl": "-500",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -100,13 +110,15 @@
           "exit_time": "2026-01-11T07:45",
           "qty": "4",
           "fees": null,
-          "pnl_jpy": "980",
+          "pnl": "980",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s05.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225mini 26/03",
@@ -122,13 +134,15 @@
             "38",
             "3"
           ],
-          "pnl_jpy": "35918",
+          "pnl": "35918",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s06.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225mini 26/03",
@@ -144,13 +158,15 @@
             "76",
             "7"
           ],
-          "pnl_jpy": "-25166",
+          "pnl": "-25166",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s07.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225OP 26/03 P 37500",
@@ -166,13 +182,15 @@
             "275",
             "27"
           ],
-          "pnl_jpy": "34396",
+          "pnl": "34396",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s08.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225OP 26/04 C 39500",
@@ -188,7 +206,8 @@
             "550",
             "55"
           ],
-          "pnl_jpy": "-121210",
+          "pnl": "-121210",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -205,13 +224,15 @@
             "275",
             "27"
           ],
-          "pnl_jpy": "44396",
+          "pnl": "44396",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s09.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225 26/06",
@@ -227,7 +248,8 @@
             "1100",
             "110"
           ],
-          "pnl_jpy": "1247580",
+          "pnl": "1247580",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -244,7 +266,8 @@
             "114",
             "11"
           ],
-          "pnl_jpy": "-250",
+          "pnl": "-250",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -261,13 +284,15 @@
             "76",
             "7"
           ],
-          "pnl_jpy": "-33166",
+          "pnl": "-33166",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s10.png",
+      "issuer": "架空 FX Y",
       "rows": [
         {
           "symbol": "US500",
@@ -278,7 +303,8 @@
           "exit_time": "2026-04-03T14:02",
           "qty": "10",
           "fees": null,
-          "pnl_jpy": "-21750",
+          "pnl": "-21750",
+          "pnl_currency": "JPY",
           "exit_order_type": "stop"
         },
         {
@@ -290,13 +316,15 @@
           "exit_time": "2026-04-07T04:05",
           "qty": "3",
           "fees": null,
-          "pnl_jpy": "510",
+          "pnl": "510",
+          "pnl_currency": "JPY",
           "exit_order_type": "market"
         }
       ]
     },
     {
       "file": "s11.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225mini 26/06",
@@ -312,13 +340,15 @@
             "38",
             "3"
           ],
-          "pnl_jpy": "-9082",
+          "pnl": "-9082",
+          "pnl_currency": "JPY",
           "exit_order_type": "stop"
         }
       ]
     },
     {
       "file": "s12.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225OP 26/05 P 36000",
@@ -334,13 +364,15 @@
             "550",
             "55"
           ],
-          "pnl_jpy": "168790",
+          "pnl": "168790",
+          "pnl_currency": "JPY",
           "exit_order_type": "market"
         }
       ]
     },
     {
       "file": "s13.png",
+      "issuer": "架空 FX Y",
       "rows": [
         {
           "symbol": "USD/JPY",
@@ -351,13 +383,15 @@
           "exit_time": "2026-06-05T11:15",
           "qty": "50000",
           "fees": null,
-          "pnl_jpy": "15750",
+          "pnl": "15750",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         }
       ]
     },
     {
       "file": "s14.png",
+      "issuer": "架空証券 X",
       "rows": [
         {
           "symbol": "日経225mini 26/06",
@@ -373,7 +407,8 @@
             "38",
             "3"
           ],
-          "pnl_jpy": "16418",
+          "pnl": "16418",
+          "pnl_currency": "JPY",
           "exit_order_type": "unknown"
         },
         {
@@ -390,7 +425,59 @@
             "38",
             "3"
           ],
-          "pnl_jpy": "-7582",
+          "pnl": "-7582",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s15.png",
+      "issuer": "架空 FX Y",
+      "rows": [
+        {
+          "symbol": "US500",
+          "side": "L",
+          "entry_price": "5612.5",
+          "entry_time": "2026-06-08T13:35",
+          "exit_price": "5598.25",
+          "exit_time": "2026-06-08T14:02",
+          "qty": "2",
+          "fees": null,
+          "pnl": "-28.5",
+          "pnl_currency": "USD",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s16.png",
+      "issuer": "架空 FX Y",
+      "rows": [
+        {
+          "symbol": "US30",
+          "side": "S",
+          "entry_price": "42180.5",
+          "entry_time": "2026-06-09T14:30",
+          "exit_price": "42095.75",
+          "exit_time": "2026-06-09T15:05",
+          "qty": "1",
+          "fees": null,
+          "pnl": "84.75",
+          "pnl_currency": "USD",
+          "exit_order_type": "unknown"
+        },
+        {
+          "symbol": "EUR/USD",
+          "side": "L",
+          "entry_price": "1.08425",
+          "entry_time": "2026-06-10T08:00",
+          "exit_price": "1.0819",
+          "exit_time": "2026-06-10T12:30",
+          "qty": "10000",
+          "fees": null,
+          "pnl": "-23.5",
+          "pnl_currency": "USD",
           "exit_order_type": "unknown"
         }
       ]

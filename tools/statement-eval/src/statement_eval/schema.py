@@ -75,8 +75,11 @@ def check_answer_row(row, path: str) -> dict:
         raise Bad(f"{path}.symbol", "type")
     if row["side"] not in ("L", "S", None):
         raise Bad(f"{path}.side", "enum")
-    for k in ("entry_price", "exit_price", "qty", "pnl_jpy"):
+    for k in ("entry_price", "exit_price", "qty", "pnl"):
         _num_str(row[k], f"{path}.{k}")
+    cur = row["pnl_currency"]
+    if not isinstance(cur, str) or not (cur == "unknown" or (len(cur) == 3 and cur.isascii() and cur.isupper())):
+        raise Bad(f"{path}.pnl_currency", "format")
     for k in ("entry_time", "exit_time"):
         v = row[k]
         if v is not None and (not isinstance(v, str) or not _ISO_MINUTE_RE.match(v) or time_key(v) is None):
@@ -111,8 +114,12 @@ def check_answers(obj) -> dict:
         if not isinstance(im, dict):
             raise Bad(p, "type")
         for k in im:
-            if k not in ("file", "rows"):
+            if k not in ("file", "issuer", "rows"):
                 raise Bad(f"{p}.<unknown>", "unknown_key")
+        # 明細を出した会社の名前（#66。任意。無い = 書かれていない明細）
+        issuer = im.get("issuer")
+        if issuer is not None and (not isinstance(issuer, str) or not issuer.strip()):
+            raise Bad(f"{p}.issuer", "type")
         f = im.get("file")
         if not isinstance(f, str) or not _FILE_RE.match(f):
             raise Bad(f"{p}.file", "format")
@@ -122,5 +129,6 @@ def check_answers(obj) -> dict:
         rows = im.get("rows")
         if not isinstance(rows, list) or not rows or len(rows) > MAX_ROWS:
             raise Bad(f"{p}.rows", "type")
-        out.append({"file": f, "rows": [check_answer_row(r, f"{p}.rows[{j}]") for j, r in enumerate(rows)]})
+        checked = [check_answer_row(r, f"{p}.rows[{j}]") for j, r in enumerate(rows)]
+        out.append({"file": f, **({} if issuer is None else {"issuer": issuer}), "rows": checked})
     return {"schema_version": 1, "images": out}

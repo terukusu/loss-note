@@ -5,8 +5,9 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 
 順番: 認証（blueprint の ``authenticate``。本文を読む前に 401）→ 資格情報と SDK（503）→ 本文の長さ・形式・寸法（400）→
 ``federation`` なら ID トークンの取得（取れなければ 502 ``read_failed``。AI を呼ばず数えない。Issue #55）→
-1 日の上限の予約（Issue #44・ADR-0010。利用者ごとの回数と全体の費用。越えるなら 429 ``read_limited``、数える場所が
-使えなければ 503 ``read_unavailable``。どちらも AI を呼ばない）→ 送る（共有の ``statement_read.agent_reader.Reader``。
+1 日の上限の予約（Issue #44・ADR-0010、Issue #51・ADR-0014。利用者ごとの回数・利用者ごとの費用・全体の費用。
+バイパスのリストの利用者は全体の費用だけ。越えるなら 429 ``read_limited``、数える場所が使えない・上限の値の形が
+誤っていれば 503 ``read_unavailable``。どちらも AI を呼ばない）→ 送る（共有の ``statement_read.agent_reader.Reader``。
 指示・画像 1 枚・決まった文・ツール 1 本だけ。最大出力は ``app_settings.APP_MAX_OUTPUT_TOKENS``）→ 精算（実額に直す。
 失敗しても応答は変えない = 予約額が残る）→ 形の検査（502）→ 直し（``statement_read.normalize``）→ 200。
 
@@ -28,7 +29,8 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 （1 回で捨てる）、無い・期限切れ・画像を送る前に失敗したら、残りの時間でその場で立てる（AI へ送るのは 1 回）。
 準備の要求は AI を呼ばず、1 日の上限に数えない（認証・許可リストは blueprint の門のまま）。応答は 200
 ``{"ready": bool}``（使えない設定・SDK なしは 503 ``read_unavailable``）。ログは ``event=statement_read_prepare``・
-``reason``（``ok`` / ``not_ready``）・``ms`` だけ。
+``reason``（``ok`` / ``not_ready`` / ``limit_config``）・``ms`` だけ（``limit_config`` のときは誤っている上限の
+環境変数の名前 ``var`` も。値は出さない。#51）。
 """
 
 import math
@@ -147,15 +149,18 @@ def register(
         # 読み取りの準備（#65）: 先立ての CLI を立て、立ち上がるまで待つ。AI を呼ばず、上限に数えない
         started = time.perf_counter()
 
-        def reply(status: int, body: dict, reason: str) -> Response:
+        def reply(status: int, body: dict, reason: str, **extra: str) -> Response:
             log_event(event="statement_read_prepare", reason=reason,
-                      ms=round((time.perf_counter() - started) * 1000, 1))
+                      ms=round((time.perf_counter() - started) * 1000, 1), **extra)
             res = jsonify(body)
             res.status_code = status
             return res
 
         if not config.usable or config.warm is None or not sdk_available():
             return reply(503, {"error": "read_unavailable"}, "unavailable")
+        # 上限の値の形の誤り（#51）は読み取りと同じく 503（CLI を立てない。利用者の上限は AI を呼ばないので見ない）
+        if limits.config_error is not None:
+            return reply(503, {"error": "read_unavailable"}, "limit_config", var=limits.config_error)
         ready = config.warm.prepare(app_settings.APP_WARM_STARTUP_SECONDS)
         return reply(200, {"ready": ready}, "ok" if ready else "not_ready")
 
@@ -179,6 +184,11 @@ def register(
 
         if not config.usable or not sdk_available():
             return reply(503, {"error": "read_unavailable"}, "unavailable")
+        # 上限の値の形の誤り（#51）: 既定値に戻さず閉じる側（AI を呼ばない・数えない）。ログには誤っている環境変数の
+        # 名前だけ（値は出さない）
+        if limits.config_error is not None:
+            tags["var"] = limits.config_error
+            return reply(503, {"error": "read_unavailable"}, "limit_config")
 
         # この入口だけ本文の上限を画像の上限に上げる（ほかの入口はアプリ全体の 64 KiB のまま）。Content-Length の無い
         # 分割の本文（chunked）は Werkzeug が上限で黙って切り詰めるので、上限 + 1 B まで読み、超えた分で「大きすぎる」を
@@ -213,10 +223,14 @@ def register(
         # 数える場所が使えなければ閉じる側（AI を呼ばない）。理由（回数 / 費用）は応答に出さず、ログの理由だけで分ける
         day = read_limits.jst_day(clock())
         reserve = limits.reserve_micro_usd
+        bypass = read_limits.is_bypass(g.get("claims"), limits)  # #51: 利用者ごとの上限を受けない（全体は受ける）
+
+        def decide(count: int, user_spent: int, spent: int) -> str:
+            return read_limits.decide(count, spent, limits, user_spent_micro=user_spent, bypass=bypass)
+
         t = time.perf_counter()
         try:
-            decision = store.reserve_read(g.uid, day, lambda count, spent: read_limits.decide(count, spent, limits),
-                                          reserve)
+            decision = store.reserve_read(g.uid, day, decide, reserve)
         except Exception:  # noqa: BLE001 - つながらない・権限・競合のどれでも閉じる側（例外の文言は出さない）
             timings["limit_ms"] = ms_since(t)
             return reply(503, {"error": "read_unavailable"}, "limit_unavailable")
@@ -249,7 +263,7 @@ def register(
         # （0:00 をまたいでも同じ日）。失敗しても応答は変えない（予約額が残る = 多めに数える側）
         settled = read_limits.settled_micro(outcome.usage, outcome.sdk_cost_usd, reserve, limits.model)
         try:
-            store.settle_read(day, settled - reserve)
+            store.settle_read(g.uid, day, settled - reserve)
         except Exception:  # noqa: BLE001 - 応答は変えない（予約額が残る）。例外の文言は出さない
             log_event(event="statement_read_settle", reason="unavailable", rows=0, ms=elapsed())
         if outcome.result is None or outcome.error is not None:

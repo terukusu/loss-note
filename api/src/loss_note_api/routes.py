@@ -197,6 +197,7 @@ def make_blueprint(
             log_event(event="forbidden", reason=denied)
             return error(403, "forbidden")
         g.uid = identity.uid
+        g.claims = identity.claims  # 読み取りのバイパスのリスト（#51）の照らし合わせにだけ使う（ログ・応答に出さない）
         return None
 
     # ── 取引 ──

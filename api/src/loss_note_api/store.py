@@ -3,8 +3,10 @@
 場所は利用者ごと: ``users/{uid}/trades/{id}``・``users/{uid}/instruments/{id}``・``users/{uid}/settings/current``・
 ``users/{uid}/charts/{tradeId}-{slot}``（根拠の足のチャート画像。1 文書 1 枚 ``{contentType, data}``。
 Issue #12・ADR-0006）。
-明細の読み取りの 1 日の計上（Issue #44・ADR-0010）: 利用者ごと
-``users/{uid}/statement_read_days/{YYYY-MM-DD}`` = ``{count}``、全体 ``statement_read_spend/{YYYY-MM-DD}`` =
+明細の読み取りの 1 日の計上（Issue #44・ADR-0010、Issue #51・ADR-0014）: 利用者ごと
+``users/{uid}/statement_read_days/{YYYY-MM-DD}`` = ``{count, microUsd}``（``microUsd`` は #51 から。欠け・負は
+回数 × 予約額に見積もる = ``read_limits.effective_user_micro``）、
+全体 ``statement_read_spend/{YYYY-MM-DD}`` =
 ``{count, microUsd}``（日付は日本時間。日付・回数・金額だけ）。
 チャートは取引の作成・削除・差し替え・外すと同じトランザクションで書く（取引が無いチャート・チャートが書けなかった取引を残さない）。
 uid は ``auth.check_claims`` が形を確かめた値、ID は ``schema.ID_PATTERN`` に合う値だけが来る（ほかの利用者の
@@ -18,6 +20,7 @@ from functools import wraps
 from typing import Protocol
 
 from loss_note_api.charts import SLOTS, chart_doc_id
+from loss_note_api.read_limits import effective_user_micro
 
 Doc = dict
 Mutate = Callable[[Doc], Doc]
@@ -53,8 +56,9 @@ BuildTrade = Callable[[Doc, Doc | None], Doc]
 MutateTrade = Callable[[Doc, Doc | None], Doc]
 # チャートの文書 {contentType, data}。枠（"entry" / "exit"）ごと
 Charts = dict[str, Doc]
-# 読み取りの上限の判定: (その日の利用者の回数, 全体の計上額 µUSD) -> "ok" / "user" / "spend"（read_limits.decide）
-DecideRead = Callable[[int, int], str]
+# 読み取りの上限の判定: (その日の利用者の回数, 利用者の計上額 µUSD, 全体の計上額 µUSD)
+# -> "ok" / "user" / "user_spend" / "spend"（read_limits.decide）
+DecideRead = Callable[[int, int, int], str]
 # 計上の文書の場所（ADR-0010）
 READ_DAYS = "statement_read_days"
 READ_SPEND = "statement_read_spend"
@@ -95,12 +99,12 @@ class Store(Protocol):
     def get_settings(self, uid: str) -> Doc | None: ...
     def update_settings(self, uid: str, mutate: Callable[[Doc | None], Doc]) -> Doc: ...
 
-    # 明細の読み取りの 1 日の計上（#44）。利用者の日の文書と全体の日の文書を 1 つのトランザクションで読み、decide が
-    # "ok" のときだけ利用者の回数 + 1・全体の回数 + 1・全体の金額 + reserve_micro を書く。decide の結果を返す
-    # （同時の要求でも上限を越えて "ok" を返さない）
+    # 明細の読み取りの 1 日の計上（#44・#51）。利用者の日の文書と全体の日の文書を 1 つのトランザクションで読み、
+    # decide が "ok" のときだけ利用者の回数 + 1・利用者の金額 + reserve_micro・全体の回数 + 1・
+    # 全体の金額 + reserve_micro を書く。decide の結果を返す（同時の要求でも上限を越えて "ok" を返さない）
     def reserve_read(self, uid: str, day: str, decide: DecideRead, reserve_micro: int) -> str: ...
-    # 送った後に全体の金額を delta_micro だけ直す（実額 − 予約額。負もある）
-    def settle_read(self, day: str, delta_micro: int) -> None: ...
+    # 送った後に利用者と全体の金額を delta_micro だけ直す（実額 − 予約額。負もある。2 つを 1 回の書き込みで）
+    def settle_read(self, uid: str, day: str, delta_micro: int) -> None: ...
 
     # 起動の準備（#60）: 最初の要求が払う初期化（クライアント・接続）を先に済ませる。記録を書かない・利用者の文書を
     # 読まない。失敗は例外（起動は止めない。最初の要求で作り直す）
@@ -338,22 +342,30 @@ class FirestoreStore:
             user = user_snap.to_dict() if user_snap.exists else {}
             spend = spend_snap.to_dict() if spend_snap.exists else {}
             count = int(user.get("count", 0))
+            # 欠け・負は「数えられない」として回数 × 予約額に見積もる（#51。多めに数える側）
+            user_spent = effective_user_micro(count, user.get("microUsd"), reserve_micro)
             spent = int(spend.get("microUsd", 0))
-            decision = decide(count, spent)
+            decision = decide(count, user_spent, spent)
             if decision == "ok":
-                tx.set(user_ref, {"count": count + 1})
+                tx.set(user_ref, {"count": count + 1, "microUsd": user_spent + reserve_micro})
                 tx.set(spend_ref, {"count": int(spend.get("count", 0)) + 1, "microUsd": spent + reserve_micro})
             return decision
 
         return self._transaction(body)
 
     @_guard
-    def settle_read(self, day, delta_micro):
+    def settle_read(self, uid, day, delta_micro):
         from google.cloud import firestore
 
         if delta_micro == 0:
             return
-        self._db().collection(READ_SPEND).document(day).set({"microUsd": firestore.Increment(delta_micro)}, merge=True)
+        # 利用者と全体を 1 回の書き込み（バッチ）で直す（片方だけ直った状態を残さない）
+        db = self._db()
+        batch = db.batch()
+        inc = {"microUsd": firestore.Increment(delta_micro)}
+        batch.set(self._user(uid).collection(READ_DAYS).document(day), inc, merge=True)
+        batch.set(db.collection(READ_SPEND).document(day), inc, merge=True)
+        batch.commit()
 
     # ── 設定 ──
     @_guard

@@ -31,6 +31,14 @@ locals {
       n if local.statement_read_values[n] != ""
     ] : [],
   )))
+  # AI の上限（#51・ADR-0014）。バイパスのリストの入れ物（infra/bootstrap の google_secret_manager_secret.ai_bypass_emails と同じ名前）
+  ai_bypass_secret = "loss-note-ai-bypass-emails"
+  # 上限の値は指定したものだけ載せる（無ければ API のコードの既定）
+  ai_limit_values = {
+    LOSS_NOTE_AI_USER_DAILY_COUNT = var.ai_user_daily_count
+    LOSS_NOTE_AI_USER_DAILY_USD   = var.ai_user_daily_usd
+    LOSS_NOTE_AI_DAILY_USD        = var.ai_daily_usd
+  }
 }
 
 # ingress は all（run.app の URL で配る。ロードバランサは使わない）。IAM の検査は無効にしない（invoker は下の付与）。
@@ -123,6 +131,29 @@ resource "google_cloud_run_v2_service" "app" {
         content {
           name  = env.value
           value = local.statement_read_values[env.value]
+        }
+      }
+
+      # AI の上限（#51・ADR-0014）: バイパスのリストは切り替え（ai_limit_bypass）が true のときだけ Secret Manager の参照で載せる
+      # （版の無い参照ではインスタンスが起動しない）。上限の値は指定したものだけ平文で載せる（秘密ではない数）
+      dynamic "env" {
+        for_each = var.ai_limit_bypass ? [local.ai_bypass_secret] : []
+        content {
+          name = "LOSS_NOTE_AI_BYPASS_EMAILS"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      dynamic "env" {
+        for_each = { for k, v in local.ai_limit_values : k => v if v != "" }
+        content {
+          name  = env.key
+          value = env.value
         }
       }
 

@@ -26,3 +26,31 @@ resource "google_secret_manager_secret_iam_member" "runtime_allowed_emails" {
   role      = "roles/secretmanager.secretAccessor"
   member    = google_service_account.runtime.member
 }
+
+# AI の上限を受けない利用者（バイパス）のリスト（Issue #51・ADR-0014）の置き場。形は許可リストと同じ（入れ物と読み取りの
+# 付与だけを宣言し、版は Terraform に書かない。複製は東京だけ・Terraform から消せない）。
+# Cloud Run（infra/prod/run.tf）は ai_limit_bypass = true のときだけ、環境変数 LOSS_NOTE_AI_BYPASS_EMAILS に latest の
+# 参照で入れる（版の無い参照ではインスタンスが起動しないので、版を入れてから切り替える。infra/README.md）。
+resource "google_secret_manager_secret" "ai_bypass_emails" {
+  project             = var.project_id
+  secret_id           = "loss-note-ai-bypass-emails"
+  deletion_protection = true
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+
+  depends_on = [google_project_service.apis]
+}
+
+# 実行用 SA にだけ読み取りを付ける（入れ物の単位。CI の SA には付けない）
+resource "google_secret_manager_secret_iam_member" "runtime_ai_bypass_emails" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.ai_bypass_emails.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = google_service_account.runtime.member
+}

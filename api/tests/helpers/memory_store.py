@@ -14,6 +14,7 @@ import string
 import threading
 
 from loss_note_api.charts import SLOTS, chart_doc_id
+from loss_note_api.read_limits import effective_user_micro
 from loss_note_api.store import Conflict, MissingInstrument, StoreUnavailable
 
 _ALNUM = string.ascii_letters + string.digits
@@ -184,21 +185,23 @@ class MemoryStore:
             user = days.get(day, {})
             spend = self.spend.get(day, {})
             count = int(user.get("count", 0))
+            # 本物と同じ: 欠け・負は「数えられない」として回数 × 予約額に見積もる（#51。多めに数える側）
+            user_spent = effective_user_micro(count, user.get("microUsd"), reserve_micro)
             spent = int(spend.get("microUsd", 0))
-            decision = decide(count, spent)
+            decision = decide(count, user_spent, spent)
             if decision == "ok":
-                days[day] = {"count": count + 1}
+                days[day] = {"count": count + 1, "microUsd": user_spent + reserve_micro}
                 self.spend[day] = {"count": int(spend.get("count", 0)) + 1, "microUsd": spent + reserve_micro}
             return decision
 
-    def settle_read(self, day, delta_micro):
+    def settle_read(self, uid, day, delta_micro):
         with self._lock:
             if self.fail_settle:
                 raise StoreUnavailable("test")
             if delta_micro == 0:
                 return
-            doc = self.spend.setdefault(day, {})
-            doc["microUsd"] = int(doc.get("microUsd", 0)) + delta_micro
+            for doc in (self.read_days.setdefault(uid, {}).setdefault(day, {}), self.spend.setdefault(day, {})):
+                doc["microUsd"] = int(doc.get("microUsd", 0)) + delta_micro
 
     # ── 起動の準備（#60）──
     def warm(self):

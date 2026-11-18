@@ -207,10 +207,12 @@ gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[]
 | 画面のビルド | `FIREBASE_API_KEY`（secret） | Firebase の Web の apiKey（公開の JS に入る値。秘密ではない） | 出力 `firebase_web_config.api_key` |
 | 画面のビルド・Terraform `firebase_auth_domain` | `FIREBASE_AUTH_DOMAIN`（secret） | Firebase の Web の authDomain。Cloud Run の環境変数 `FIREBASE_AUTH_DOMAIN`（API の CSP のヘッダの `frame-src`。#43）にも入る。ホスト名の形だけを受ける | 出力 `firebase_web_config.auth_domain` |
 | Cloud Run の `LOSS_NOTE_ALLOWED_EMAILS` | （Secret Manager の `loss-note-allowed-emails` の `latest`） | 使える利用者の許可リスト（カンマ区切りのメール。#43）。値は GitHub にも Terraform にも置かない | 下の「ログインと使える利用者」 |
+| Terraform `ai_limit_bypass` | `AI_LIMIT_BYPASS`（**variable**。秘密ではない切り替えの例外。`true` のときだけ true） | AI の上限を受けない利用者（バイパス）のリストの参照（Secret Manager の `loss-note-ai-bypass-emails` の `latest`）を Cloud Run の `LOSS_NOTE_AI_BYPASS_EMAILS` に付ける（#51） | 下の「AI の上限とバイパス」で版を入れた後に設定 |
+| Terraform `ai_user_daily_count`・`ai_user_daily_usd`・`ai_daily_usd` | `AI_USER_DAILY_COUNT`・`AI_USER_DAILY_USD`・`AI_DAILY_USD`（**variable**。未設定は空 = API の既定） | AI の上限の値（利用者ごとの回数・利用者ごとの費用 USD・全体の費用 USD。#51）。Cloud Run の `LOSS_NOTE_AI_*` に入る | 変えるときだけ設定 |
 
 - GCP の 4 つ（`GCP_PROJECT_ID`・`TF_STATE_BUCKET`・`GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`）のどれかが無いと、deploy は notice を出して何もせずに成功で終わります（clone しただけのリポジトリで main への push を失敗にしない）
 - GCP の 4 つがあるのに `FIREBASE_API_KEY`・`FIREBASE_AUTH_DOMAIN` が無いと、deploy はビルドの前に足りない secret の名前を出して失敗します
-- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT`・`FIREBASE_AUTH_DOMAIN`・`LOSS_NOTE_ALLOWED_EMAILS`（Secret Manager の参照）と、明細の読み取りの方式を選んだときだけその方式の変数です（下の「明細の読み取りの資格情報」の表）（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
+- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT`・`FIREBASE_AUTH_DOMAIN`・`LOSS_NOTE_ALLOWED_EMAILS`（Secret Manager の参照）と、明細の読み取りの方式を選んだときだけその方式の変数（下の「明細の読み取りの資格情報」の表）、AI の上限の切り替え・値を設定したときだけその変数（下の「AI の上限とバイパス」）です（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
 - prod の state は plan 用 SA が読めるので、秘密を入れません（資格情報は Secret Manager の参照だけにし、値を変数・リソースに書きません）
 
 ## ログインと使える利用者
@@ -368,9 +370,9 @@ gcloud storage rm --recursive "gs://$P-firestore-restore"
 
 4. **方式を選ぶ**: `gh variable set STATEMENT_READ_CREDENTIAL -R "$REPO" -b <方式>`（秘密ではない切り替えなので repository variable。下の注）→ deploy（`gh workflow run deploy -R "$REPO" --ref main`）を承認します。版の無い入れ物を参照するとインスタンスが起動しないので、`api_key`・`oauth_token` は 3 の後に選びます。`federation` で必須の識別子が無いと plan で止まります
 
-`STATEMENT_READ_CREDENTIAL`・`STATEMENT_READ_KEY` だけは secrets でなく variables に置きます。CI が読む値は secrets に置く決まりですが、値を伏せる必要の無い切り替えは例外です（secrets にすると Actions のログの方式の名前・`true` がすべて伏せ字になり、plan・検査のログが読めなくなるため）。
+`STATEMENT_READ_CREDENTIAL`・`STATEMENT_READ_KEY`（と下の AI の上限の切り替え・数）だけは secrets でなく variables に置きます。CI が読む値は secrets に置く決まりですが、値を伏せる必要の無い切り替えは例外です（secrets にすると Actions のログの方式の名前・`true` がすべて伏せ字になり、plan・検査のログが読めなくなるため）。
 
-上限（設計書 8.2）: 利用者ごとに 1 日 30 回、全利用者の合計で 1 日 2.00 USD（日本時間の 0:00 で区切る）。越えると 429 `read_limited`（画面は「今日の読み取りの上限に達しました。手で入れてください。」）。日ごとの計上は Firestore の `statement_read_spend/{YYYY-MM-DD}`（`count`・`microUsd`。1 USD = 1,000,000）と `users/{uid}/statement_read_days/{YYYY-MM-DD}`（`count`）にあり、所有者の資格情報で読めます（中身は日付・回数・金額だけ）。
+上限（設計書 8.2・下の「AI の上限とバイパス」）: 既定は利用者ごとに 1 日 30 回・1.00 USD、全利用者の合計で 1 日 2.00 USD（日本時間の 0:00 で区切る）。越えると 429 `read_limited`（画面は「今日の読み取りの上限に達しました。手で入れてください。」）。日ごとの計上は Firestore の `statement_read_spend/{YYYY-MM-DD}`（`count`・`microUsd`。1 USD = 1,000,000）と `users/{uid}/statement_read_days/{YYYY-MM-DD}`（`count`・`microUsd`。`microUsd` は #51 から）にあり、所有者の資格情報で読めます（中身は日付・回数・金額だけ）。
 
 ```sh
 D=$(TZ=Asia/Tokyo date +%F)
@@ -391,6 +393,30 @@ curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
 | `federation` の交換が通らない | 読み取りは 502 `read_failed`（ログの理由が `identity_token` なら ID トークンの取得、`failed` なら交換・送り先）。Anthropic Console の Workload identity の認証の履歴で拒否の理由を見る。急ぐときは別の方式へ切り替える |
 | 上限の不具合 | 修正の PR。急ぐときは方式の variable を消して deploy し、読み取りを止める（記録は手で続けられる） |
 | 429 が続くのに読み取りの回数が少ない日 | 精算の失敗で予約額（約 0.28 USD）が実額に直らずに残っている。`gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="statement_read_settle"' --project="$P" --freshness=1d --format='value(timestamp)' \| wc -l` で件数を見る（閉じる側の設計どおり。翌日の 0:00 に戻る） |
+
+## AI の上限とバイパス（#51・ADR-0014）
+
+AI（いまは明細の読み取り）の 1 日の上限は 3 つです。判定の順は 回数（利用者）→ 費用（利用者）→ 費用（全体）で、どれかを越える要求は AI を呼ばずに 429 `read_limited`（どれで止まったかはログの理由 `limited_user` / `limited_user_spend` / `limited_spend` だけ）。
+
+| 上限 | 既定 | Cloud Run の環境変数 | repository variable |
+|---|---|---|---|
+| 利用者ごとの回数 | 30 回 | `LOSS_NOTE_AI_USER_DAILY_COUNT`（0〜999999 の整数） | `AI_USER_DAILY_COUNT` |
+| 利用者ごとの費用 | 1.00 USD | `LOSS_NOTE_AI_USER_DAILY_USD`（整数部 6 桁・小数 6 桁まで） | `AI_USER_DAILY_USD` |
+| 全利用者の合計の費用（ブレーカー） | 2.00 USD | `LOSS_NOTE_AI_DAILY_USD`（同上） | `AI_DAILY_USD` |
+
+- 値を変える: `gh variable set AI_DAILY_USD -R "$REPO" -b 3.00` → deploy を承認（未設定・空なら既定）。形の誤りは plan で止まり、API に届いても読み取りは 503 `read_unavailable`（既定値に戻さない = 閉じる側。ログの理由 `limit_config` と変数の名前 `var`）。空白だけの値も形の誤りです。上の天井はコードで設けません（最後の歯止めは提供元の Console の月の上限）。予約額（約 0.28 USD）より小さい費用の上限では 1 回も送れません
+- **バイパス**: リストの利用者（確かめ済みのメール。照らし方は許可リストと同じ）は、利用者ごとの回数と費用の上限を受けません。全体の上限は受けます（足りなければ全体の上限を上げる。最後の歯止めは提供元の Console の月の上限）。バイパスの利用者の回数・金額も計上には残ります。バイパスは使えるかどうか（許可リスト）には影響しません
+- 切り戻し（`rollback.yml`）で #51 より前のリビジョンに戻した日は、前のコードが利用者の日の文書を `{count}` で置き換えるので、利用者の金額が消える・負になることがあります。新しいコードに戻った後は欠け・負を「回数 × 予約額」に見積もる（多めに数える側。その日のうちに利用者の費用の上限で 429 になりうる）ので、少なめに数えるのは置き換えの後に書かれた分だけです。全体の上限はその日も効きます
+- バイパスのリストは Secret Manager の `loss-note-ai-bypass-emails`（入れ物と実行用 SA の読み取りの付与は `infra/bootstrap/secrets.tf`）。値は Terraform・GitHub・ログに置きません。入れ方は許可リストと同じ（`read -rs` で受けて標準入力から `gcloud secrets versions add loss-note-ai-bypass-emails --data-file=-`）。**版を入れた後に** `gh variable set AI_LIMIT_BYPASS -R "$REPO" -b true` → deploy（版の無い参照ではインスタンスが起動しない）。外すときは `gh variable delete AI_LIMIT_BYPASS -R "$REPO"` → deploy（版を無効にするのは参照を外した後）
+- 利用者ごとの今日の計上（所有者の資格情報。回数と金額だけ）:
+
+  ```sh
+  D=$(TZ=Asia/Tokyo date +%F)
+  curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+    "https://firestore.googleapis.com/v1/projects/$P/databases/(default)/documents:runQuery" \
+    -d '{"structuredQuery":{"from":[{"collectionId":"statement_read_days","allDescendants":true}]}}' \
+    | jq --arg d "$D" '[.[] | .document? // empty | select(.name | endswith("/" + $d)) | {count: .fields.count.integerValue, usd: ((.fields.microUsd.integerValue // "0" | tonumber) / 1000000)}]'
+  ```
 
 ## 変更
 

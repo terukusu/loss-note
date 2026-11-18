@@ -64,16 +64,16 @@ variables {
 }
 
 run "defaults" {
-  # 例 A: 有効にする API は 15 個（#41 の 14 個 + #42 の firebaserules）。Terraform から外しても止めない
+  # 例 A: 有効にする API は 16 個（#41 の 14 個 + #42 の firebaserules + #43 の secretmanager）。Terraform から外しても止めない
   assert {
     condition = toset([for s in google_project_service.apis : s.service]) == toset([
       "cloudresourcemanager.googleapis.com", "serviceusage.googleapis.com", "cloudbilling.googleapis.com",
       "billingbudgets.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com",
       "storage.googleapis.com", "artifactregistry.googleapis.com", "run.googleapis.com", "firestore.googleapis.com",
       "firebase.googleapis.com", "identitytoolkit.googleapis.com", "securetoken.googleapis.com",
-      "firebaserules.googleapis.com",
+      "firebaserules.googleapis.com", "secretmanager.googleapis.com",
     ])
-    error_message = "有効にする API は例 A の 14 個と firebaserules の 15 個"
+    error_message = "有効にする API は例 A の 14 個と firebaserules・secretmanager の 16 個"
   }
   assert {
     condition     = alltrue([for s in google_project_service.apis : s.disable_on_destroy == false && s.deletion_policy == "ABANDON" && s.project == "example-project"])
@@ -315,6 +315,25 @@ run "defaults" {
   assert {
     condition     = length([for m in google_project_iam_member.ci : m if m.member == google_service_account.runtime.member]) == 0
     error_message = "CI の付与の集合に実行用 SA を混ぜない"
+  }
+
+  # #43: 使える利用者の許可リストの入れ物（値は Terraform に書かない。複製は東京だけ・Terraform から消せない）
+  assert {
+    condition     = google_secret_manager_secret.allowed_emails.secret_id == "loss-note-allowed-emails" && google_secret_manager_secret.allowed_emails.project == "example-project"
+    error_message = "許可リストの入れ物は loss-note-allowed-emails（このプロジェクト）"
+  }
+  assert {
+    condition     = google_secret_manager_secret.allowed_emails.deletion_protection == true
+    error_message = "許可リストの入れ物は Terraform から消せない（deletion_protection）"
+  }
+  assert {
+    condition     = length(google_secret_manager_secret.allowed_emails.replication[0].auto) == 0 && [for r in google_secret_manager_secret.allowed_emails.replication[0].user_managed[0].replicas : r.location] == ["asia-northeast1"]
+    error_message = "許可リストの複製は東京（asia-northeast1）だけ"
+  }
+  # 読み取りの付与は実行用 SA の 1 件だけ（入れ物の単位・secretAccessor。CI の SA に付けない）
+  assert {
+    condition     = google_secret_manager_secret_iam_member.runtime_allowed_emails.member == "serviceAccount:sa-loss-note@example-project.iam.gserviceaccount.com" && google_secret_manager_secret_iam_member.runtime_allowed_emails.role == "roles/secretmanager.secretAccessor" && google_secret_manager_secret_iam_member.runtime_allowed_emails.secret_id == google_secret_manager_secret.allowed_emails.secret_id
+    error_message = "許可リストの読み取りは実行用 SA に secretAccessor（入れ物の単位）"
   }
 }
 

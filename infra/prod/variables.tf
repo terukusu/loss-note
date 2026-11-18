@@ -22,6 +22,18 @@ variable "image" {
   }
 }
 
+# Firebase の authDomain（#43。CSP の frame-src に入れる。API も同じ形を検査し、合わなければ起動しない）。
+# 既定値は持たない（R9）。CI は secrets.FIREBASE_AUTH_DOMAIN を TF_VAR_firebase_auth_domain で渡す
+variable "firebase_auth_domain" {
+  description = "Firebase の Web の設定の authDomain（ホスト名。例: <project_id>.firebaseapp.com）"
+  type        = string
+
+  validation {
+    condition     = length(var.firebase_auth_domain) <= 253 && can(regex("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$", var.firebase_auth_domain))
+    error_message = "firebase_auth_domain はホスト名（小文字の英数字・-・. のラベルを点でつなぐ。スキーム・ポート・ワイルドカードなし）で指定する。"
+  }
+}
+
 variable "region" {
   description = "Cloud Run のリージョン（Artifact Registry・Firestore と同じ東京）"
   type        = string

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { APP_NAME, Page, type PageProps } from '../../ui/src/App';
+import { createForbiddenFlag, onAuthKind } from '../../ui/src/auth/forbidden';
 import type { Route } from '../../ui/src/lib/routes';
 import { Login } from '../../ui/src/pages/Login';
 
@@ -58,6 +59,64 @@ describe('App', () => {
     expect(failed).toContain('エミュレーター');
     expect(plain).toContain('記録は本人だけが見られます。');
     expect(failed).toContain('記録は本人だけが見られます。');
+    // 入口の画面にアプリの名前（#43 のデザインレビュー）
+    expect(plain).toContain('loss-note');
+  });
+});
+
+describe('殻の配線: 使えないアカウントの旗（#43 AC-7・R6）', () => {
+  function probeSpy() {
+    const calls: number[] = [];
+    let n = 0;
+    return {
+      calls,
+      probe: () => {
+        calls.push(++n);
+        return Promise.resolve();
+      },
+    };
+  }
+
+  it('ログインしたら旗を下ろしてから確かめの要求を 1 回送る。分かるまで（unknown）は何もしない', () => {
+    const flag = createForbiddenFlag();
+    const p = probeSpy();
+    onAuthKind('unknown', flag, p.probe);
+    expect(p.calls).toHaveLength(0);
+    flag.markFrom(flag.generation());
+    let setWhenProbed: boolean | null = null;
+    onAuthKind('signedIn', flag, () => {
+      setWhenProbed = flag.isSet();
+      return p.probe();
+    });
+    expect(setWhenProbed).toBe(false);
+    expect(p.calls).toHaveLength(1);
+  });
+
+  it('ログアウトしたら旗を下ろし、要求は送らない', () => {
+    const flag = createForbiddenFlag();
+    const p = probeSpy();
+    flag.markFrom(flag.generation());
+    onAuthKind('signedOut', flag, p.probe);
+    expect(flag.isSet()).toBe(false);
+    expect(p.calls).toHaveLength(0);
+  });
+
+  it('使えないアカウントの要求の 403 がログアウトの後に遅れて届いても、次のアカウントには出さない', () => {
+    const flag = createForbiddenFlag();
+    const p = probeSpy();
+    onAuthKind('signedIn', flag, p.probe); // 使えないアカウントでログイン
+    const stale = flag.generation(); // その間に送った要求
+    onAuthKind('signedOut', flag, p.probe);
+    onAuthKind('signedIn', flag, p.probe); // 許可されたアカウントでログイン（確かめは 200）
+    flag.markFrom(stale); // 前の要求の 403 が遅れて届く
+    expect(flag.isSet()).toBe(false);
+  });
+
+  it('確かめの要求の失敗（通信の失敗）は投げない', async () => {
+    const flag = createForbiddenFlag();
+    onAuthKind('signedIn', flag, () => Promise.reject(new Error('network')));
+    await new Promise((ok) => setTimeout(ok, 0));
+    expect(flag.isSet()).toBe(false);
   });
 });
 

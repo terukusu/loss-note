@@ -14,9 +14,19 @@ import urllib.request
 
 import pytest
 from helpers.charts import chart_png, png
-from helpers.emulator import PROJECT, REQUIRE_EMULATOR, clear_auth, clear_firestore, http, require_emulator, sign_up
+from helpers.emulator import (
+    PROJECT,
+    REQUIRE_EMULATOR,
+    clear_auth,
+    clear_firestore,
+    http,
+    require_emulator,
+    sign_in_google,
+    sign_up,
+)
 from helpers.records import t1
 
+from loss_note_api.allowlist import ALLOWED_EMAILS_VAR
 from loss_note_api.app import create_app
 from loss_note_api.store import FirestoreStore
 
@@ -144,3 +154,21 @@ def test_chart_and_trade_are_one_transaction(emulator):
     assert len(list(db.collection("charts").stream())) == 2
     assert store.delete_trade(uid, tid)
     assert list(db.collection("charts").stream()) == []
+
+
+def test_allowlist_with_emulator_tokens(emulator):
+    """Issue #43 の AC-4（例 A14・A15）: Auth のエミュレーターが出した Google の架空のアカウントのトークンで、
+    許可リストの変数が無ければ今のまま 200、変数があれば本番と同じに効く
+    （無いアカウントは 403・あるアカウントは 200）"""
+    auth_host, _ = emulator
+    _, other = sign_in_google(auth_host, "google-sub-other-1", "other@example.com")
+    _, owner = sign_in_google(auth_host, "google-sub-owner-1", "owner@example.com")
+    env = {k: v for k, v in os.environ.items() if k != ALLOWED_EMAILS_VAR}
+    # A14: 変数なし → 制限しない
+    open_client = create_app(env).test_client()
+    assert open_client.get("/api/trades", headers={"Authorization": f"Bearer {other}"}).status_code == 200
+    # A15: 変数 owner@example.com → other は 403（決まった本文）、owner は 200（対照）
+    closed = create_app({**env, ALLOWED_EMAILS_VAR: "owner@example.com"}).test_client()
+    res = closed.get("/api/trades", headers={"Authorization": f"Bearer {other}"})
+    assert res.status_code == 403 and res.get_json() == {"error": "forbidden"}
+    assert closed.get("/api/trades", headers={"Authorization": f"Bearer {owner}"}).status_code == 200

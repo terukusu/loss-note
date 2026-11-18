@@ -4,6 +4,8 @@
 //
 // この門は画面の振る舞い（中身を描かない・ログイン画面へ導く）であって、守りではない。画面のコードは公開で、
 // 門はブラウザの開発ツールで外せる。記録を守る本体は API での ID トークンの検証と uid での絞り込み（#4。ADR-0003）
+// ログイン済みでも /api/* が 403（使える利用者の許可リストに無い。#43）を返したら、どの画面でも中身を描かず
+// 「このアカウントでは使えません」を出す（forbidden。URL は置き換えない）。守りは API の許可リスト
 import { hrefOf, type Route, type RouteOptions, safeNext } from '../lib/routes';
 
 export type AuthState =
@@ -12,7 +14,7 @@ export type AuthState =
   | { readonly kind: 'signedIn' };
 
 export interface GateResult {
-  readonly render: 'loading' | 'login' | 'page';
+  readonly render: 'loading' | 'login' | 'page' | 'forbidden';
   /** 履歴を置き換える先（戻るで中身の画面に戻らない） */
   readonly replace?: string;
 }
@@ -23,6 +25,7 @@ export function gate(
   pathname: string,
   search: string,
   opts: RouteOptions,
+  forbidden = false,
 ): GateResult {
   if (auth.kind === 'unknown') return { render: 'loading' };
   if (auth.kind === 'signedOut') {
@@ -33,6 +36,7 @@ export function gate(
       replace: here === '/' ? '/login' : `/login?next=${encodeURIComponent(here)}`,
     };
   }
+  if (forbidden) return { render: 'forbidden' };
   if (route.name === 'login') {
     const next = new URLSearchParams(search).get('next');
     return { render: 'loading', replace: hrefOf(safeNext(next, opts)) };

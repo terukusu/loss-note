@@ -2,8 +2,9 @@
 import type { ComponentType, JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { errorCode, loginErrorMessage, SIGN_OUT_FAILED } from './auth/errors';
+import { onAuthKind } from './auth/forbidden';
 import { type AuthState, gate } from './auth/gate';
-import { type AuthSession, api } from './auth/session';
+import { type AuthSession, api, forbiddenFlag } from './auth/session';
 import { TOAST_UNDO_ID, Toast } from './components/Toast';
 import { loadParts } from './devPages';
 import { Shell } from './layout/Shell';
@@ -12,6 +13,7 @@ import { DeletionsContext } from './lib/deletions-context';
 import { type Navigator, NavigatorContext, useCurrent } from './lib/router';
 import { hrefOf, type Route, titleOf } from './lib/routes';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
+import { Forbidden } from './pages/Forbidden';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Record } from './pages/Record';
@@ -90,6 +92,7 @@ export function App(props: AppProps) {
   const { route, search, via } = useCurrent(nav);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [auth, setAuth] = useState<AuthState>({ kind: 'unknown' });
+  const [forbidden, setForbidden] = useState(forbiddenFlag.isSet());
   const [busy, setBusy] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(props.initialLoginError ?? null);
   const [signOutBusy, setSignOutBusy] = useState(false);
@@ -138,8 +141,12 @@ export function App(props: AppProps) {
   }, [deletions]);
 
   useEffect(() => session.subscribe(setAuth), [session]);
+  useEffect(() => forbiddenFlag.subscribe(setForbidden), []);
+  // 使えないアカウント（#43）: ログイン・ログアウトで旗を下ろし、ログインしたら 1 度だけ読んで確かめる
+  // （ホームは /api を読まないので、403 をすぐ受けて「このアカウントでは使えません」を出す。forbidden.ts）
+  useEffect(() => onAuthKind(auth.kind, forbiddenFlag, () => api('/api/settings')), [auth.kind]);
 
-  const g = gate(auth, route, hrefOf(route), search, { dev });
+  const g = gate(auth, route, hrefOf(route), search, { dev }, forbidden);
   useEffect(() => {
     if (g.replace !== undefined) nav.replace(g.replace);
   }, [g.replace, nav]);
@@ -202,7 +209,13 @@ export function App(props: AppProps) {
   }, [route, via, g.render]);
 
   let body: JSX.Element;
-  if (g.render === 'login') {
+  if (g.render === 'forbidden') {
+    body = (
+      <Shell route={route} bare>
+        <Forbidden onSignOut={onSignOut} signOutBusy={signOutBusy} signOutError={signOutError} />
+      </Shell>
+    );
+  } else if (g.render === 'login') {
     body = (
       <Shell route={route}>
         <Login onSignIn={onSignIn} busy={busy} error={loginError} emulator={emulator} />

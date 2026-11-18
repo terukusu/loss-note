@@ -208,7 +208,7 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 | 1 | P4 | [元に戻す] の部品がまだ無い | #9 で作った（取引を消す。銘柄を消す・チャートの差し替え / 外す・直した後は、それぞれの Issue でこの部品を使う） |
 | 2 | P6 | 本番の静的配信（Flask / Cloud Run）が、`/api` 以外の知らないパスに `index.html` を返す戻しをまだ持たない（History API の代償） | 静的配信を作る Issue（ADR-0002） |
 | 3 | P7・P8 | `ui:check` は Chromium だけ。iPhone の Safari は手で確かめる | 運用（6 章のチェックリスト） |
-| 4 | P11 | Google ログインのポップアップは外部の script（apis.google.com）と iframe を読み込む（手元は許容） | 本番の CSP のヘッダ（縦切り 2。ADR-0003） |
+| 4 | P11 | Google ログインのポップアップは外部の script（apis.google.com）と iframe を読み込む（手元は許容） | 閉じた: 本番の CSP のヘッダで gapi の script・authDomain の frame・Identity Toolkit と Secure Token の connect だけを許す（#43・ADR-0003「縦切り 2 で決めたこと」・設計書 C40） |
 | 5 | P5 | ログイン画面に「記録は本人だけが見られます」と約束を書けない（利用者の分離がまだ無い） | #4（API での ID トークンの検証と利用者の分離）が入ったら文言を戻す |
 
 ---

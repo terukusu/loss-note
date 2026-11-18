@@ -118,7 +118,7 @@ jobs:
       - name: terraform test（prod、モックのプロバイダ）
         run: terraform -chdir=infra/prod test -no-color
       - name: 変数なしの plan が必須の変数の未指定で止まるか（prod、モックのプロバイダ）
-        run: .github/scripts/tf-required-variables.sh infra/prod project_id image
+        run: .github/scripts/tf-required-variables.sh infra/prod project_id image firebase_auth_domain
       # 本番のイメージ（#42。Dockerfile）。Firebase の Web の設定は渡さない（ログインの画面は「設定が無い」の案内になる）
       - name: イメージの入力と .dockerignore の一致
         run: .github/scripts/image.sh loss-note check-dockerignore

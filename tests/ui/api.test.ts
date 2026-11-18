@@ -92,3 +92,49 @@ describe('apiFetch', () => {
     expect(tokenAsked).toBe(false);
   });
 });
+
+describe('apiFetch の 403（使えないアカウント。#43 AC-7）', () => {
+  function statusFetch(status: number) {
+    let bodyRead = false;
+    const fetch = async () => {
+      const res = new Response(status === 204 ? null : '{"error":"forbidden"}', { status });
+      const json = res.json.bind(res);
+      res.json = () => {
+        bodyRead = true;
+        return json();
+      };
+      return res;
+    };
+    return { fetch, bodyRead: () => bodyRead };
+  }
+
+  it('403 なら onForbidden を 1 回呼び、応答はそのまま返す（本文は読まない）', async () => {
+    let n = 0;
+    const f = statusFetch(403);
+    const res = await apiFetch(
+      '/api/trades',
+      {},
+      { getIdToken: async () => 't', fetch: f.fetch, onForbidden: () => n++ },
+    );
+    expect(res.status).toBe(403);
+    expect(n).toBe(1);
+    expect(f.bodyRead()).toBe(false);
+  });
+
+  it.each([200, 201, 204, 400, 401, 404, 500, 503])('%i では onForbidden を呼ばない', async (s) => {
+    let n = 0;
+    const f = statusFetch(s);
+    await apiFetch(
+      '/api/trades',
+      {},
+      { getIdToken: async () => 't', fetch: f.fetch, onForbidden: () => n++ },
+    );
+    expect(n).toBe(0);
+  });
+
+  it('onForbidden が無くても 403 を返せる（今の呼び出し側のまま）', async () => {
+    const f = statusFetch(403);
+    const res = await apiFetch('/api/x', {}, { getIdToken: async () => 't', fetch: f.fetch });
+    expect(res.status).toBe(403);
+  });
+});

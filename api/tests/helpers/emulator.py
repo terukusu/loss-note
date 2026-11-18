@@ -2,6 +2,7 @@
 
 import json
 import os
+import urllib.parse
 import urllib.request
 
 import pytest
@@ -61,6 +62,24 @@ def sign_up(auth_host: str, email: str, password: str) -> tuple[str, str]:
         "POST",
         f"http://{auth_host}/identitytoolkit.googleapis.com/v1/accounts:signUp?key=fake-api-key",
         {"email": email, "password": password, "returnSecureToken": True},
+    )
+    assert status == 200, status
+    return body["localId"], body["idToken"]
+
+
+def sign_in_google(auth_host: str, sub: str, email: str) -> tuple[str, str]:
+    """Auth のエミュレーターに Google の架空のアカウントでログインし、(uid, idToken) を返す（Issue #43）。
+    エミュレーターは署名の無い IdP のトークンを受ける。メールは確かめ済み（email_verified: true）で作る"""
+    id_token = json.dumps({"sub": sub, "email": email, "email_verified": True})
+    status, body = http(
+        "POST",
+        f"http://{auth_host}/identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=fake-api-key",
+        {
+            "postBody": urllib.parse.urlencode({"providerId": "google.com", "id_token": id_token}),
+            "requestUri": "http://localhost",
+            "returnSecureToken": True,
+            "returnIdpCredential": True,
+        },
     )
     assert status == 200, status
     return body["localId"], body["idToken"]

@@ -2,6 +2,8 @@
 ``statement_read.py``。同じ認証を通す）。
 
 入口で ID トークンを検証してから処理する（認証の前に ID の形も存在も見ない → 未認証は常に 401）。
+検証の後に使える利用者の許可リスト（Issue #43・``allowlist.py``）を見て、外れたら 403
+（本文・パス・保存先・AI に触れる前）。
 読み書きは検証できた uid の場所だけ。ほかの利用者の資源は、あるか無いかも分からない 404 にする。
 判定・R・損益は保存しない（4.2 導出。画面が ``core/record.ts`` の ``toTradeInput`` で計算の入力に写す）。
 
@@ -16,7 +18,7 @@ from collections.abc import Callable
 from flask import Blueprint, Response, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from loss_note_api import charts, schema, statement_read
+from loss_note_api import allowlist, charts, schema, statement_read
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.store import Conflict, InvalidRecord, MissingInstrument, Store, StoreUnavailable
@@ -166,7 +168,10 @@ def make_blueprint(
     verifier: TokenVerifier,
     clock: Callable[[], int],
     read_config: statement_read.ReadConfig | None = None,
+    *,
+    allowed: frozenset[str] | None = None,
 ) -> Blueprint:
+    """allowed は許可リスト（``allowlist.policy_for`` の結果。None = 制限しない）"""
     bp = Blueprint("records", __name__, url_prefix="/api")
 
     @bp.before_request
@@ -176,13 +181,20 @@ def make_blueprint(
             log_event(event="auth_failed", reason="missing")
             return error(401, "unauthorized")
         try:
-            g.uid = verifier.verify(token, clock())
+            identity = verifier.verify_identity(token, clock())
         except InvalidToken as e:
             log_event(event="auth_failed", reason=e.reason)
             return error(401, "unauthorized")
         except AuthUnavailable as e:
             log_event(event="auth_unavailable", exc=str(e))
             return error(503, "unavailable")
+        # 許可リスト（R2・R3・R5）: 応答は決まった本文だけ。ログは決まった語の理由だけ
+        # （メール・uid・許可リストを出さない）
+        denied = allowlist.denial_reason(identity.claims, allowed)
+        if denied is not None:
+            log_event(event="forbidden", reason=denied)
+            return error(403, "forbidden")
+        g.uid = identity.uid
         return None
 
     # ── 取引 ──

@@ -23,6 +23,8 @@ locals {
     "firebase.googleapis.com",
     "identitytoolkit.googleapis.com",
     "securetoken.googleapis.com",
+    # 使える利用者の許可リストの置き場（#43。secrets.tf。#44 の AI の資格情報も使う）
+    "secretmanager.googleapis.com",
   ])
 }
 

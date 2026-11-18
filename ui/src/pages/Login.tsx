@@ -10,25 +10,34 @@ export interface LoginProps {
   readonly emulator: boolean;
 }
 
-export function Login({ onSignIn, busy, error, emulator }: LoginProps) {
+/** 入口の画面（ログイン・使えないアカウント。#43）の印とアプリの名前の行 */
+export function LoginBrand() {
   return (
-    <section class="login card">
+    <div class="login__brand">
       <div class="login__mark">
         <Icon name="mark" />
       </div>
-      <p class="pagehead__eyebrow">トレードの振り返り</p>
+      <span class="login__name">loss-note</span>
+    </div>
+  );
+}
+
+export function Login({ onSignIn, busy, error, emulator }: LoginProps) {
+  return (
+    <section class="login card">
+      <LoginBrand />
       <h1 class="login__title" tabIndex={-1}>
         ログイン
       </h1>
       <p class="login__lead">
-        計画（エントリー時に決めたこと）と実行（実際の決済）を並べて、同じ負け方を繰り返さないための損失ノートです。
+        エントリー時の計画と実際の決済を並べて、同じ負け方を繰り返さないための損失ノートです。
       </p>
-      {/* 約束の文言。支えは API の ID トークンの検証と uid で絞った読み書き（#4・ADR-0004） */}
-      <p class="login__lead">記録は本人だけが見られます。</p>
       <div class="login__action">
         <Button size="lg" block onClick={onSignIn} disabled={busy}>
           {busy ? 'ログインしています…' : 'Google でログイン'}
         </Button>
+        {/* 約束の文言（押す直前に目に入る位置）。支えは API の ID トークンの検証と uid で絞った読み書き（#4・ADR-0004） */}
+        <p class="login__note">記録は本人だけが見られます。</p>
         {error ? (
           <p class="login__error" role="alert">
             {error}

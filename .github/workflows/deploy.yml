@@ -50,6 +50,8 @@ env:
   VITE_FIREBASE_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
   VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+  # 同じ authDomain を Cloud Run の環境変数にも渡す（API の CSP のヘッダの frame-src。#43）
+  TF_VAR_firebase_auth_domain: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
   # 失敗時のログの末尾に使うマスク: 9 桁以上の数字（プロジェクト番号など）と、SA 以外のメールアドレス
   MASK_SED: >-
     s/[0-9]{9,}/<num>/g;

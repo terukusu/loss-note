@@ -74,15 +74,18 @@ class Ledger:
         return (self.spend(day) or {}).get("microUsd", 0)
 
     def seed(self, uid: str | None, day: str, count: int | None = None, micro: int | None = None) -> None:
+        # 利用者の文書は #51 からの形（回数と金額 0）。金額の欠けは回数 × 予約額に見積もる（#51）ので、回数の上限を
+        # 見るこのファイルのテストでは金額 0 を明示する
         if isinstance(self.store, MemoryStore):
             if count is not None:
-                self.store.read_days.setdefault(uid, {})[day] = {"count": count}
+                self.store.read_days.setdefault(uid, {})[day] = {"count": count, "microUsd": 0}
             if micro is not None:
                 self.store.spend[day] = {"count": 1, "microUsd": micro}
             return
         db = self.store._db()
         if count is not None:
-            db.collection("users").document(uid).collection(READ_DAYS).document(day).set({"count": count})
+            ref = db.collection("users").document(uid).collection(READ_DAYS).document(day)
+            ref.set({"count": count, "microUsd": 0})
         if micro is not None:
             db.collection(READ_SPEND).document(day).set({"count": 1, "microUsd": micro})
 
@@ -469,7 +472,7 @@ def test_ledger_keys_and_no_content(limited, sdk):
     res = c.post(data=png(800, 600, size=5_000, filler=b"LEDGERIMG-3e9a"), email=EMAIL)
     assert res.status_code == 200
     user, spend = c.ledger.user(A, D1118), c.ledger.spend(D1118)
-    assert set(user) == {"count"}
+    assert set(user) == {"count", "microUsd"}  # #51: 利用者の日の文書にも金額（日付・回数・金額だけは同じ）
     assert set(spend) == {"count", "microUsd"}
     assert all(isinstance(v, int) for v in [*user.values(), *spend.values()])
     text = json.dumps([user, spend], ensure_ascii=False)

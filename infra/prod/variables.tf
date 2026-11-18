@@ -75,6 +75,52 @@ variable "statement_read_credential" {
   }
 }
 
+# AI の上限（#51・ADR-0014）。バイパスのリスト（Secret Manager の loss-note-ai-bypass-emails の latest）の参照を付けるか。
+# 版の無い参照ではインスタンスが起動しないので、版を入れてから true にする（既定 false = 参照なし = バイパスの利用者 0 人）。
+# CI は repository variable AI_LIMIT_BYPASS が "true" のときだけ true を渡す（deploy.yml）
+variable "ai_limit_bypass" {
+  description = "AI の上限を受けない利用者（バイパス）のリストの参照を Cloud Run に付けるか"
+  type        = bool
+  default     = false
+}
+
+# 上限の値（#51）。"" = 載せない（API のコードの既定: 利用者ごと 30 回・1.00 USD、全体 2.00 USD）。
+# 形は API と同じ（回数は 0〜999999 の整数、USD は整数部 6 桁・小数 6 桁まで）。形の誤りは plan で止める
+# （API も形の誤りは読み取りを 503 にする = 閉じる側）。CI は repository variables AI_USER_DAILY_COUNT・AI_USER_DAILY_USD・
+# AI_DAILY_USD を渡す（値を伏せる必要の無い数。未設定なら空）
+variable "ai_user_daily_count" {
+  description = "利用者ごとの 1 日の AI の回数の上限（\"\" = 既定）"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^([0-9]{1,6})?$", var.ai_user_daily_count))
+    error_message = "ai_user_daily_count は 0〜999999 の整数か空。"
+  }
+}
+
+variable "ai_user_daily_usd" {
+  description = "利用者ごとの 1 日の AI の費用の上限（USD。\"\" = 既定）"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^([0-9]{1,6}(\\.[0-9]{1,6})?)?$", var.ai_user_daily_usd))
+    error_message = "ai_user_daily_usd は USD の数（例: 1.00。整数部 6 桁・小数 6 桁まで）か空。"
+  }
+}
+
+variable "ai_daily_usd" {
+  description = "全利用者の合計の 1 日の AI の費用の上限（USD。\"\" = 既定）"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = can(regex("^([0-9]{1,6}(\\.[0-9]{1,6})?)?$", var.ai_daily_usd))
+    error_message = "ai_daily_usd は USD の数（例: 2.00。整数部 6 桁・小数 6 桁まで）か空。"
+  }
+}
+
 # federation の識別子（#55）。ID の形は Anthropic の WIF reference（platform.claude.com/docs/en/manage-claude/wif-reference の
 # 「Environment variables」: ルール fdrl_...・組織は UUID・サービスアカウント svac_...・ワークスペース wrkspc_...）に合わせる。
 # 秘密ではないが利用者ごとの値なので、リポジトリに置かず GitHub の secrets から受け、plan に出さない

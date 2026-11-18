@@ -31,7 +31,7 @@ from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 from loss_note_api import allowlist, logs, schema, statement_read, warmup, web
 from loss_note_api.auth import TokenVerifier
-from loss_note_api.read_limits import ReadLimits
+from loss_note_api.read_limits import ReadLimits, limits_from_env
 from loss_note_api.routes import error, invalid, make_blueprint, make_unconfigured_blueprint
 from loss_note_api.runtime import StartupRefused, decide_runtime
 from loss_note_api.store import FirestoreStore, Store, StoreUnavailable
@@ -88,7 +88,7 @@ def create_app(
 ) -> Flask:
     """env は環境変数（既定は os.environ）。明細の読み取りの資格情報もここから読む（ADR-0005）。
     read_timeout は読み取りの締め切りの秒数（テスト用。既定は statement_read.app_settings.APP_TIMEOUT_SECONDS）。
-    read_limits は読み取りの 1 日の上限（テスト用。既定は read_limits.ReadLimits() = 30 回・2.00 USD。#44）。
+    read_limits は読み取りの 1 日の上限（テスト用。既定は環境変数から read_limits.limits_from_env。#44・#51）。
     identity_token は読み取りの federation の ID トークンの取り方（テスト用。既定はメタデータ サーバー。#55）。
     env を渡さない起動（本番・手元の起動）では、読み取りの資格情報を読んだ後に、この process の環境から
     資格情報・送り先の系統の名前を外す（明細の読み取りの子の CLI に選ばなかった方式の変数を引き継がせない。
@@ -127,7 +127,8 @@ def create_app(
         verifier = TokenVerifier(runtime)
         app.register_blueprint(
             make_blueprint(records, verifier, clock, read_config,
-                           allowed=allowlist.policy_for(runtime.mode, env), read_limits=read_limits)
+                           allowed=allowlist.policy_for(runtime.mode, env),
+                           read_limits=read_limits or limits_from_env(env))
         )
         # 起動の準備（#60）: 資格情報の名前を外した後（背後のスレッドを起こすのはここから）
         if from_process if warm is None else warm:

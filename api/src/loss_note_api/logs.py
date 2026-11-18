@@ -17,7 +17,8 @@ logger = logging.getLogger("loss_note_api")
 # cli = 明細の読み取りが先立ての CLI を使ったか（warm / cold の 2 値だけ。#65）、cli_ms = 起動の準備の先立ての段
 _ALLOWED_KEYS = frozenset(
     {"event", "method", "route", "status", "ms", "exc", "reason", "rows",
-     "store_ms", "auth_ms", "sdk_ms", "cli_ms", "limit_ms", "token_ms", "read_ms", "api_ms", "cli"}
+     "store_ms", "auth_ms", "sdk_ms", "cli_ms", "limit_ms", "token_ms", "read_ms", "api_ms", "cli",
+     "var"}
 )
 
 

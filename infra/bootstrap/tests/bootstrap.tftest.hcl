@@ -335,6 +335,24 @@ run "defaults" {
     condition     = google_secret_manager_secret_iam_member.runtime_allowed_emails.member == "serviceAccount:sa-loss-note@example-project.iam.gserviceaccount.com" && google_secret_manager_secret_iam_member.runtime_allowed_emails.role == "roles/secretmanager.secretAccessor" && google_secret_manager_secret_iam_member.runtime_allowed_emails.secret_id == google_secret_manager_secret.allowed_emails.secret_id
     error_message = "許可リストの読み取りは実行用 SA に secretAccessor（入れ物の単位）"
   }
+
+  # #51: AI の上限を受けない利用者（バイパス）のリストの入れ物（許可リストと同じ形。別の入れ物）
+  assert {
+    condition     = google_secret_manager_secret.ai_bypass_emails.secret_id == "loss-note-ai-bypass-emails" && google_secret_manager_secret.ai_bypass_emails.project == "example-project" && google_secret_manager_secret.ai_bypass_emails.secret_id != google_secret_manager_secret.allowed_emails.secret_id
+    error_message = "バイパスのリストの入れ物は loss-note-ai-bypass-emails（このプロジェクト。許可リストと別）"
+  }
+  assert {
+    condition     = google_secret_manager_secret.ai_bypass_emails.deletion_protection == true
+    error_message = "バイパスのリストの入れ物は Terraform から消せない（deletion_protection）"
+  }
+  assert {
+    condition     = length(google_secret_manager_secret.ai_bypass_emails.replication[0].auto) == 0 && [for r in google_secret_manager_secret.ai_bypass_emails.replication[0].user_managed[0].replicas : r.location] == ["asia-northeast1"]
+    error_message = "バイパスのリストの複製は東京（asia-northeast1）だけ"
+  }
+  assert {
+    condition     = google_secret_manager_secret_iam_member.runtime_ai_bypass_emails.member == "serviceAccount:sa-loss-note@example-project.iam.gserviceaccount.com" && google_secret_manager_secret_iam_member.runtime_ai_bypass_emails.role == "roles/secretmanager.secretAccessor" && google_secret_manager_secret_iam_member.runtime_ai_bypass_emails.secret_id == google_secret_manager_secret.ai_bypass_emails.secret_id
+    error_message = "バイパスのリストの読み取りは実行用 SA に secretAccessor（入れ物の単位）"
+  }
 }
 
 # 例 W6: リポジトリ・オーナーの名前を変えても（数値 ID は同じ）、借用の主体と条件は defaults と同じ

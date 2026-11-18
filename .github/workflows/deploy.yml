@@ -38,8 +38,9 @@ defaults:
 # プロジェクト固有の値（プロジェクト ID・SA・state のバケット・Firebase の Web の設定・WIF のプロバイダ）はすべて repository secrets
 # から読む（公開リポジトリの Actions のログは誰でも読めるので、見出しの env の一覧・コマンドの出力に値を出さない。secrets は
 # GitHub が自動で伏せる。repository variables は使わない。例外は値を伏せる必要の無い切り替え STATEMENT_READ_CREDENTIAL と
-# STATEMENT_READ_KEY だけ = 下の TF_VAR_statement_read_credential・TF_VAR_statement_read_key。secrets にするとログの方式の名前・
-# true がすべて伏せ字になり、plan・検査のログが読めなくなるため）
+# STATEMENT_READ_KEY = 下の TF_VAR_statement_read_credential・TF_VAR_statement_read_key と、AI の上限の切り替え・数
+# AI_LIMIT_BYPASS・AI_USER_DAILY_COUNT・AI_USER_DAILY_USD・AI_DAILY_USD（#51）だけ。secrets にするとログの方式の名前・
+# true・数がすべて伏せ字になり、plan・検査のログが読めなくなるため）
 env:
   TF_IN_AUTOMATION: "1"
   # プロジェクト固有の値は repository secrets で渡す（infra/README.md「GitHub の設定」）
@@ -60,6 +61,13 @@ env:
   TF_VAR_statement_read_organization_id: ${{ secrets.STATEMENT_READ_ORGANIZATION_ID }}
   TF_VAR_statement_read_service_account_id: ${{ secrets.STATEMENT_READ_SERVICE_ACCOUNT_ID }}
   TF_VAR_statement_read_workspace_id: ${{ secrets.STATEMENT_READ_WORKSPACE_ID }}
+  # AI の上限（#51・ADR-0014）。バイパスのリスト（メール）は Secret Manager の loss-note-ai-bypass-emails に置き（値は GitHub に
+  # 置かない）、版を入れた後に AI_LIMIT_BYPASS を true にする（未設定・true 以外なら参照を付けない）。上限の値は未設定なら空
+  # = API のコードの既定（利用者ごと 30 回・1.00 USD、全体 2.00 USD）
+  TF_VAR_ai_limit_bypass: ${{ vars.AI_LIMIT_BYPASS == 'true' }}
+  TF_VAR_ai_user_daily_count: ${{ vars.AI_USER_DAILY_COUNT }}
+  TF_VAR_ai_user_daily_usd: ${{ vars.AI_USER_DAILY_USD }}
+  TF_VAR_ai_daily_usd: ${{ vars.AI_DAILY_USD }}
   # 画面のビルドに渡す Firebase の Web の設定（公開の JS に入る値。秘密ではない）。プロジェクト ID は GCP_PROJECT_ID を兼ねる
   VITE_FIREBASE_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}

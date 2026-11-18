@@ -112,10 +112,10 @@ describe('timeframeConflict（画面の例 U10）', () => {
   const chart = { kind: 'timeframeLonger', source: 'chart', from: '4h', to: '1d' } as const;
   const tap = { kind: 'timeframeLonger', source: 'tap' } as const;
 
-  it('答え「変えず」とチャートの 4 時間足 → 日足を事実として並べる', () => {
+  it('答え「そのまま」とチャートの 4 時間足 → 日足を事実として並べる', () => {
     const c = timeframeConflict('none', [chart]);
     expect({ verdictLine: sp(c?.verdictLine), tapHint: sp(c?.tapHint) }).toEqual({
-      verdictLine: 'あなたの答え: 変えず ／ チャート: 4 時間足 → 日足',
+      verdictLine: 'あなたの答え: そのまま ／ チャート: 4 時間足 → 日足',
       tapHint: 'チャートでは 4 時間足 → 日足',
     });
     expect(sp(timeframeConflict('shorter', [chart])?.verdictLine)).toBe(

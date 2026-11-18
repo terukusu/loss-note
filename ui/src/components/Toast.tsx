@@ -21,7 +21,7 @@ export interface ToastProps {
 
 function CloseButton({ onClick }: { readonly onClick: () => void }) {
   return (
-    <button type="button" class="toast__close" aria-label="知らせを閉じる" onClick={onClick}>
+    <button type="button" class="toast__close" aria-label="通知を閉じる" onClick={onClick}>
       <Icon name="cross" />
     </button>
   );

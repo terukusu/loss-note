@@ -86,7 +86,7 @@ describe('Forbidden（使えないアカウントの画面）', () => {
     expect(text).toContain('損失ノート');
     expect(text).not.toContain('loss-note');
     expect(FORBIDDEN_TITLE).toBe('このアカウントでは使えません');
-    expect(FORBIDDEN_LEAD).toBe('ほかのアカウントでログインし直してください。');
+    expect(FORBIDDEN_LEAD).toBe('別のアカウントでもう一度ログインしてください。');
     expect(FORBIDDEN_REASON).toBe('使えるのは登録されたアカウントだけです。');
     expect(text).not.toContain('許可リスト');
     const h1 = findAll(tree, (v) => v.type === 'h1');

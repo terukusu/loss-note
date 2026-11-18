@@ -32,7 +32,7 @@ export const COUNT_LABEL = '回数';
 /** まとめの 1 行（「今日」の見出しのすぐ下） */
 export const NEAR_SUMMARY = '今日の読み取りは上限に近づいています。';
 export const REACHED_SUMMARY =
-  '今日の読み取りは上限に届きました。明細は手入力してください（日本時間の 0:00 に戻ります）。';
+  '今日の読み取りは上限に届きました。明細は手入力してください（日本時間の 0:00 にリセットされます）。';
 /** 各行の短い状態の文 */
 export const NEAR_TEXT = '上限に近づいています';
 export const COUNT_REACHED_TEXT = '上限に届きました';
@@ -41,7 +41,7 @@ export const BYPASS_TEXT = 'あなたの 1 日の上限: なし';
 export const USAGE_LOAD_FAILED = '利用状況を読み込めませんでした。再読み込みしてください。';
 
 export const globalLimitNote = (limit: string) =>
-  `すべての利用者の合計にも 1 日の上限（${limit}）があります。合計が上限に届いたときも読み取りは止まります（合計の使った額はここには表示されません）。`;
+  `すべての利用者の合計にも 1 日の上限（${limit}）があります。合計が上限に届いたときも読み取りは止まります（全体の利用額はここには表示されません）。`;
 export const bypassGlobalNote = (limit: string) =>
   `すべての利用者の合計の 1 日の上限（${limit}）に届いたときは、読み取りが止まります。`;
 

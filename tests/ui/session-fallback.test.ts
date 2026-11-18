@@ -12,7 +12,7 @@ describe('unavailableSession', () => {
     expect(states).toEqual(['signedOut']);
     const e = await s.signIn().catch((x: unknown) => x);
     expect(loginErrorMessage(errorCode(e))).toBe(
-      'ログインの準備ができませんでした。接続先の設定を確かめてください',
+      'ログインの準備ができませんでした。接続先の設定を確認してください',
     );
     expect(await s.getIdToken()).toBeNull();
   });

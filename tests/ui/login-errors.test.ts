@@ -4,9 +4,9 @@ import { loginErrorMessage } from '../../ui/src/auth/errors';
 
 describe('loginErrorMessage', () => {
   it.each(['auth/network-request-failed', 'auth/timeout'])(
-    'L7: %s → 「ログインのサービスにつながりません」',
+    'L7: %s → 「ログインのサービスと通信できませんでした」',
     (code) => {
-      expect(loginErrorMessage(code)).toBe('ログインのサービスにつながりません');
+      expect(loginErrorMessage(code)).toBe('ログインのサービスと通信できませんでした');
     },
   );
 
@@ -19,13 +19,13 @@ describe('loginErrorMessage', () => {
 
   it('ポップアップが止められた → もう一度押すよう促す', () => {
     expect(loginErrorMessage('auth/popup-blocked')).toBe(
-      'ポップアップが止められました。もう一度押してください',
+      'ポップアップがブロックされました。ブラウザでポップアップを許可して、もう一度押してください',
     );
   });
 
   it('起動時の初期化の失敗（app/unavailable）→ 設定を確かめる案内', () => {
     expect(loginErrorMessage('app/unavailable')).toBe(
-      'ログインの準備ができませんでした。接続先の設定を確かめてください',
+      'ログインの準備ができませんでした。接続先の設定を確認してください',
     );
   });
 

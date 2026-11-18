@@ -214,7 +214,7 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
     const aside = all(tree, hasClass('verdict__aside'));
     expect(aside).toHaveLength(1);
     expect(aside[0]?.type).toBe('p');
-    expect(text(aside)).toBe('資金が未設定なので過剰リスクは見ていない');
+    expect(text(aside)).toBe('資金が未設定のため、過剰リスクは判定していません');
     const v = text(verdictOf(tree));
     expect(v).toContain('−1.6R');
     expect(count(v, '資金')).toBe(1);
@@ -230,8 +230,8 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
   it('E16（例 7）: R は出ず、R・リスクの段の代わりに出ない理由を枠の中に 1 回だけ。C の添え書きと同じ理由を箇条に重ねない', () => {
     const tree = view(stateFor(E16, NO_CAPITAL));
     const t = text(verdictOf(tree));
-    expect(count(t, 'LC が無いので')).toBe(1);
-    expect(t).toContain('LC が無いので R・リスクは表示されません');
+    expect(count(t, 'LC が無いため')).toBe(1);
+    expect(t).toContain('LC が無いため、R・リスクは表示されません');
     expect(all(tree, hasClass('num--xl'))).toEqual([]);
     expect(all(tree, hasClass('verdict__none'))).toEqual([]);
     expect(all(tree, hasClass('verdict__stats'))).toEqual([]);
@@ -245,13 +245,13 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
     expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を決めずに入った');
   });
 
-  it('値が出ない場所の「—」は読み上げから隠し、読み上げには「出ません」（E1・資金なしのリスク）', () => {
+  it('値が出ない場所の「—」は読み上げから隠し、読み上げには「表示なし」（E1・資金なしのリスク）', () => {
     const none = all(view(stateFor(E1, NO_CAPITAL)), hasClass('verdict__none'));
     expect(none).toHaveLength(1);
     for (const n of none) {
       const dash = all([n], (e) => e.props['aria-hidden'] === 'true');
       expect(text(dash)).toBe('—');
-      expect(text(all([n], hasClass('sr-only')))).toBe('出ません');
+      expect(text(all([n], hasClass('sr-only')))).toBe('表示なし');
     }
   });
 
@@ -265,7 +265,7 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
   });
 });
 
-describe('足りない欄と [記録する]（AC-2）', () => {
+describe('未入力の欄と [記録する]（AC-2）', () => {
   it('E10: 判定なし（中立）・R は出る・[記録する] は押せず、帯は「あと 1 欄」、名前は判定の枠の案内に', () => {
     const tree = view(stateFor(E10, NO_CAPITAL));
     expect(cls(badge(tree))).toBe('badge badge--neutral badge--lg');
@@ -279,7 +279,7 @@ describe('足りない欄と [記録する]（AC-2）', () => {
     expect(submit(tree).props['aria-describedby']).toBe('record-verdict-hint');
     // 待ちの間の案内は 1 回だけ（R・リスクの場所に「出ます」の文を重ねない。AC-8）
     const v = text(verdictOf(tree));
-    expect(count(v, '判定と理由が出ます')).toBe(1);
+    expect(count(v, '判定が表示されます')).toBe(1);
     expect(v).not.toContain('資金を設定すると表示されます');
     expect(v).not.toContain('イン・決済・LC で出ます');
   });
@@ -291,11 +291,10 @@ describe('足りない欄と [記録する]（AC-2）', () => {
     for (const name of [
       'L / S',
       'イン',
-      '決済の価格',
+      '決済',
       'LC（価格か「なし」）',
-      'LC を入る前に決めていたか',
-      'LC を動かしたか',
-      '時間足を変えたか',
+      // 3 つの質問は 1 つにまとめる（#74 デザインレビュー 4）
+      '決済までの行動の 3 つ',
     ]) {
       expect(hint).toContain(name);
       // 帯には名前を出さない
@@ -303,7 +302,7 @@ describe('足りない欄と [記録する]（AC-2）', () => {
     }
     expect(submit(tree).props.disabled).toBe(true);
     expect(submit(tree).props['aria-describedby']).toBe('record-verdict-hint');
-    expect(count(text(verdictOf(tree)), '判定と理由が出ます')).toBe(1);
+    expect(count(text(verdictOf(tree)), '判定が表示されます')).toBe(1);
   });
 
   it('決済に誤り 1 つ（例 3）: 帯は「誤り 1 欄・あと 6 欄」、案内に「決済」', () => {
@@ -353,7 +352,7 @@ describe('入力の誤り（AC-7）', () => {
     expect(String(input.props['aria-describedby'])).toContain('record-lc-error');
     const err = all(tree, (e) => e.props.id === 'record-lc-error')[0] as El;
     expect(cls(err)).toBe('field__error');
-    expect(text(err)).toBe('L の LC はインより下にしてください');
+    expect(text(err)).toBe('ロングの LC はインより下にしてください');
     expect(all(tree, hasClass('reasons__item'))).toEqual([]);
     expect(submit(tree).props.disabled).toBe(true);
   });
@@ -415,7 +414,7 @@ describe('失敗の文言（AC-10）', () => {
     expect(all(tree, (e) => e.type === 'input' && e.props.id === 'record-entry')).toHaveLength(1);
   });
 
-  it('読み込みの失敗は文言と [もう一度読み込む]、入力の欄は出さない', () => {
+  it('読み込みの失敗は文言と [再読み込み]、入力の欄は出さない', () => {
     let reloaded = 0;
     const tree = view(stateFor(E1, NO_CAPITAL, { phase: 'loadFailed', error: LOAD_FAILED }), {
       onReload: () => {
@@ -425,7 +424,7 @@ describe('失敗の文言（AC-10）', () => {
     expect(text(all(tree, (e) => e.props.role === 'alert'))).toBe(LOAD_FAILED);
     expect(all(tree, (e) => e.type === 'input')).toEqual([]);
     const btn = all(tree, (e) => e.type === 'button')[0] as El;
-    expect(text(btn)).toBe('もう一度読み込む');
+    expect(text(btn)).toBe('再読み込み');
     (btn.props.onClick as () => void)();
     expect(reloaded).toBe(1);
   });
@@ -501,12 +500,12 @@ describe('畳んだ欄の誤り（レビュー指摘 1）', () => {
     const details = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
     expect(details.props.open).toBe(true);
     expect(text(statusOf(tree))).toBe('誤り 1 欄');
-    expect(text(hintOf(tree))).toBe('誤りのある欄（手数料）を直すと、判定と理由が出ます。');
+    expect(text(hintOf(tree))).toBe('誤りのある欄（手数料）を直すと判定が表示されます。');
     expect(count(text(verdictOf(tree)), '直すと')).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
   });
 
-  it('誤りが無ければ「ほかの欄」は閉じたまま。誤りと足りない欄は両方数え、案内に両方の名前', () => {
+  it('誤りが無ければ「ほかの欄」は閉じたまま。誤りと未入力の欄は両方数え、案内に両方の名前', () => {
     const closed = all(
       view(stateFor(E1, NO_CAPITAL)),
       (e) => e.type === 'details' && hasClass('more')(e),
@@ -515,13 +514,15 @@ describe('畳んだ欄の誤り（レビュー指摘 1）', () => {
     const both = applyDraft(E10, { type: 'set', field: 'entryTime', value: '2026-03-04T11:00' });
     const tree = view(stateFor(both, NO_CAPITAL));
     expect(text(statusOf(tree))).toBe('誤り 1 欄・あと 1 欄');
-    expect(text(hintOf(tree))).toContain('誤りのある欄（建てた時刻）');
-    expect(text(hintOf(tree))).toContain('足りない欄（時間足を変えたか）');
+    expect(text(hintOf(tree))).toContain('誤りのある欄（エントリーの時刻）');
+    expect(text(hintOf(tree))).toContain(
+      'あと 1 欄を入力すると判定が表示されます（時間足を変えたか）',
+    );
   });
 });
 
 describe('ログインが切れた（レビュー指摘 4）', () => {
-  it('保存で 401 → 決まった文言と [ログインし直す]（onRelogin）', () => {
+  it('保存で 401 → 決まった文言と [もう一度ログイン]（onRelogin）', () => {
     let relogin = 0;
     const tree = view(stateFor(E1, NO_CAPITAL, { error: AUTH_EXPIRED, errorKind: 'auth' }), {
       onRelogin: () => {
@@ -531,16 +532,16 @@ describe('ログインが切れた（レビュー指摘 4）', () => {
     const alert = all(tree, (e) => e.props.role === 'alert')[0] as El;
     expect(text(alert)).toContain(AUTH_EXPIRED);
     const btn = all([alert], (e) => e.type === 'button')[0] as El;
-    expect(text(btn)).toBe('ログインし直す');
+    expect(text(btn)).toBe('もう一度ログイン');
     (btn.props.onClick as () => void)();
     expect(relogin).toBe(1);
   });
 
-  it('読み込みで 401 → [もう一度読み込む] ではなく [ログインし直す]', () => {
+  it('読み込みで 401 → [再読み込み] ではなく [もう一度ログイン]', () => {
     const tree = view(
       stateFor(E1, NO_CAPITAL, { phase: 'loadFailed', error: AUTH_EXPIRED, errorKind: 'auth' }),
     );
-    expect(all(tree, (e) => e.type === 'button').map(text)).toEqual(['ログインし直す']);
+    expect(all(tree, (e) => e.type === 'button').map(text)).toEqual(['もう一度ログイン']);
   });
 });
 
@@ -671,7 +672,7 @@ describe('読み取り中（AC-3）', () => {
 });
 
 describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
-  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る。「ほかの欄」は開いて損益・手数料・建てた時刻が見える', () => {
+  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る。「ほかの欄」は開いて損益・手数料・エントリーの時刻が見える', () => {
     const { draft, marks } = filledE1();
     const tree = view(withStatement(draft, { marks }));
     const texts = all(tree, hasClass('field__mark')).map(text);
@@ -699,7 +700,7 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     expect(details.props.open).toBe(true);
   });
 
-  it('直した欄は「直した」、逆指値の既定は「明細から」、時間帯の無い時刻は「時間帯が明細にありません」', () => {
+  it('直した欄は「直した」、逆指値の既定は「明細から」、時間帯の無い時刻は「タイムゾーンが明細にありません」', () => {
     const tree = view(
       withStatement(E1, {
         marks: {
@@ -712,13 +713,18 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     );
     const marks = all(tree, hasClass('field__mark')).map(text);
     expect(marks).toEqual(
-      expect.arrayContaining(['直した', '明細から', '明細から', '時間帯が明細にありません']),
+      expect.arrayContaining([
+        '修正済み',
+        '明細から',
+        '明細から',
+        'タイムゾーンが明細にありません',
+      ]),
     );
     const reason = all(tree, (e) => e.type === 'select')[0] as El;
     expect(reason.props['aria-describedby']).toBe('record-exit-reason-mark');
   });
 
-  it('時間帯の確かめ: [日本時間で合っている] で onConfirmTz。足りない欄に「決済の時刻（時間帯の確かめ）」', () => {
+  it('タイムゾーンの確認: [日本時間で合っている] で onConfirmTz。未入力の欄に「決済の時刻（タイムゾーンの確認）」', () => {
     let confirmed = 0;
     const tree = view(withStatement(E1, { marks: { exitTime: 'tz' } }), {
       onConfirmTz: () => {
@@ -732,7 +738,7 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     (btn.props.onClick as () => void)();
     expect(confirmed).toBe(1);
     expect(text(statusOf(tree))).toBe('あと 1 欄');
-    expect(text(hintOf(tree))).toContain('決済の時刻（時間帯の確かめ）');
+    expect(text(hintOf(tree))).toContain('決済の時刻（タイムゾーンの確認）');
     expect(submit(tree).props.disabled).toBe(true);
   });
 
@@ -745,7 +751,7 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
       width: 640,
       height: 320,
       role: 'img',
-      'aria-label': '貼った明細のプレビュー',
+      'aria-label': '貼り付けた明細のプレビュー',
     });
     expect('style' in (canvas[0]?.props ?? {})).toBe(false);
     expect(all(tree, (e) => e.type === 'img')).toEqual([]);
@@ -753,7 +759,7 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
 });
 
 describe('複数行（AC-9）', () => {
-  it('「2 / 3 行目」と [この行を飛ばす]（onSkipRow）、保存した行の知らせ', () => {
+  it('「2 / 3 行目」と [この行をスキップ]（onSkipRow）、保存した行の知らせ', () => {
     let skipped = 0;
     const tree = view(
       withStatement(E1, {
@@ -768,7 +774,7 @@ describe('複数行（AC-9）', () => {
       },
     );
     expect(text(all(tree, hasClass('statement__row')))).toBe('2 / 3 行目');
-    const btn = all(tree, (e) => e.type === 'button' && text(e) === 'この行を飛ばす')[0] as El;
+    const btn = all(tree, (e) => e.type === 'button' && text(e) === 'この行をスキップ')[0] as El;
     (btn.props.onClick as () => void)();
     expect(skipped).toBe(1);
     expect(all(tree, (e) => e.props.role === 'status').map(text)).toContain(
@@ -824,7 +830,7 @@ describe('作りの約束（#15 の枠）', () => {
 
 describe('レビュー指摘の対応（#15 Phase 4）', () => {
   it('指摘 6: 画像を受けられなかった知らせを、読み込み中・読み込みの失敗・保存中の画面に出す', () => {
-    const msg = '記録の準備ができてから、もう一度貼ってください。';
+    const msg = '記録の準備ができてから、もう一度貼り付けてください。';
     for (const over of [
       { phase: 'loading', readBlocked: msg },
       { phase: 'loadFailed', error: LOAD_FAILED, readBlocked: msg },
@@ -840,7 +846,7 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
 
   it('指摘 4: 貼り付けの案内はキーの名前に頼らない（PC だけに出すクラス）', () => {
     const hint = all(view(stateFor(E1, NO_CAPITAL)), hasClass('statement__pastehint'));
-    expect(hint.map(text)).toEqual(['PC はこの画面に貼り付けもできます。']);
+    expect(hint.map(text)).toEqual(['PC はこの画面に貼り付けることもできます。']);
     expect(text(view(stateFor(E1, NO_CAPITAL)))).not.toContain('Ctrl');
   });
 
@@ -889,7 +895,7 @@ describe('チャートの枠（Issue #12）', () => {
       expect(all([e], (x) => x.type === 'input' && x.props.type === 'file')).toHaveLength(1);
     }
     expect(text(all(tree, hasClass('chart__pastehint')))).toContain(
-      'PC は枠を選んでから貼り付けもできます。',
+      'PC はこの欄を選んで貼り付けできます。',
     );
   });
 
@@ -1139,7 +1145,7 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
     expect(accepted).toBe('exit');
   });
 
-  it('U10: タップの答え「変えず」とチャートの時間足が食い違えば、理由の 2 行目とタップの下に事実として並べる', () => {
+  it('U10: タップの答え「そのまま」とチャートの時間足が食い違えば、理由の 2 行目とタップの下に事実として並べる', () => {
     const d = applyDraft(
       applyDraft(applyDraft(E1, { type: 'set', field: 'entryChartTimeframe', value: '4h' }), {
         type: 'set',
@@ -1151,20 +1157,20 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
     const ctx = { ...NO_CAPITAL, charts: { entry: true, exit: true } };
     const tree = view(stateFor(d, ctx, { charts: { entry: ready(), exit: ready() } }));
     expect(text(all(tree, hasClass('reasons__sub'))).replace(/\u00a0/g, ' ')).toBe(
-      'あなたの答え: 変えず ／ チャート: 4 時間足 → 日足',
+      'あなたの答え: そのまま ／ チャート: 4 時間足 → 日足',
     );
     expect(text(all(tree, hasClass('field__hint'))).replace(/\u00a0/g, ' ')).toContain(
       'チャートでは 4 時間足 → 日足',
     );
   });
 
-  it('デザイン 7: 貼った枠の「ここに貼れます」は「貼ると差し替えます」になり、撮る足の添え書きは読み上げだけに残る', () => {
+  it('デザイン 7: 貼った枠の「ここに貼り付け」は「貼り付けると差し替えられます」になり、撮る足の添え書きは読み上げだけに残る', () => {
     const tree = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
     const box = all(tree, (e) => e.props.id === 'record-chart-entry')[0] as El;
-    expect(text(all([box], hasClass('chart__ready')))).toBe('貼ると差し替えます');
+    expect(text(all([box], hasClass('chart__ready')))).toBe('貼り付けると差し替えられます');
     expect(cls(all([box], hasClass('chart__hint'))[0] as El)).toContain('sr-only');
     const empty = all(tree, (e) => e.props.id === 'record-chart-exit')[0] as El;
-    expect(text(all([empty], hasClass('chart__ready')))).toBe('ここに貼れます');
+    expect(text(all([empty], hasClass('chart__ready')))).toBe('ここに貼り付け');
   });
 
   it('U1: 読み取りで埋めた欄に印「チャートから読み取り」（select の説明にもつなぐ）', () => {
@@ -1278,7 +1284,7 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
     return { ...CAPITAL_1M, accounts: list.slice(0, n) };
   };
 
-  it('U1・B1・B2: 口座 1 つ → 口座の欄も判定の枠の 1 行も無い。「取引」の見出しの行に [＋ 口座を足す] だけ', () => {
+  it('U1・B1・B2: 口座 1 つ → 口座の欄も判定の枠の 1 行も無い。「取引」の見出しの行に [＋ 口座を追加] だけ', () => {
     const tree = view(stateFor(E11, ONE_1M));
     expect(all(tree, (e) => e.props['aria-label'] === '口座')).toEqual([]);
     expect(all(tree, (e) => e.props.id === 'record-account')).toEqual([]);
@@ -1344,7 +1350,7 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
       expect(cls(mark as El)).toBe('field__mark');
       const desc = all(tree, (e) => e.props.id === 'record-account-auto-desc')[0];
       expect(text(desc ? [desc] : [])).toBe(
-        '前にこの明細で選んだ口座を自動で選びました。違うときは選び直してください',
+        '前にこの明細で選んだ口座を自動で選びました。違うときは変更してください',
       );
       expect(cls(desc as El)).toBe('sr-only');
     }
@@ -1428,7 +1434,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     const b = box ? [box] : [];
     expect(all(b, (e) => e.type === 'label').map(text)).toEqual(['名前', '資金（任意）']);
     expect(all(b, (e) => e.type === 'button').map(text)).toEqual(['追加', 'キャンセル']);
-    expect(text(b)).toContain('空でも足せます。資金を入れるとリスク（%）が出ます');
+    expect(text(b)).toContain('資金は空欄でも追加できます。入力するとリスク（%）が表示されます');
     expect(
       all(tree, (e) => e.props['aria-label'] === '口座' && e.props.role === 'radiogroup'),
     ).toEqual([]);
@@ -1459,7 +1465,7 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     const tree = view(
       open({
         draft: { name: '口座 1', capital: '0' },
-        errors: { name: '同じ名前の口座があります', capital: '0 より大きい数を入れてください' },
+        errors: { name: '同じ名前の口座があります', capital: '0 より大きい数値を入力してください' },
         message:
           '通信できませんでした。もう一度 [追加] を押してください（二重には追加されません）。',
       }),
@@ -1549,11 +1555,11 @@ describe('判定の枠の数量の 1 行（#67）', () => {
       .children.filter((c): c is El => typeof c !== 'string')
       .map((c) => cls(c).split(' ').at(-1));
 
-  it('Z2: 口座の資金 200,000・1% で E2（1R 5,000）→「数量 10000 · 提案の数量 4000（2.5 倍）」が数の段の直後に 1 行・無色', () => {
+  it('Z2: 口座の資金 200,000・1% で E2（1R 5,000）→「数量 10000 · 適正の数量 4000（2.5 倍）」が数の段の直後に 1 行・無色', () => {
     const ctx = { ...CAPITAL_1M, accounts: [defaultAccount(200_000)] };
     const tree = view(stateFor(E2, ctx));
     const line = all(tree, hasClass('verdict__sizing'));
-    expect(line.map(text)).toEqual(['数量 10000 · 提案の数量 4000（2.5 倍）']);
+    expect(line.map(text)).toEqual(['数量 10000 · 適正の数量 4000（実際は 2.5 倍）']);
     expect(cls(line[0] as El)).toBe('verdict__aside verdict__sizing');
     const o = order(tree);
     expect(o[o.indexOf('verdict__stats') + 1]).toBe('verdict__sizing');
@@ -1634,7 +1640,7 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
 
   it('U25: 為替の誤りは欄の下に文言', () => {
     const tree = view(stateFor(pDraft({ fxRate: '0' }), CTX_A));
-    expect(text(byId(tree, 'record-fx-error'))).toBe('0 より大きい数を入れてください');
+    expect(text(byId(tree, 'record-fx-error'))).toBe('0 より大きい数値を入力してください');
   });
 
   it('U26（F2）: 為替も損益も無い → 損益も「—」、注記「為替か損益を入力すると表示されます」が 1 回', () => {
@@ -1643,7 +1649,7 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
     expect(text(v).split('為替か損益を入力すると表示されます').length - 1).toBe(1);
     // 注記は「リスク・損益の「—」」の 1 行、脇の理由は直せる原因の言葉（デザインレビュー 2）
     expect(text(v)).toContain('リスク・損益の「—」: 為替か損益を入力すると表示されます');
-    expect(text(v)).toContain('為替が無いので過剰リスクは見ていない');
+    expect(text(v)).toContain('為替が無いため、過剰リスクは判定していません');
     expect(text(v)).not.toContain('1R が出ないので');
     const labels = all([v], hasClass('verdict__label')).map((e) => text(e));
     expect(labels).toContain('損益');

@@ -9,7 +9,7 @@ describe('raceUnreachable', () => {
   it('届かない → 操作が返らなくても network-request-failed で打ち切る（L7 の文言になる）', async () => {
     const e = await raceUnreachable(never<void>(), async () => false).catch((x: unknown) => x);
     expect(errorCode(e)).toBe('auth/network-request-failed');
-    expect(loginErrorMessage(errorCode(e))).toBe('ログインのサービスにつながりません');
+    expect(loginErrorMessage(errorCode(e))).toBe('ログインのサービスと通信できませんでした');
   });
 
   it('届くかの確かめ自体が失敗 → 打ち切る', async () => {

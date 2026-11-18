@@ -462,6 +462,17 @@
   flex: 1 1 0;
 }
 
+/* 3 択は 1 行に 3 等分で固定する（選んだ項目のチェックの記号の分で 2 + 1 段に折れない。#74 デザインレビュー 3）。
+   左右の余白を詰めて、幅 360px でも 3 つが 1 行に入る */
+.seg[data-count="3"]:not(.seg--truncate) {
+  flex-wrap: nowrap;
+}
+
+.seg[data-count="3"]:not(.seg--truncate) .seg__item {
+  min-width: 0;
+  padding: 0 var(--sp-2);
+}
+
 .seg__item .seg__check--off.icon {
   visibility: hidden;
 }
@@ -1238,11 +1249,6 @@
   border: 1.5px solid var(--ink);
   font-weight: var(--fw-bold);
   color: var(--ink);
-}
-
-.taps__off {
-  font-size: var(--fs-xs);
-  letter-spacing: 0.04em;
 }
 
 .taps__chip .icon {

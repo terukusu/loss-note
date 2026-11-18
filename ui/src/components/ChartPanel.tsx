@@ -363,11 +363,11 @@ function ChartBox(
             variant="secondary"
             onFile={pick}
           />
-          <p class="field__hint chart__pastehint">PC は枠を選んでから貼り付けもできます。</p>
+          <p class="field__hint chart__pastehint">PC はこの欄を選んで貼り付けできます。</p>
         </div>
       ) : null}
       <p class="chart__ready" aria-hidden="true">
-        {hasChart ? '貼ると差し替えます' : 'ここに貼れます'}
+        {hasChart ? '貼り付けると差し替えられます' : 'ここに貼り付け'}
       </p>
     </fieldset>
   );

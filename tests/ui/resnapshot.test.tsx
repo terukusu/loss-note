@@ -204,7 +204,7 @@ describe('純関数: snapshotDiffs・resnapshotOffer・outcomeRows', () => {
       { label: '数量の刻み', from: '1', to: '0.1' },
       { label: '価格の通貨', from: 'JPY', to: 'USD' },
       { label: '原資産の種類', from: '株価指数', to: 'FX' },
-      { label: '商品の形', from: '現物・CFD', to: '先物' },
+      { label: '取引の形態', from: '現物・CFD', to: '先物' },
     ]);
   });
 
@@ -479,7 +479,7 @@ describe('画面: 枠と、判定の枠の注記のそばのボタン', () => {
     const action = all(verdict.children, hasClass('verdict__action'))[0] as El;
     const kids = verdict.children.filter((n): n is El => typeof n !== 'string');
     expect(text(kids[kids.indexOf(action) - 1] as El)).toContain(
-      '資金が未設定なので過剰リスクは見ていない',
+      '資金が未設定のため、過剰リスクは判定していません',
     );
     expect(nearButtons(tree)).toHaveLength(1);
     // 2 択は「記録したとき」が選ばれている

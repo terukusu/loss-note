@@ -75,10 +75,8 @@ function Taps({ items, note }: NonNullable<VerdictProps['taps']>) {
             <span class="taps__chip">
               {a.offPlan ? (
                 <>
+                  {/* 「外れ」の字は出さない（何が外れたか読めない。#74 デザインレビュー）。記号と色で示し、読み上げは「計画から外れた」 */}
                   <Icon name="offPlan" />
-                  <span class="taps__off" aria-hidden="true">
-                    外れ
-                  </span>
                 </>
               ) : null}
               <span>
@@ -101,7 +99,7 @@ function None() {
   return (
     <span class="verdict__none">
       <span aria-hidden="true">{MISSING}</span>
-      <span class="sr-only">出ません</span>
+      <span class="sr-only">表示なし</span>
     </span>
   );
 }
@@ -120,8 +118,8 @@ export function Verdict(v: VerdictProps) {
       ? v.hint
       : pending
         ? v.hasErrors
-          ? '誤りのある欄を直すと、判定と理由が出ます。'
-          : '足りない欄をそろえると、判定と理由が出ます。'
+          ? '誤りのある欄を直すと、判定と理由が表示されます。'
+          : '未入力の欄を入力すると、判定と理由が表示されます。'
         : null;
   return (
     <section
@@ -136,7 +134,7 @@ export function Verdict(v: VerdictProps) {
       ) : null}
       <div class="verdict__head">
         <h2 class="verdict__title" id={titleId} tabIndex={-1}>
-          判定
+          {v.before ? '編集後の判定' : '判定'}
         </h2>
         {/* 判定の名前の説明（#57。見出しの横・バッジの前。箱は見出しの段の下に開く） */}
         <InfoTip term="judgment" />
@@ -147,7 +145,6 @@ export function Verdict(v: VerdictProps) {
           <span class="verdict__label">編集前</span>
           <JudgeBadge grade={v.before.judgment?.grade ?? null} />
           {v.before.r !== undefined ? <RNum value={v.before.r} /> : null}
-          <span class="verdict__label">→ 編集後（下）</span>
         </p>
       ) : null}
       {lead ? <p class="verdict__lead">{lead}</p> : null}

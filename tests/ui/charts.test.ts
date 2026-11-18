@@ -20,7 +20,7 @@ function el(slot: string | null): ChartPasteTarget {
 }
 
 describe('貼り付けの行き先 chartSlotOf（AC-2・E14・R1）', () => {
-  it('枠そのもの（輪と「ここに貼れます」が出ている状態）→ その枠', () => {
+  it('枠そのもの（輪と「ここに貼り付け」が出ている状態）→ その枠', () => {
     expect(chartSlotOf(el('entry'))).toBe('entry');
     expect(chartSlotOf(el('exit'))).toBe('exit');
   });

@@ -12,7 +12,7 @@ export type FailureKind = 'auth' | 'network' | 'other';
 export const REQUEST_TIMEOUT_MS = 15_000;
 
 /** ログインが切れた（401・ログインしていない）ときの決まった文言（記録・設定の画面で同じ） */
-export const AUTH_EXPIRED = 'ログインが切れました。ログインし直してください。';
+export const AUTH_EXPIRED = 'ログインが切れました。もう一度ログインしてください。';
 
 export const JSON_HEADERS = { 'Content-Type': 'application/json' };
 

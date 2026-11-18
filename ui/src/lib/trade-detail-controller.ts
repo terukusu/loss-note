@@ -23,7 +23,7 @@ import type { PreviewHandle } from './statement-image';
 import { instrumentNameOf } from './trade-view';
 
 export const DETAIL_LOAD_FAILED =
-  '取引を読み込めませんでした。通信を確かめて、もう一度読み込んでください。';
+  '取引を読み込めませんでした。通信状況を確認して、再読み込みしてください。';
 export const CHART_LOAD_FAILED = 'チャートを読み込めませんでした';
 /** チャートの読みの時間の上限（1 枚 最大 500 KB） */
 export const CHART_READ_TIMEOUT_MS = 30_000;

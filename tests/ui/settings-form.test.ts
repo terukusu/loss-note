@@ -152,7 +152,7 @@ describe('readRisk・riskWarning（R3・AC-4）', () => {
 describe('allowanceText（資金 × 許容リスク = 1 回の負けの上限）', () => {
   it('資金 1,000,000円・1% → 10,000円', () => {
     expect(allowanceText(1_000_000, 1)).toBe(
-      'これから記録する取引にリスク（%）が出ます。許容リスク 1% なら、1 回の負けは 10,000円 までです',
+      'これから記録する取引にリスク（%）が表示されます。許容リスク 1% なら、1 回の負けは 10,000円 までです',
     );
   });
   it('資金 1,000,000円・1.5% → 15,000円', () => {
@@ -362,7 +362,7 @@ describe('一覧の表示', () => {
     ).toContain('FX · 先物');
   });
 
-  it('仮の値: 自動で足したままの既定（その他・現物・CFD・未設定・1・1・原資産なし）', () => {
+  it('初期値のまま: 自動で足したままの既定（その他・現物・CFD・未設定・1・1・原資産なし）', () => {
     expect(isProvisional(US30)).toBe(true);
     expect(isProvisional(N225)).toBe(false);
     expect(isProvisional(inst('z', 'Z', { underlying: 'x' }))).toBe(false);

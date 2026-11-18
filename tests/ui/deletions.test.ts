@@ -56,8 +56,8 @@ describe('AC-5: 確認を挟まずに消え、取り消しの時間の後に DEL
     expect(s.hidden.has('d1')).toBe(true);
     expect(s.toast).toEqual({ id: 'd1', label: 'US30 L 11/10' });
     expect(s.failed).toBe(false);
-    expect(TOAST_TEXT.deleted('US30 L 11/10')).toBe('US30 L 11/10 を消しました');
-    expect(TOAST_TEXT.deleted('')).toBe('取引を消しました');
+    expect(TOAST_TEXT.deleted('US30 L 11/10')).toBe('US30 L 11/10 を削除しました');
+    expect(TOAST_TEXT.deleted('')).toBe('取引を削除しました');
     expect(deletes(fake.calls)).toHaveLength(0);
     // 一覧の件数は N → N − 1
     expect(visibleTrades(fake.trades, s.hidden)).toHaveLength(2);
@@ -118,7 +118,7 @@ describe('AC-5: 確認を挟まずに消え、取り消しの時間の後に DEL
       expect(s.failed).toBe(true);
       expect(JSON.stringify(s)).not.toContain('偽物');
     }
-    expect(TOAST_TEXT.failed).toBe('消せませんでした。もう一度 [消す] を押してください。');
+    expect(TOAST_TEXT.failed).toBe('削除できませんでした。もう一度 [削除] を押してください。');
   });
 });
 

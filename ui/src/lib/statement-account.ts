@@ -108,7 +108,7 @@ export function currencyMismatchNote(
 export const CHOOSE_ACCOUNT_HINT = 'この明細の口座を選んでください。次から自動で選びます';
 /** 自動で選んだ口座の印の読み上げの説明（デザイン 2） */
 export const AUTO_ACCOUNT_DESC =
-  '前にこの明細で選んだ口座を自動で選びました。違うときは選び直してください';
+  '前にこの明細で選んだ口座を自動で選びました。違うときは変更してください';
 
 /** 記録の後の 1 行（デザイン 5。覚えが無かった・覚えと違う口座で記録したときだけ。送信の失敗は知らせないので弱い言い方） */
 export function learnedText(accountName: string): string {

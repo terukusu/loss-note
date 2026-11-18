@@ -257,7 +257,7 @@ export interface RecordViewProps {
   readonly onSave: () => void;
   readonly onNext: () => void;
   readonly onReload: () => void;
-  /** ログインが切れたとき: ログインし直す */
+  /** ログインが切れたとき: もう一度ログイン */
   readonly onRelogin: () => void;
   /** 明細の画像を選んだ（#15） */
   readonly onPickFile?: (file: File) => void;
@@ -300,7 +300,7 @@ const chartBoxId = (slot: AnySlot) => boxId('record', slot);
  */
 export const STATEMENT_NOTICE = [
   '明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません。',
-  '口座番号・氏名は切り取って貼ってください。',
+  '口座番号・氏名は切り取ってから貼り付けてください。',
 ] as const;
 
 /** 注意の「i」の中（畳んでよい補足。3 つの中身は上の注意に常に出ている。#57） */
@@ -338,11 +338,11 @@ export function RecordView(p: RecordViewProps) {
         <div>
           {state.errorKind === 'auth' ? (
             <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-              ログインし直す
+              もう一度ログイン
             </Button>
           ) : (
             <Button variant="secondary" onClick={p.onReload}>
-              もう一度読み込む
+              再読み込み
             </Button>
           )}
         </div>
@@ -547,7 +547,7 @@ function RecordForm(p: RecordViewProps) {
             <p>{state.error}</p>
             {state.errorKind === 'auth' ? (
               <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-                ログインし直す
+                もう一度ログイン
               </Button>
             ) : null}
           </div>
@@ -610,7 +610,7 @@ function StatementPanel(p: RecordViewProps) {
           />
         </label>
         {/* キーの名前に頼らない言い方。指で触る端末（スマホ）では出さない（CSS の hover・pointer: fine だけで出す） */}
-        <p class="field__hint statement__pastehint">PC はこの画面に貼り付けもできます。</p>
+        <p class="field__hint statement__pastehint">PC はこの画面に貼り付けることもできます。</p>
       </div>
       {p.state.readBlocked ? (
         <p class="statement__text" role="status">
@@ -637,7 +637,7 @@ function StatementPanel(p: RecordViewProps) {
           width={preview.width}
           height={preview.height}
           role="img"
-          aria-label="貼った明細のプレビュー"
+          aria-label="貼り付けた明細のプレビュー"
           ref={(el: HTMLCanvasElement | null) => {
             if (el) preview.draw(el);
           }}
@@ -649,14 +649,14 @@ function StatementPanel(p: RecordViewProps) {
             {rowLabel(st.index, rows)}
           </p>
           <Button variant="secondary" onClick={() => p.onSkipRow?.()}>
-            この行を飛ばす
+            この行をスキップ
           </Button>
         </div>
       ) : null}
       {tz ? (
         <div class="statement__tz">
           <p class="statement__text">
-            明細に時間帯が書かれていない時刻があります。書かれた時刻が日本時間なら押してください（違えば欄を直します）。
+            明細の時刻にタイムゾーンがありません。日本時間ならこのボタンを、違うときは時刻の欄を直してください。
           </p>
           <Button variant="secondary" onClick={() => p.onConfirmTz?.()}>
             日本時間で合っている

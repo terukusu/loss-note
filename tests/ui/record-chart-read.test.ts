@@ -215,7 +215,7 @@ describe('チャートの時間足の読み取り（Issue #27 の画面の例）
     expect(c.getState().charts?.entry?.readNote).toBe(CHART_READ_MSG.noTimeframe);
   });
 
-  it('5.6 #20: エントリー時 4 時間足・決済時 日足（どちらも読み取り）、タップは「変えていない」→ B（時間足を変えた・チャートから）', async () => {
+  it('5.6 #20: エントリー時 4 時間足・決済時 日足（どちらも読み取り）、タップは「そのまま」→ B（時間足を変えた・チャートから）', async () => {
     const { fake, c } = await opened([tf('4h'), tf('1d')]);
     fillFrom(c, E2);
     c.update({ type: 'set', field: 'timeframeChange', value: 'none' });

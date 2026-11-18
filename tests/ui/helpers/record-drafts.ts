@@ -45,7 +45,7 @@ export function draft(values: Partial<Draft>): Draft {
   });
 }
 
-/** すべて計画どおりのタップ（決めていた / そのまま / 変えず） */
+/** すべて計画どおりのタップ（決めていた / そのまま / そのまま） */
 export const PLANNED: Partial<Draft> = {
   lcDecided: true,
   lcMove: 'none',

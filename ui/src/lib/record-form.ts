@@ -249,7 +249,7 @@ export const MISSING_LABEL = {
   instrumentName: '銘柄',
   side: 'L / S',
   entryPrice: 'イン',
-  exitPrice: '決済の価格',
+  exitPrice: '決済',
   quantity: '数量',
   exitTime: '決済の時刻',
   lc: 'LC（価格か「なし」）',
@@ -267,20 +267,20 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   quantity: '数量',
   fxRate: '為替',
   exitTime: '決済の時刻',
-  entryTime: '建てた時刻',
+  entryTime: 'エントリーの時刻',
   pnlYen: '損益（明細の値）',
   feeYen: '手数料',
   lc: 'LC',
   lcNone: 'LC',
   lcAfter: '下げた後の LC',
-  brokenCondition: '崩れの条件の一言',
+  brokenCondition: '根拠が崩れる条件',
   lcDecided: 'LC を入る前に決めていたか',
   lcMove: 'LC を動かしたか',
   timeframeChange: '時間足を変えたか',
   lcBasis: 'LC の根拠',
   exitReason: '決済の理由',
   gapSlip: '窓・滑りでしたか',
-  source: '出どころ',
+  source: '入力元',
   exitOrderType: '注文の種類',
   stopOrderPlaced: '逆指値を入れたか',
   entryChartTimeframe: 'エントリー時のチャートの時間足',
@@ -298,16 +298,18 @@ export const OPTIONAL_FIELDS: readonly DraftField[] = [
 ];
 
 export const MSG = {
-  notNumber: '数を入れてください（例: 100.5）',
-  notPositive: '0 より大きい数を入れてください',
+  notNumber: '数値を入力してください（例: 100.5）',
+  notPositive: '0 より大きい数値を入力してください',
   tooLarge: '大きすぎます',
-  notNonNegative: '0 以上の数を入れてください',
-  notDateTime: '日時を入れてください',
-  entryAfterExit: '建てた時刻は決済の時刻より前にしてください',
-  nameInvalid: `${NAME_MAX} 字までで、制御文字を含めないでください`,
-  brokenConditionInvalid: `${BROKEN_CONDITION_MAX} 字までで、制御文字を含めないでください`,
+  notNonNegative: '0 以上の数値を入力してください',
+  notDateTime: '日時を入力してください',
+  entryAfterExit: 'エントリーの時刻は決済の時刻より前にしてください',
+  nameInvalid: `${NAME_MAX} 字以内で入力してください（改行・タブは使えません）`,
+  brokenConditionInvalid: `${BROKEN_CONDITION_MAX} 字以内で入力してください（改行・タブは使えません）`,
   lcDirection: (side: Side) =>
-    side === 'L' ? 'L の LC はインより下にしてください' : 'S の LC はインより上にしてください',
+    side === 'L'
+      ? 'ロングの LC はインより下にしてください'
+      : 'ショートの LC はインより上にしてください',
   lcAfterDirection: (side: Side) =>
     side === 'L'
       ? '下げた後の LC は、入る前の LC より下にしてください'
@@ -315,7 +317,7 @@ export const MSG = {
 } as const;
 
 export const RISK_NOTE = {
-  noLc: 'LC が無いので表示されません',
+  noLc: 'LC が無いため表示されません',
   noCapital: '資金を設定すると表示されます',
   noOneR: '損益を入力すると表示されます',
   /** 価格の通貨が口座の通貨と違い、為替も損益も無い（F2・U26） */

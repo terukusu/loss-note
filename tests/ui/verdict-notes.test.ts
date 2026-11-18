@@ -7,18 +7,19 @@ import { gateReading } from '../../ui/src/lib/statement-fill';
 import {
   blockReason,
   isTapAction,
+  missingNames,
   submitStatus,
   verdictNotes,
 } from '../../ui/src/lib/verdict-notes';
 import { CAPITAL_1M, draft, E1, E3, E10, E11, E16, NO_CAPITAL } from './helpers/record-drafts';
 
-/** 開いた直後（銘柄・数量・決済の時刻は前の取引と今から入っている。足りない欄は 7 つ） */
+/** 開いた直後（銘柄・数量・決済の時刻は前の取引と今から入っている。未入力の欄は 7 つ） */
 const OPENED = draft({});
 const OPENED_READ = readDraft(OPENED, NO_CAPITAL);
 const SEVEN = [
   'L / S',
   'イン',
-  '決済の価格',
+  '決済',
   'LC（価格か「なし」）',
   'LC を入る前に決めていたか',
   'LC を動かしたか',
@@ -39,7 +40,7 @@ describe('submitStatus: 帯の 1 行の文（AC-1・AC-2・例 1・2・3）', ()
     expect(submitStatus(OPENED_READ, [])).toBe('あと 7 欄');
   });
 
-  it('決済の欄に誤り 1 つ → 「誤り 1 欄・あと 6 欄」。足りない欄が無ければ「誤り 1 欄」', () => {
+  it('決済の欄に誤り 1 つ → 「誤り 1 欄・あと 6 欄」。未入力の欄が無ければ「誤り 1 欄」', () => {
     const r = readDraft(
       applyDraft(OPENED, { type: 'set', field: 'exitPrice', value: 'x' }),
       NO_CAPITAL,
@@ -79,8 +80,25 @@ describe('blockReason: [記録する] が押せない理由の文（AC-2）', ()
   it('開いた直後: 7 つの欄の名前をすべて含む 1 文', () => {
     const t = blockReason(OPENED_READ, []);
     expect(t).not.toBeNull();
-    for (const name of SEVEN) expect(t).toContain(name);
-    expect(t).toContain('判定と理由が出ます');
+    // 3 つの質問はすべて未入力なら「決済までの行動の 3 つ」の 1 つにまとめる（#74 デザインレビュー 4）
+    expect(t).toBe(
+      'あと 7 欄で判定が表示されます（L / S・イン・決済・LC（価格か「なし」）・決済までの行動の 3 つ）。',
+    );
+  });
+
+  it('missingNames: 3 つの質問の一部だけが未入力なら、名前をそのまま並べる', () => {
+    expect(missingNames(SEVEN)).toEqual([
+      'L / S',
+      'イン',
+      '決済',
+      'LC（価格か「なし」）',
+      '決済までの行動の 3 つ',
+    ]);
+    expect(missingNames(['イン', 'LC を動かしたか', '時間足を変えたか'])).toEqual([
+      'イン',
+      'LC を動かしたか',
+      '時間足を変えたか',
+    ]);
   });
 
   it('誤りのある欄の名前（決済）を含む', () => {
@@ -120,12 +138,12 @@ describe('verdictNotes: 判定の枠の注記・脇の 1 行・理由（AC-8・�
     expect(n.notes).toEqual(['リスクの「—」: 損益を入力すると表示されます']);
   });
 
-  it('E16（LC なし）: R・リスクの段を出さず、注記「LC が無いので R・リスクは表示されません」が 1 回。C の noLc は理由の一覧に重ねない', () => {
+  it('E16（LC なし）: R・リスクの段を出さず、注記「LC が無いため、R・リスクは表示されません」が 1 回。C の noLc は理由の一覧に重ねない', () => {
     const n = verdictNotes(readDraft(E16, NO_CAPITAL).preview, { pending: false });
     expect(n.rNone).toBe(true);
     expect(n.riskNone).toBe(true);
     expect(n.hideRisk).toBe(true);
-    expect(n.notes).toEqual(['LC が無いので R・リスクは表示されません']);
+    expect(n.notes).toEqual(['LC が無いため、R・リスクは表示されません']);
     expect(n.reasons.map((r) => r.kind)).not.toContain('noLc');
   });
 

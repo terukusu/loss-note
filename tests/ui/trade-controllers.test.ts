@@ -479,7 +479,7 @@ describe('直すの controller: 為替の欄（#47 PR-2）', () => {
     const c = createEditController({ api: fake.api, id: 'j1' });
     await c.load();
     expect(c.getState().read.currency?.fxShown).toBe(false);
-    c.update({ type: 'set', field: 'brokenCondition', value: '直した' });
+    c.update({ type: 'set', field: 'brokenCondition', value: '修正済み' });
     await c.save();
     expect(exitOf(fake).fxRate).toBe(1);
   });

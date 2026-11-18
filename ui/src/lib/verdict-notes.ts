@@ -10,6 +10,7 @@ import {
   type DraftAction,
   type DraftField,
   type DraftReading,
+  MISSING_LABEL,
   type Preview,
   RISK_NOTE,
   type Summary,
@@ -34,18 +35,33 @@ export function submitStatus(read: DraftReading, errorLabels: readonly string[])
   return read.preview.r === undefined ? label : `${label} · ${formatR(read.preview.r)}`;
 }
 
+/** 決済までの行動の 3 つの質問（未入力の欄の一覧で 1 つにまとめる。判定の枠の案内を短くする。#74 デザインレビュー 4） */
+const TAP_NAMES: readonly string[] = [
+  MISSING_LABEL.lcDecided,
+  MISSING_LABEL.lcMove,
+  MISSING_LABEL.timeframeChange,
+];
+
+/** 未入力の欄の名前の一覧。3 つの質問がすべて未入力なら「決済までの行動の 3 つ」の 1 つにまとめる */
+export function missingNames(missing: readonly string[]): readonly string[] {
+  if (!TAP_NAMES.every((t) => missing.includes(t))) return missing;
+  const out = missing.filter((m) => !TAP_NAMES.includes(m));
+  return [...out, '決済までの行動の 3 つ'];
+}
+
 /** [記録する] が押せない理由の文（判定の枠の案内。押せるときは null） */
 export function blockReason(read: DraftReading, errorLabels: readonly string[]): string | null {
   if (read.canSave) return null;
   const errors = errorLabels.length > 0 ? `誤りのある欄（${errorLabels.join('・')}）` : null;
-  const missing = read.missing.length > 0 ? `足りない欄（${read.missing.join('・')}）` : null;
+  const n = read.missing.length;
+  const list = n > 0 ? `（${missingNames(read.missing).join('・')}）` : '';
   const fields =
-    errors && missing
-      ? `${errors}を直し、${missing}をそろえると、判定と理由が出ます。`
+    errors && n > 0
+      ? `${errors}を直し、あと ${n} 欄を入力すると判定が表示されます${list}。`
       : errors
-        ? `${errors}を直すと、判定と理由が出ます。`
-        : missing
-          ? `${missing}をそろえると、判定と理由が出ます。`
+        ? `${errors}を直すと判定が表示されます。`
+        : n > 0
+          ? `あと ${n} 欄で判定が表示されます${list}。`
           : null;
   const out = [read.notice ? read.notice.replace(/。?$/, '。') : null, fields]
     .filter((x) => x !== null)
@@ -77,10 +93,10 @@ export interface VerdictNotes {
 }
 
 /** 外貨建てで為替も損益も無いときの脇の理由の文（「1R が出ないので…」の代わり） */
-export const FX_NOT_CHECKED = '為替が無いので過剰リスクは見ていない';
+export const FX_NOT_CHECKED = '為替が無いため、過剰リスクは判定していません';
 
 /** LC が無い取引の注記（R・リスクの段の代わりの 1 行） */
-export const NO_LC_NOTE = 'LC が無いので R・リスクは表示されません';
+export const NO_LC_NOTE = 'LC が無いため、R・リスクは表示されません';
 
 /** 判定の枠の注記・脇の 1 行・理由の一覧 */
 export function verdictNotes(
@@ -152,7 +168,7 @@ export function sizingLine(
   const q = s.suggestedQuantity;
   if (q === undefined) return [`${quantity}（許容リスクの ${timesText(s.ratio)}）`];
   if (q === 0) return [`${quantity}（許容リスクの ${timesText(s.ratio)}）`, SIZING_OVER_STEP];
-  return [quantity, `提案の数量 ${formatPlain(q)}（${timesText(s.ratio)}）`];
+  return [quantity, `適正の数量 ${formatPlain(q)}（実際は ${timesText(s.ratio)}）`];
 }
 
 /** 判定の枠の数量の 1 行の文字（区切りを「 · 」でつなぐ。読み上げ・テストと同じ文） */

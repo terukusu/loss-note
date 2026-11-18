@@ -84,7 +84,7 @@ describe('infoFocusCloses（フォーカスが移った先で閉じるか。N15�
   const inside = new Set(['info-button', 'info-pop', 'glink-lc', 'info-up', 'info-glossary']);
   const scope = { contains: (id: string) => inside.has(id) };
 
-  it('「i」と吹き出しの外（[消す]・[保存する]・ほかの欄）へのフォーカスで閉じる', () => {
+  it('「i」と吹き出しの外（[消す]・[保存]・ほかの欄）へのフォーカスで閉じる', () => {
     for (const id of ['delete-button', 'edit-submit', 'record-lc', 'appnav-trades']) {
       expect(infoFocusCloses(scope, id)).toBe(true);
     }

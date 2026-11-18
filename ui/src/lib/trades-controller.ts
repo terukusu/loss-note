@@ -30,8 +30,8 @@ import {
 import type { TradesCache } from './trades-cache';
 
 export const TRADES_LOAD_FAILED =
-  '取引を読み込めませんでした。通信を確かめて、もう一度読み込んでください。';
-export const TRADES_MORE_FAILED = '続きを読み込めませんでした。通信を確認してください。';
+  '取引を読み込めませんでした。通信状況を確認して、再読み込みしてください。';
+export const TRADES_MORE_FAILED = '続きを読み込めませんでした。通信状況を確認してください。';
 
 /** 続きの読み（idle = まだある・loading = 読んでいる・failed = 失敗した・done = 最後まで読んだ） */
 export type MorePhase = 'idle' | 'loading' | 'failed' | 'done';

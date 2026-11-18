@@ -43,7 +43,7 @@ import {
 } from './record-form';
 
 export const EDIT_BLOCKED =
-  '建てが複数（または建てごとの LC）の取引は、まだ編集できません。消して記録し直すことはできます。';
+  'エントリーが複数（またはエントリーごとの LC）の取引は、まだ編集できません。削除して、もう一度記録することはできます。';
 
 /** 直せない理由（直せるなら null） */
 export function editBlock(t: Pick<StoredTrade, 'record'>): string | null {
@@ -273,7 +273,8 @@ function verdictText(s: Pick<Summary, 'judgment' | 'r'>): string {
 /** 保存の帯に出す、直す前 → 直した後の判定（変わらなければその旨） */
 export function changeText(before: Summary, after: Summary): string {
   const a = verdictText(before);
-  if (after.judgment === undefined) return `編集前: ${a}（編集後の判定は、欄をそろえると出ます）`;
+  if (after.judgment === undefined)
+    return `編集前: ${a}（未入力の欄を入力すると、編集後の判定が表示されます）`;
   const b = verdictText(after);
   if (a !== b) return `判定: ${a} → ${b}`;
   // 段と R が同じでも理由が変われば言う（チャートを差し替えて「時間足を変えた（…・チャートから）」が消えるなど。#89）

@@ -61,7 +61,7 @@ const INSTRUMENT_ROWS: readonly InstrumentRow[] = [
   { key: 'quantityStep', label: '数量の刻み', text: formatPlain },
   { key: 'priceCurrency', label: '価格の通貨', text: currencyText },
   { key: 'underlyingKind', label: '原資産の種類', text: (v) => UNDERLYING_KIND_LABEL[v] },
-  { key: 'productForm', label: '商品の形', text: (v) => PRODUCT_FORM_LABEL[v] },
+  { key: 'productForm', label: '取引の形態', text: (v) => PRODUCT_FORM_LABEL[v] },
 ];
 
 /** 違う値の行（資金・許容リスク・銘柄の 5 つの値の順。同じ値は出さない） */

@@ -268,7 +268,7 @@ describe('口座（#47 AC-1・AC-2・U14・U15）', () => {
     expect(c.getState().accounts[0]?.capitalYen).toBe(1_000_000);
   });
 
-  it('保存の 401 はログインが切れた（ログインし直す案内）', async () => {
+  it('保存の 401 はログインが切れた（もう一度ログイン案内）', async () => {
     const { c } = await open({ fail: { 'PUT /api/accounts/default': 401 } });
     c.openAccount('default');
     c.updateAccount('capital', '1000000');
@@ -425,7 +425,7 @@ describe('銘柄を直す', () => {
   });
 });
 
-describe('銘柄を足す', () => {
+describe('銘柄を追加', () => {
   it('AC-6 E13: 名前 GOLD だけで足す → POST 本文は名前だけ、一覧に既定で増える', async () => {
     const { c, fake } = await open();
     c.setNewName(' GOLD ');

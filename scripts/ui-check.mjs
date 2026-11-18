@@ -5,7 +5,7 @@
 // 戻るでスクロールの位置が戻ること（S1）、ログインの門（例の表 L1〜L7）と、使えないアカウントの画面（Issue #43 の例 L3・L4 = F1・F2。偽の /api がすべて 403）も見る。1 つでも外れれば終了コード 1。CI には入れない（手元で流し、出力の要約を PR に貼る）。
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
-// 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（時間帯の確かめ）・読み取りの失敗の状態を同じ幅とテーマで
+// 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（タイムゾーンの確認）・読み取りの失敗の状態を同じ幅とテーマで
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
 // バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
 // 実際の AI は呼ばない。画像はページの中の canvas で作るか、合成の明細 tools/statement-eval/synthetic/ を使う。
@@ -17,7 +17,7 @@
 // 例の取引とチャートの画像（このスクリプトが作る小さな PNG）はすべて架空。
 // 一覧のページ分け（Issue #87）は、合成の取引 120 件で手順 TL-P1（末尾へ送ると続きが自動で出て「全 120 件」・要求 3 回・
 // 幅 360 で横スクロール 0）・TL-P2（80 行目の詳細から戻ると行の数と位置が保たれる）・TL-P3（続きの読みの失敗と
-// [もう一度読み込む]）・TL-P4（キーで押したときのフォーカスと末尾の段の高さ）・TL-P5（5 つの状態を 360 / 1440 × ダーク /
+// [再読み込み]）・TL-P4（キーで押したときのフォーカスと末尾の段の高さ）・TL-P5（5 つの状態を 360 / 1440 × ダーク /
 // ライトで測って撮る）を流す。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
@@ -26,7 +26,7 @@
 // 口座（Issue #47 PR-1）: 記録する画面の口座 2 つ（Segment）・3 つ（長い名前の「…」）・4 つ（select）・その場で足す欄・足す欄の誤り、
 // 設定の口座の一覧（2 つ・資金が未設定の行）・直す欄・足す欄・誤り、一覧と詳細（口座 2 つ）を同じ幅とテーマで測り、
 // 手順 ACC1（口座 2 つで 1 タップで替わる・判定の枠の 1 行がその場で変わる）・ACC2（その場で足す: Enter で足す・Esc で閉じて
-// フォーカスを戻す・足した口座が選ばれる・入れていた欄が残る）・SET5（設定で口座を足す → 名前の順・知らせ・新しい行の [直す] へ）を流す。
+// フォーカスを戻す・足した口座が選ばれる・入れていた欄が残る）・SET5（設定で口座を追加 → 名前の順・知らせ・新しい行の [直す] へ）を流す。
 // 数量と提案の数量（Issue #67）: 手順 SZ1（幅 360 の記録する画面・詳細・編集の画面で、判定の枠の数量の行が区切りの中で折れず・
 // --ink-3・数の段の直後・横スクロール 0。2〜3 桁の比・小数 / 7 桁の提案の数量・1R が出ない・エントリー 2 つも。詳細の「すべての欄」に 2 行）を流す。
 // R12 は口座 1 つの形の全長 2,550px に加えて、口座 2 つ・3 つの形に 2,646px（欄 1 つ分 96px まで）の上限を見る。
@@ -1105,7 +1105,7 @@ async function fillRecord(page, ex, taps = true, lastTap = true) {
     await seg(page, 'LC を動かしたか', ex.move).click();
     if (ex.after) await page.locator('#record-lc-after').fill(ex.after);
   }
-  if (lastTap) await seg(page, '時間足を変えたか', '変えず').click();
+  if (lastTap) await seg(page, '時間足を変えたか', 'そのまま').click();
 }
 
 const EX_E1 = {
@@ -1126,7 +1126,7 @@ const EX_E3 = {
   move: 'そのまま',
 };
 const EX_E16 = { side: 'L', entry: '100.00', exit: '99.20', lc: 'none' };
-/** 計画どおりの勝ち（決めていた・そのまま・変えず。+2.0R）。値は架空 */
+/** 計画どおりの勝ち（決めていた・そのまま・そのまま。+2.0R）。値は架空 */
 const EX_SAFE = {
   side: 'L',
   entry: '100.00',
@@ -1394,7 +1394,7 @@ async function fillFx(page, exit = '99.50') {
   await page.locator('#record-lc').fill('99.50');
   await seg(page, 'LC を入る前に決めていたか', '決めていた').click();
   await seg(page, 'LC を動かしたか', 'そのまま').click();
-  await seg(page, '時間足を変えたか', '変えず').click();
+  await seg(page, '時間足を変えたか', 'そのまま').click();
 }
 
 const RECORD_STATES = [
@@ -1503,7 +1503,7 @@ const RECORD_STATES = [
       await p
         .locator('.reasons__item', { hasText: '時間足を変えた（4 時間足 → 日足・チャートから）' })
         .waitFor();
-      // 枠を選んだ状態（輪と「貼ると差し替えます」）を撮る
+      // 枠を選んだ状態（輪と「貼り付けると差し替えられます」）を撮る
       await p.locator('#record-chart-exit .chart__name').click();
     },
   },
@@ -1529,7 +1529,7 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.chartRead = { status: 200, kind: 'not_chart', holdMs: 0 };
       await pasteChart(p, 'entry');
-      await p.getByText('チャートと読めませんでした').waitFor();
+      await p.getByText('チャートとして読み取れませんでした').waitFor();
     },
   },
   {
@@ -1563,7 +1563,7 @@ const RECORD_STATES = [
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
-      await p.locator('.reasons__sub', { hasText: 'あなたの答え: 変えず' }).waitFor();
+      await p.locator('.reasons__sub', { hasText: 'あなたの答え: そのまま' }).waitFor();
     },
   },
   // Issue #89: 追加のチャート（見出しの行の [＋ 追加] → 枠を足して貼る）
@@ -2164,7 +2164,7 @@ const FAKE_AI_USAGE = {
   blocked: { count: false, microUsd: false },
 };
 const usageBody = (over) => ({ ...FAKE_AI_USAGE, ...over });
-/** 自動で足されたままの銘柄（仮の値） */
+/** 自動で足されたままの銘柄（初期値のまま） */
 const FAKE_US30_AUTO = { ...FAKE_US30, underlyingKind: 'other' };
 
 /** 資金 1,000,000円（履歴 3 件。移し替えで「口座 1」へ）・銘柄 3 件にする */
@@ -2183,7 +2183,7 @@ function seedSettings(api) {
   };
 }
 
-/** 設定の画面を開き、口座の一覧（[＋ 口座を足す]）が出るまで待つ */
+/** 設定の画面を開き、口座の一覧（[＋ 口座を追加]）が出るまで待つ */
 async function openSettings(page, base) {
   await page.goto(`${base}/settings`);
   await waitReady(page, '設定');
@@ -2224,7 +2224,7 @@ const SETTINGS_STATES = [
   },
   {
     slug: 'settings-7-account-add',
-    name: '口座を足す欄',
+    name: '口座の追加の欄',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, ACCOUNTS_2);
@@ -2305,7 +2305,7 @@ const SETTINGS_STATES = [
     },
     fn: async (p) => {
       await p
-        .locator('.instlist__item', { hasText: '資金を入れるとリスク（%）が出ます' })
+        .locator('.instlist__item', { hasText: '資金を入力するとリスク（%）が表示されます' })
         .waitFor();
     },
   },
@@ -2815,14 +2815,14 @@ async function main() {
             problems.push(`${label}: 開けない ${msg}`);
           }
         }
-        // トーストの出た一覧（Issue #9。詳細から [消す] → 一覧に「取引を消しました」と [元に戻す]）。測った後に [元に戻す]
+        // トーストの出た一覧（Issue #9。詳細から [消す] → 一覧に「取引を削除しました」と [元に戻す]）。測った後に [元に戻す]
         {
           const tp = pageFor.get(false);
           const label = `${w}x${hgt} ${pad(theme, 5)} ${pad('/trades（トースト）', 22)}`;
           try {
             await tp.goto(`${base}/trades/x-d1`);
             await waitReady(tp, 'US30 · L');
-            await tp.getByRole('button', { name: '消す' }).click();
+            await tp.getByRole('button', { name: '削除', exact: true }).click();
             await waitReady(tp, '取引の一覧');
             await tp.locator('.toast').waitFor({ timeout: 5000 });
             const m = await measure(tp, w === 360, TAP);
@@ -3286,7 +3286,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -3311,13 +3311,13 @@ async function main() {
   console.log('ok');
 }
 
-/** 読み取りの後に手で入れる 5 つ（打つ: LC・一言 / 選ぶ: 決めていた・そのまま・変えず）。数を返す */
+/** 読み取りの後に手で入れる 5 つ（打つ: LC・一言 / 選ぶ: 決めていた・そのまま・そのまま）。数を返す */
 async function fillStatementTaps(page, lc = '99.0') {
   await page.locator('#record-lc').fill(lc);
   await page.locator('#record-broken').fill('押し目の安値を割ったら');
   await seg(page, 'LC を入る前に決めていたか', '決めていた').click();
   await seg(page, 'LC を動かしたか', 'そのまま').click();
-  await seg(page, '時間足を変えたか', '変えず').click();
+  await seg(page, '時間足を変えたか', 'そのまま').click();
   return { typed: 2, chosen: 3 };
 }
 
@@ -3839,7 +3839,7 @@ async function runFlows(browser, base, signedIn) {
       const popup = await popupWait;
       await p
         .getByRole('alert')
-        .filter({ hasText: 'ログインのサービスにつながりません' })
+        .filter({ hasText: 'ログインのサービスと通信できませんでした' })
         .waitFor({ timeout: 30000 });
       if (popup && !popup.isClosed()) await popup.close();
       // 白い画面になっていない（見出しとボタンが残る）
@@ -3848,7 +3848,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return 'エミュレーターに繋がらない → 「ログインのサービスにつながりません」、画面は残る';
+    return 'エミュレーターに繋がらない → 「ログインのサービスと通信できませんでした」、画面は残る';
   });
 
   // ── 記録する（R1〜R5。Issue #13）。偽の記録の API で流す
@@ -3971,14 +3971,14 @@ async function runFlows(browser, base, signedIn) {
         throw new Error(`理由 ${reasons.join(' / ')}`);
       // 資金が未設定の説明は、理由の一覧から分けた注記の 1 行（Issue #33 AC-8）
       await p
-        .locator('.verdict__aside', { hasText: '資金が未設定なので過剰リスクは見ていない' })
+        .locator('.verdict__aside', { hasText: '資金が未設定のため、過剰リスクは判定していません' })
         .waitFor();
       expectEq(await p.locator('button[type="submit"]').isDisabled(), false, '[記録する] が押せる');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return 'E1 → B・「LC を下げた（99.5 → 99.2）」・−1.6R・注記「資金が未設定なので過剰リスクは見ていない」';
+    return 'E1 → B・「LC を下げた（99.5 → 99.2）」・−1.6R・注記「資金が未設定のため、過剰リスクは判定していません」';
   });
 
   await check('R3', async () => {
@@ -4042,7 +4042,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('button[type="submit"]').click();
       await p
         .getByRole('alert')
-        .filter({ hasText: '保存できませんでした。入力はそのまま残っています。' })
+        .filter({ hasText: '保存できませんでした。入力内容は残っています。' })
         .waitFor({ timeout: 10000 });
       expectEq(await p.locator('#record-entry').inputValue(), '100.00', '入力が残る');
       const body = (await p.locator('main').textContent()) ?? '';
@@ -4052,6 +4052,194 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return '503 → 決まった文言、入力は残る、応答の本文は出ない';
+  });
+
+  // W1（#74 デザインレビューの撮れていなかった状態）: 空の状態（ホーム・一覧）・記録と編集の保存の通信の失敗・削除の失敗の
+  // トースト・ログインが切れた一覧・ログインのサービスと通信できない・1440 の用語集の全体を、幅 360 と 1440 のダークで開き、
+  // 文言が出ること・横スクロール 0・短いボタン（10 字以下）が 2 行に折れないこと（高さ 56px 以下）を見る。--shots なら全体を撮る
+  await check('W1', async () => {
+    const seen = [];
+    const shortButtonsTall = (p) =>
+      p.evaluate(() =>
+        [...document.querySelectorAll('button, a.btn')]
+          .filter((b) => {
+            const r = b.getBoundingClientRect();
+            const t = (b.textContent ?? '').trim();
+            return r.width > 0 && r.height > 0 && t.length > 0 && t.length <= 10;
+          })
+          .filter((b) => b.getBoundingClientRect().height > 56)
+          .map((b) => (b.textContent ?? '').trim()),
+      );
+    const measure = async (p, w, slug, text) => {
+      await p.getByText(text, { exact: false }).first().waitFor({ timeout: 20000 });
+      const h = await p.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      if (h > 0) throw new Error(`${w} ${slug}: 横スクロール ${h}px`);
+      const tall = await shortButtonsTall(p);
+      if (tall.length > 0) throw new Error(`${w} ${slug}: 2 行に折れたボタン ${tall.join(' / ')}`);
+      if (opts.shots)
+        await p.screenshot({
+          path: join(opts.shots, `${w}x${w === 360 ? 780 : 900}-dark-w74-${slug}.png`),
+          fullPage: true,
+        });
+      seen.push(`${w}:${slug}`);
+    };
+    const signedInPage = async (w, fakeOpts) => {
+      const c = await browser.newContext({
+        viewport: { width: w, height: w === 360 ? 780 : 900 },
+        storageState: signedIn,
+      });
+      await setupContext(c, 'dark');
+      const fake = await installFakeApi(c, fakeOpts);
+      const p = await c.newPage();
+      return { c, p, fake };
+    };
+    for (const w of [360, 1440]) {
+      // 空の状態（ホーム・一覧）
+      {
+        const { c, p } = await signedInPage(w, { trades: [] });
+        try {
+          await p.goto(`${base}/`);
+          await waitReady(p, 'ホーム');
+          await measure(p, w, 'home-empty', '3 つの質問に答えると判定が表示されます');
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引の一覧');
+          await measure(p, w, 'trades-empty', 'まだ取引がありません');
+        } finally {
+          await c.close();
+        }
+      }
+      // 記録の保存の通信の失敗
+      {
+        const { c, p } = await signedInPage(w);
+        try {
+          await openRecord(p, base);
+          await fillRecord(p, EX_E1);
+          await p.route('**/api/trades', (route) =>
+            route.request().method() === 'POST'
+              ? route.abort('connectionrefused')
+              : route.fallback(),
+          );
+          await p.locator('button[type="submit"]').click();
+          await measure(
+            p,
+            w,
+            'record-network-failed',
+            '通信できませんでした。入力内容は残っています。',
+          );
+        } finally {
+          await c.close();
+        }
+      }
+      // 編集の保存の通信の失敗
+      {
+        const { c, p } = await signedInPage(w);
+        try {
+          await p.goto(`${base}/trades/x-e1/edit`);
+          await waitReady(p, '取引を編集');
+          await p.route('**/api/trades/x-e1', (route) =>
+            route.request().method() === 'PUT'
+              ? route.abort('connectionrefused')
+              : route.fallback(),
+          );
+          await p.locator('#edit-submit').click();
+          await measure(
+            p,
+            w,
+            'edit-network-failed',
+            '通信できませんでした。入力内容は残っています。',
+          );
+        } finally {
+          await c.close();
+        }
+      }
+      // 削除の失敗のトースト（[削除] → 8 秒後の DELETE が失敗）
+      {
+        const { c, p } = await signedInPage(w);
+        try {
+          // keepalive の DELETE はページの route に掛からないので、文脈の route（偽の API より後に足す = 先に当たる）で返す
+          await c.route('**/api/trades/x-d1', (route) =>
+            route.request().method() === 'DELETE'
+              ? route.fulfill({ status: 500, contentType: 'application/json', body: '{}' })
+              : route.fallback(),
+          );
+          await p.goto(`${base}/trades/x-d1`);
+          await waitReady(p, 'US30 · L');
+          await p.getByRole('button', { name: '削除', exact: true }).click();
+          // [元に戻す] にフォーカス・ポインタがある間は取り消しの時間が止まるので、外へ出す
+          await p.locator('.toast').first().waitFor();
+          await p.mouse.move(1, 1);
+          await p.evaluate(() => {
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+          });
+          await p
+            .getByText('削除できませんでした', { exact: false })
+            .first()
+            .waitFor({ timeout: 20000 });
+          await measure(
+            p,
+            w,
+            'delete-failed',
+            '削除できませんでした。もう一度 [削除] を押してください。',
+          );
+        } finally {
+          await c.close();
+        }
+      }
+      // ログインが切れた（一覧の読み込みが 401）
+      {
+        const { c, p } = await signedInPage(w);
+        try {
+          await p.route('**/api/trades**', (route) =>
+            route.request().method() === 'GET'
+              ? route.fulfill({ status: 401, contentType: 'application/json', body: '{}' })
+              : route.fallback(),
+          );
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引の一覧');
+          await measure(p, w, 'auth-expired', 'もう一度ログイン');
+        } finally {
+          await c.close();
+        }
+      }
+      // 用語集の全体
+      {
+        const { c, p } = await signedInPage(w);
+        try {
+          await p.goto(`${base}/glossary`);
+          await waitReady(p, '用語集');
+          await measure(p, w, 'glossary-full', '判定に関わる言葉の意味です。');
+        } finally {
+          await c.close();
+        }
+      }
+      // ログインのサービスと通信できない（ログインの失敗）
+      {
+        const c = await browser.newContext({
+          viewport: { width: w, height: w === 360 ? 780 : 900 },
+        });
+        await setupContext(c, 'dark');
+        await c.route(`${AUTH_EMULATOR}/**`, (route) => route.abort('connectionrefused'));
+        const p = await c.newPage();
+        try {
+          await p.goto(`${base}/login`);
+          await waitReady(p, 'ログイン');
+          const popupWait = p.waitForEvent('popup', { timeout: 5000 }).catch(() => null);
+          await p.getByRole('button', { name: 'Google でログイン' }).click();
+          const popup = await popupWait;
+          await p
+            .getByRole('alert')
+            .filter({ hasText: 'ログインのサービスと通信できませんでした' })
+            .waitFor({ timeout: 30000 });
+          if (popup && !popup.isClosed()) await popup.close();
+          await measure(p, w, 'login-unreachable', 'ログインのサービスと通信できませんでした');
+        } finally {
+          await c.close();
+        }
+      }
+    }
+    return `${seen.length} 状態（空の状態・保存と削除の失敗・ログインが切れた・用語集の全体・ログインの失敗 × 360 / 1440）で文言が出て、横スクロール 0・短いボタンは 1 行`;
   });
 
   // ── 決済明細の読み取り（R6〜R10。Issue #15）。偽の読み取りの API で流す（実際の AI は呼ばない）
@@ -4228,7 +4416,7 @@ async function runFlows(browser, base, signedIn) {
         async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-statement-row',
         '次の行の番号へのフォーカス（レビュー指摘 3）',
       );
-      await p.getByRole('button', { name: 'この行を飛ばす' }).click();
+      await p.getByRole('button', { name: 'この行をスキップ' }).click();
       await p.locator('.statement__row', { hasText: '3 / 3 行目' }).waitFor();
       await p.getByRole('status').filter({ hasText: '次の行（3 / 3）' }).waitFor({ timeout: 5000 });
       await expectPollAsync(
@@ -4262,9 +4450,9 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('#record-lc').fill('99.5');
       const msgs = [];
       for (const [status, want] of [
-        [503, '今は読み取りを使えません。手で入れてください。'],
-        [400, 'この画像は読み取れません。別の画像を貼るか、手で入れてください。'],
-        [502, '読み取れませんでした。もう一度貼るか、手で入れてください。'],
+        [503, '今は読み取りを使えません。手入力してください。'],
+        [400, 'この画像は読み取れません。別の画像を貼り付けるか、手入力してください。'],
+        [502, '読み取れませんでした。もう一度貼り付けるか、手入力してください。'],
       ]) {
         fake.read = { status, rows: [], holdMs: 0 };
         await makeImage(p, STATEMENT_SPEC, 'paste');
@@ -4359,9 +4547,9 @@ async function runFlows(browser, base, signedIn) {
         for (const [name, ex, label, withR] of scenes) {
           await openRecord(p, base);
           await fillRecord(p, ex, true, false);
-          // 最後のタップ（時間足「変えず」）を貼り付きの帯のすぐ上に置き、判定のバッジが見える範囲の外にあることを確かめて
+          // 最後のタップ（時間足「そのまま」）を貼り付きの帯のすぐ上に置き、判定のバッジが見える範囲の外にあることを確かめて
           // から、座標で押す（Playwright の click の自動の寄せに頼らない。寄せるのはアプリだけ。コードレビュー指摘 4）
-          const last = seg(p, '時間足を変えたか', '変えず');
+          const last = seg(p, '時間足を変えたか', 'そのまま');
           await last.evaluate((el) => {
             const vh = window.innerHeight;
             const bar =
@@ -4576,13 +4764,13 @@ async function runFlows(browser, base, signedIn) {
       // 時間足の欄はチャートのある枠だけ（2 枚あるので 2 つ）。[削除] で欄も消え、フォーカスは枠へ
       expectEq(await p.locator('.chart select').count(), 2, '時間足の欄の数');
       await p.locator('#record-chart-exit-tf').selectOption('1d');
-      // レビュー指摘 1: 時間足の欄にフォーカスが残ったまま貼る → 目印（輪・「ここに貼れます」）は出ておらず、
+      // レビュー指摘 1: 時間足の欄にフォーカスが残ったまま貼る → 目印（輪・「ここに貼り付け」）は出ておらず、
       // チャートは置き換わらず時間足も消えない（明細の読み取りへ。目印と行き先が一致する）
       await p.locator('#record-chart-exit-tf').focus();
       const ringOnSelect = await p.evaluate(
         () => getComputedStyle(document.querySelector('#record-chart-exit .chart__ready')).display,
       );
-      expectEq(ringOnSelect, 'none', '時間足の欄にフォーカスがあるときの「ここに貼れます」');
+      expectEq(ringOnSelect, 'none', '時間足の欄にフォーカスがあるときの「ここに貼り付け」');
       const exitPreviewBefore = await p.evaluate(
         () => document.querySelector('#record-chart-exit canvas.chart__preview') !== null,
       );
@@ -4600,7 +4788,7 @@ async function runFlows(browser, base, signedIn) {
             getComputedStyle(document.querySelector('#record-chart-exit .chart__ready')).display,
         ),
         'block',
-        '枠にフォーカスがあるときの「ここに貼れます」',
+        '枠にフォーカスがあるときの「ここに貼り付け」',
       );
       await p
         .locator('#record-chart-exit')
@@ -4852,10 +5040,10 @@ async function runFlows(browser, base, signedIn) {
       await openSettings(p, base);
       // E13: 名前だけで足す
       await p.locator('#settings-new-name').fill('GOLD');
-      await p.getByRole('button', { name: '足す', exact: true }).click();
-      await p.getByRole('status').filter({ hasText: 'GOLD を足しました' }).waitFor();
+      await p.getByRole('button', { name: '追加', exact: true }).click();
+      await p.getByRole('status').filter({ hasText: 'GOLD を追加しました' }).waitFor();
       const row = p.locator('.instlist__item', { hasText: 'GOLD' });
-      await row.filter({ hasText: '仮の値' }).waitFor();
+      await row.filter({ hasText: '初期値のまま' }).waitFor();
       await row
         .filter({ hasText: 'その他 · 現物・CFD · 価格の通貨 未設定 · 乗数 1 · 刻み 1' })
         .waitFor();
@@ -4883,7 +5071,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return 'E13 GOLD を名前だけで足す（仮の値・既定の 5 欄）、E7 は警告つきで保存、E8 は送らない';
+    return 'E13 GOLD を名前だけで足す（初期値のまま・既定の 5 欄）、E7 は警告つきで保存、E8 は送らない';
   });
 
   await check('SET4', async () => {
@@ -5197,7 +5385,7 @@ async function runFlows(browser, base, signedIn) {
       // [‹ 前の説明] と Esc でも 1 つずつ
       await openInfo(p, J);
       await followLink(p, 'LC', 'LC');
-      await followLink(p, '崩れの条件', '崩れの条件');
+      await followLink(p, '根拠が崩れる条件', '根拠が崩れる条件');
       await p.locator('.info__pop .info__up').click();
       await expectPollAsync(async () => (await title()) === 'LC', '[‹ 前の説明] で LC');
       await p.keyboard.press('Escape');
@@ -5323,7 +5511,7 @@ async function runFlows(browser, base, signedIn) {
     return `設定 → 用語集（横 0・当たり<44 0・はみ出し 0）→ 判定 → LC → 1R → R → 戻るで 1R → LC → 先頭 → 設定（${out.join(' / ')}）`;
   });
 
-  // RP1（#57 再レビュー 3 の B3・N14）: 「i」を開いたまま画面を置き換える操作（[消す] = 一覧へ・[保存する] = 詳細へ）で移っても、
+  // RP1（#57 再レビュー 3 の B3・N14）: 「i」を開いたまま画面を置き換える操作（[消す] = 一覧へ・[保存] = 詳細へ）で移っても、
   // 戻るで消した取引・保存し終えた編集の画面へ戻らない（積んだ段を戻してから置き換える）。キーで押す（フォーカスが外へ出ると
   // 吹き出しは閉じる）と、速いクリックの両方
   await check('RP1', async () => {
@@ -5341,7 +5529,7 @@ async function runFlows(browser, base, signedIn) {
         await p.locator('main a[href^="/trades/"]').first().click();
         await p.locator('.verdict').first().waitFor({ timeout: 15000 });
         const detail = new URL(p.url()).pathname;
-        // 保存: 詳細 → 編集 →「i」を開いたまま [保存する] → 詳細 → 戻る → 詳細（編集の画面ではない）
+        // 保存: 詳細 → 編集 →「i」を開いたまま [保存] → 詳細 → 戻る → 詳細（編集の画面ではない）
         await p.locator(`main a[href="${detail}/edit"]`).first().click();
         await waitReady(p, '取引を編集');
         await openInfo(p, '「LC を動かしたか」の説明');
@@ -5370,7 +5558,7 @@ async function runFlows(browser, base, signedIn) {
         await p.goto(`${base}${detail}`);
         await p.locator('.verdict').first().waitFor({ timeout: 15000 });
         await openInfo(p, '「判定」の説明');
-        const del = p.getByRole('button', { name: '消す' });
+        const del = p.getByRole('button', { name: '削除', exact: true });
         if (how === 'key') {
           await del.focus();
           await expectPollAsync(
@@ -5530,14 +5718,14 @@ async function runFlows(browser, base, signedIn) {
       await openRecord(p, base);
       await fillRecord(p, EX_E1, false);
       const before = await p.locator('#record-entry').inputValue();
-      // 口座 1 つ: 口座の欄は無く、[＋ 口座を足す] だけ
+      // 口座 1 つ: 口座の欄は無く、[＋ 口座を追加] だけ
       expectEq(await p.locator('[role="radiogroup"][aria-label="口座"]').count(), 0, '口座の欄');
       await p.locator('#record-account-add').click();
       await expectPollAsync(
         async () => (await focused()) === 'record-account-new-name',
         '名前の欄へ',
       );
-      // Esc で閉じて [＋ 口座を足す] へ戻る
+      // Esc で閉じて [＋ 口座を追加] へ戻る
       await p.keyboard.press('Escape');
       await expectPollAsync(async () => (await focused()) === 'record-account-add', 'Esc の後');
       expectEq(await p.locator('.accountadd').count(), 0, '閉じた欄');
@@ -5570,11 +5758,11 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return 'その場で足す: 開くと名前の欄へ・Esc で閉じて [＋ 口座を足す] へ・Enter で足す（記録しない）→ 口座 C が選ばれた Segment が出てフォーカス、本文は名前と資金だけ、入れていた欄はそのまま';
+    return 'その場で足す: 開くと名前の欄へ・Esc で閉じて [＋ 口座を追加] へ・Enter で足す（記録しない）→ 口座 C が選ばれた Segment が出てフォーカス、本文は名前と資金だけ、入れていた欄はそのまま';
   });
 
   // SZ1（#67 AC-8）: 判定の枠の数量と提案の数量の行が、記録する画面・取引の詳細・編集の画面に出て、区切り（「数量 10000 ·」
-  // 「提案の数量 4000（2.5 倍）」）の中で折れず、幅 360 でも区切りの間でだけ折れ、色が注記と同じ --ink-3（判定の色を使わない）、
+  // 「適正の数量 4000（2.5 倍）」）の中で折れず、幅 360 でも区切りの間でだけ折れ、色が注記と同じ --ink-3（判定の色を使わない）、
   // 数の段の直後、横スクロール 0。場面: 0.5 倍・Z2（2.5 倍）・ちょうど 1.0 倍・Z9（最小の数量でも許容リスクを超える）・2 桁と 3 桁の
   // 比・提案の数量が小数 / 7 桁・1R が出ない（行なし）・エントリー 2 つ（詳細）・編集の画面で口座を付け替え。--shots なら各場面の
   // 判定の枠を 360 ダーク・360 ライト・1440 ダークで撮る。値はすべて架空
@@ -5664,22 +5852,26 @@ async function runFlows(browser, base, signedIn) {
       // 円建て・乗数 1。口座 1（1,000,000・1%）: 1R 0.50 × 10,000 = 5,000 → 0.5 倍、提案 20,000
       await fresh({ priceCurrency: 'JPY' });
       await fillRecord(p, EX_E1);
-      await expectLine('数量 10000 · 提案の数量 20000（0.5 倍）', '口座 1', 'record-05');
+      await expectLine('数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '口座 1', 'record-05');
       // Z2: 口座 B（200,000・1%）→ 2.5 倍、10,000 × 2,000 ÷ 5,000 = 4,000
       await seg(p, '口座', '口座 B').click();
-      await expectLine('数量 10000 · 提案の数量 4000（2.5 倍）', 'Z2', 'record-z2');
+      await expectLine('数量 10000 · 適正の数量 4000（実際は 2.5 倍）', 'Z2', 'record-z2');
       // ちょうど 1.0 倍: 数量 20,000 → 1R 10,000 ÷ 10,000
       await fresh({ priceCurrency: 'JPY' });
       await fillAt(EX_E1, '20000');
-      await expectLine('数量 20000 · 提案の数量 20000（1.0 倍）', '1.0 倍', 'record-z4');
+      await expectLine('数量 20000 · 適正の数量 20000（実際は 1.0 倍）', '1.0 倍', 'record-z4');
       // 7 桁: 数量 1,234,567・LC 99.99 → 1R 12,345.67 → 1.23… → 1.3 倍、提案 1,234,567 × 10,000 ÷ 12,345.67 = 1,000,000
       await fresh({ priceCurrency: 'JPY' });
       await fillAt(AT('100.00', '99.99'), '1234567');
-      await expectLine('数量 1234567 · 提案の数量 1000000（1.3 倍）', '7 桁', 'record-7digits');
+      await expectLine(
+        '数量 1234567 · 適正の数量 1000000（実際は 1.3 倍）',
+        '7 桁',
+        'record-7digits',
+      );
       // 小数: 乗数 100,000・刻み 0.01・イン 150.00・LC 149.50・数量 0.37 → 1R 18,500 → 1.85 → 1.9 倍、提案 0.2
       await fresh({ priceCurrency: 'JPY', multiplier: 100000, quantityStep: 0.01 });
       await fillAt(AT('150.00', '149.50'), '0.37');
-      await expectLine('数量 0.37 · 提案の数量 0.2（1.9 倍）', '小数', 'record-decimal');
+      await expectLine('数量 0.37 · 適正の数量 0.2（実際は 1.9 倍）', '小数', 'record-decimal');
       // 乗数 100: Z9（イン 38,000・LC 37,600・数量 1 → 1R 40,000 → 4.0 倍、0.25 → 0）
       await fresh({ priceCurrency: 'JPY', multiplier: 100 });
       await fillAt(AT('38000', '37600'), '1');
@@ -5711,14 +5903,14 @@ async function runFlows(browser, base, signedIn) {
       // 詳細（x-d1: 1R = 8,000 × 0.50 ÷ 0.80 = 5,000、資金 1,000,000・1%）と「すべての欄」の 2 行
       await p.goto(`${base}/trades/x-d1`);
       await waitReady(p, 'US30 · L');
-      await expectLine('数量 10000 · 提案の数量 20000（0.5 倍）', '詳細', 'detail');
+      await expectLine('数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '詳細', 'detail');
       await p.locator('details.more > summary').click();
       const rows = await p.locator('.fields__row').allTextContents();
       expectEq(
         rows
-          .filter((r) => r.startsWith('提案の数量') || r.startsWith('許容リスクに対する数量'))
+          .filter((r) => r.startsWith('適正の数量') || r.startsWith('許容リスクに対する数量'))
           .join(' / '),
-        '提案の数量20000 / 許容リスクに対する数量0.5 倍',
+        '適正の数量20000 / 許容リスクに対する数量0.5 倍',
         'すべての欄の 2 行',
       );
       if (opts.shots) {
@@ -5730,12 +5922,16 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/trades/x-z14`);
       await waitReady(p, 'US30 · L');
       await expectLine('数量 10000（許容リスクの 0.4 倍）', 'エントリー 2 つ', 'detail-z14');
-      // 編集の画面: 口座 B に付け替える → 2.5 倍・提案の数量 4,000
+      // 編集の画面: 口座 B に付け替える → 2.5 倍・適正の数量 4,000
       await p.goto(`${base}/trades/x-d1/edit`);
       await waitReady(p, '取引を編集');
-      await expectLine('数量 10000 · 提案の数量 20000（0.5 倍）', '編集の画面', 'edit-a');
+      await expectLine('数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '編集の画面', 'edit-a');
       await seg(p, '口座', '口座 B').click();
-      await expectLine('数量 10000 · 提案の数量 4000（2.5 倍）', '編集の画面の口座 B', 'edit-b');
+      await expectLine(
+        '数量 10000 · 適正の数量 4000（実際は 2.5 倍）',
+        '編集の画面の口座 B',
+        'edit-b',
+      );
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
@@ -5751,7 +5947,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('#settings-account-add').click();
       await p.locator('#settings-account-name').fill('口座 C');
       await p.locator('#settings-account-save').click();
-      await p.getByRole('status').filter({ hasText: '口座 C を足しました' }).waitFor();
+      await p.getByRole('status').filter({ hasText: '口座 C を追加しました' }).waitFor();
       const names = await p.locator('.instlist__name').allTextContents();
       expectEq(
         names.filter((n) => n.startsWith('口座')).join(' / '),
@@ -5769,7 +5965,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return '設定で「口座 C」を足す → 名前の順の位置に入り、「口座 C を足しました」、フォーカスは新しい行の [直す]';
+    return '設定で「口座 C」を足す → 名前の順の位置に入り、「口座 C を追加しました」、フォーカスは新しい行の [直す]';
   });
 
   // ── 取引の一覧・詳細・直す・消す（Issue #9 の例の表 L4・H1・D1・D2・E1・E2・X1・X2）。偽の記録の API で流す
@@ -5820,7 +6016,7 @@ async function runFlows(browser, base, signedIn) {
       const notes = (await p.locator('.tradelist__notes').textContent()) ?? '';
       for (const want of [
         'リスクの「—」: 資金を設定すると表示されます（1 件）',
-        'R・リスクの「—」: LC が無いので表示されません（1 件）',
+        'R・リスクの「—」: LC が無いため表示されません（1 件）',
       ]) {
         if (!notes.includes(want)) throw new Error(`一覧の下の理由に「${want}」が無い`);
       }
@@ -5958,7 +6154,7 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/trades`);
       await waitReady(p, '取引の一覧');
       await p.locator('a.traderow').nth(49).waitFor();
-      // 続きの読みを失敗させる → 50 行は残り、文言と [もう一度読み込む]
+      // 続きの読みを失敗させる → 50 行は残り、文言と [再読み込み]
       const nextPage = (url) => url.pathname === '/api/trades' && url.searchParams.has('cursor');
       await p.route(nextPage, (r) =>
         r.fulfill({
@@ -5974,7 +6170,7 @@ async function runFlows(browser, base, signedIn) {
         await p.screenshot({ path: join(opts.shots, '360x780-trades-more-failed.png') });
       }
       await p.unroute(nextPage);
-      await p.getByRole('button', { name: 'もう一度読み込む' }).click();
+      await p.getByRole('button', { name: '再読み込み' }).click();
       await p.getByText('全 70 件（決済の新しい順）').waitFor({ timeout: 5000 });
       const overflow = await p.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -5984,7 +6180,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return '続きの読みの失敗: 50 行が残り、文言と [もう一度読み込む] → 押すと「全 70 件」・横スクロール 0';
+    return '続きの読みの失敗: 50 行が残り、文言と [再読み込み] → 押すと「全 70 件」・横スクロール 0';
   });
 
   // TL-P4（#87 のコードレビュー 1・2）: キーで [続きを読み込む] を押すと、読み込み中も同じボタンにフォーカスが残り
@@ -6168,7 +6364,7 @@ async function runFlows(browser, base, signedIn) {
     return '決済時の枠は「チャートなし」（GET を送らない）、理由に時間足を変えたは出ない';
   });
 
-  // Issue #34: LC の物差し（AC-4）・3 つのタップの答え（AC-7）・「すべての欄」の畳み（AC-8）。x-d1 は例の表 E2 と同じ形
+  // Issue #34: LC の物差し（AC-4）・決済までの行動の答え（AC-7）・「すべての欄」の畳み（AC-8）。x-d1 は例の表 E2 と同じ形
   // （下げた後 99.2・決済 99.2）で、チャートからの時間足（4 時間足 → 日足）が判定に効く
   await check('T-D3', async () => {
     const { c, p, errors } = await recordContext();
@@ -6180,7 +6376,7 @@ async function runFlows(browser, base, signedIn) {
       await list.waitFor();
       expectEq(
         (await list.locator('li').allTextContents()).join(' / '),
-        '動かした LC 99.2（−1.6R） / 決済 99.2（−1.6R） / 決めた LC 99.5（−1.0R） / イン 100 / LC を 0.6R 越えて決済',
+        '動かした後の LC 99.2（−1.6R） / 決済 99.2（−1.6R） / 決めた LC 99.5（−1.0R） / イン 100 / LC を 0.6R 超えて決済',
         '物差しの一覧',
       );
       expectEq(
@@ -6197,7 +6393,7 @@ async function runFlows(browser, base, signedIn) {
             .filter((c) => /verdict__stats|^ruler$|^reasons$|^taps$/.test(c)),
         );
       expectEq(order.join(' '), 'verdict__stats ruler reasons taps', '判定の枠の中の順');
-      // 動かした LC〜決めた LC の破線の太線と、越えた区間の実線の太線。目盛りは −1R・0・+1R
+      // 動かした後の LC〜決めた LC の破線の太線と、越えた区間の実線の太線。目盛りは −1R・0・+1R
       expectEq(await p.locator('.verdict .ruler__widen').count(), 1, '広げた区間');
       expectEq(await p.locator('.verdict .ruler__over').count(), 1, '越えた区間');
       expectEq(
@@ -6209,20 +6405,20 @@ async function runFlows(browser, base, signedIn) {
         .locator('.verdict .ruler')
         .evaluate((e) => e.getBoundingClientRect().height);
       if (rulerH > 120) throw new Error(`物差しの段の高さ ${rulerH}px（120px 以下）`);
-      // 判定の枠の中、理由の下に 3 つのタップの答えの札
+      // 判定の枠の中、理由の下に 決済までの行動の答えの札
       expectEq(
         await p.locator('.verdict ul.taps').getAttribute('aria-label'),
-        '3 つのタップの答え',
+        '決済までの行動の答え',
         '札の一覧の名前',
       );
       const off = await p.locator('.verdict ul.taps li.taps__item--off').allTextContents();
       expectEq(
         off.join(' / '),
-        '外れLC: 下げた（99.2）計画から外れた / 外れ時間足: 4 時間足 → 日足計画から外れた',
+        'LC を動かしたか: 下げた（99.2）計画から外れた / 時間足を変えたか: 4 時間足 → 日足計画から外れた',
         '外れた答え',
       );
       const note = await p.locator('.verdict').textContent();
-      if (!note?.includes('あなたの答えは「変えず」、チャートは 4 時間足 → 日足'))
+      if (!note?.includes('あなたの答え: そのまま ／ チャート: 4 時間足 → 日足'))
         throw new Error('時間足の食い違いの 1 行が無い');
       // 「すべての欄」は閉じていて、押すと開く
       const more = p.locator('details.more');
@@ -6298,7 +6494,7 @@ async function runFlows(browser, base, signedIn) {
       const notice = await p.locator('#edit-orphans').textContent();
       if (
         !notice?.includes('エントリー時: 4 時間足・決済時: 日足') ||
-        !notice.includes('保存のときに外します')
+        !notice.includes('保存時に削除されます')
       )
         throw new Error(`外す旨: ${notice}`);
       await p.locator('#edit-submit').click();
@@ -6373,7 +6569,7 @@ async function runFlows(browser, base, signedIn) {
         throw new Error(`枠: ${ptext}`);
       const v0 = await verdictOf(p);
       expectEq(v0.badge, 'A いい損失', '開いたとき');
-      if (!v0.text.includes('資金が未設定なので過剰リスクは見ていない'))
+      if (!v0.text.includes('資金が未設定のため、過剰リスクは判定していません'))
         throw new Error(`注記: ${v0.text}`);
       const near = p.locator('.verdict .verdict__action button');
       expectEq((await near.textContent())?.trim(), '今の値で再計算', '注記のそばのボタン');
@@ -6503,13 +6699,13 @@ async function runFlows(browser, base, signedIn) {
       const n = (await rowsOf(p)).length;
       await p.locator('a.traderow[href="/trades/x-d1"]').click();
       await waitReady(p, 'US30 · L');
-      await p.getByRole('button', { name: '消す' }).click();
+      await p.getByRole('button', { name: '削除', exact: true }).click();
       await waitReady(p, '取引の一覧');
       expectEq(path(p), '/trades', '消した後の URL');
       await p
         .locator('.toast')
         .filter({ hasText: 'US30 L' })
-        .filter({ hasText: 'を消しました' })
+        .filter({ hasText: 'を削除しました' })
         .waitFor();
       // [消す] の後のフォーカスは [元に戻す]（8 秒の間にキーで届く。レビュー指摘 3）
       await expectPollAsync(
@@ -6550,7 +6746,7 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/trades/x-d1`);
       await waitReady(p, 'US30 · L');
       await p.locator('canvas.chartview__canvas').nth(1).waitFor();
-      await p.getByRole('button', { name: '消す' }).click();
+      await p.getByRole('button', { name: '削除', exact: true }).click();
       await waitReady(p, '取引の一覧');
       await p.getByRole('button', { name: '元に戻す' }).click();
       await p.locator('a.traderow[href="/trades/x-d1"]').waitFor();

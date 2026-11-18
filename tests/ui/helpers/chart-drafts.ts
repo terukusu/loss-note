@@ -42,7 +42,7 @@ const MINUS = '−';
 
 export const CHART_CASES: readonly ChartCase[] = [
   {
-    // 4 時間足 → 日足・タップは変えていない・LC より不利に −1.4R（5.6 #20）
+    // 4 時間足 → 日足・タップはそのまま・LC より不利に −1.4R（5.6 #20）
     name: 'E1',
     draft: chartDraft('98.6', { entry: '4h', exit: '1d' }),
     charts: BOTH,

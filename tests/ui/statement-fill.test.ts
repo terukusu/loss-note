@@ -217,7 +217,7 @@ describe('fillFromRow', () => {
     }
   });
 
-  it('E4: 銘柄・決済の時刻が null → 空で「読み取れませんでした」。足りない欄に銘柄・決済の時刻', () => {
+  it('E4: 銘柄・決済の時刻が null → 空で「読み取れませんでした」。未入力の欄に銘柄・決済の時刻', () => {
     const f = fillFromRow(OPENED, ROW_E4, NONE);
     expect(f.draft.instrumentName).toBe('');
     expect(f.draft.exitTime).toBe('');
@@ -276,7 +276,7 @@ describe('fillFromRow', () => {
     expect(f.marks.lcDecided).toBeUndefined();
   });
 
-  it('E9: 時間帯の無い時刻は書かれた値と「時間帯が明細にありません」。建てた時刻が無ければ空', () => {
+  it('E9: 時間帯の無い時刻は書かれた値と「タイムゾーンが明細にありません」。エントリーの時刻が無ければ空', () => {
     const f = fillFromRow(OPENED, ROW_E9, NONE);
     expect(f.draft.exitTime).toBe('2026-11-10T10:30');
     expect(f.marks.exitTime).toBe('tz');
@@ -300,7 +300,7 @@ describe('印の直し（E5）', () => {
   });
 });
 
-describe('時間帯の確かめ（E9・AC-8）', () => {
+describe('タイムゾーンの確認（E9・AC-8）', () => {
   const original = proc.env.TZ;
   afterEach(() => {
     if (original === undefined) delete proc.env.TZ;
@@ -380,7 +380,7 @@ describe('保存の門 gateReading（R3・R6）', () => {
     expect(g.notice).toBe(READING_NOTICE);
   });
 
-  it('時間帯を確かめていなければ足りない欄に「決済の時刻（時間帯の確かめ）」', () => {
+  it('時間帯を確かめていなければ未入力の欄に「決済の時刻（タイムゾーンの確認）」', () => {
     const f = fillFromRow(OPENED, ROW_E9, NONE);
     const g = gateReading(full(f.draft), { reading: false, marks: f.marks });
     expect(g.canSave).toBe(false);
@@ -420,12 +420,12 @@ describe('失敗の文言（E11・E12）', () => {
 
   it('決まった文言（Issue の例の表）', () => {
     expect(READ_MSG).toEqual({
-      notStatement: '決済明細として読めませんでした。別の画像を貼るか、手で入れてください。',
-      rejected: 'この画像は読み取れません。別の画像を貼るか、手で入れてください。',
-      unavailable: '今は読み取りを使えません。手で入れてください。',
-      failed: '読み取れませんでした。もう一度貼るか、手で入れてください。',
-      limited: '今日の読み取りの上限に達しました。手で入れてください。',
-      notImage: '画像を読み込めませんでした。PNG か JPEG のスクショを貼ってください。',
+      notStatement: '決済明細として読めませんでした。別の画像を貼り付けるか、手入力してください。',
+      rejected: 'この画像は読み取れません。別の画像を貼り付けるか、手入力してください。',
+      unavailable: '今は読み取りを使えません。手入力してください。',
+      failed: '読み取れませんでした。もう一度貼り付けるか、手入力してください。',
+      limited: '今日の読み取りの上限に達しました。手入力してください。',
+      notImage: '画像を読み込めませんでした。PNG か JPEG のスクショを貼り付けてください。',
     });
   });
 });

@@ -54,7 +54,7 @@ export function TradeList({
   return (
     <div class="tradelist-wrap">
       <div class="tradelist__head" aria-hidden="true">
-        <span>決済</span>
+        <span>決済日時</span>
         <span>銘柄</span>
         <span>判定</span>
         <span class="tradelist__head-num">R</span>
@@ -76,7 +76,7 @@ export function TradeList({
 export function TradeNotes({ notes }: { readonly notes: readonly string[] }) {
   if (notes.length === 0) return null;
   return (
-    <ul class="tradelist__notes" aria-label="値が出ない理由">
+    <ul class="tradelist__notes" aria-label="値が表示されない理由">
       {notes.map((n) => (
         <li key={n}>{n}</li>
       ))}

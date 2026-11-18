@@ -216,7 +216,7 @@ describe('入力の誤り・足りないときは送らない（AC-7）', () => 
     expect(c.getState().phase).toBe('editing');
   });
 
-  it('足りない欄があれば保存の要求は 0 件', async () => {
+  it('未入力の欄があれば保存の要求は 0 件', async () => {
     const fake = createFakeApi({ instruments: [US30] });
     const c = await opened(fake);
     fillFrom(c, applyDraft(E1, { type: 'set', field: 'timeframeChange', value: null }));
@@ -833,7 +833,7 @@ describe('複数行（AC-9・C20）', () => {
     c.skipRow();
     s = c.getState();
     expect(s.statement?.index).toBe(2);
-    expect(s.statement?.notice).toBe('2 / 3 行目を飛ばしました。次の行（3 / 3）です');
+    expect(s.statement?.notice).toBe('2 / 3 行目をスキップしました。次の行（3 / 3）です');
     expect(s.draft.instrumentName).toBe('架空指数D');
     typeFive(c, '49');
     await c.save();
@@ -845,7 +845,7 @@ describe('複数行（AC-9・C20）', () => {
     expect(previews[0]?.closed()).toBe(true);
   });
 
-  it('最後の行を飛ばす → 読み取りを終え、空の下書き（既定 = 今保存した取引）と「明細の行を最後まで見ました」', async () => {
+  it('最後の行を飛ばす → 読み取りを終え、空の下書き（既定 = 今保存した取引）と「明細のすべての行を確認しました」', async () => {
     const { c, previews } = await openedForRead([ok(ROWS_E10.slice(0, 2))]);
     await c.readImage(img());
     typeFive(c);
@@ -888,7 +888,7 @@ describe('失敗（AC-10・E11）', () => {
     [
       '(e) 429（1 日の上限。#44 の AC-9）',
       { status: 429, body: { error: 'read_limited', ...SECRET } },
-      '今日の読み取りの上限に達しました。手で入れてください。',
+      '今日の読み取りの上限に達しました。手入力してください。',
     ],
     ['(d) 502', { status: 502, body: { error: 'read_failed', ...SECRET } }, READ_MSG.failed],
     ['(d) 504', { status: 504, body: { error: 'read_timeout', ...SECRET } }, READ_MSG.failed],

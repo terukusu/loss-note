@@ -126,17 +126,17 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
     expect(rows[1]?.badge).toBe('危ない勝ち');
     expect(rows[1]?.badgeClass).toContain('badge--break');
     expect(rows[1]?.text).not.toContain('R なし');
-    expect(rows[1]?.text).not.toContain('LC が無いので表示されません');
+    expect(rows[1]?.text).not.toContain('LC が無いため表示されません');
     const notes = all(tree, hasClass('tradelist__notes')).map(text).join('');
     expect(notes).toContain('リスクの「—」: 資金を設定すると表示されます（1 件）');
-    expect(notes).toContain('R・リスクの「—」: LC が無いので表示されません（1 件）');
+    expect(notes).toContain('R・リスクの「—」: LC が無いため表示されません（1 件）');
     expect(rows[2]?.badge).toBe('A いい損失');
     expect(rows[2]?.text).toContain('−1.0R');
     expect(rows[2]?.text).toContain('0.5%');
     expect(text(tree)).toContain('全 3 件');
     // 行の読み上げの名前
     expect(rows[2]?.label).toContain('US30 L ロング A いい損失 R −1.0R リスク 0.5%');
-    expect(rows[1]?.label).toContain('R LC が無いので表示されません');
+    expect(rows[1]?.label).toContain('R LC が無いため表示されません');
     // 列（日付・銘柄・L / S・判定・R・リスク）が行ごとに同じ順でそろう
     const row = all(tree, hasClass('traderow'))[0] as El;
     expect(row.children.map((c) => (typeof c === 'string' ? c : cls(c)))).toEqual([
@@ -184,7 +184,7 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
       />,
     );
     expect(all(failed, (e) => e.props.role === 'alert')).toHaveLength(1);
-    expect(text(failed)).toContain('ログインし直す');
+    expect(text(failed)).toContain('もう一度ログイン');
   });
 
   it('一覧の空の状態は [記録する]（/record）', () => {
@@ -290,7 +290,7 @@ function detailTree(t: StoredTrade, over: Partial<Parameters<typeof TradeDetailV
 }
 
 describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
-  it('#57 AC-2・例 I10: 詳細の判定の枠に「判定」「R」「LC の物差し」の「i」と、3 つのタップの答えの札の「i」（デザインレビュー 8）', () => {
+  it('#57 AC-2・例 I10: 詳細の判定の枠に「判定」「R」「LC の物差し」の「i」と、決済までの行動の答えの札の「i」（デザインレビュー 8）', () => {
     const names = all(detailTree(D1), (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
       String(e.props['aria-label']),
     );
@@ -344,7 +344,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     expect(reasons.some((r) => r.startsWith('時間足を変えた'))).toBe(false);
   });
 
-  it('読めなかった枠は「チャートを読み込めませんでした」と [もう一度読み込む]（その枠だけ）', () => {
+  it('読めなかった枠は「チャートを読み込めませんでした」と [再読み込み]（その枠だけ）', () => {
     const seen: string[] = [];
     const tree = expand(
       <TradeDetailView
@@ -369,7 +369,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     let deleted = 0;
     const tree = detailTree(D1, { onDelete: () => deleted++ });
     expect(all(tree, (e) => e.type === 'a').map((a) => a.props.href)).toContain('/trades/d1/edit');
-    const del = all(tree, (e) => e.type === 'button' && text(e) === '消す')[0] as El;
+    const del = all(tree, (e) => e.type === 'button' && text(e) === '削除')[0] as El;
     (del.props.onClick as () => void)();
     expect(deleted).toBe(1);
     noDialog(tree);
@@ -453,7 +453,7 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     expect(verdictText(after)).not.toContain('0.3%');
     const submit = all(after, (e) => e.props.id === 'edit-submit')[0] as El;
     expect(submit.props.disabled).toBe(false);
-    expect(text(submit)).toBe('保存する');
+    expect(text(submit)).toBe('保存');
     // 明細の枠は出さない
     expect(text(after)).not.toContain('決済明細のスクショ');
     noDialog(after);
@@ -463,7 +463,7 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     const tree = await editTree(E2);
     const notice = all(tree, (e) => e.props.id === 'edit-orphans')[0] as El;
     expect(text(notice)).toBe(
-      'チャートの無い枠の時間足（エントリー時: 4 時間足・決済時: 日足）は、保存のときに外します。チャートが無いと時間足の違いを確かめられないためです。',
+      'チャートが無い時間足（エントリー時: 4 時間足・決済時: 日足）は、保存時に削除されます。チャートが無いと時間足の違いを確認できないためです。',
     );
     expect(verdictText(tree)).toContain('A いい損失');
     // 時間足の選択はチャートのある枠だけ（E2 には無い）。枠は出て、チャートを追加できる（#89）
@@ -530,12 +530,12 @@ describe('AC-5・AC-6: 消す + [元に戻す]（トーストと画面）', () =
       />,
     );
 
-  it('トーストは role="status" の領域に「<どの取引> を消しました」と [元に戻す]（当たりは .btn）', () => {
+  it('トーストは role="status" の領域に「<どの取引> を削除しました」と [元に戻す]（当たりは .btn）', () => {
     let undone = 0;
     const tree = toastTree({ id: 'd1', label: 'US30 L 11/10' }, { undo: () => undone++ });
     const live = all(tree, (e) => e.props.role === 'status')[0] as El;
     expect(live.props['aria-live']).toBe('polite');
-    expect(text(live)).toContain('US30 L 11/10 を消しました');
+    expect(text(live)).toContain('US30 L 11/10 を削除しました');
     expect(all(tree, (e) => e.props.id === 'toast-undo')).toHaveLength(1);
     const undo = all(tree, (e) => e.type === 'button' && text(e) === '元に戻す')[0] as El;
     expect(cls(undo)).toContain('btn');
@@ -548,10 +548,10 @@ describe('AC-5・AC-6: 消す + [元に戻す]（トーストと画面）', () =
     let closed = 0;
     const failed = toastTree({ id: 'l1', label: 'B' }, { dismissFailed: () => closed++ }, true);
     const alert = all(failed, (e) => e.props.role === 'alert')[0] as El;
-    expect(text(alert)).toContain('消せませんでした');
-    expect(text(failed)).toContain('B を消しました');
+    expect(text(alert)).toContain('削除できませんでした');
+    expect(text(failed)).toContain('B を削除しました');
     const close = all([alert], (e) => e.type === 'button')[0] as El;
-    expect(close.props['aria-label']).toBe('知らせを閉じる');
+    expect(close.props['aria-label']).toBe('通知を閉じる');
     (close.props.onClick as () => void)();
     expect(closed).toBe(1);
     const none = toastTree(null);
@@ -602,7 +602,7 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
       '/trades',
       '/trades/d1/edit',
     ]);
-    expect(all([head], (e) => e.type === 'button').map(text)).toEqual(['消す']);
+    expect(all([head], (e) => e.type === 'button').map(text)).toEqual(['削除']);
     // 判定の枠の脚注（銘柄・L / S・決済）は出さない
     expect(all(tree, hasClass('verdict__caption'))).toEqual([]);
     // 読めるまで・見つからないときは「取引の詳細」
@@ -614,7 +614,7 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
     const tree = detailTree(D1);
     const rows = all(tree, hasClass('fields__row')).map(text);
     expect(rows).toContain(
-      '時間足を変えたか変えず（申告） / 4 時間足 → 日足（チャートから・判定に使用）',
+      '時間足を変えたかそのまま（あなたの答え） / 4 時間足 → 日足（チャートから・判定に使用）',
     );
   });
 
@@ -642,6 +642,29 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
     const before = all(view(), hasClass('verdict__before'))[0] as El;
     expect(text(before)).toContain('編集前');
     expect(text(before)).toContain('B 悪い損失');
+  });
+
+  it('#74: 編集の画面の判定の見出しは「編集後の判定」、編集前の行に「→ 編集後（下）」を出さない。詳細の見出しは「判定」', async () => {
+    const fake = createFakeApi({ trades: [E1], instruments: [US30] });
+    const c = createEditController({ api: fake.api, id: 'e1' });
+    await c.load();
+    const tree = expand(
+      <TradeEditView
+        id="e1"
+        state={c.getState()}
+        hidden={EMPTY}
+        notFound={notFoundState()}
+        onUpdate={c.update}
+        onSave={noop}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    const titles = all(tree, hasClass('verdict__title')).map((e) => text(e));
+    expect(titles).toEqual(['編集後の判定']);
+    expect(text(all(tree, hasClass('verdict__before'))[0] as El)).not.toContain('編集後');
+    const detail = all(detailTree(E1), hasClass('verdict__title')).map((e) => text(e));
+    expect(detail).toEqual(['判定']);
   });
 });
 
@@ -740,7 +763,7 @@ describe('口座（#47 D1・U16〜U19）', () => {
     expect(rows.some((r) => r.startsWith('許容リスク（記録したとき）'))).toBe(true);
   });
 
-  it('U19: 直す画面は口座 2 つ以上で同じ口座の欄（[＋ 口座を足す] は無い）。替えると 1 行、元へ戻すと消える', async () => {
+  it('U19: 直す画面は口座 2 つ以上で同じ口座の欄（[＋ 口座を追加] は無い）。替えると 1 行、元へ戻すと消える', async () => {
     const fake = createFakeApi({
       trades: [L1],
       instruments: [US30],
@@ -775,7 +798,7 @@ describe('口座（#47 D1・U16〜U19）', () => {
     expect(all(t0, (e) => e.props.id === 'record-account-hint')).toEqual([]);
     c.update({ type: 'set', field: 'accountId', value: 'accB' });
     expect(text(all(tree(), (e) => e.props.id === 'record-account-hint'))).toBe(
-      '口座 B の今の資金 200,000円 で計算し直します',
+      '口座 B の今の資金 200,000円 で再計算します',
     );
     // 2〜3 つの Segment の形でも、1 行を radiogroup の読み上げの説明に結ぶ（select の形と同じ）
     const group1 = all(
@@ -796,7 +819,7 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
     const TWO = [defaultAccount(1_000_000), account('accB', '口座 B', 200_000)];
     const tree = detailTree(L1, { state: detailWith(L1, TWO) });
     expect(all(tree, hasClass('verdict__sizing')).map(text)).toEqual([
-      '数量 10000 · 提案の数量 20000（0.5 倍）',
+      '数量 10000 · 適正の数量 20000（実際は 0.5 倍）',
     ]);
     const verdict = all(tree, hasClass('verdict'))[0] as El;
     const order = verdict.children
@@ -804,12 +827,12 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
       .map((c) => cls(c).split(' ').at(-1));
     expect(order.indexOf('verdict__account')).toBe(order.indexOf('verdict__sizing') + 1);
     const rows = all(tree, hasClass('fields__row')).map(text);
-    expect(rows).toContain('提案の数量20000');
+    expect(rows).toContain('適正の数量20000');
     expect(rows).toContain('許容リスクに対する数量0.5 倍');
-    // 区切りの中は折らない（「数量 10000 ·」「提案の数量 20000（0.5 倍）」の 2 つ）
+    // 区切りの中は折らない（「数量 10000 ·」「適正の数量 20000（0.5 倍）」の 2 つ）
     expect(all(tree, hasClass('verdict__seg')).map(text)).toEqual([
       '数量 10000 ·',
-      '提案の数量 20000（0.5 倍）',
+      '適正の数量 20000（実際は 0.5 倍）',
     ]);
   });
 
@@ -857,7 +880,7 @@ describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
     c.update({ type: 'set', field: 'accountId', value: 'accD' });
     const t1 = tree();
     expect(text(all(t1, (e) => e.props.id === 'record-account-hint'))).toBe(
-      '口座 D の今の資金 10,000.00 USD で計算し直します。通貨が違うので、損益と手数料を空に戻しました',
+      '口座 D の今の資金 10,000.00 USD で再計算します。通貨が違うので、損益と手数料を空に戻しました',
     );
     expect(all(t1, hasClass('more'))[0]?.props.open).toBe(true);
     const value = (id: string) =>
@@ -873,7 +896,7 @@ describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
     );
   });
 
-  it('D2: F1 の取引の詳細の「すべての欄」に「建ての通貨 USD 建て」「為替 150（1 USD = 150円）」「1R 7,500円」', () => {
+  it('D2: F1 の取引の詳細の「すべての欄」に「価格の通貨 USD 建て」「為替 150（1 USD = 150円）」「1R 7,500円」', () => {
     const { statementPnlYen: _s, ...rec } = L1.record;
     const f1 = {
       ...L1,
@@ -889,7 +912,7 @@ describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
       },
     } as StoredTrade;
     const rows = all(detailTree(f1), hasClass('fields__row')).map(text);
-    expect(rows).toContain('建ての通貨USD');
+    expect(rows).toContain('価格の通貨USD');
     expect(rows).toContain('為替1 USD = 150円');
     expect(rows).toContain('1R7,500円');
   });
@@ -963,7 +986,7 @@ describe('一覧の末尾の段（Issue #87）', () => {
     expect(all(tree, hasClass('tradelist-more__sentinel'))).toHaveLength(0);
   });
 
-  it('失敗（例 #9）: 行は残り、短い決まった文言（role=alert）と同じボタンの [もう一度読み込む]', () => {
+  it('失敗（例 #9）: 行は残り、短い決まった文言（role=alert）と同じボタンの [再読み込み]', () => {
     let pressed = 0;
     const tree = view(
       withMore('failed', { moreError: TRADES_MORE_FAILED, moreErrorKind: 'network' }),
@@ -972,17 +995,17 @@ describe('一覧の末尾の段（Issue #87）', () => {
         pressed++;
       },
     );
-    expect(TRADES_MORE_FAILED).toBe('続きを読み込めませんでした。通信を確認してください。');
+    expect(TRADES_MORE_FAILED).toBe('続きを読み込めませんでした。通信状況を確認してください。');
     expect(rowsOf(tree)).toHaveLength(3);
     const t = tail(tree)[0] as El;
     expect(all([t], (e) => e.props.role === 'alert').map(text)).toEqual([TRADES_MORE_FAILED]);
     const btn = moreButton(tree)[0] as El;
-    expect(text(btn)).toBe('もう一度読み込む');
+    expect(text(btn)).toBe('再読み込み');
     (btn.props.onClick as () => void)();
     expect(pressed).toBe(1);
     expect(all([t], hasClass('tradelist-more__sentinel'))).toHaveLength(0);
     const auth = view(withMore('failed', { moreError: 'x', moreErrorKind: 'auth' }));
-    expect(text(tail(auth)[0] as El)).toContain('ログインし直す');
+    expect(text(tail(auth)[0] as El)).toContain('もう一度ログイン');
   });
 
   it('最後まで: 先頭に「全 N 件」。1 ページに収まる一覧は末尾の文を出さない', () => {

@@ -36,7 +36,7 @@ export function AccountAddButton(p: {
       <span class="accountadd__plus" aria-hidden="true">
         ＋
       </span>
-      <span> 口座を追加</span>
+      <span> {p.open ? '閉じる' : '口座を追加'}</span>
     </button>
   );
 }
@@ -90,7 +90,7 @@ export function AccountAddForm(p: AccountAddFormProps) {
           <p>{s.message}</p>
           {s.auth ? (
             <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-              ログインし直す
+              もう一度ログイン
             </Button>
           ) : null}
         </div>

@@ -118,7 +118,7 @@ describe('口座（#47 U12〜U15）', () => {
       .filter((x) => x.includes('口座'));
     expect(rows).toEqual([
       '口座 11,000,000円 · 許容 1%1 回の負けは 10,000円 まで編集',
-      '口座 B資金 未設定 · 許容 1%資金を入れるとリスク（%）が出ます編集',
+      '口座 B資金 未設定 · 許容 1%資金を入力するとリスク（%）が表示されます編集',
     ]);
     // [直す] の読み上げの名前
     expect(byId(tree, 'settings-account-edit-accB')?.props['aria-label']).toBe('口座 B を編集');
@@ -196,14 +196,14 @@ describe('口座（#47 U12〜U15）', () => {
     expect(text(bad)).not.toContain('1 回の負けは 0円');
   });
 
-  it('U15: [＋ 口座を足す]（行の全幅）で同じ欄が開き、[足す] [やめる]。開いている間は [＋ 口座を足す] を出さない', async () => {
+  it('U15: [＋ 口座を追加]（行の全幅）で同じ欄が開き、[足す] [やめる]。開いている間は [＋ 口座を追加] を出さない', async () => {
     const closed = render(await ready());
-    expect(text(byId(closed, 'settings-account-add') ?? [])).toBe('＋ 口座を足す');
+    expect(text(byId(closed, 'settings-account-add') ?? [])).toBe('＋ 口座を追加');
     const open = render(await ready({}, (c) => c.openAccount(null)));
     expect(byId(open, 'settings-account-add')).toBeUndefined();
-    const form = all(open, (e) => e.type === 'form' && e.props['aria-label'] === '口座を足す')[0];
+    const form = all(open, (e) => e.type === 'form' && e.props['aria-label'] === '口座を追加')[0];
     expect(all(form ? [form] : [], (e) => e.type === 'button').map(text)).toEqual([
-      '足す',
+      '追加',
       'キャンセル',
     ]);
   });
@@ -224,7 +224,7 @@ describe('口座（#47 U12〜U15）', () => {
       .filter((x) => x.startsWith('口座'));
     expect(names).toEqual(['口座 1', '口座 C', '口座 D']);
     const status = all(tree, (e) => e.props.role === 'status').map(text);
-    expect(status).toContain('口座 C を足しました。');
+    expect(status).toContain('口座 C を追加しました。');
   });
 
   it('[保存]・[足す] にはフォーカスを戻す先の ID がある（レビュー指摘 6）', async () => {
@@ -272,7 +272,7 @@ describe('銘柄', () => {
     expect(open.split(EFFECT_NOTE).length - 1).toBe(2);
   });
 
-  it('一覧: 名前・要約・[直す]（読み上げの名前は「US30 を直す」）。仮の値の印', async () => {
+  it('一覧: 名前・要約・[直す]（読み上げの名前は「US30 を直す」）。初期値のままの印', async () => {
     const tree = render(await ready());
     const items = all(
       tree,
@@ -280,8 +280,8 @@ describe('銘柄', () => {
     );
     const insts = items.filter((i) => !text(i).startsWith('口座'));
     expect(insts.map((i) => text(i).slice(0, 4))).toEqual(['US30', '日経22']);
-    expect(text(insts[0] ?? [])).toContain('仮の値');
-    expect(text(insts[1] ?? [])).not.toContain('仮の値');
+    expect(text(insts[0] ?? [])).toContain('初期値のまま');
+    expect(text(insts[1] ?? [])).not.toContain('初期値のまま');
     const edit = all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'US30 を編集');
     expect(edit).toHaveLength(1);
   });
@@ -295,7 +295,7 @@ describe('銘柄', () => {
       '名前',
       '原資産',
       '原資産の種類',
-      '商品の形',
+      '取引の形態',
       '価格の通貨',
       '乗数',
       '数量の刻み',
@@ -326,7 +326,7 @@ describe('銘柄', () => {
   it('足す欄と [足す]', async () => {
     const tree = render(await ready());
     expect(byId(tree, 'settings-new-name')?.type).toBe('input');
-    expect(all(tree, (e) => e.type === 'button').map(text)).toContain('足す');
+    expect(all(tree, (e) => e.type === 'button').map(text)).toContain('追加');
   });
 });
 
@@ -336,17 +336,17 @@ describe('読み込み・失敗', () => {
     expect(text(render(c.getState()))).toContain('読み込み中');
   });
 
-  it('読み込みの失敗は role="alert" と [もう一度読み込む]', async () => {
+  it('読み込みの失敗は role="alert" と [再読み込み]', async () => {
     const tree = render(await ready({ fail: { 'GET /api/accounts': 500 } }));
     expect(text(tree)).toContain(SETTINGS_LOAD_FAILED);
     expect(all(tree, (e) => e.props.role === 'alert')).toHaveLength(1);
-    expect(all(tree, (e) => e.type === 'button').map(text)).toContain('もう一度読み込む');
+    expect(all(tree, (e) => e.type === 'button').map(text)).toContain('再読み込み');
   });
 
-  it('ログインが切れたら [ログインし直す]', async () => {
+  it('ログインが切れたら [もう一度ログイン]', async () => {
     const load = render(await ready({ fail: { 'GET /api/accounts': 401 } }));
     expect(text(load)).toContain(AUTH_EXPIRED);
-    expect(all(load, (e) => e.type === 'button').map(text)).toContain('ログインし直す');
+    expect(all(load, (e) => e.type === 'button').map(text)).toContain('もう一度ログイン');
     const save = render(
       await ready({ fail: { 'PUT /api/accounts/default': 401 } }, async (c) => {
         c.openAccount('default');
@@ -355,7 +355,7 @@ describe('読み込み・失敗', () => {
       }),
     );
     expect(text(save)).toContain(AUTH_EXPIRED);
-    expect(all(save, (e) => e.type === 'button').map(text)).toContain('ログインし直す');
+    expect(all(save, (e) => e.type === 'button').map(text)).toContain('もう一度ログイン');
   });
 });
 

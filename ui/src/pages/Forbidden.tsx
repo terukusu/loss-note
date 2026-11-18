@@ -9,7 +9,7 @@ import { LoginBrand } from './Login';
 export const FORBIDDEN_TITLE_HEAD = 'このアカウントでは';
 export const FORBIDDEN_TITLE_TAIL = '使えません';
 export const FORBIDDEN_TITLE = `${FORBIDDEN_TITLE_HEAD}${FORBIDDEN_TITLE_TAIL}`;
-export const FORBIDDEN_LEAD = 'ほかのアカウントでログインし直してください。';
+export const FORBIDDEN_LEAD = '別のアカウントでもう一度ログインしてください。';
 /** 理由（内部の言葉「許可リスト」は使わない。メールは出さない） */
 export const FORBIDDEN_REASON = '使えるのは登録されたアカウントだけです。';
 export const FORBIDDEN_ACTION = '別のアカウントでログイン';

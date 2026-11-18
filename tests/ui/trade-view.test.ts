@@ -78,22 +78,22 @@ describe('AC-1: 一覧の行（例 L1〜L4）', () => {
     expect(r.sideText).toBe('S');
   });
 
-  it('L3: 危ない勝ち（段は崩れ）・R なし・「LC が無いので表示されません」', () => {
+  it('L3: 危ない勝ち（段は崩れ）・R なし・「LC が無いため表示されません」', () => {
     const r = tradeRow(L3, INSTRUMENTS);
     expect(r.badge.label).toBe('危ない勝ち');
     expect(r.badge.tier).toBe('break');
     expect(r.badge.symbol).toBe('triangle');
     expect(r.rText).toBe(MISSING);
-    expect(r.rNote).toBe('LC が無いので表示されません');
+    expect(r.rNote).toBe('LC が無いため表示されません');
     expect(r.riskText).toBe(MISSING);
-    expect(r.riskNote).toBe('LC が無いので表示されません');
+    expect(r.riskNote).toBe('LC が無いため表示されません');
   });
 
   it('「—」の理由は一覧の上に 1 回だけ（同じ理由は件数にまとめる。R とリスクが同じ理由なら 1 行）', () => {
     const rows = [L1, L2, L3, L3].map((t) => tradeRow(t, INSTRUMENTS));
     expect(missingNotes(rows)).toEqual([
       'リスクの「—」: 資金を設定すると表示されます（1 件）',
-      'R・リスクの「—」: LC が無いので表示されません（2 件）',
+      'R・リスクの「—」: LC が無いため表示されません（2 件）',
     ]);
     expect(missingNotes([tradeRow(L1, INSTRUMENTS)])).toEqual([]);
   });
@@ -102,7 +102,7 @@ describe('AC-1: 一覧の行（例 L1〜L4）', () => {
     const r = tradeRow(L1, INSTRUMENTS);
     expect(r.label).toBe(`${formatDate(T_1110)} US30 L ロング A いい損失 R −1.0R リスク 0.5%`);
     expect(tradeRow(L3, INSTRUMENTS).label).toContain(
-      'R LC が無いので表示されません リスク LC が無いので表示されません',
+      'R LC が無いため表示されません リスク LC が無いため表示されません',
     );
   });
 
@@ -238,7 +238,7 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(f.LC).toBe('99.5');
     expect(f['LC を動かしたか']).toBe('下げた（99.2）');
     expect(f['損益（明細の値）']).toBe('−8,000円');
-    expect(f.建てた時刻).toBeUndefined();
+    expect(f.エントリーの時刻).toBeUndefined();
   });
 
   it('L3（LC なし）: LC は「なし」、決めていたか・動かしたかは出さない', () => {
@@ -278,15 +278,17 @@ describe('recordFields（詳細の記録した欄）', () => {
   });
 });
 
-describe('時間足を変えたかの表示（申告とチャートを並べ、判定に使った方に印）', () => {
-  it('D1: 申告は変えず・チャートは 4 時間足 → 日足（判定に使用）', () => {
+describe('時間足を変えたかの表示（あなたの答えとチャートを並べ、判定に使った方に印）', () => {
+  it('D1: 申告はそのまま・チャートは 4 時間足 → 日足（判定に使用）', () => {
     expect(timeframeChangeText(D1, summarize(D1).judgment)).toBe(
-      '変えず（申告） / 4 時間足 → 日足（チャートから・判定に使用）',
+      'そのまま（あなたの答え） / 4 時間足 → 日足（チャートから・判定に使用）',
     );
     const f = Object.fromEntries(
       recordFields(D1, 'US30', summarize(D1).judgment).map((r) => [r.label, r.value]),
     );
-    expect(f.時間足を変えたか).toBe('変えず（申告） / 4 時間足 → 日足（チャートから・判定に使用）');
+    expect(f.時間足を変えたか).toBe(
+      'そのまま（あなたの答え） / 4 時間足 → 日足（チャートから・判定に使用）',
+    );
   });
 
   it('申告が「長い足へ」なら申告を判定に使う（チャートより先。judge.ts）', () => {
@@ -296,22 +298,32 @@ describe('時間足を変えたかの表示（申告とチャートを並べ、�
       { charts: D1.charts ?? {} },
     );
     expect(timeframeChangeText(t, summarize(t).judgment)).toBe(
-      '長い足へ（申告・判定に使用） / 4 時間足 → 日足（チャートから）',
+      '長い足へ（あなたの答え・判定に使用） / 4 時間足 → 日足（チャートから）',
     );
   });
 
   it('チャートが 2 枚そろっていなければ申告だけ（D2・E2）', () => {
-    expect(timeframeChangeText(D2, summarize(D2).judgment)).toBe('変えず');
-    expect(timeframeChangeText(E2, summarize(E2).judgment)).toBe('変えず');
+    expect(timeframeChangeText(D2, summarize(D2).judgment)).toBe('そのまま');
+    expect(timeframeChangeText(E2, summarize(E2).judgment)).toBe('そのまま');
   });
 });
 
-describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）', () => {
+describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7）', () => {
   it('D1: 決めていた / 下げた（99.2）（外れ）/ 時間足はチャートから判定に効いたので外れ', () => {
     expect(tapAnswers(D1, summarize(D1).judgment)).toEqual([
-      { label: 'LC を入る前に', value: '決めていた', offPlan: false, term: 'lcDecided' },
-      { label: 'LC', value: '下げた（99.2）', offPlan: true, term: 'lcMove' },
-      { label: '時間足', value: '4 時間足 → 日足', offPlan: true, term: 'timeframeChange' },
+      {
+        label: 'LC を入る前に決めていたか',
+        value: '決めていた',
+        offPlan: false,
+        term: 'lcDecided',
+      },
+      { label: 'LC を動かしたか', value: '下げた（99.2）', offPlan: true, term: 'lcMove' },
+      {
+        label: '時間足を変えたか',
+        value: '4 時間足 → 日足',
+        offPlan: true,
+        term: 'timeframeChange',
+      },
     ]);
   });
 
@@ -330,13 +342,18 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
       timeframeChange: 'longer',
     });
     expect(tapAnswers(t, summarize(t).judgment)).toEqual([
-      { label: 'LC を入る前に', value: '決めていない', offPlan: true, term: 'lcDecided' },
-      { label: 'LC', value: '詰めた', offPlan: false, term: 'lcMove' },
-      { label: '時間足', value: '長い足へ', offPlan: true, term: 'timeframeChange' },
+      {
+        label: 'LC を入る前に決めていたか',
+        value: '決めていない',
+        offPlan: true,
+        term: 'lcDecided',
+      },
+      { label: 'LC を動かしたか', value: '詰めた', offPlan: false, term: 'lcMove' },
+      { label: '時間足を変えたか', value: '長い足へ', offPlan: true, term: 'timeframeChange' },
     ]);
     const u = stored('tap2', { timeframeChange: 'shorter' });
     expect(tapAnswers(u, summarize(u).judgment).at(-1)).toEqual({
-      label: '時間足',
+      label: '時間足を変えたか',
       value: '短い足へ',
       offPlan: false,
       term: 'timeframeChange',
@@ -352,7 +369,7 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
       exit: { ...L1.record.exit, price: 150.8 },
     });
     expect(tapAnswers(t)[1]).toEqual({
-      label: 'LC',
+      label: 'LC を動かしたか',
       value: '上げた',
       offPlan: true,
       term: 'lcMove',
@@ -360,7 +377,9 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
   });
 
   it('L3（LC なし）: 時間足だけ（C37）', () => {
-    expect(tapAnswers(L3, summarize(L3).judgment).map((a) => a.label)).toEqual(['時間足']);
+    expect(tapAnswers(L3, summarize(L3).judgment).map((a) => a.label)).toEqual([
+      '時間足を変えたか',
+    ]);
   });
 
   it('LC の答えは「すべての欄」の同じ答えと同じ文言、時間足はチャートから効かなければ答えのまま', () => {
@@ -369,15 +388,15 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
       const f = Object.fromEntries(recordFields(t, 'US30', j).map((r) => [r.label, r.value]));
       const a = Object.fromEntries(tapAnswers(t, j).map((x) => [x.label, x.value]));
       if (t.record.lc !== undefined) {
-        expect(a.LC).toBe(f['LC を動かしたか']);
-        expect(a['LC を入る前に']).toBe(f['LC を入る前に決めていたか']);
+        expect(a['LC を動かしたか']).toBe(f['LC を動かしたか']);
+        expect(a['LC を入る前に決めていたか']).toBe(f['LC を入る前に決めていたか']);
       }
     }
-    expect(tapAnswers(L1, summarize(L1).judgment).at(-1)?.value).toBe('変えず');
+    expect(tapAnswers(L1, summarize(L1).judgment).at(-1)?.value).toBe('そのまま');
   });
 
   it('timeframeNote: あなたの答えとチャートが食い違うときだけ 1 行（D1）。そろう・チャートが足りないときは null', () => {
-    expect(timeframeNote(D1)).toBe('あなたの答えは「変えず」、チャートは 4 時間足 → 日足');
+    expect(timeframeNote(D1)).toBe('あなたの答え: そのまま ／ チャート: 4 時間足 → 日足');
     const agree = stored(
       'tfa',
       { ...D1.record, timeframeChange: 'longer' },
@@ -389,9 +408,7 @@ describe('tapAnswers（詳細の 3 つのタップの答え。Issue #34 AC-7）'
       { ...D1.record, timeframeChange: 'longer', exitChartTimeframe: '4h' },
       { charts: D1.charts ?? {} },
     );
-    expect(timeframeNote(denied)).toBe(
-      'あなたの答えは「長い足へ」、チャートは 4 時間足 → 4 時間足',
-    );
+    expect(timeframeNote(denied)).toBe('あなたの答え: 長い足へ ／ チャート: 4 時間足 → 4 時間足');
     expect(timeframeNote(D2)).toBeNull();
     expect(timeframeNote(E2)).toBeNull();
   });
@@ -412,7 +429,7 @@ describe('recordFields の通貨と為替（#47 PR-2・U32・D2・D3・AC-20）'
   // 場面 P（L・イン 100.00・LC 99.50・決済 99.50・数量 100）
   const P = { entries: [{ price: 100, quantity: 100 }] } as const;
 
-  it('D2: F1（口座 A・JPY・USD 建て・為替 150）→ 建ての通貨「USD」・為替「1 USD = 150円」・1R「7,500円」', () => {
+  it('D2: F1（口座 A・JPY・USD 建て・為替 150）→ 価格の通貨「USD」・為替「1 USD = 150円」・1R「7,500円」', () => {
     const { statementPnlYen: _s, ...rec } = L1.record;
     const t: StoredTrade = {
       ...L1,
@@ -424,13 +441,13 @@ describe('recordFields の通貨と為替（#47 PR-2・U32・D2・D3・AC-20）'
       account('accD', '口座 D', 10_000, 1, { currency: 'USD' }),
     ]);
     expect(f.口座).toBe('口座 A');
-    expect(f.建ての通貨).toBe('USD');
+    expect(f.価格の通貨).toBe('USD');
     expect(f.為替).toBe('1 USD = 150円');
     expect(f['1R']).toBe('7,500円');
     expect(f['口座の資金（記録したとき）']).toBe('1,000,000円');
   });
 
-  it('D3: F9（口座 D・USD・USD 建て）→ 建ての通貨・為替の行なし・1R「50.00 USD」・金額は USD', () => {
+  it('D3: F9（口座 D・USD・USD 建て）→ 価格の通貨・為替の行なし・1R「50.00 USD」・金額は USD', () => {
     const t: StoredTrade = {
       ...L1,
       snapshot: snap('USD', 10_000, 'USD'),
@@ -444,7 +461,7 @@ describe('recordFields の通貨と為替（#47 PR-2・U32・D2・D3・AC-20）'
     };
     const f = fields(t, [account('accD', '口座 D', 10_000, 1, { currency: 'USD' })]);
     expect(f.口座).toBe('口座 D');
-    expect('建ての通貨' in f).toBe(false);
+    expect('価格の通貨' in f).toBe(false);
     expect('為替' in f).toBe(false);
     // 1R は明細の損益から（C32）: (51.5 − 1.5) × 0.50 ÷ 0.50 = 50
     expect(f['1R']).toBe('50.00 USD');
@@ -471,15 +488,15 @@ describe('recordFields の通貨と為替（#47 PR-2・U32・D2・D3・AC-20）'
     expect('為替' in plain).toBe(false);
     expect('1R' in plain).toBe(false);
     const none = fields({ ...base, snapshot: snap('JPY', 1_000_000, null) });
-    expect('建ての通貨' in none).toBe(false);
+    expect('価格の通貨' in none).toBe(false);
     expect('為替' in none).toBe(false);
     const noneUsd = fields({ ...base, snapshot: snap('USD', 10_000, null) });
-    expect(noneUsd.建ての通貨).toBe('未設定');
+    expect(noneUsd.価格の通貨).toBe('未設定');
   });
 
-  it('移す前の取引（口座の通貨なし）・円建て: 建ての通貨・為替の行は無く、金額は今の表記', () => {
+  it('移す前の取引（口座の通貨なし）・円建て: 価格の通貨・為替の行は無く、金額は今の表記', () => {
     const f = fields({ ...L1, snapshot: snap(undefined, 1_000_000, 'JPY') });
-    expect('建ての通貨' in f).toBe(false);
+    expect('価格の通貨' in f).toBe(false);
     expect('為替' in f).toBe(false);
     expect(f['損益（明細の値）']).toBe(`${MINUS}5,000円`);
     expect(f['1R']).toBe('5,000円');

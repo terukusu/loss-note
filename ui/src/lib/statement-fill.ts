@@ -164,8 +164,8 @@ export type Marks = Readonly<Partial<Record<DraftField, FieldMark>>>;
 export const MARK_LABEL: Readonly<Record<FieldMark, string>> = {
   read: '読み取り',
   unread: '読み取れませんでした',
-  edited: '直した',
-  tz: '時間帯が明細にありません',
+  edited: '修正済み',
+  tz: 'タイムゾーンが明細にありません',
   statement: '明細から',
   auto: '自動で選択',
 };
@@ -368,8 +368,8 @@ export function needsTzCheck(marks: Marks): boolean {
 
 export const READING_NOTICE = '明細を読み取っています';
 export const TZ_MISSING = {
-  exitTime: '決済の時刻（時間帯の確かめ）',
-  entryTime: '建てた時刻（時間帯の確かめ）',
+  exitTime: '決済の時刻（タイムゾーンの確認）',
+  entryTime: 'エントリーの時刻（タイムゾーンの確認）',
 } as const;
 
 /** 保存の門: 読み取り中・時間帯を確かめていない間は保存できない（理由を文で足す）。ほかは入力と同じ */
@@ -390,13 +390,13 @@ export function gateReading(
 // ── 失敗の文言（決まった文言だけ。応答の本文・例外の文字列を持たない） ──
 
 export const READ_MSG = {
-  notStatement: '決済明細として読めませんでした。別の画像を貼るか、手で入れてください。',
-  rejected: 'この画像は読み取れません。別の画像を貼るか、手で入れてください。',
-  unavailable: '今は読み取りを使えません。手で入れてください。',
-  failed: '読み取れませんでした。もう一度貼るか、手で入れてください。',
+  notStatement: '決済明細として読めませんでした。別の画像を貼り付けるか、手入力してください。',
+  rejected: 'この画像は読み取れません。別の画像を貼り付けるか、手入力してください。',
+  unavailable: '今は読み取りを使えません。手入力してください。',
+  failed: '読み取れませんでした。もう一度貼り付けるか、手入力してください。',
   // 1 日の上限（429 read_limited。#44）。回数と費用のどちらで止まったかは出さない
-  limited: '今日の読み取りの上限に達しました。手で入れてください。',
-  notImage: '画像を読み込めませんでした。PNG か JPEG のスクショを貼ってください。',
+  limited: '今日の読み取りの上限に達しました。手入力してください。',
+  notImage: '画像を読み込めませんでした。PNG か JPEG のスクショを貼り付けてください。',
 } as const;
 
 export type ReadFailure = 'rejected' | 'unavailable' | 'limited' | 'auth' | 'failed';

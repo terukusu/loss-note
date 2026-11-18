@@ -29,27 +29,27 @@ export const OVER_RISK_PCT = 2;
 const UNDERLYING_MAX = 40;
 
 export const SETTINGS_MSG = {
-  capitalNotNumber: '数を入れてください（例: 1,000,000）',
-  capitalNotPositive: '0 より大きい数を入れてください',
-  capitalNotInteger: '円の整数で入れてください',
+  capitalNotNumber: '数値を入力してください（例: 1,000,000）',
+  capitalNotPositive: '0 より大きい数値を入力してください',
+  capitalNotInteger: '円の整数で入力してください',
   /** 外貨の口座の資金（#47 PR-2） */
   capitalTooManyDecimals: '小数 2 桁までで入力してください',
-  capitalRequired: '資金を入れてください（未設定には戻せません）',
+  capitalRequired: '資金を入力してください（未設定には戻せません）',
   tooLarge: MSG.tooLarge,
-  risk: `${RISK_MIN} から ${RISK_MAX} までの数を入れてください`,
+  risk: `${RISK_MIN} から ${RISK_MAX} までの数値を入力してください`,
   riskWarning: `${OVER_RISK_PCT}% を超えています。このリスクで負けると、判定は B（過剰リスク）になります`,
-  nameRequired: '名前を入れてください',
+  nameRequired: '名前を入力してください',
   nameInvalid: MSG.nameInvalid,
   duplicateName: '同じ名前の銘柄があります',
-  underlyingInvalid: `${UNDERLYING_MAX} 字までで、制御文字を含めないでください`,
-  currency: '英字 3 文字で入れてください（例: USD）',
-  notNumber: '数を入れてください',
+  underlyingInvalid: `${UNDERLYING_MAX} 字以内で入力してください（改行・タブは使えません）`,
+  currency: '通貨コード（英字 3 文字。例: USD）を入力してください',
+  notNumber: '数値を入力してください',
   notPositive: MSG.notPositive,
 } as const;
 
 /** 直したときの効き方（R6・C36。口座・銘柄の両方に出す） */
 export const EFFECT_NOTE =
-  '編集すると、これから記録する取引に効きます。記録済みの取引は変わりません';
+  '編集すると、これから記録する取引に反映されます。記録済みの取引は変わりません';
 
 export type ReadResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -135,7 +135,7 @@ export function allowanceText(
 ): string | null {
   if (capitalYen === null) return null;
   const v = allowanceIn(capitalYen, riskPct, currency);
-  return `これから記録する取引にリスク（%）が出ます。許容リスク ${formatPlain(riskPct)}% なら、1 回の負けは ${formatAmount(v, currency)} までです`;
+  return `これから記録する取引にリスク（%）が表示されます。許容リスク ${formatPlain(riskPct)}% なら、1 回の負けは ${formatAmount(v, currency)} までです`;
 }
 
 export type HistoryRow = CapitalHistoryEntry;
@@ -191,7 +191,7 @@ export const INSTRUMENT_FIELD_LABEL: Readonly<Record<InstrumentField, string>> =
   name: '名前',
   underlying: '原資産',
   underlyingKind: '原資産の種類',
-  productForm: '商品の形',
+  productForm: '取引の形態',
   priceCurrency: '価格の通貨',
   multiplier: '乗数',
   quantityStep: '数量の刻み',
@@ -328,7 +328,10 @@ export function instrumentSummary(rec: InstrumentRecord): string {
   ].join(' · ');
 }
 
-/** 自動で足したままの既定の値か（読み取り・手入力で名前だけで足された「仮の値」の銘柄。C21） */
+/** 名前だけで自動で追加したままの銘柄の印（画面の言葉。内部の呼び名は「仮の値」。C21） */
+export const PROVISIONAL_MARK = '初期値のまま';
+
+/** 自動で追加したままの初期値か（読み取り・手入力で名前だけで追加された「仮の値」の銘柄。C21） */
 export function isProvisional(rec: InstrumentRecord): boolean {
   const d = DEFAULT_INSTRUMENT;
   return (

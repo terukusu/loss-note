@@ -130,11 +130,11 @@ export type { ApiFn, FailureKind };
 export { AUTH_EXPIRED, REQUEST_TIMEOUT_MS };
 
 export const LOAD_FAILED =
-  '記録の準備ができませんでした。通信を確かめて、もう一度読み込んでください。';
+  '記録の準備ができませんでした。通信状況を確認して、再読み込みしてください。';
 export const SAVE_FAILED =
-  '保存できませんでした。入力はそのまま残っています。もう一度 [記録する] を押してください。';
+  '保存できませんでした。入力内容は残っています。もう一度 [記録する] を押してください。';
 export const NETWORK_FAILED =
-  'つながりません。入力はそのまま残っています。もう一度 [記録する] を押してください（届いていた記録は二重に保存しません）。';
+  '通信できませんでした。入力内容は残っています。もう一度 [記録する] を押してください（二重には保存されません）。';
 
 /** 読み取りの要求の時間の上限（API の締め切り 20 秒 + 後始末 約 5 秒 + 余裕。R3） */
 export const READ_TIMEOUT_MS = 30_000;
@@ -143,26 +143,26 @@ export const READ_PATH = '/api/statement-reads';
 export const READ_PREPARE_PATH = '/api/statement-reads/prepare';
 /** 準備の要求の時間の上限（API が待つ上限 20 秒 + 余裕） */
 export const READ_PREPARE_TIMEOUT_MS = 25_000;
-export const ROWS_DONE = '明細の行を最後まで見ました';
+export const ROWS_DONE = '明細のすべての行を確認しました';
 export const rowSaved = (index: number, total: number) =>
   `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;
 export const rowSkipped = (index: number, total: number) =>
-  `${rowLabel(index, total)}を飛ばしました。次の行（${index + 2} / ${total}）です`;
+  `${rowLabel(index, total)}をスキップしました。次の行（${index + 2} / ${total}）です`;
 /** チャートつきの保存の時間の上限（画像 2 枚で約 1 MB を送る） */
 export const CHART_SAVE_TIMEOUT_MS = 30_000;
 export type { ChartPhase, ChartState, ChartsState };
 export { CHART_MSG, CHART_PREPARING, EXTRA_FULL };
 /** 前の保存が届いたか分からない間は枠を変えない（次の [記録する] は届いた取引を探すので、変えた枠が送られない） */
 export const CHART_LOCKED =
-  '前の [記録する] が届いたか確かめるまで、チャートは変えられません。先に [記録する] をもう一度押してください。';
+  '前回の記録が保存されたか確認できていません。チャートを変更する前に、もう一度 [記録する] を押してください。';
 /** その場で足す口座の失敗（足す欄の中の知らせ。欄の値は残る。U8） */
 export const ACCOUNT_ADD_FAILED = '口座を追加できませんでした。もう一度 [追加] を押してください。';
 export const ACCOUNT_ADD_NETWORK_FAILED =
   '通信できませんでした。もう一度 [追加] を押してください（二重には追加されません）。';
 export { ACCOUNT_ADDING };
 export const READ_BLOCKED = {
-  notReady: '記録の準備ができてから、もう一度貼ってください。',
-  saving: '記録しています。終わってから、もう一度貼ってください。',
+  notReady: '記録の準備ができてから、もう一度貼り付けてください。',
+  saving: '記録しています。終わってから、もう一度貼り付けてください。',
 } as const;
 
 export type RecordPhase = 'loading' | 'loadFailed' | 'editing' | 'saving' | 'saved';

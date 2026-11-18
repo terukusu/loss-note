@@ -139,8 +139,10 @@ describe('名前・文言', () => {
     expect(savedText(1, '口座 1')).toBe('記録しました');
   });
   it('U19: 直す画面で口座を替えたときの 1 行（元へ戻すと消える）', () => {
-    expect(switchHint(B, true)).toBe('口座 B の今の資金 200,000円 で計算し直します');
-    expect(switchHint(C, true)).toBe('口座 C は資金が未設定です。リスク（%）は出なくなります');
+    expect(switchHint(B, true)).toBe('口座 B の今の資金 200,000円 で再計算します');
+    expect(switchHint(C, true)).toBe(
+      '口座 C は資金が未設定です。リスク（%）は表示されなくなります',
+    );
     expect(switchHint(B, false)).toBeNull();
     expect(switchHint(undefined, true)).toBeNull();
   });
@@ -148,7 +150,7 @@ describe('名前・文言', () => {
     expect(accountLine(A)).toBe('1,000,000円 · 許容 1%');
     expect(accountAllowanceLine(A)).toBe('1 回の負けは 10,000円 まで');
     expect(accountLine(C)).toBe('資金 未設定 · 許容 1%');
-    expect(accountAllowanceLine(C)).toBe('資金を入れるとリスク（%）が出ます');
+    expect(accountAllowanceLine(C)).toBe('資金を入力するとリスク（%）が表示されます');
     expect(accountLine({ capitalYen: 1_000_000, riskTolerancePct: 1.5 })).toBe(
       '1,000,000円 · 許容 1.5%',
     );

@@ -22,7 +22,7 @@ const TABLE: ReadonlyArray<readonly [ReasonKind, Reason, 'L' | 'S', string]> = [
     'riskNotChecked',
     { kind: 'riskNotChecked', cause: 'noCapital' },
     'L',
-    '資金が未設定なので過剰リスクは見ていない',
+    '資金が未設定のため、過剰リスクは判定していません',
   ],
 ];
 
@@ -49,7 +49,7 @@ describe('reasonText（AC-4）', () => {
 
   it('1R が出ないときの注記', () => {
     expect(reasonText({ kind: 'riskNotChecked', cause: 'noOneR' }, 'L')).toBe(
-      '1R が出ないので過剰リスクは見ていない',
+      '1R が出ないため、過剰リスクは判定していません',
     );
   });
 

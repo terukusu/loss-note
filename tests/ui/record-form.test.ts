@@ -79,7 +79,7 @@ describe('例の表（AC-1・AC-3）', () => {
     expect(r.preview.judgment?.grade).toBe('B');
     expect(texts(r)).toEqual([
       'LC を下げた（99.5 → 99.2）',
-      '資金が未設定なので過剰リスクは見ていない',
+      '資金が未設定のため、過剰リスクは判定していません',
     ]);
     expect(formatR(r.preview.r)).toBe(`${MINUS}1.6R`);
     expect(r.preview.riskNote).toBe(RISK_NOTE.noCapital);
@@ -189,7 +189,7 @@ describe('例の表（AC-1・AC-3）', () => {
     expect(formatR(r.preview.r)).toBe(`${MINUS}1.0R`);
     expect(r.preview.riskPct).toBeUndefined();
     expect(r.preview.riskNote).toBe(RISK_NOTE.noOneR);
-    expect(texts(r)).toContain('1R が出ないので過剰リスクは見ていない');
+    expect(texts(r)).toContain('1R が出ないため、過剰リスクは判定していません');
     expectSameAsCore(r, direct({}, 99.5, CAPITAL_1M));
   });
 
@@ -209,7 +209,10 @@ describe('例の表（AC-1・AC-3）', () => {
     const r = readDraft(E16, NO_CAPITAL);
     expect(r.canSave).toBe(true);
     expect(r.preview.judgment?.grade).toBe('C');
-    expect(texts(r)).toEqual(['LC を決めずに入った', '資金が未設定なので過剰リスクは見ていない']);
+    expect(texts(r)).toEqual([
+      'LC を決めずに入った',
+      '資金が未設定のため、過剰リスクは判定していません',
+    ]);
     expect(r.preview.r).toBeUndefined();
     expect(r.preview.noLc).toBe(true);
     expect(r.preview.riskNote).toBe(RISK_NOTE.noLc);
@@ -219,9 +222,9 @@ describe('例の表（AC-1・AC-3）', () => {
     expect(r.body?.lcMove).toEqual({ kind: 'none' });
   });
 
-  it('E16: 資金があっても LC なしは「1R が出ないので過剰リスクは見ていない」とリスクの場所の「LC が無いので表示されません」', () => {
+  it('E16: 資金があっても LC なしは「1R が出ないため、過剰リスクは判定していません」とリスクの場所の「LC が無いため表示されません」', () => {
     const r = readDraft(E16, CAPITAL_1M);
-    expect(texts(r)).toContain('1R が出ないので過剰リスクは見ていない');
+    expect(texts(r)).toContain('1R が出ないため、過剰リスクは判定していません');
     expect(r.preview.riskNote).toBe(RISK_NOTE.noLc);
   });
 
@@ -258,7 +261,7 @@ describe('必須の欄（AC-2・E10・E18）', () => {
   ];
 
   it.each(required)(
-    '「%s」が欠ければ判定なし・保存できない・足りない欄にその名前',
+    '「%s」が欠ければ判定なし・保存できない・未入力の欄にその名前',
     (label, gap) => {
       const r = readDraft(applyDraft(E2, { type: 'fill', values: gap }), CAPITAL_1M);
       expect(r.canSave).toBe(false);
@@ -268,7 +271,7 @@ describe('必須の欄（AC-2・E10・E18）', () => {
     },
   );
 
-  it('必須だけを入れて任意を空のまま保存できる（崩れの条件・建てた時刻・損益・手数料なし）', () => {
+  it('必須だけを入れて任意を空のまま保存できる（崩れの条件・エントリーの時刻・損益・手数料なし）', () => {
     const r = readDraft(E7, NO_CAPITAL);
     expect(r.canSave).toBe(true);
     const b = r.body as NonNullable<DraftReading['body']>;
@@ -326,7 +329,7 @@ describe('必須の欄（AC-2・E10・E18）', () => {
     expect(r.missing).toEqual([MISSING_LABEL.lc]);
   });
 
-  it('LC なしのときは決めていたか・動かしたかを足りない欄に数えない', () => {
+  it('LC なしのときは決めていたか・動かしたかを未入力の欄に数えない', () => {
     const r = readDraft(
       applyDraft(E16, { type: 'set', field: 'timeframeChange', value: null }),
       NO_CAPITAL,
@@ -359,7 +362,7 @@ describe('入力の誤り（AC-7・E8・E9）', () => {
     ['手数料が負', { feeYen: '-1' }, 'feeYen', MSG.notNonNegative],
     ['大きすぎる損益', { pnlYen: '10000000000000' }, 'pnlYen', MSG.tooLarge],
     [
-      '建てた時刻が決済の時刻より後',
+      'エントリーの時刻が決済の時刻より後',
       { entryTime: '2026-03-04T10:01' },
       'entryTime',
       MSG.entryAfterExit,
@@ -385,7 +388,7 @@ describe('入力の誤り（AC-7・E8・E9）', () => {
     expect(r.preview.r).toBeUndefined();
   });
 
-  it('建てた時刻 = 決済の時刻は受ける。前なら本文のエントリーに時刻', () => {
+  it('エントリーの時刻 = 決済の時刻は受ける。前なら本文のエントリーに時刻', () => {
     const same = readDraft(
       applyDraft(E2, { type: 'set', field: 'entryTime', value: '2026-03-04T10:00' }),
       CAPITAL_1M,
@@ -490,7 +493,7 @@ describe('銘柄の照合', () => {
 });
 
 describe('性質（種つき乱数の下書き。契約 R-1）', () => {
-  it('canSave ⇔ body あり ⇔ 足りない欄なし・誤りなし。body を保存の形にして計算すると preview と同じ', () => {
+  it('canSave ⇔ body あり ⇔ 未入力の欄なし・誤りなし。body を保存の形にして計算すると preview と同じ', () => {
     forAll(
       1303,
       600,

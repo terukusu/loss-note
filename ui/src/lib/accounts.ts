@@ -28,7 +28,7 @@ import {
 } from './settings-form';
 
 export const ACCOUNT_MSG = {
-  nameRequired: '名前を入れてください',
+  nameRequired: '名前を入力してください',
   nameInvalid: SETTINGS_MSG.nameInvalid,
   duplicateName: '同じ名前の口座があります',
 } as const;
@@ -38,7 +38,8 @@ export const UNKNOWN_ACCOUNT = '口座が見つかりません';
 /** 送っている間の帯の文（U9） */
 export const ACCOUNT_ADDING = '口座を追加しています';
 /** 記録する画面の足す欄の資金の説明（3.2） */
-export const NEW_ACCOUNT_CAPITAL_HINT = '空でも足せます。資金を入れるとリスク（%）が出ます';
+export const NEW_ACCOUNT_CAPITAL_HINT =
+  '資金は空欄でも追加できます。入力するとリスク（%）が表示されます';
 
 /** 一覧の並び（API の account_sort_key と同じ: 名前の同一視の鍵 → 名前 → ID）。入力は変えない */
 export function sortAccounts(list: readonly AccountRecord[]): AccountRecord[] {
@@ -166,9 +167,9 @@ export function savedText(count: number, name: string): string {
 export function switchHint(account: AccountRecord | undefined, changed: boolean): string | null {
   if (!changed || !account) return null;
   if (account.capitalYen === null) {
-    return `${account.name} は資金が未設定です。リスク（%）は出なくなります`;
+    return `${account.name} は資金が未設定です。リスク（%）は表示されなくなります`;
   }
-  return `${account.name} の今の資金 ${formatAmount(account.capitalYen, currencyOfAccount(account))} で計算し直します`;
+  return `${account.name} の今の資金 ${formatAmount(account.capitalYen, currencyOfAccount(account))} で再計算します`;
 }
 
 /**
@@ -191,7 +192,7 @@ export function accountLine(
 export function accountAllowanceLine(
   a: Pick<AccountRecord, 'capitalYen' | 'riskTolerancePct'> & { readonly currency?: string },
 ): string {
-  if (a.capitalYen === null) return '資金を入れるとリスク（%）が出ます';
+  if (a.capitalYen === null) return '資金を入力するとリスク（%）が表示されます';
   const c = currencyOfAccount(a);
   return `1 回の負けは ${formatAmount(allowanceIn(a.capitalYen, a.riskTolerancePct, c), c)} まで`;
 }

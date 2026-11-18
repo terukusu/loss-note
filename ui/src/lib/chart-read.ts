@@ -25,7 +25,7 @@ export const CHART_READ_MSG = {
   /** 時間足の読み取り中の帯の文（読み取りを待たずに記録できる。幅 360px でボタンと並べて 1 行。読み取り中は枠に出す） */
   reading: '待たずに記録できます',
   noTimeframe: '時間足を読み取れませんでした。必要なら選んでください。',
-  notChart: 'チャートと読めませんでした。決済明細なら、枠の外に貼ってください。',
+  notChart: 'チャートとして読み取れませんでした。決済明細なら、この欄の外に貼り付けてください。',
   failed: '時間足を読み取れませんでした。必要なら選んでください。',
   unavailable: '今は時間足の読み取りを使えません。必要なら選んでください。',
   limited: '今日の読み取りの上限に達しました。時間足は必要なら選んでください。',
@@ -110,7 +110,7 @@ export function suggestButton(tf: Timeframe): string {
 }
 
 const TAP_LABEL: Readonly<Record<Exclude<TimeframeChange, 'longer'>, string>> = {
-  none: '変えず',
+  none: 'そのまま',
   shorter: '短い足へ',
 };
 

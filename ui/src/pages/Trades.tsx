@@ -240,7 +240,7 @@ function MoreState(p: TradesViewProps) {
           {state.moreError}
         </p>
         <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-          ログインし直す
+          もう一度ログイン
         </Button>
       </div>
     );
@@ -271,9 +271,7 @@ function MoreState(p: TradesViewProps) {
           if (!loading) onMore();
         }}
       >
-        <span>
-          {loading ? '続きを読み込み中…' : failed ? 'もう一度読み込む' : '続きを読み込む'}
-        </span>
+        <span>{loading ? '続きを読み込み中…' : failed ? '再読み込み' : '続きを読み込む'}</span>
       </button>
     </div>
   );
@@ -298,11 +296,11 @@ export function LoadState(p: {
         <div>
           {p.state.errorKind === 'auth' ? (
             <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-              ログインし直す
+              もう一度ログイン
             </Button>
           ) : (
             <Button variant="secondary" onClick={p.onReload}>
-              もう一度読み込む
+              再読み込み
             </Button>
           )}
         </div>

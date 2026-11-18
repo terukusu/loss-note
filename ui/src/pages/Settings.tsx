@@ -56,6 +56,7 @@ import {
   isProvisional,
   PRODUCT_FORM_LABEL,
   PRODUCT_FORMS,
+  PROVISIONAL_MARK,
   UNDERLYING_KIND_LABEL,
   UNDERLYING_KINDS,
 } from '../lib/settings-form';
@@ -74,17 +75,17 @@ export function Settings({ theme, onTheme, onSignOut, signOutBusy, signOutError 
     <>
       <PageHeader
         title="設定"
-        description="口座の資金と許容リスクは、記録を始める前に一度だけ。ここで決めた値は、これから記録する取引に写して使います。"
+        description="口座の資金と許容リスクは、記録を始める前に一度入力してください。記録のたびにその時点の値を取引に保存するので、後で変えても記録済みの取引は変わりません。"
       />
       <SettingsScreen />
       {/* AI の利用状況（#62）。独立した部品（読めなくてもほかのカードを止めない） */}
       <AiUsageCard />
-      {/* 用語集（#76）。判定に効く言葉の説明の一覧 */}
+      {/* 用語集（#76）。判定に関わる言葉の説明の一覧 */}
       <section class="card section" aria-labelledby="settings-glossary-title">
         <h2 class="section__title" id="settings-glossary-title">
           用語集
         </h2>
-        <p class="field__hint">LC・R・判定など、判定に効く言葉の意味です。</p>
+        <p class="field__hint">LC・R・判定など、判定に関わる言葉の意味です。</p>
         <div>
           <Link class="btn btn--secondary" href="/glossary">
             用語集を開く
@@ -102,7 +103,7 @@ export function Settings({ theme, onTheme, onSignOut, signOutBusy, signOutError 
             { value: 'light', label: 'ライト', icon: 'sun' },
           ]}
         />
-        <p class="field__hint">この端末に記憶します。</p>
+        <p class="field__hint">この端末に保存されます。</p>
       </section>
       <section class="card section">
         <h2 class="section__title">アカウント</h2>
@@ -223,7 +224,7 @@ export interface SettingsViewProps {
   readonly onNewName: (value: string) => void;
   readonly onAdd: () => void;
   readonly onReload: () => void;
-  /** ログインが切れたとき: ログインし直す */
+  /** ログインが切れたとき: もう一度ログイン */
   readonly onRelogin: () => void;
 }
 
@@ -245,11 +246,11 @@ export function SettingsView(p: SettingsViewProps) {
         <div>
           {state.errorKind === 'auth' ? (
             <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-              ログインし直す
+              もう一度ログイン
             </Button>
           ) : (
             <Button variant="secondary" onClick={p.onReload}>
-              もう一度読み込む
+              再読み込み
             </Button>
           )}
         </div>
@@ -264,7 +265,7 @@ export function SettingsView(p: SettingsViewProps) {
   );
 }
 
-/** 知らせ（成功は role="status"、失敗は role="alert" + ログインが切れたら [ログインし直す]） */
+/** 知らせ（成功は role="status"、失敗は role="alert" + ログインが切れたら [もう一度ログイン]） */
 function Notice({ notice, onRelogin }: { notice: SettingsNotice; onRelogin: () => void }) {
   if (notice.kind === 'ok') {
     return (
@@ -278,7 +279,7 @@ function Notice({ notice, onRelogin }: { notice: SettingsNotice; onRelogin: () =
       <p>{notice.text}</p>
       {notice.auth ? (
         <Button variant="secondary" icon="logout" onClick={onRelogin}>
-          ログインし直す
+          もう一度ログイン
         </Button>
       ) : null}
     </div>
@@ -292,7 +293,7 @@ function AccountsCard(p: SettingsViewProps) {
   const ed = state.account;
   const adding = ed !== null && ed.id === null;
   // 直す・足す欄を開いている間の知らせは、枠の先頭（一覧の上。足す欄からは遠く、360px では見えない）でなく、
-  // 欄の [保存] / [足す] のすぐ上に出す（Phase 4b 指摘 4）
+  // 欄の [保存] / [追加] のすぐ上に出す（Phase 4b 指摘 4）
   const topNotice = ed === null ? notice : null;
   const editorNotice = ed !== null ? notice : null;
   return (
@@ -328,7 +329,7 @@ function AccountsCard(p: SettingsViewProps) {
           disabled={ed?.saving === true}
           onClick={() => p.onOpenAccount(null)}
         >
-          <span>＋ 口座を足す</span>
+          <span>＋ 口座を追加</span>
         </button>
       )}
     </section>
@@ -391,7 +392,7 @@ function AccountEditor(
     ? allowanceText(body.capitalYen, body.riskTolerancePct, body.currency ?? currency)
     : null;
   const history = rec ? historyRows(rec.capitalHistory) : [];
-  const title = rec ? `${rec.name} を編集` : '口座を足す';
+  const title = rec ? `${rec.name} を編集` : '口座を追加';
   return (
     <form
       class="instedit"
@@ -409,7 +410,7 @@ function AccountEditor(
       }}
     >
       <fieldset class="instedit__fields accountedit__fields" disabled={editing.saving}>
-        <legend class="sr-only">{rec ? `${rec.name} の値` : '足す口座の値'}</legend>
+        <legend class="sr-only">{rec ? `${rec.name} の値` : '追加する口座の値'}</legend>
         <TextField
           id={ACCOUNT_FIELD_ID.name}
           label="名前"
@@ -442,8 +443,8 @@ function AccountEditor(
           placeholder={currency === 'JPY' ? '例: 1,000,000' : '例: 10,000.00'}
           hint={
             currency === 'JPY'
-              ? '円の整数。全角の数字・3 桁区切りのカンマも受けます。'
-              : '小数 2 桁まで。全角の数字・3 桁区切りのカンマも受けます。'
+              ? '円の整数で入力します（全角の数字・カンマ区切りも使えます）。'
+              : '小数 2 桁まで入力できます（全角の数字・カンマ区切りも使えます）。'
           }
           {...(e.capital ? { error: e.capital } : {})}
         />
@@ -453,7 +454,7 @@ function AccountEditor(
           unit="%"
           value={d.risk}
           onInput={(v) => p.onAccount('risk', v)}
-          hint="1 回の取引で、資金の何 % まで負けてよいか。0.5〜3（既定 1）。"
+          hint="1 回の取引で、資金の何 % まで負けてよいか。0.5〜3（初期値 1）。"
           {...(e.risk ? { error: e.risk } : {})}
         />
       </fieldset>
@@ -467,14 +468,14 @@ function AccountEditor(
           <AmountText text={allowance} />
         </p>
       ) : null}
-      {/* 欄ごとの誤りが出ているときは要約を出さない（欄の下の文言だけ。記録する画面の足す欄と同じ。再レビュー 4）。
-          欄に結べない知らせ（通信の失敗・見つからない）だけを [保存] / [足す] のすぐ上に出す */}
+      {/* 欄ごとの誤りが出ているときは要約を出さない（欄の下の文言だけ。記録する画面の口座の追加の欄と同じ。再レビュー 4）。
+          欄に結べない知らせ（通信の失敗・見つからない）だけを [保存] / [追加] のすぐ上に出す */}
       {p.notice && !(p.notice.kind === 'error' && (e.name || e.currency || e.capital || e.risk)) ? (
         <Notice notice={p.notice} onRelogin={p.onRelogin} />
       ) : null}
       <div class="instedit__actions">
         <Button type="submit" id={SAVE_BUTTON_ID.account} disabled={editing.saving}>
-          {editing.saving ? (rec ? '保存しています…' : '足しています…') : rec ? '保存' : '足す'}
+          {editing.saving ? (rec ? '保存しています…' : '追加しています…') : rec ? '保存' : '追加'}
         </Button>
         <Button variant="ghost" onClick={p.onCloseAccount} disabled={editing.saving}>
           キャンセル
@@ -522,8 +523,9 @@ function InstrumentsCard(p: SettingsViewProps) {
       <p class="section__note">{EFFECT_NOTE}</p>
       {anyProvisional ? (
         <p class="field__hint">
-          「仮の値」は、記録したときに名前だけで自動で足した銘柄です。原資産の種類・価格の通貨・乗数を直すと、これから記録する取引の
-          1R・リスク（%）と集計に効きます。
+          「{PROVISIONAL_MARK}
+          」は、記録したときに名前だけで自動で追加した銘柄です。原資産の種類・価格の通貨・乗数を編集すると、これから記録する取引の
+          1R・リスク（%）と集計に反映されます。
         </p>
       ) : null}
       {notice ? <Notice notice={notice} onRelogin={p.onRelogin} /> : null}
@@ -541,7 +543,7 @@ function InstrumentsCard(p: SettingsViewProps) {
         </ul>
       ) : (
         <p class="field__hint">
-          まだありません。取引を記録すると、銘柄は名前だけで自動で足されます。
+          まだありません。取引を記録すると、銘柄は名前だけで自動で追加されます。
         </p>
       )}
       <form
@@ -554,17 +556,17 @@ function InstrumentsCard(p: SettingsViewProps) {
       >
         <TextField
           id={NEW_NAME_ID}
-          label="銘柄を足す"
+          label="銘柄を追加"
           value={state.newName}
           onInput={p.onNewName}
           placeholder="例: 架空指数A"
-          hint="名前だけで足せます。ほかの欄は既定（その他・現物・CFD・通貨 未設定・乗数 1・刻み 1）で、足した後に直せます。"
+          hint="名前だけで追加できます。ほかの項目は初期値（その他・現物・CFD・通貨 未設定・乗数 1・刻み 1）になり、追加後に編集できます。"
           disabled={state.adding}
           {...(state.newNameError ? { error: state.newNameError } : {})}
         />
         <div class="settings__actions">
           <Button type="submit" id={SAVE_BUTTON_ID.add} variant="secondary" disabled={state.adding}>
-            {state.adding ? '足しています…' : '足す'}
+            {state.adding ? '追加しています…' : '追加'}
           </Button>
         </div>
       </form>
@@ -587,7 +589,7 @@ function InstrumentRow({
       <div class="instlist__text">
         <p class="instlist__name">
           <span>{rec.name}</span>
-          {provisional ? <span class="field__mark">仮の値</span> : null}
+          {provisional ? <span class="field__mark">{PROVISIONAL_MARK}</span> : null}
         </p>
         <p class="instlist__summary">{instrumentSummary(rec)}</p>
       </div>
@@ -632,7 +634,7 @@ function InstrumentEditor(
           label="名前"
           value={d.name}
           onInput={set('name')}
-          hint="名前を変えると、前の名前で記録・読み取りしたときは別の銘柄として足されます。"
+          hint="名前を変えると、前の名前で記録・読み取りしたときは別の銘柄として新しく追加されます。"
           {...(e.name ? { error: e.name } : {})}
         />
         <TextField
@@ -661,7 +663,7 @@ function InstrumentEditor(
           </select>
         </div>
         <Segment<ProductForm>
-          label="商品の形"
+          label="取引の形態"
           name="settings-product-form"
           value={d.productForm}
           onChange={set('productForm')}

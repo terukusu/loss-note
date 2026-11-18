@@ -54,7 +54,7 @@ function item(name: string, d: Draft, capitalYen: number | null): Item {
     settings,
     record: {
       ...read.body,
-      // 建てた時刻も同じ理由で決まった時点（決済の 30 分前）に置き換える
+      // エントリーの時刻も同じ理由で決まった時点（決済の 30 分前）に置き換える
       entries: read.body.entries.map((e) =>
         e.time === undefined ? e : { ...e, time: EXIT_TIME - 30 * 60_000 },
       ) as unknown as TradeRecord['entries'],
@@ -79,7 +79,7 @@ function build(): { trades: Item[] } {
       item('E2', E2, 1_000_000),
       item('E5', E5, null),
       item('E16', E16, 1_000_000),
-      // 任意の欄をすべて入れた本文（レビュー指摘 3）: 建てた時刻・損益・手数料・一言・金額ありきの LC・
+      // 任意の欄をすべて入れた本文（レビュー指摘 3）: エントリーの時刻・損益・手数料・一言・金額ありきの LC・
       // 決済の理由（手で）・「窓・滑りでしたか」= はい
       item(
         'full',

@@ -8,16 +8,17 @@ const CANCELLED = new Set([
 ]);
 
 /** 起動時に Firebase の初期化が失敗したとき（session.ts の unavailableSession） */
-export const UNAVAILABLE = 'ログインの準備ができませんでした。接続先の設定を確かめてください';
+export const UNAVAILABLE = 'ログインの準備ができませんでした。接続先の設定を確認してください';
 
 /** ログアウトの失敗 */
 export const SIGN_OUT_FAILED = 'ログアウトできませんでした。もう一度押してください';
 
 /** 失敗のコード → 画面の文言。自分で閉じた・取り消したときは null（文言を出さない） */
 export function loginErrorMessage(code: string | undefined): string | null {
-  if (code && UNREACHABLE.has(code)) return 'ログインのサービスにつながりません';
+  if (code && UNREACHABLE.has(code)) return 'ログインのサービスと通信できませんでした';
   if (code && CANCELLED.has(code)) return null;
-  if (code === 'auth/popup-blocked') return 'ポップアップが止められました。もう一度押してください';
+  if (code === 'auth/popup-blocked')
+    return 'ポップアップがブロックされました。ブラウザでポップアップを許可して、もう一度押してください';
   if (code === 'app/unavailable') return UNAVAILABLE;
   return 'ログインできませんでした';
 }

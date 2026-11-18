@@ -111,7 +111,7 @@ describe('口座の通貨・取引のある口座', () => {
 });
 
 describe('currencyView（取引の欄の見せ方）', () => {
-  it('円の口座・円建て: 建ての通貨・為替の欄は無く、単位は円（KEEP-3）', () => {
+  it('円の口座・円建て: 価格の通貨・為替の欄は無く、単位は円（KEEP-3）', () => {
     expect(
       currencyView({ price: 'JPY', account: 'JPY', matched: true, fxShown: false }, undefined),
     ).toEqual({ moneyUnit: '円' });
@@ -125,7 +125,7 @@ describe('currencyView（取引の欄の見せ方）', () => {
       moneyUnit: '円',
     });
   });
-  it('一覧に無い名前を打っている間は建ての通貨を出さない。注記を渡せば出す', () => {
+  it('一覧に無い名前を打っている間は価格の通貨を出さない。注記を渡せば出す', () => {
     const v = currencyView(
       { price: null, account: 'USD', matched: false, fxShown: false },
       undefined,

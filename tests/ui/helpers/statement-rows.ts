@@ -44,7 +44,7 @@ export const ROW_E1: ReadRow = {
   exitOrderType: 'unknown',
 };
 
-/** E1 の決済の時刻・建てた時刻（epoch） */
+/** E1 の決済の時刻・エントリーの時刻（epoch） */
 export const E1_EXIT_MS = Date.UTC(2026, 10, 10, 1, 30);
 export const E1_ENTRY_MS = Date.UTC(2026, 10, 10, 0, 5);
 
@@ -54,7 +54,7 @@ export const ROW_E4: ReadRow = { ...ROW_E1, symbol: null, exitTime: null };
 export const ROW_E7: ReadRow = { ...ROW_E1, exitOrderType: 'stop' };
 /** E8: 成行 */
 export const ROW_E8: ReadRow = { ...ROW_E1, exitOrderType: 'market' };
-/** E9: 決済の時刻の時間帯が不明（建てた時刻は無し） */
+/** E9: 決済の時刻の時間帯が不明（エントリーの時刻は無し） */
 export const ROW_E9: ReadRow = {
   ...ROW_E1,
   entryTime: null,

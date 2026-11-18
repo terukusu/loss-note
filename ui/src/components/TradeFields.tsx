@@ -67,17 +67,17 @@ export const INSTRUMENT_LIST_ID = 'record-instruments';
 export const MONEY_NOTE_ID = 'record-money-note';
 
 export const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
-  { value: 'lc', label: 'LC（崩れの条件に当たった）' },
+  { value: 'lc', label: 'LC（根拠が崩れる条件に達した）' },
   { value: 'gapSlip', label: '窓・滑り' },
   { value: 'tp', label: 'TP' },
-  { value: 'brokeManual', label: '根拠が崩れたので手で' },
+  { value: 'brokeManual', label: '根拠が崩れたので手動で' },
   { value: 'fearEarly', label: '崩れる前に怖くなって' },
   { value: 'timeout', label: '時間切れ' },
   { value: 'other', label: 'その他' },
 ];
 
 const TIMEFRAME_OPTIONS: readonly { value: TimeframeChange; label: string }[] = [
-  { value: 'none', label: '変えず' },
+  { value: 'none', label: 'そのまま' },
   { value: 'longer', label: '長い足へ' },
   { value: 'shorter', label: '短い足へ' },
 ];
@@ -95,7 +95,7 @@ function fieldHelpers(p: TradeFieldsProps) {
   return { d, e: p.errors, set, mark, onUpdate: p.onUpdate, marks: p.marks };
 }
 
-/** 「取引」「LC」「決済までの振る舞い」（3 つのタップ）の枠 */
+/** 「取引」「LC」「決済までの行動」（3 つの質問）の枠 */
 export function TradeMainFields(p: TradeFieldsProps) {
   const { d, e, set, mark, onUpdate } = fieldHelpers(p);
   const side = d.side;
@@ -257,7 +257,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
         </div>
         <TextField
           id="record-broken"
-          label="崩れの条件の一言（任意）"
+          label="根拠が崩れる条件（任意）"
           value={d.brokenCondition}
           onInput={set('brokenCondition')}
           placeholder="例: 押し目の安値を割ったら"
@@ -267,12 +267,10 @@ export function TradeMainFields(p: TradeFieldsProps) {
 
       <section class="card section" aria-labelledby="record-taps-title">
         <h2 class="section__title" id="record-taps-title">
-          決済までの振る舞い
+          決済までの行動
         </h2>
         {d.lcNone ? (
-          <p class="section__note">
-            LC なしなので「LC を決めていなかった」「動かしていない」で記録します。
-          </p>
+          <p class="section__note">LC が無いため、「決めていない」「そのまま」として記録します。</p>
         ) : (
           <>
             <Segment
@@ -357,7 +355,7 @@ export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }
         ) : null}
         <TextField
           id="record-entry-time"
-          label="建てた時刻"
+          label="エントリーの時刻"
           type="datetime-local"
           value={d.entryTime}
           onInput={set('entryTime')}
@@ -369,8 +367,8 @@ export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }
           value={d.lcBasis}
           onChange={set('lcBasis')}
           options={[
-            { value: 'chart', label: 'チャートの根拠' },
-            { value: 'amount', label: '金額から' },
+            { value: 'chart', label: 'チャート' },
+            { value: 'amount', label: '金額' },
           ]}
         />
         <div class="field">

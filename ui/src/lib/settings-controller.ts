@@ -55,24 +55,24 @@ import {
 } from './settings-form';
 
 export const SETTINGS_LOAD_FAILED =
-  '設定を読み込めませんでした。通信を確かめて、もう一度読み込んでください。';
+  '設定を読み込めませんでした。通信状況を確認して、再読み込みしてください。';
 export const SETTINGS_SAVE_FAILED =
-  '保存できませんでした。入力はそのまま残っています。もう一度 [保存] を押してください。';
+  '保存できませんでした。入力内容は残っています。もう一度 [保存] を押してください。';
 export const SETTINGS_NETWORK_FAILED =
-  'つながりません。入力はそのまま残っています。もう一度 [保存] を押してください。';
-export const ADD_FAILED = '足せませんでした。もう一度 [足す] を押してください。';
+  '通信できませんでした。入力内容は残っています。もう一度 [保存] を押してください（二重には保存されません）。';
+export const ADD_FAILED = '追加できませんでした。もう一度 [追加] を押してください。';
 export const ADD_NETWORK_FAILED =
-  'つながりません。もう一度 [足す] を押してください（届いていた銘柄は二重に足しません）。';
-export const INSTRUMENT_NOT_FOUND = 'この銘柄は見つかりません。読み込み直してください。';
-export const ACCOUNT_NOT_FOUND = 'この口座は見つかりません。読み込み直してください。';
+  '通信できませんでした。もう一度 [追加] を押してください（二重には追加されません）。';
+export const INSTRUMENT_NOT_FOUND = 'この銘柄は見つかりません。再読み込みしてください。';
+export const ACCOUNT_NOT_FOUND = 'この口座は見つかりません。再読み込みしてください。';
 export const ACCOUNT_ADD_NETWORK_FAILED =
-  'つながりません。もう一度 [足す] を押してください（届いていた口座は二重に足しません）。';
+  '通信できませんでした。もう一度 [追加] を押してください（二重には追加されません）。';
 export const instrumentSaved = (name: string) =>
-  `${name} を保存しました。これから記録する取引に効きます。`;
-export const instrumentAdded = (name: string) => `${name} を足しました。`;
+  `${name} を保存しました。これから記録する取引に反映されます。`;
+export const instrumentAdded = (name: string) => `${name} を追加しました。`;
 export const accountSaved = (name: string) =>
-  `${name} を保存しました。これから記録する取引に効きます。`;
-export const accountAdded = (name: string) => `${name} を足しました。`;
+  `${name} を保存しました。これから記録する取引に反映されます。`;
+export const accountAdded = (name: string) => `${name} を追加しました。`;
 
 export type SettingsPhase = 'loading' | 'loadFailed' | 'ready';
 

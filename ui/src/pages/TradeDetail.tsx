@@ -40,7 +40,7 @@ export function notFoundState(): JSX.Element {
     <EmptyState
       icon="list"
       title="この取引は見つかりません"
-      description="消されたか、URL が違うようです。"
+      description="削除されたか、URL が間違っている可能性があります。"
     >
       <Button href="/trades" variant="secondary" icon="back">
         一覧へ戻る
@@ -169,7 +169,7 @@ export function TradeDetailView(p: TradeDetailViewProps) {
               </Button>
             ) : null}
             <Button variant="ghost" icon="trash" onClick={p.onDelete}>
-              消す
+              削除
             </Button>
           </>
         }
@@ -268,7 +268,7 @@ function ChartsView(p: TradeDetailViewProps) {
                   チャートを読み込めませんでした
                 </p>
                 <Button variant="secondary" onClick={() => p.onReloadChart(c.slot)}>
-                  もう一度読み込む
+                  再読み込み
                 </Button>
               </div>
             ) : (

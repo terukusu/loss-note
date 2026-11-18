@@ -320,7 +320,7 @@ describe('mergeEdit（D5）', () => {
     expect(m.exit.time).toBe(new Date(2026, 10, 10, 10, 0).getTime());
   });
 
-  it('空にした任意の欄は消える（明細の損益・一言・建てた時刻）', () => {
+  it('空にした任意の欄は消える（明細の損益・一言・エントリーの時刻）', () => {
     const { initial } = open();
     const draft = applyDraft(initial, {
       type: 'fill',

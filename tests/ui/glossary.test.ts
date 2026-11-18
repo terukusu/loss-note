@@ -1,4 +1,4 @@
-// 判定に効く言葉の用語集のデータ（Issue #57 AC-6・AC-7・AC-8、#76 の用語集・文の中のリンク）
+// 判定に関わる言葉の用語集のデータ（Issue #57 AC-6・AC-7・AC-8、#76 の用語集・文の中のリンク）
 import { describe, expect, it } from 'vitest';
 import designMd from '../../docs/design.md?raw';
 import { badgeModel } from '../../ui/src/lib/badge';
@@ -181,9 +181,9 @@ describe('用語集の区切りとリンクの見え方（#57 デザインの再
 });
 
 describe('AC-6: 説明の中身（例 I1・I5・I6・I7・I8）', () => {
-  it('I1 時間足を変えたか: 長い足へ = B、短い足へ・変えず = 判定に影響しない', () => {
+  it('I1 時間足を変えたか: 長い足へ = B、短い足へ・そのまま = 判定に影響しない', () => {
     const s = allText('timeframeChange');
-    for (const w of ['長い足へ', 'B 悪い損失', '短い足へ', '変えず', '判定に影響しません']) {
+    for (const w of ['長い足へ', 'B 悪い損失', '短い足へ', 'そのまま', '判定に影響しません']) {
       expect(s).toContain(w);
     }
   });
@@ -235,7 +235,7 @@ describe('AC-6: 説明の中身（例 I1・I5・I6・I7・I8）', () => {
 
   it('I8 LC の物差し: 決めた LC が −1R、決済が越えた幅', () => {
     const s = allText('ruler');
-    for (const w of ['LC を −1R', '決済', '越えて']) expect(s).toContain(w);
+    for (const w of ['LC を −1R', '決済', '超えて']) expect(s).toContain(w);
   });
 });
 

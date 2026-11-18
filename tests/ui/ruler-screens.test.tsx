@@ -1,4 +1,4 @@
-// LC の物差し・詳細の 3 つのタップの答え・「すべての欄」の描画（Issue #34 AC-2・AC-4〜AC-8・契約 U-1・U-2）。
+// LC の物差し・詳細の 決済までの行動の答え・「すべての欄」の描画（Issue #34 AC-2・AC-4〜AC-8・契約 U-1・U-2）。
 // DOM のライブラリを使わず、部品の関数を呼んで要素の木に展開して見る（trade-screens-view.test.tsx と同じ道具）。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
@@ -195,14 +195,14 @@ function savedFrom(d: Draft): RecordState {
 }
 
 const E2_LIST = [
-  '動かした LC 99.2（−1.6R）',
+  '動かした後の LC 99.2（−1.6R）',
   '決済 99.2（−1.6R）',
   '決めた LC 99.5（−1.0R）',
   'イン 100',
-  'LC を 0.6R 越えて決済',
+  'LC を 0.6R 超えて決済',
 ];
 
-/** 判定の枠の文字から 3 つのタップの答えの札と添え書きを除く（詳細だけにある。物差しの前からの中身と比べるため） */
+/** 判定の枠の文字から 決済までの行動の答えの札と添え書きを除く（詳細だけにある。物差しの前からの中身と比べるため） */
 function withoutTaps(v: El): string {
   const tapsUl = all([v], hasClass('taps'))[0];
   let s = text(v);
@@ -256,7 +256,7 @@ describe('AC-2: N1〜N4 で物差しの段が無く、ほかの中身は同じ',
     expect(all([verdictOf(tree)], hasClass('ruler'))).toEqual([]);
   });
 
-  it('N4（記録する画面）: 足りない欄がある間は物差しが無く、判定の枠の文字は物差しを足す前と同じ', () => {
+  it('N4（記録する画面）: 未入力の欄がある間は物差しが無く、判定の枠の文字は物差しを足す前と同じ', () => {
     const st = stateFor(DRAFT_E2_BEFORE, CAPITAL_1M);
     expect(st.read.missing.length).toBeGreaterThan(0);
     expect(st.read.preview.ruler).toBeUndefined();
@@ -375,12 +375,12 @@ describe('AC-6: 記録する画面（判定の前 / 後 / 保存の後）', () =
   });
 });
 
-describe('AC-7: 詳細の 3 つのタップの答え（判定の枠の中、理由の下の札。Phase 4b の指摘 6）', () => {
+describe('AC-7: 詳細の 決済までの行動の答え（判定の枠の中、理由の下の札。Phase 4b の指摘 6）', () => {
   function taps(t: StoredTrade) {
     const tree = detailTree(t);
     const v = verdictOf(tree);
     // 判定の枠の中、理由（あれば）の後に名前つきの一覧
-    const ul = one([v], (e) => e.type === 'ul' && e.props['aria-label'] === '3 つのタップの答え');
+    const ul = one([v], (e) => e.type === 'ul' && e.props['aria-label'] === '決済までの行動の答え');
     expect(hasClass('taps')(ul)).toBe(true);
     const at = childIndex(v, 'taps');
     expect(at).toBeGreaterThan(childIndex(v, 'reasons'));
@@ -388,17 +388,18 @@ describe('AC-7: 詳細の 3 つのタップの答え（判定の枠の中、理�
     return all([ul], (e) => e.type === 'li');
   }
 
-  it('E2: 3 項目、「下げた」だけに印・「外れ」の文字と読み上げの「計画から外れた」', () => {
+  it('E2: 3 項目、札の名前は問いの名前、「下げた」だけに印・読み上げの「計画から外れた」（「外れ」の字は出さない）', () => {
     const li = taps(must('E2'));
     expect(li.map(text)).toEqual([
-      'LC を入る前に: 決めていた',
-      '外れLC: 下げた（99.2）計画から外れた',
-      '時間足: 変えず',
+      'LC を入る前に決めていたか: 決めていた',
+      'LC を動かしたか: 下げた（99.2）計画から外れた',
+      '時間足を変えたか: そのまま',
     ]);
     expect(li.map((e) => hasClass('taps__item--off')(e))).toEqual([false, true, false]);
     const off = li[1] as El;
     expect(all([off], hasClass('icon'))[0]?.props['aria-hidden']).toBe('true');
-    expect(one([off], hasClass('taps__off')).props['aria-hidden']).toBe('true');
+    // 「外れ」の字は出さない（記号と枠の太さで示す。#74 デザインレビュー）
+    expect(all([off], hasClass('taps__off'))).toEqual([]);
     expect(text(one([off], hasClass('sr-only')))).toBe('計画から外れた');
     // 外れの印の形は外れた札だけ（問いの説明の「i」の記号は数えない。#57）
     const shapes = (e: El) => all([e], (x) => hasClass('icon')(x) && !hasClass('info__icon')(x));
@@ -406,21 +407,21 @@ describe('AC-7: 詳細の 3 つのタップの答え（判定の枠の中、理�
   });
 
   it('E3（S）: 「上げた（150.8）」', () => {
-    expect(taps(must('E3')).map(text)[1]).toBe('外れLC: 上げた（150.8）計画から外れた');
+    expect(taps(must('E3')).map(text)[1]).toBe('LC を動かしたか: 上げた（150.8）計画から外れた');
   });
 
   it('N1（LC なし）: 時間足の答えだけ', () => {
-    expect(taps(N1).map(text)).toEqual(['時間足: 変えず']);
+    expect(taps(N1).map(text)).toEqual(['時間足を変えたか: そのまま']);
   });
 
-  it('チャートから時間足を変えたと判定された取引は、答えが「変えず」でも印（D1。AC-7）', () => {
+  it('チャートから時間足を変えたと判定された取引は、答えが「そのまま」でも印（D1。AC-7）', () => {
     expect(D1.record.timeframeChange).toBe('none');
     const li = taps(D1);
-    expect(text(li[2] as El)).toBe('外れ時間足: 4 時間足 → 日足計画から外れた');
+    expect(text(li[2] as El)).toBe('時間足を変えたか: 4 時間足 → 日足計画から外れた');
     expect(hasClass('taps__item--off')(li[2] as El)).toBe(true);
     // あなたの答えとの食い違いを 1 行で添える（「申告」「判定に使用」の言い方は使わない）
     const v = verdictOf(detailTree(D1));
-    expect(text(v)).toContain('あなたの答えは「変えず」、チャートは 4 時間足 → 日足');
+    expect(text(v)).toContain('あなたの答え: そのまま ／ チャート: 4 時間足 → 日足');
     expect(text(v)).not.toContain('申告');
   });
 
@@ -450,7 +451,7 @@ describe('直す画面のプレビューにも詳細と同じ物差し（Phase 4
 });
 
 describe('LC を入る前に決めていない取引の物差し（Phase 4b の指摘 4）', () => {
-  it('−1R の線は破線のクラス、目盛りは「−1R（後から）」、一覧は「LC（入った後）」', () => {
+  it('−1R の線は破線のクラス、目盛りは「−1R（後から）」、一覧は「後から決めた LC」', () => {
     const t = stored('r-late', { lcDecidedBeforeEntry: false, exit: exitAt(100.75) });
     const ruler = one(detailTree(t), hasClass('ruler'));
     const plot = one([ruler], hasClass('ruler__plot'));
@@ -459,7 +460,7 @@ describe('LC を入る前に決めていない取引の物差し（Phase 4b の�
     expect(hasClass('ruler__mark--late')(bar[0] as El)).toBe(true);
     expect(all([plot], hasClass('ruler__tick')).map(text)).toContain('−1R（後から）');
     expect(text(all([ruler], (e) => e.type === 'li')[0] as El)).toBe(
-      'LC（入った後） 99.5（−1.0R）',
+      '後から決めた LC 99.5（−1.0R）',
     );
   });
 
@@ -470,8 +471,8 @@ describe('LC を入る前に決めていない取引の物差し（Phase 4b の�
   });
 });
 
-describe('動かした LC は線の上側・広げた区間は破線の太線（Phase 4b の指摘 1・2）', () => {
-  it('E2: ▽ は線より上（y が負の側だけ）で、決めた LC〜動かした LC に ruler__widen', () => {
+describe('動かした後の LC は線の上側・広げた区間は破線の太線（Phase 4b の指摘 1・2）', () => {
+  it('E2: ▽ は線より上（y が負の側だけ）で、決めた LC〜動かした後の LC に ruler__widen', () => {
     const plot = one(detailTree(must('E2')), hasClass('ruler__plot'));
     const tri = one([plot], hasClass('ruler__mark--triangleDown')).children[0] as El;
     const ys = [...String(tri.props.d).matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));

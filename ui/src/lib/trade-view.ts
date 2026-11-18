@@ -173,7 +173,7 @@ export function timeframeChangeText(t: StoredTrade, judgment: Judgment | undefin
   const used = reason?.kind === 'timeframeLonger' ? reason.source : null;
   const mark = (src: 'tap' | 'chart') => (used === src ? '・判定に使用' : '');
   if (!hasChart || a === undefined || b === undefined) return tap;
-  return `${tap}（申告${mark('tap')}） / ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}（チャートから${mark('chart')}）`;
+  return `${tap}（あなたの答え${mark('tap')}） / ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}（チャートから${mark('chart')}）`;
 }
 
 /** 直近 n 件の行（sortTrades の先頭 n 件） */
@@ -197,17 +197,21 @@ export function visibleTrades(
 }
 
 const LC_DECIDED_TEXT = { true: '決めていた', false: '決めていない' } as const;
-const TIMEFRAME_CHANGE_TEXT = { none: '変えず', longer: '長い足へ', shorter: '短い足へ' } as const;
+const TIMEFRAME_CHANGE_TEXT = {
+  none: 'そのまま',
+  longer: '長い足へ',
+  shorter: '短い足へ',
+} as const;
 const EXIT_REASON_TEXT = {
-  lc: 'LC（崩れの条件に当たった）',
+  lc: 'LC（根拠が崩れる条件に達した）',
   gapSlip: '窓・滑り',
   tp: 'TP',
-  brokeManual: '根拠が崩れたので手で',
+  brokeManual: '根拠が崩れたので手動で',
   fearEarly: '崩れる前に怖くなって',
   timeout: '時間切れ',
   other: 'その他',
 } as const;
-const LC_BASIS_TEXT = { chart: 'チャートの根拠', amount: '金額から' } as const;
+const LC_BASIS_TEXT = { chart: 'チャート', amount: '金額' } as const;
 const GAP_SLIP_TEXT = { yes: 'はい', no: 'いいえ', unanswered: '' } as const;
 
 /** LC を動かしたかの答え（そのまま / 詰めた / 下げた（99.2）。S は上げた） */
@@ -231,7 +235,7 @@ export interface TapAnswer {
 }
 
 /** 3 つのタップの答えの一覧の名前（読み上げ） */
-export const TAPS_LABEL = '3 つのタップの答え';
+export const TAPS_LABEL = '決済までの行動の答え';
 /** 外れた答えの読み上げ */
 export const OFF_PLAN_TEXT = '計画から外れた';
 
@@ -246,13 +250,13 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
   const out: TapAnswer[] = [];
   if (r.lc !== undefined) {
     out.push({
-      label: 'LC を入る前に',
+      label: 'LC を入る前に決めていたか',
       value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
       offPlan: !r.lcDecidedBeforeEntry,
       term: 'lcDecided',
     });
     out.push({
-      label: 'LC',
+      label: 'LC を動かしたか',
       value: lcMoveText(t),
       offPlan: r.lcMove.kind === 'widened',
       term: 'lcMove',
@@ -267,7 +271,7 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
     a !== undefined &&
     b !== undefined;
   out.push({
-    label: '時間足',
+    label: '時間足を変えたか',
     value: fromChart
       ? `${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`
       : TIMEFRAME_CHANGE_TEXT[r.timeframeChange],
@@ -288,7 +292,7 @@ export function timeframeNote(t: StoredTrade): string | null {
   const hasChart = t.charts?.entry !== undefined && t.charts?.exit !== undefined;
   if (!hasChart || a === undefined || b === undefined) return null;
   if ((r.timeframeChange === 'longer') === isLongerTimeframe(a, b)) return null;
-  return `あなたの答えは「${TIMEFRAME_CHANGE_TEXT[r.timeframeChange]}」、チャートは ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`;
+  return `あなたの答え: ${TIMEFRAME_CHANGE_TEXT[r.timeframeChange]} ／ チャート: ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`;
 }
 
 /** 提案の数量が数量の刻み 1 つにも満たないときの言葉（#67 R2） */
@@ -301,7 +305,7 @@ export function timesText(ratio: number): string {
 
 /** 詳細の「すべての欄」の提案の数量・数量の比の行の名前（#67。記録したときの資金・許容リスクは上の 2 行が言う） */
 export const SIZING_LABEL = {
-  suggested: '提案の数量',
+  suggested: '適正の数量',
   ratio: '許容リスクに対する数量',
 } as const;
 
@@ -340,7 +344,7 @@ export function recordFields(
   // 建ての通貨: 口座の通貨と違うときだけ「USD」。未設定は外貨の口座のときだけ「未設定」（U32・F11・J9 の直し。
   // 名前に「建て」があるので値は 3 文字だけ。デザイン 6）
   if (price !== null ? price !== currency : currency !== 'JPY') {
-    rows.push({ label: '建ての通貨', value: price ?? '未設定' });
+    rows.push({ label: '価格の通貨', value: price ?? '未設定' });
   }
   rows.push(
     { label: 'L / S', value: SIDE_TEXT[r.side] },
@@ -376,12 +380,12 @@ export function recordFields(
     }
   }
   rows.push({ label: '決済の時刻', value: formatDateTime(x.time) });
-  if (e.time !== undefined) rows.push({ label: '建てた時刻', value: formatDateTime(e.time) });
+  if (e.time !== undefined) rows.push({ label: 'エントリーの時刻', value: formatDateTime(e.time) });
   rows.push({ label: 'LC', value: r.lc === undefined ? 'なし' : formatPrice(r.lc) });
   if (sum.oneRYen !== undefined) {
     rows.push({ label: '1R', value: formatAmount(sum.oneRYen, currency) });
   }
-  if (r.brokenCondition) rows.push({ label: '崩れの条件の一言', value: r.brokenCondition });
+  if (r.brokenCondition) rows.push({ label: '根拠が崩れる条件', value: r.brokenCondition });
   if (r.lc !== undefined) {
     rows.push({
       label: 'LC を入る前に決めていたか',

@@ -49,7 +49,7 @@ describe('アイコン', () => {
     expect(colors.filter((c) => TIER_COLORS.includes(c))).toEqual([]);
   });
 
-  it('画面の印（ログイン・帯）は favicon と同じ藍の 2 色・白の線で、テーマで変えず、判定の段の色を使わない', () => {
+  it('画面の印（ログイン・帯）は favicon と同じ藍の 2 色・白の線で、テーマでそのまま、判定の段の色を使わない', () => {
     const svg = fs.readFileSync(pub('favicon.svg'), 'utf8');
     const stops = [...svg.matchAll(/stop-color="(#[0-9a-fA-F]{6})"/g)].map((m) =>
       (m[1] ?? '').toLowerCase(),

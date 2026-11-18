@@ -16,8 +16,8 @@ import { type ApiFn, createRequest } from './request';
 export const UNDO_MS = 8_000;
 
 export const TOAST_TEXT = {
-  deleted: (label: string) => (label ? `${label} を消しました` : '取引を消しました'),
-  failed: '消せませんでした。もう一度 [消す] を押してください。',
+  deleted: (label: string) => (label ? `${label} を削除しました` : '取引を削除しました'),
+  failed: '削除できませんでした。もう一度 [削除] を押してください。',
 } as const;
 
 /** [元に戻す] を待っている取引（label = どの取引かが分かる短い名前。例: US30 L 11/09） */

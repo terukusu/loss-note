@@ -52,10 +52,10 @@ describe('App', () => {
     expect(plain).not.toContain('"role":"alert"');
     expect(plain).not.toContain('エミュレーター');
     const failed = JSON.stringify(
-      Login({ ...base, error: 'ログインのサービスにつながりません', emulator: true }),
+      Login({ ...base, error: 'ログインのサービスと通信できませんでした', emulator: true }),
     );
     expect(failed).toContain('"role":"alert"');
-    expect(failed).toContain('ログインのサービスにつながりません');
+    expect(failed).toContain('ログインのサービスと通信できませんでした');
     expect(failed).toContain('エミュレーター');
     expect(plain).toContain('記録は本人だけが見られます。');
     expect(failed).toContain('記録は本人だけが見られます。');

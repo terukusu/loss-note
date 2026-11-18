@@ -48,8 +48,8 @@ const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
   earlyExit: () => '早逃げ',
   riskNotChecked: (r) =>
     r.cause === 'noCapital'
-      ? '資金が未設定なので過剰リスクは見ていない'
-      : '1R が出ないので過剰リスクは見ていない',
+      ? '資金が未設定のため、過剰リスクは判定していません'
+      : '1R が出ないため、過剰リスクは判定していません',
 };
 
 export function reasonText(reason: Reason, side: Side): string {

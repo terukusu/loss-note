@@ -11,17 +11,17 @@ export const RULER_LABEL = 'LC の物差し';
 export const POINT_NAME: Readonly<Record<RulerPointKind, string>> = {
   entry: 'イン',
   plannedLc: '決めた LC',
-  movedLc: '動かした LC',
+  movedLc: '動かした後の LC',
   exit: '決済',
   tp: 'TP',
 };
 
 /** LC を入る前に決めていなかった取引の、R の分母の LC の名前（計画の線ではないことを書き分ける） */
-export const LATE_LC_NAME = 'LC（入った後）';
+export const LATE_LC_NAME = '後から決めた LC';
 
 export interface RulerItem {
   readonly kind: RulerPointKind;
-  /** 名前（決めた LC は、入る前に決めていなければ「LC（入った後）」） */
+  /** 名前（決めた LC は、入る前に決めていなければ「後から決めた LC」） */
   readonly name: string;
   readonly price: string;
   /** R の文字（イン は null） */
@@ -60,8 +60,8 @@ export function overshootText(ruler: Ruler): string | null {
   if (exit === undefined) return null;
   // formatR と同じ丸め（0 から遠い側。2 進の誤差の寄せ 1e-9）で 10 分の 1 の単位の整数にする
   const n = Math.round(Math.abs(exit.r) * 10 + 1e-9) - 10;
-  if (n <= 0) return 'LC を 0.1R 未満越えて決済';
-  return `LC を ${Math.floor(n / 10)}.${n % 10}R 越えて決済`;
+  if (n <= 0) return 'LC を 0.1R 未満超えて決済';
+  return `LC を ${Math.floor(n / 10)}.${n % 10}R 超えて決済`;
 }
 
 /** 線の上の x（SVG の属性の百分率。例 "23.08%"） */

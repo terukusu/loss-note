@@ -45,7 +45,7 @@ export function TradeEdit({ id }: { readonly id: string }) {
     <>
       <PageHeader
         title="取引を編集"
-        description="資金・許容リスクと銘柄の値は、記録したときの値で計算します。チャートの変更は [保存する] で一緒に保存します。"
+        description="資金・許容リスクと銘柄の値は、記録したときの値で計算します。チャートの変更は [保存] で一緒に保存します。"
       />
       <TradeEditScreen id={id} notFound={notFoundState()} />
     </>
@@ -201,7 +201,7 @@ export function orphanNotice(state: Pick<EditState, 'orphans'>): string | null {
   const list = state.orphans
     .map((o) => `${CHART_SLOT_TEXT[o.slot].name}: ${TIMEFRAME_NAME[o.timeframe]}`)
     .join('・');
-  return `チャートの無い枠の時間足（${list}）は、保存のときに外します。チャートが無いと時間足の違いを確かめられないためです。`;
+  return `チャートが無い時間足（${list}）は、保存時に削除されます。チャートが無いと時間足の違いを確認できないためです。`;
 }
 
 /** 直すの欄・判定の枠・[保存する]（hook を持たない） */
@@ -352,7 +352,7 @@ export function TradeEditView(p: TradeEditViewProps) {
             <p>{state.error}</p>
             {state.errorKind === 'auth' ? (
               <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-                ログインし直す
+                もう一度ログイン
               </Button>
             ) : null}
           </div>
@@ -360,12 +360,12 @@ export function TradeEditView(p: TradeEditViewProps) {
         <p class="record__missing" aria-live="polite">
           {[
             errorLabels.length > 0 ? `誤りのある欄: ${errorLabels.join('・')}` : '',
-            read.missing.length > 0 ? `足りない欄: ${read.missing.join('・')}` : '',
+            read.missing.length > 0 ? `未入力の欄: ${read.missing.join('・')}` : '',
           ]
             .filter(Boolean)
             .join(' / ')}
         </p>
-        {/* [キャンセル] は [保存する] の左に横並び（帯を 1 段減らす。#89 デザインの再レビュー 8） */}
+        {/* [キャンセル] は [保存] の左に横並び（帯を 1 段減らす。#89 デザインの再レビュー 8） */}
         <div class="edit__actions">
           <Button href={`/trades/${p.id}`} variant="ghost" icon="back">
             キャンセル
@@ -381,7 +381,7 @@ export function TradeEditView(p: TradeEditViewProps) {
               ? state.sendingCharts
                 ? 'チャートを送っています…'
                 : '保存しています…'
-              : '保存する'}
+              : '保存'}
           </Button>
         </div>
       </div>

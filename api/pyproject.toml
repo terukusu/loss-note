@@ -14,6 +14,8 @@ dependencies = [
     "statement-read",
     # 読み取りの締め切り（cancel scope）。statement-read の推移的な依存だが API の入口でも使う
     "anyio>=4.16,<4.17",
+    # 本番の WSGI サーバー（イメージの CMD。Issue #42・ADR-0009）。手元の開発は flask run のまま
+    "gunicorn>=26,<27",
 ]
 
 [dependency-groups]

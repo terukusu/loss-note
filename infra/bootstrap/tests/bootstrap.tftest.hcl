@@ -2,7 +2,7 @@
 # command = apply（既定）はモックの computed 値（プール名など）を確定させて assert するため（plan だと unknown になる）。
 # 値はすべて架空（プロジェクト example-project、リポジトリ example-owner/example-repo、数値 ID 123 / 456、
 # 請求先 000000-000000-000000、プロジェクト番号 123456789）。
-# 例 G1（変数なしの plan が止まる）は tests/required-vars/ と .github/scripts/tf-required-vars.sh。
+# 例 G1（変数なしの plan が止まる）は tests/required-vars/ と .github/scripts/tf-required-variables.sh。
 
 mock_provider "google" {}
 mock_provider "google-beta" {}
@@ -64,15 +64,16 @@ variables {
 }
 
 run "defaults" {
-  # 例 A: 有効にする API は 14 個。Terraform から外しても止めない
+  # 例 A: 有効にする API は 15 個（#41 の 14 個 + #42 の firebaserules）。Terraform から外しても止めない
   assert {
     condition = toset([for s in google_project_service.apis : s.service]) == toset([
       "cloudresourcemanager.googleapis.com", "serviceusage.googleapis.com", "cloudbilling.googleapis.com",
       "billingbudgets.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com",
       "storage.googleapis.com", "artifactregistry.googleapis.com", "run.googleapis.com", "firestore.googleapis.com",
       "firebase.googleapis.com", "identitytoolkit.googleapis.com", "securetoken.googleapis.com",
+      "firebaserules.googleapis.com",
     ])
-    error_message = "有効にする API は例 A の 14 個"
+    error_message = "有効にする API は例 A の 14 個と firebaserules の 15 個"
   }
   assert {
     condition     = alltrue([for s in google_project_service.apis : s.disable_on_destroy == false && s.deletion_policy == "ABANDON" && s.project == "example-project"])
@@ -139,7 +140,8 @@ run "defaults" {
     error_message = "plan SA の WIF の付与先と role"
   }
 
-  # AC-4 / 例 P: プロジェクト単位の付与は {run.admin → apply SA, run.viewer → plan SA} だけ（実行用 SA には 0 件）
+  # AC-4 / 例 P: CI の SA のプロジェクト単位の付与は {run.admin → apply SA, run.viewer → plan SA} だけ（#42 の KEEP-5。
+  # 実行用 SA の付与は firestore.tf の runtime_datastore だけ。下の「#42 の AC-5・例 F4」）
   assert {
     condition = toset([for m in google_project_iam_member.ci : "${m.role} ${m.member}"]) == toset([
       "roles/run.admin serviceAccount:sa-tf-apply@example-project.iam.gserviceaccount.com",
@@ -272,6 +274,47 @@ run "defaults" {
   assert {
     condition     = output.tf_state_bucket == "example-project-tfstate" && output.artifact_registry_repository == "asia-northeast1-docker.pkg.dev/example-project/loss-note"
     error_message = "出力（state のバケット・イメージのリポジトリ）"
+  }
+
+  # #42 の AC-5・R5・例 F1: Firestore はネイティブ・東京・既定のデータベース・削除の防止。Terraform から外しても消さない
+  assert {
+    condition     = google_firestore_database.default.name == "(default)" && google_firestore_database.default.type == "FIRESTORE_NATIVE" && google_firestore_database.default.location_id == "asia-northeast1" && google_firestore_database.default.project == "example-project"
+    error_message = "Firestore は (default)・FIRESTORE_NATIVE・asia-northeast1・このプロジェクト"
+  }
+  assert {
+    condition     = google_firestore_database.default.delete_protection_state == "DELETE_PROTECTION_ENABLED" && google_firestore_database.default.deletion_policy == "ABANDON"
+    error_message = "Firestore は削除の防止が有効・ABANDON"
+  }
+  # 例 F3: 日次のバックアップ・保持 7 日（604800 秒。日次の上限）
+  assert {
+    condition     = google_firestore_backup_schedule.daily.database == google_firestore_database.default.name && length(google_firestore_backup_schedule.daily.daily_recurrence) == 1 && length(google_firestore_backup_schedule.daily.weekly_recurrence) == 0
+    error_message = "バックアップの予定は既定のデータベースの日次"
+  }
+  assert {
+    condition     = google_firestore_backup_schedule.daily.retention == "604800s" && google_firestore_backup_schedule.daily.project == "example-project"
+    error_message = "バックアップの保持は 604800s（7 日）"
+  }
+  # 例 F2: クライアントからの直接の読み書きはリポジトリの firestore.rules（すべて拒否）を cloud.firestore に公開する
+  assert {
+    condition     = google_firebaserules_ruleset.firestore.source[0].files[0].name == "firestore.rules" && google_firebaserules_ruleset.firestore.source[0].files[0].content == file("${path.module}/../../firestore.rules")
+    error_message = "ルールはリポジトリの firestore.rules"
+  }
+  assert {
+    condition     = strcontains(google_firebaserules_ruleset.firestore.source[0].files[0].content, "allow read, write: if false;") && !strcontains(google_firebaserules_ruleset.firestore.source[0].files[0].content, "if true")
+    error_message = "ルールはすべて拒否"
+  }
+  assert {
+    condition     = google_firebaserules_release.firestore.name == "cloud.firestore" && google_firebaserules_release.firestore.ruleset_name == "projects/example-project/rulesets/${google_firebaserules_ruleset.firestore.name}"
+    error_message = "ルールの公開先は cloud.firestore で、この ruleset を指す"
+  }
+  # 例 F4: 実行用 SA のプロジェクト単位のロールは roles/datastore.user の 1 件だけ
+  assert {
+    condition     = google_project_iam_member.runtime_datastore.role == "roles/datastore.user" && google_project_iam_member.runtime_datastore.member == "serviceAccount:sa-loss-note@example-project.iam.gserviceaccount.com" && google_project_iam_member.runtime_datastore.project == "example-project" && length(google_project_iam_member.runtime_datastore.condition) == 0
+    error_message = "実行用 SA に roles/datastore.user（プロジェクト単位・条件なし）"
+  }
+  assert {
+    condition     = length([for m in google_project_iam_member.ci : m if m.member == google_service_account.runtime.member]) == 0
+    error_message = "CI の付与の集合に実行用 SA を混ぜない"
   }
 }
 

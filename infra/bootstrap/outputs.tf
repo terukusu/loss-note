@@ -16,7 +16,7 @@ output "sa_runtime_email" {
   value = google_service_account.runtime.email
 }
 
-# infra/prod の state のバケット（repository variable TF_STATE_BUCKET）
+# infra/prod の state のバケット（GitHub の secret TF_STATE_BUCKET）
 output "tf_state_bucket" {
   value = google_storage_bucket.tfstate["prod"].name
 }

@@ -13,6 +13,7 @@ dir="${1:-infra/bootstrap}"
 EXPECTED="google_artifact_registry_repository_iam_member.tf_apply_writer
 google_artifact_registry_repository_iam_member.tf_plan_reader
 google_project_iam_member.ci
+google_project_iam_member.runtime_datastore
 google_service_account_iam_member.tf_apply_act_as_runtime
 google_service_account_iam_member.tf_apply_wif
 google_service_account_iam_member.tf_plan_wif

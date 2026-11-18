@@ -1,0 +1,24 @@
+# 許可リスト: すべて除外してから、イメージのビルドに要るものだけを戻す（.git・node_modules・dist・tests・fixtures・data・
+# infra・.claude・api/.venv・.env・*.tfvars・エミュレーターの書き出しは入らない）。
+# ! の行を変えたら .github/scripts/image.sh の入力パスも同じにする（ci.yml が突き合わせる）
+*
+!package.json
+!package-lock.json
+!.npmrc
+!vite.config.ts
+!tsconfig.json
+!ui/
+!core/
+!api/pyproject.toml
+!api/uv.lock
+!api/src/
+!packages/statement-read/pyproject.toml
+!packages/statement-read/src/
+!.github/uv-requirements.txt
+**/__pycache__
+**/*.pyc
+**/node_modules
+**/.DS_Store
+# 許可した ui/ などの下の .env（Vite の envDir は ui/）も入れない（手元の VITE_* を本番のバンドルに焼き込まない）
+**/.env
+**/.env.*

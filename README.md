@@ -132,10 +132,10 @@ curl -s -X POST -H "$AUTH" -H 'Content-Type: image/png' \
 
 ## 確認コマンド
 
-型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（決済明細の読み取りの部品 `packages/statement-read/`、API、読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）、本番の土台の Terraform（[`infra/`](infra/README.md)。書式・検証と、モックのプロバイダのテスト）をまとめて流します。API のテストは、エミュレーター（Auth・Firestore）を自分で起動して流す段もあります（Java が要ります。`npm run emulators` を動かしているとポートがぶつかるので、止めてから流してください）。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
+型検査・lint・テスト・ビルド・ビルド結果の CSP の検査（画面）と、lint・テスト（決済明細の読み取りの部品 `packages/statement-read/`、API、読み取りを測る道具 [`tools/statement-eval/`](tools/statement-eval/README.md)）、本番の土台と Cloud Run の Terraform（[`infra/`](infra/README.md)。書式・検証と、モックのプロバイダのテスト）、本番のイメージのビルドと検査（docker が要ります）をまとめて流します。API のテストは、エミュレーター（Auth・Firestore）を自分で起動して流す段もあります（Java が要ります。`npm run emulators` を動かしているとポートがぶつかるので、止めてから流してください）。AI は呼びません（資格情報は要りません）。CI（`.github/workflows/ci.yml`）も同じ検査を走らせます。
 
 ```sh
-mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && terraform fmt -check -recursive infra && terraform -chdir=infra/bootstrap init -backend=false -input=false -no-color && terraform -chdir=infra/bootstrap validate -no-color && terraform -chdir=infra/bootstrap test -no-color && .github/scripts/tf-required-vars.sh && .github/scripts/tf-iam-grants.test.sh && .github/scripts/tf-iam-grants.sh'
+mise exec -- bash -c 'npm ci && npm run check:pinned && npm run typecheck && npm run lint && npm test && npm run build && .github/scripts/csp-check.test.sh && .github/scripts/csp-check.sh dist/index.html && (cd packages/statement-read && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && (cd api && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && npm run test:api:emulator && (cd tools/statement-eval && uv sync --locked && uv run --locked ruff check && uv run --locked pytest -q) && terraform fmt -check -recursive infra && terraform -chdir=infra/bootstrap init -backend=false -input=false -no-color && terraform -chdir=infra/bootstrap validate -no-color && terraform -chdir=infra/bootstrap test -no-color && .github/scripts/tf-required-variables.sh && .github/scripts/tf-iam-grants.test.sh && .github/scripts/tf-iam-grants.sh && terraform -chdir=infra/prod init -backend=false -input=false -no-color && terraform -chdir=infra/prod validate -no-color && terraform -chdir=infra/prod test -no-color && .github/scripts/tf-required-variables.sh infra/prod project_id image && .github/scripts/image.sh loss-note check-dockerignore && docker build -t loss-note:ci . && .github/scripts/image-check.sh loss-note:ci && .github/scripts/workflow-concurrency-check.test.sh && .github/scripts/workflow-concurrency-check.sh'
 ```
 
 ## ログイン（手元）
@@ -162,7 +162,7 @@ mise exec -- npm run ui:check -- --shots <出力先のディレクトリ>   # �
 
 ## 本番の土台（GCP）
 
-自分の GCP プロジェクトに本番の土台（API・Terraform の state のバケット・GitHub Actions からの鍵なしの認証・コンテナイメージの置き場・Firebase・月の予算の通知）を作る手順は [`infra/README.md`](infra/README.md) にあります。
+自分の GCP プロジェクトに本番の土台（API・Terraform の state のバケット・GitHub Actions からの鍵なしの認証・コンテナイメージの置き場・Firebase・月の予算の通知）を作る手順は [`infra/README.md`](infra/README.md) にあります。本番へのデプロイ（main へのマージ → CI → 承認）・確認・切り戻し・Firestore のバックアップからの戻しの手順も同じ文書にあります。
 
 ## ディレクトリ
 

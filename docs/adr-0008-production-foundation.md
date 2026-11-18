@@ -25,7 +25,7 @@
 7. **plan 用 SA はこのリポジトリのどの workflow からも借用でき、prod の state を読める**（PR の plan のため）。fork の `pull_request` は ID トークンを得られないので通らない。`pull_request_target` の job は fork の PR から base の文脈で動きうるので、プロバイダの `attribute_condition` で `assertion.event_name != 'pull_request_target'` を課して受けない（pull_request・push などほかの event は受ける）。あわせて #42 以降も `pull_request_target` の workflow を置かない・prod の state に秘密を入れない（Secret Manager の参照だけにする）を約束にする（条件と約束の多層の守り）
 8. **`google.subject` は数字だけのクレーム `<リポジトリの数値 ID>:<run_id>:<run_attempt>` で作る**。上限の 127 バイトを、名前と ref を含む sub（長いブランチ名で超えうる）のように超えない。監査ログから workflow の実行と試行を引ける
 9. **費用の見張りは請求先の予算（月 3,000 円・50 / 90 / 100%）の通知だけ**。通知先は請求先の管理者への既定のメールのまま（メールアドレスを書かない）。止める仕組み（請求先の切り離し）は置かない
-10. **識別子（プロジェクト・請求先・リポジトリ・数値 ID）の変数に既定値を持たせない**。apply のたびに `TF_VAR_` で渡す。変数なしの plan が未指定の変数のエラーで止まることを `.github/scripts/tf-required-vars.sh` で CI が確かめる
+10. **識別子（プロジェクト・請求先・リポジトリ・数値 ID）の変数に既定値を持たせない**。apply のたびに `TF_VAR_` で渡す。変数なしの plan が未指定の変数のエラーで止まることを `.github/scripts/tf-required-variables.sh` で CI が確かめる
 
 ## 選択肢
 
@@ -41,4 +41,6 @@
 - 権限・費用・データの境界がプロジェクト単位で切れる。CI の SA は run.admin / run.viewer と、state・イメージのリソース単位の付与だけで、P4 のロール（owner・editor・viewer・IAM の管理など）を持たないことをモックのプロバイダの test で、付与の宣言がそれだけであること（権威的な `_binding`・`_policy` が 0 件）を `.github/scripts/tf-iam-grants.sh` で固定した
 - **戻せないもの**: Identity Platform の有効化と Firebase の追加は、プロジェクトの中では戻せない（戻しはプロジェクトの削除だけ）
 - **プロジェクトの外に残るもの**: 予算は請求先のリソースなので、プロジェクトを消しても残る。撤去では予算を先に消す（`infra/README.md`「撤去の注意」）
+- #42 で、CI が読む値（プロジェクト ID・SA・state のバケット）を repository variables から repository secrets に移した（公開リポジトリの Actions のログに値を出さない。ADR-0009）
+- #42 で bootstrap に Firestore（`firestore.tf`）と `firebaserules.googleapis.com`（API は 15 個）、実行用 SA の `roles/datastore.user` を足した（CI の SA の付与は変えていない。ADR-0009）
 - 実際の値（プロジェクト ID・番号・請求先・数値 ID）は所有者の手元の環境変数と bootstrap の state だけにあり、リポジトリには入らない。Web の API キーも bootstrap の state（所有者だけが読める）に入る

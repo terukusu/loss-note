@@ -24,6 +24,7 @@ import type {
 } from '../../../core/record';
 import { DEFAULT_ACCOUNT_ID, toTradeInput } from '../../../core/record';
 import { type Ruler, rulerOf } from '../../../core/ruler';
+import { reviewSizing } from '../../../core/sizing';
 import type {
   ExitOrderType,
   ExitReason,
@@ -172,6 +173,15 @@ export interface Summary {
   readonly invalid?: true;
   /** LC の物差し（#34。判定の枠の数の後に出す。LC なし・買い増し・計算できないときは無し） */
   readonly ruler?: Ruler;
+  /**
+   * 数量の比（1R ÷ 許容額）と提案の数量（#67。取引に写した資金・許容リスクで。判定には使わない）。1R・資金・取引の LC
+   * が無ければ無し。quantity = 実際の数量（エントリーの数量の合計）。提案の数量はエントリーが 1 つのときだけ
+   */
+  readonly sizing?: {
+    readonly ratio: number;
+    readonly quantity: number;
+    readonly suggestedQuantity?: number;
+  };
 }
 
 export interface Preview extends Summary {
@@ -329,6 +339,18 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
           ? RISK_NOTE.noCapital
           : RISK_NOTE.noOneR;
   const ruler = rulerOf(input, stored.record.tp);
+  // 取引の LC が無い（エントリーごとの LC だけ）取引は、判定の枠（LC なし）と「すべての欄」を揃えて出さない（#67 R1）
+  const sz = noLc ? undefined : reviewSizing(input);
+  const sizing =
+    sz === undefined
+      ? undefined
+      : {
+          ratio: sz.ratio,
+          quantity: input.entries.reduce((sum, e) => sum + e.quantity, 0),
+          ...(sz.suggestedQuantity === undefined
+            ? {}
+            : { suggestedQuantity: sz.suggestedQuantity }),
+        };
   return {
     noLc,
     ...(ev.r === undefined ? {} : { r: ev.r }),
@@ -338,6 +360,7 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
     ...(ev.judgment === undefined ? {} : { judgment: ev.judgment }),
     ...(riskNote === undefined ? {} : { riskNote }),
     ...(ruler === undefined ? {} : { ruler }),
+    ...(sizing === undefined ? {} : { sizing }),
   };
 }
 

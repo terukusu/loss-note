@@ -1,6 +1,6 @@
 // 判定・理由・R・リスクの枠（記録する画面 #13・取引の詳細と直す画面 #9 が共有する。Issue #9 で Record.tsx から出した。
 // クラス・文言・順は同じ）。枠の色は判定の段だけ、数字は無色（C34）。hook を持たない
-import type { ComponentChildren } from 'preact';
+import { type ComponentChildren, Fragment } from 'preact';
 import type { Grade } from '../../../core/judge';
 import type { Side } from '../../../core/trade';
 import { badgeModel } from '../lib/badge';
@@ -8,7 +8,7 @@ import { formatPct } from '../lib/format';
 import { reasonText } from '../lib/reasons';
 import type { Preview, Summary } from '../lib/record-form';
 import { MISSING, OFF_PLAN_TEXT, TAPS_LABEL, type TapAnswer } from '../lib/trade-view';
-import { verdictNotes } from '../lib/verdict-notes';
+import { sizingLine, verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
 import { JudgeBadge } from './JudgeBadge';
 import { RNum, YenNum } from './Num';
@@ -109,6 +109,7 @@ export function Verdict(v: VerdictProps) {
   const lead = j ? GRADE_LEAD[j.grade] : undefined;
   const pending = v.pending === true;
   const n = verdictNotes(v.summary, { pending });
+  const sizing = sizingLine(v.summary, { pending });
   const hint =
     v.hint !== undefined && v.hint !== null
       ? v.hint
@@ -175,6 +176,17 @@ export function Verdict(v: VerdictProps) {
           ) : null}
         </dl>
       )}
+      {/* 数量と提案の数量（#67。数の段のすぐ下・口座の 1 行の前に無色で 1 行。区切りの中では折らず、「·」は前の区切りの末尾に付ける） */}
+      {sizing !== null ? (
+        <p class="verdict__aside verdict__sizing">
+          {sizing.map((seg, i) => (
+            <Fragment key={seg}>
+              {i > 0 ? ' ' : null}
+              <span class="verdict__seg">{i < sizing.length - 1 ? `${seg} ·` : seg}</span>
+            </Fragment>
+          ))}
+        </p>
+      ) : null}
       {v.account ? <p class="verdict__aside verdict__account">{v.account}</p> : null}
 
       {n.notes.map((t) => (

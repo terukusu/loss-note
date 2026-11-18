@@ -23,6 +23,8 @@
 // 設定の口座の一覧（2 つ・資金が未設定の行）・直す欄・足す欄・誤り、一覧と詳細（口座 2 つ）を同じ幅とテーマで測り、
 // 手順 ACC1（口座 2 つで 1 タップで替わる・判定の枠の 1 行がその場で変わる）・ACC2（その場で足す: Enter で足す・Esc で閉じて
 // フォーカスを戻す・足した口座が選ばれる・入れていた欄が残る）・SET5（設定で口座を足す → 名前の順・知らせ・新しい行の [直す] へ）を流す。
+// 数量と提案の数量（Issue #67）: 手順 SZ1（幅 360 の記録する画面・詳細・編集の画面で、判定の枠の数量の行が区切りの中で折れず・
+// --ink-3・数の段の直後・横スクロール 0。2〜3 桁の比・小数 / 7 桁の提案の数量・1R が出ない・エントリー 2 つも。詳細の「すべての欄」に 2 行）を流す。
 // R12 は口座 1 つの形の全長 2,550px に加えて、口座 2 つ・3 つの形に 2,646px（欄 1 つ分 96px まで）の上限を見る。
 // 記録する画面の密度と階層（Issue #33）: 全状態で枠の入れ子（線か、最も近い面と違う面の色を持つ箱の祖先）が 3 段以上の要素を
 // 数え、幅 360 の記録する画面の全状態で貼り付きの帯の高さ（64px まで）と状態の文の行数（1 行まで）・切れ（scrollWidth）、直す画面の帯の高さ
@@ -2375,7 +2377,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 取引 T-L4〜T-X2',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 取引 T-L4〜T-X2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -4102,6 +4104,176 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return 'その場で足す: 開くと名前の欄へ・Esc で閉じて [＋ 口座を足す] へ・Enter で足す（記録しない）→ 口座 C が選ばれた Segment が出てフォーカス、本文は名前と資金だけ、入れていた欄はそのまま';
+  });
+
+  // SZ1（#67 AC-8）: 判定の枠の数量と提案の数量の行が、記録する画面・取引の詳細・編集の画面に出て、区切り（「数量 10000 ·」
+  // 「提案の数量 4000（2.5 倍）」）の中で折れず、幅 360 でも区切りの間でだけ折れ、色が注記と同じ --ink-3（判定の色を使わない）、
+  // 数の段の直後、横スクロール 0。場面: 0.5 倍・Z2（2.5 倍）・ちょうど 1.0 倍・Z9（最小の数量でも許容リスクを超える）・2 桁と 3 桁の
+  // 比・提案の数量が小数 / 7 桁・1R が出ない（行なし）・エントリー 2 つ（詳細）・編集の画面で口座を付け替え。--shots なら各場面の
+  // 判定の枠を 360 ダーク・360 ライト・1440 ダークで撮る。値はすべて架空
+  await check('SZ1', async () => {
+    /** エントリー 2 つ（100.00 × 5,000・99.80 × 5,000、LC 99.50、円建て）→ 1R 4,000 ÷ 10,000 = 0.4 倍 */
+    const TX_Z14 = exampleTrade(
+      'x-z14',
+      1700000000099,
+      {
+        entries: [
+          { price: 100, quantity: 5000 },
+          { price: 99.8, quantity: 5000 },
+        ],
+        statementPnlYen: -4000,
+      },
+      { snapshot: { ...SNAP, instrument: { ...SNAP.instrument, priceCurrency: 'JPY' } } },
+    );
+    const { c, p, fake, errors } = await recordContext({
+      accounts: ACCOUNTS_2,
+      trades: [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000), ...EXAMPLE_TRADES, TX_Z14],
+    });
+    const seen = [];
+    /** 数量の行の文字・行の数・区切りごとの行の数・色・横スクロール・数の段の直後か */
+    const lineOf = () =>
+      p.locator('.verdict__sizing').evaluate((e) => {
+        const cs = getComputedStyle(e);
+        const probe = document.createElement('span');
+        probe.style.color = 'var(--ink-3)';
+        document.body.append(probe);
+        const ink3 = getComputedStyle(probe).color;
+        probe.remove();
+        const lh = Number.parseFloat(cs.lineHeight);
+        const lines = (el) => Math.round(el.getBoundingClientRect().height / lh);
+        return {
+          text: e.textContent,
+          lines: lines(e),
+          segLines: [...e.querySelectorAll('.verdict__seg')].map((s) => s.getClientRects().length),
+          ink3: cs.color === ink3,
+          h: document.documentElement.scrollWidth - window.innerWidth,
+          afterStats: e.previousElementSibling?.classList.contains('verdict__stats') ?? false,
+        };
+      });
+    /** 判定の枠を 360 ダーク・360 ライト・1440 ダークで撮る（--shots のときだけ） */
+    const shoot = async (slug) => {
+      if (!opts.shots) return;
+      const v = p.locator('.verdict');
+      await v.scrollIntoViewIfNeeded();
+      await v.screenshot({ path: join(opts.shots, `sz1-360-dark-${slug}.png`) });
+      await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+      await v.screenshot({ path: join(opts.shots, `sz1-360-light-${slug}.png`) });
+      await p.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
+      await p.setViewportSize({ width: 1440, height: 900 });
+      await v.scrollIntoViewIfNeeded();
+      await v.screenshot({ path: join(opts.shots, `sz1-1440-dark-${slug}.png`) });
+      await p.setViewportSize({ width: 360, height: 780 });
+    };
+    const expectLine = async (want, what, slug) => {
+      await p.locator('.verdict__sizing', { hasText: want }).waitFor();
+      const l = await lineOf();
+      expectEq(l.text, want, `${what} の文字`);
+      expectEq(
+        l.segLines.every((n) => n === 1),
+        true,
+        `${what} の区切りの中で折れない ${l.segLines}`,
+      );
+      if (l.lines > l.segLines.length)
+        throw new Error(`${what} の行の数 ${l.lines}（区切り ${l.segLines.length}）`);
+      expectEq(l.ink3, true, `${what} の色が --ink-3`);
+      expectEq(l.h, 0, `${what} の横スクロール`);
+      expectEq(l.afterStats, true, `${what} が数の段の直後`);
+      seen.push(`${what} ${l.lines} 行`);
+      await shoot(slug);
+    };
+    /** 記録する画面を開き直して、銘柄の値・下書きを入れる */
+    const fresh = async (inst) => {
+      fake.instruments[0] = { ...FAKE_US30, ...inst };
+      await openRecord(p, base);
+    };
+    const fillAt = async (ex, quantity, account = '口座 1') => {
+      await fillRecord(p, ex);
+      await p.locator('#record-quantity').fill(quantity);
+      await seg(p, '口座', account).click();
+    };
+    const AT = (entry, lc) => ({ ...EX_SAFE, entry, exit: lc, lc });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      // 円建て・乗数 1。口座 1（1,000,000・1%）: 1R 0.50 × 10,000 = 5,000 → 0.5 倍、提案 20,000
+      await fresh({ priceCurrency: 'JPY' });
+      await fillRecord(p, EX_E1);
+      await expectLine('数量 10000 · 提案の数量 20000（0.5 倍）', '口座 1', 'record-05');
+      // Z2: 口座 B（200,000・1%）→ 2.5 倍、10,000 × 2,000 ÷ 5,000 = 4,000
+      await seg(p, '口座', '口座 B').click();
+      await expectLine('数量 10000 · 提案の数量 4000（2.5 倍）', 'Z2', 'record-z2');
+      // ちょうど 1.0 倍: 数量 20,000 → 1R 10,000 ÷ 10,000
+      await fresh({ priceCurrency: 'JPY' });
+      await fillAt(EX_E1, '20000');
+      await expectLine('数量 20000 · 提案の数量 20000（1.0 倍）', '1.0 倍', 'record-z4');
+      // 7 桁: 数量 1,234,567・LC 99.99 → 1R 12,345.67 → 1.23… → 1.3 倍、提案 1,234,567 × 10,000 ÷ 12,345.67 = 1,000,000
+      await fresh({ priceCurrency: 'JPY' });
+      await fillAt(AT('100.00', '99.99'), '1234567');
+      await expectLine('数量 1234567 · 提案の数量 1000000（1.3 倍）', '7 桁', 'record-7digits');
+      // 小数: 乗数 100,000・刻み 0.01・イン 150.00・LC 149.50・数量 0.37 → 1R 18,500 → 1.85 → 1.9 倍、提案 0.2
+      await fresh({ priceCurrency: 'JPY', multiplier: 100000, quantityStep: 0.01 });
+      await fillAt(AT('150.00', '149.50'), '0.37');
+      await expectLine('数量 0.37 · 提案の数量 0.2（1.9 倍）', '小数', 'record-decimal');
+      // 乗数 100: Z9（イン 38,000・LC 37,600・数量 1 → 1R 40,000 → 4.0 倍、0.25 → 0）
+      await fresh({ priceCurrency: 'JPY', multiplier: 100 });
+      await fillAt(AT('38000', '37600'), '1');
+      await expectLine(
+        '数量 1（許容リスクの 4.0 倍） · 最小の数量でも許容リスクを超えます',
+        'Z9',
+        'record-z9',
+      );
+      // 2 桁: 数量 12 → 1R 480,000 ÷ 10,000 = 48.0 倍 / 3 桁: 口座 B（許容額 2,000）→ 240.0 倍
+      await p.locator('#record-quantity').fill('12');
+      await expectLine(
+        '数量 12（許容リスクの 48.0 倍） · 最小の数量でも許容リスクを超えます',
+        '2 桁',
+        'record-48x',
+      );
+      await seg(p, '口座', '口座 B').click();
+      await expectLine(
+        '数量 12（許容リスクの 240.0 倍） · 最小の数量でも許容リスクを超えます',
+        '3 桁',
+        'record-240x',
+      );
+      // 1R が出ない: 価格の通貨が未設定（為替が要る）で明細の損益も無い → 行を出さない
+      await fresh({});
+      await fillAt(EX_E1, '10000');
+      await p.locator('.verdict .badge').first().waitFor();
+      expectEq(await p.locator('.verdict__sizing').count(), 0, '1R が出ないときの行');
+      seen.push('1R なし 0 行');
+      await shoot('record-no-1r');
+      // 詳細（x-d1: 1R = 8,000 × 0.50 ÷ 0.80 = 5,000、資金 1,000,000・1%）と「すべての欄」の 2 行
+      await p.goto(`${base}/trades/x-d1`);
+      await waitReady(p, 'US30 · L');
+      await expectLine('数量 10000 · 提案の数量 20000（0.5 倍）', '詳細', 'detail');
+      await p.locator('details.more > summary').click();
+      const rows = await p.locator('.fields__row').allTextContents();
+      expectEq(
+        rows
+          .filter((r) => r.startsWith('提案の数量') || r.startsWith('許容リスクに対する数量'))
+          .join(' / '),
+        '提案の数量20000 / 許容リスクに対する数量0.5 倍',
+        'すべての欄の 2 行',
+      );
+      if (opts.shots) {
+        await p
+          .locator('details.more')
+          .screenshot({ path: join(opts.shots, 'sz1-360-dark-detail-fields.png') });
+      }
+      // エントリー 2 つ（詳細）: 数量は合計・比だけ
+      await p.goto(`${base}/trades/x-z14`);
+      await waitReady(p, 'US30 · L');
+      await expectLine('数量 10000（許容リスクの 0.4 倍）', 'エントリー 2 つ', 'detail-z14');
+      // 編集の画面: 口座 B に付け替える → 2.5 倍・提案の数量 4,000
+      await p.goto(`${base}/trades/x-d1/edit`);
+      await waitReady(p, '取引を編集');
+      await expectLine('数量 10000 · 提案の数量 20000（0.5 倍）', '編集の画面', 'edit-a');
+      await seg(p, '口座', '口座 B').click();
+      await expectLine('数量 10000 · 提案の数量 4000（2.5 倍）', '編集の画面の口座 B', 'edit-b');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return `幅 360: 区切りの中で折れない・--ink-3・数の段の直後・横スクロール 0（${seen.join(' / ')}）。すべての欄の 2 行`;
   });
 
   await check('SET5', async () => {

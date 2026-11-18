@@ -6,6 +6,7 @@ import {
   formatPlain,
   formatPrice,
   formatR,
+  formatTimes,
   formatYen,
 } from '../../ui/src/lib/format';
 import { forAll } from '../core/helpers/prng';
@@ -193,5 +194,37 @@ describe('formatAmountYen（資金のような符号の無い金額。Issue #5�
   });
   it('有限でないときは「金額なし」', () => {
     expect(formatAmountYen(Number.NaN)).toBe('金額なし');
+  });
+});
+
+describe('formatTimes（#67 R3）: 数量の比は小数 1 桁へ切り上げ（リスク（%）と同じ規則）', () => {
+  it.each([
+    ['Z1 0.5', 0.5, '0.5'],
+    ['Z2 2.5', 2.5, '2.5'],
+    ['Z3 3.0', 3, '3.0'],
+    ['Z5 0.52 は 0.6 に切り上げ', 0.52, '0.6'],
+    ['Z6 0.75 は 0.8', 0.75, '0.8'],
+    ['許容をわずかに超えた 1.01 は 1.1（1.0 に見せない）', 1.01, '1.1'],
+    ['1e-9 の上振れは切り上げない', 1 + 1e-10, '1.0'],
+    ['2 進の誤差（0.1 + 0.2）', 0.1 + 0.2, '0.3'],
+    ['ちょうど 0（−0 を出さない）', -0, '0.0'],
+  ] as const)('%s', (_name, x, want) => {
+    expect(formatTimes(x)).toBe(want);
+  });
+
+  it('有限でない値は「比なし」', () => {
+    expect(formatTimes(Number.NaN)).toBe('比なし');
+    expect(formatTimes(Number.POSITIVE_INFINITY)).toBe('比なし');
+  });
+
+  it('比 × 許容 1% = リスク（%）の表示と同じ数（乱数 1,000 件）', () => {
+    forAll(
+      6701,
+      1_000,
+      (r) => r.int(1, 1_000_000) / r.pick([1, 10, 100, 1_000, 10_000]),
+      (x) => {
+        if (`${formatTimes(x)}%` !== formatPct(x)) throw new Error(`${x}`);
+      },
+    );
   });
 });

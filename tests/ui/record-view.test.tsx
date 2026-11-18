@@ -31,6 +31,7 @@ import {
   CAPITAL_1M,
   draft,
   E1,
+  E2,
   E3,
   E4,
   E5,
@@ -1453,5 +1454,45 @@ describe('保存の後の知らせ（#47 U11）', () => {
       ).map(text);
     expect(saved('口座 B', 2)).toEqual(['口座 B に記録しました']);
     expect(saved('口座 1', 1)).toEqual(['記録しました']);
+  });
+});
+
+// ---- 数量の比と提案の数量（Issue #67 AC-6・AC-8）。値・名前はすべて架空 ----
+
+describe('判定の枠の数量の 1 行（#67）', () => {
+  /** 判定の枠の直下の子の class（並びを見る） */
+  const order = (tree: Node[]) =>
+    verdictOf(tree)
+      .children.filter((c): c is El => typeof c !== 'string')
+      .map((c) => cls(c).split(' ').at(-1));
+
+  it('Z2: 口座の資金 200,000・1% で E2（1R 5,000）→「数量 10000 · 提案の数量 4000（2.5 倍）」が数の段の直後に 1 行・無色', () => {
+    const ctx = { ...CAPITAL_1M, accounts: [defaultAccount(200_000)] };
+    const tree = view(stateFor(E2, ctx));
+    const line = all(tree, hasClass('verdict__sizing'));
+    expect(line.map(text)).toEqual(['数量 10000 · 提案の数量 4000（2.5 倍）']);
+    expect(cls(line[0] as El)).toBe('verdict__aside verdict__sizing');
+    const o = order(tree);
+    expect(o[o.indexOf('verdict__stats') + 1]).toBe('verdict__sizing');
+  });
+
+  it('口座 2 つ: 数量の 1 行は口座の 1 行の前', () => {
+    const ctx = {
+      ...CAPITAL_1M,
+      accounts: [defaultAccount(200_000), account('accB', '口座 B', 1_000_000)],
+    };
+    const o = order(view(stateFor(E2, ctx)));
+    expect(o.indexOf('verdict__sizing')).toBe(o.indexOf('verdict__stats') + 1);
+    expect(o.indexOf('verdict__account')).toBe(o.indexOf('verdict__sizing') + 1);
+  });
+
+  it('判定を待つ間（開いた直後）・資金が未設定・LC なしでは出さない', () => {
+    for (const [d, ctx] of [
+      [draft({}), CAPITAL_1M],
+      [E2, NO_CAPITAL],
+      [E16, CAPITAL_1M],
+    ] as const) {
+      expect(all(view(stateFor(d, ctx)), hasClass('verdict__sizing'))).toEqual([]);
+    }
   });
 });

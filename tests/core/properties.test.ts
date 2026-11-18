@@ -2,8 +2,8 @@
 import { describe, it } from 'vitest';
 import { evaluateTrade } from '../../core/evaluate';
 import { REASON_ORDER, REASON_WEIGHT, type Reason } from '../../core/judge';
-import { oneRYen, pnlYen, rMultiple } from '../../core/pnl';
-import { suggestQuantity } from '../../core/sizing';
+import { oneRYen, pnlYen, riskPct, rMultiple } from '../../core/pnl';
+import { reviewSizing, suggestQuantity } from '../../core/sizing';
 import {
   type Entry,
   type Exit,
@@ -344,6 +344,153 @@ describe('性質', () => {
           `${oneRYen(base)} / ${oneRYen(withStatement)}`,
         );
         assert(close(oneRYen(base), width * qty * mult), '式の 1R');
+      },
+    );
+  });
+  // ---- 数量の比と提案の数量（#67 AC-4）。乱数の取引に刻みを混ぜる ----
+
+  /** 刻みを乱数で選び直した取引 */
+  function withStep(t: TradeInput, step: number): TradeInput {
+    return { ...t, instrument: { ...t.instrument, quantityStep: step } };
+  }
+
+  it('数量の比: 比 × 許容リスク = リスク（%）、比 > 0、出ない ⇔ 1R か資金が無い', () => {
+    forAll(
+      109,
+      N,
+      (r) => genLongTrade(r),
+      (t) => {
+        const s = reviewSizing(t);
+        const o = oneRYen(t);
+        const has = o !== undefined && o > 0 && t.capitalYen !== undefined;
+        assert((s !== undefined) === has, `出る / 出ない ${s?.ratio} 1R ${o}`);
+        if (s === undefined) return;
+        assert(s.ratio > 0 && Number.isFinite(s.ratio), `比 ${s.ratio}`);
+        assert(
+          close(s.ratio * t.riskTolerancePct, riskPct(t)),
+          `${s.ratio} × ${t.riskTolerancePct}`,
+        );
+        assert(
+          (s.suggestedQuantity !== undefined) === (t.entries.length === 1),
+          `提案はエントリー 1 つのときだけ ${t.entries.length}`,
+        );
+      },
+    );
+  });
+
+  it('提案の数量: 刻みの整数倍・0 以上、そのリスクは許容額以下で、1 刻み足すと許容額を超える', () => {
+    const steps = [100, 10, 1, 0.1, 0.01];
+    forAll(
+      110,
+      N,
+      (r) => withStep(genLongTrade(r), r.pick(steps)),
+      (t) => {
+        const s = reviewSizing(t);
+        const o = oneRYen(t);
+        if (s?.suggestedQuantity === undefined || o === undefined) return;
+        const q = s.suggestedQuantity;
+        const step = t.instrument.quantityStep;
+        assert(q >= 0, `提案 ${q}`);
+        assert(close(Math.round(q / step) * step, q, 1e-12), `刻みの整数倍でない ${q} / ${step}`);
+        // 1 数量あたりのリスク = 1R ÷ 数量（1R は数量に比例する。明細の逆算でも同じ取引の 1 数量あたり）
+        const unit = o / t.entries[0].quantity;
+        assert(
+          q * unit <= s.allowance * (1 + 1e-9),
+          `許容額を超える ${q} × ${unit} > ${s.allowance}`,
+        );
+        assert((q + step) * unit > s.allowance, `1 刻み足しても超えない ${q}`);
+      },
+    );
+  });
+
+  it('提案の数量: 円建て・エントリー 1 つ・明細の損益なしの取引では、入る前の数量の提案（5.2 の式）と同じ', () => {
+    // 事後の逆算（数量 × 許容額 ÷ 1R）と 5.2 の式（資金 × 許容リスク ÷ (|イン − LC| × 乗数 × 為替)）を独立に突き合わせる
+    const steps = [100, 10, 1, 0.1, 0.01];
+    forAll(
+      113,
+      N,
+      (r) => {
+        const side = r.pick(['L', 'S'] as const);
+        const entry = r.int(1_000, 50_000) / r.pick([1, 100]);
+        const width = r.int(1, 500) / r.pick([1, 10, 100]);
+        const lc = side === 'L' ? entry - width : entry + width;
+        const t: TradeInput = {
+          side,
+          instrument: {
+            multiplier: r.pick([1, 10, 100, 0.1]),
+            quantityStep: r.pick(steps),
+            isJpy: true,
+          },
+          entries: [{ price: entry, quantity: r.int(1, 100_000) / r.pick([1, 10, 100]) }],
+          lc,
+          lcBasis: 'chart',
+          lcDecidedBeforeEntry: true,
+          lcMove: { kind: 'none' },
+          timeframeChange: 'none',
+          capitalYen: r.int(100, 50_000) * 1_000,
+          riskTolerancePct: r.pick([0.5, 1, 1.5, 2, 3]),
+          exit: { price: lc, orderType: 'unknown', reason: 'other' },
+        };
+        return t;
+      },
+      (t) => {
+        const want = suggestQuantity({
+          side: t.side,
+          entryPrice: t.entries[0].price,
+          ...(t.lc === undefined ? {} : { lc: t.lc }),
+          ...(t.capitalYen === undefined ? {} : { capitalYen: t.capitalYen }),
+          riskTolerancePct: t.riskTolerancePct,
+          multiplier: t.instrument.multiplier,
+          fx: 1,
+          quantityStep: t.instrument.quantityStep,
+        });
+        const got = reviewSizing(t)?.suggestedQuantity;
+        assert(want !== undefined && got === want, `事後 ${got} / 5.2 ${want}`);
+      },
+    );
+  });
+
+  it('数量の比: L と S（価格を折り返す）で同じ', () => {
+    forAll(
+      111,
+      N,
+      (r) => ({ t: genLongTrade(r), k: r.int(1_500, 3_000) }),
+      ({ t, k }) => {
+        const a = reviewSizing(t);
+        const b = reviewSizing(mirror(t, k));
+        assert(close(a?.ratio, b?.ratio), `比 ${a?.ratio} / ${b?.ratio}`);
+        assert(a?.suggestedQuantity === b?.suggestedQuantity, '提案');
+      },
+    );
+  });
+
+  it('数量の比: 資金と数量（明細の損益・手数料も）を同じ k 倍にしても同じ。数量を増やすと減らない', () => {
+    forAll(
+      112,
+      N,
+      (r) => ({ t: genLongTrade(r), k: r.int(2, 50) / r.pick([1, 10]) }),
+      ({ t, k }) => {
+        const more = t.entries.map((e) => ({ ...e, quantity: e.quantity * k })) as [
+          Entry,
+          ...Entry[],
+        ];
+        const scaled: TradeInput = {
+          ...t,
+          entries: more,
+          ...(t.capitalYen === undefined ? {} : { capitalYen: t.capitalYen * k }),
+          ...(t.statementPnlYen === undefined ? {} : { statementPnlYen: t.statementPnlYen * k }),
+          ...(t.feesTotalYen === undefined ? {} : { feesTotalYen: t.feesTotalYen * k }),
+        };
+        const a = reviewSizing(t);
+        assert(close(a?.ratio, reviewSizing(scaled)?.ratio), `同じ k 倍 ${k}`);
+        // 数量だけ k 倍にする。比は数量の多い方が小さくならない（明細から 1R を出した取引は変わらない）
+        const b = reviewSizing({ ...t, entries: more });
+        if (a === undefined || b === undefined) return;
+        const [small, large] = k >= 1 ? [a, b] : [b, a];
+        assert(
+          large.ratio >= small.ratio * (1 - 1e-9),
+          `数量の多い方の比が小さい ${small.ratio} → ${large.ratio}（k ${k}）`,
+        );
       },
     );
   });

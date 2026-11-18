@@ -143,6 +143,20 @@ mise exec -- uv run --locked --group ai python -m statement_eval eval --set synt
 - 実物は枚数が少ないので、1 件の誤りで割合が大きく動きます（要約に実数を出します）
 - 秒数はその日の提供元の混み具合に左右されます
 
+## チャートの時間足の読み取りを測る（#27）
+
+記録する画面は、根拠の足のチャートに写っている時間足の表示（「4H」「日足」など）を AI で読み、時間足の欄を埋めます（API と同じ指示・同じ送り口。共有の `statement_read.chart_timeframe`）。読み違いは偽の「時間足を変えた」になるので、合否は **表示があるのに列挙の別の値に読み違えた件数 0** と **表示が無いのに値を作った件数 0** です（読めずに空は許す）。
+
+合成のチャート（架空の銘柄名・価格の目盛りなし）は `synthetic-charts/` にあります。凡例の「銘柄 · 4h」、MT 型の「銘柄,H4」、日本語の「日足」「4時間足」、数だけの「240」、選ばれた時間足のボタンの 5 つの書き方と、表示なし・列挙に無い足（2h）・時間足の違う 2 つのチャート・チャートでない画像の 14 枚です。
+
+```
+uv run --locked python -m statement_eval generate-charts           # 作り直す（正解と manifest は --check で一致を見る）
+uv sync --locked --group ai
+uv run --locked python -m statement_eval eval-charts --credential api_key --preset app
+```
+
+出力は分類ごとの件数（一致・空・読み違い・作り話・チャートか / でないかの違い・失敗）と 1 枚の秒数だけです。`--preset app` はアプリと同じ最大出力（2,000 トークン）で読みます。失敗の種類（`no_tool_call` など。最大出力で切れてツールを呼べなかった回を含む）の件数も記録し、出ていれば最大出力を上げて予約額を作り直します（ADR-0015）。実物のチャートで測るときは、画像と `answers.json`（`images` の各行に `file`・`kind`（`chart` / `not_chart`）・`timeframe`（`1m`・`5m`・`15m`・`30m`・`1h`・`4h`・`1d`・`1w`・`1M` か `null`）・`label_shown`（時間足の表示が写っているか））を `data/local/` の下に置き、`--set real --dir data/local/<置き場所>` を足します。
+
 ## 作り
 
 | ファイル | 役割 |
@@ -155,6 +169,8 @@ mise exec -- uv run --locked --group ai python -m statement_eval eval --set synt
 | `src/statement_eval/images.py` | 送る前の画像の確認と縮小（メモリ上だけ）。上限は共有の `statement_read.image` |
 | `src/statement_eval/reader.py` | Claude Agent SDK で 1 枚を読む（共有の `statement_read.agent_reader` の名前を写すだけ。API と同じ送り口） |
 | `src/statement_eval/report.py` | 要約（件数・割合・秒数・費用・モデル名だけ）→ Markdown / JSON |
-| `src/statement_eval/cli.py` | `generate` / `eval` の入口 |
+| `src/statement_eval/chart_synthetic.py`・`chart_render.py` | 合成のチャートの場面と正解（純関数）・PNG に描く（#27） |
+| `src/statement_eval/chart_score.py` | チャートの時間足の読み取りの採点（一致・空・読み違い・作り話）と要約（#27） |
+| `src/statement_eval/cli.py` | `generate` / `eval` / `generate-charts` / `eval-charts` の入口 |
 
 依存: 共有のパッケージ `statement-read`（path 依存。anyio 4.16）、Pillow 13.0（描画・画像の確認）、claude-agent-sdk 0.2.176（依存グループ `ai`。MIT。同梱の Claude Code CLI 2.1.316 は Anthropic の利用規約に従います）。

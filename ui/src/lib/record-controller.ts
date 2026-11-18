@@ -21,6 +21,13 @@
 //   取引と一緒に 1 要求（multipart。時間の上限 30 秒）で送る。描き直し中は保存しない。差し替え・外すとその枠の時間足は
 //   空に戻る（選び直し）。保存の後・明細の次の行・画面を離れたらプレビューを close して捨てる。保存の失敗では残す。
 //   チャートの画像も記憶の中だけ
+// - チャートの時間足の読み取り（#27）: 枠の画像が使えるようになったら追加の操作なしで POST /api/chart-reads に送り、
+//   枠の時間足が空で利用者が触っていなければ読んだ値で埋めて印を付ける（chart-read.ts）。利用者が違う値を選んでいれば
+//   上書きせず「チャートからは … と読めました」と 1 タップで直せる案を出す。AI の読み取りは 1 つずつ送る（明細が先、
+//   チャートはその後に枠の順。同時の予約と CPU の取り合いを減らす。ADR-0015）。読み取り中も [記録する] は押せ、
+//   記録した時点で終わっていない読み取りは止めて結果を捨てる（時間足は任意の欄）。差し替え・外す・離れたでも止める。
+//   失敗は決まった文言で知らせ、欄は空のまま
+
 import {
   type AccountRecord,
   accountIdOf,
@@ -28,6 +35,7 @@ import {
   type StoredTrade,
   type TradeRecord,
 } from '../../../core/record';
+import type { Timeframe } from '../../../core/trade';
 import {
   ACCOUNT_ADDING,
   ACCOUNT_MSG,
@@ -40,6 +48,13 @@ import {
   readNewAccountDraft,
   sortAccounts,
 } from './accounts';
+import {
+  applyChartRead,
+  CHART_READ_MSG,
+  CHART_READ_PATH,
+  chartReadFailureMessage,
+  parseChartReadResponse,
+} from './chart-read';
 import {
   CHART_SLOTS,
   CHART_TIMEFRAME_FIELD,
@@ -160,6 +175,14 @@ export interface ChartState {
   /** 送るものと同じ画像のプレビュー（phase = ready のとき。記憶の中だけ） */
   readonly preview: PreviewHandle | null;
   readonly message: string | null;
+  /** 時間足の表示の読み取り（#27。phase = ready のとき）: 読み取り中 / 終わった */
+  readonly read?: 'reading' | 'done';
+  /** 読み取りの知らせ（読めない・チャートでない・失敗。決まった文言だけ） */
+  readonly readNote?: string | null;
+  /** 時間足の欄を読み取りで埋めた（印「チャートから読み取り」。利用者が直すと消える） */
+  readonly readMark?: boolean;
+  /** 利用者が違う値を選んでいたときの、チャートから読めた値（上書きしない。[〈値〉にする] で 1 タップで直せる） */
+  readonly readSuggest?: Timeframe | null;
 }
 
 export type ChartsState = Readonly<Partial<Record<ChartSlot, ChartState>>>;
@@ -239,6 +262,8 @@ export interface RecordController {
   setNewAccount(field: Extract<AccountField, 'name' | 'capital'>, value: string): void;
   /** [足す]: POST /api/accounts。足せたら一覧に足して選ぶ（下書きのほかの欄・明細・チャートはそのまま） */
   addAccount(): Promise<void>;
+  /** [〈読めた値〉にする]: チャートから読めた値で枠の時間足を直す（印を付ける） */
+  acceptChartTimeframe(slot: ChartSlot): void;
   /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる（チャートも捨てる） */
   dispose(): void;
 }
@@ -361,6 +386,10 @@ export function createRecordController(deps: {
     if (base.addAccount?.saving) {
       read = { ...read, canSave: false, notice: read.notice ?? ACCOUNT_ADDING };
     }
+    // チャートの時間足の読み取り中も保存できる（任意の欄。待たずに記録できることを帯に出す。#27）
+    if (read.canSave && CHART_SLOTS.some((slot) => base.charts?.[slot]?.read === 'reading')) {
+      read = { ...read, notice: read.notice ?? CHART_READ_MSG.reading };
+    }
     state = { ...base, read };
     for (const fn of listeners) fn(state);
   };
@@ -368,10 +397,72 @@ export function createRecordController(deps: {
   /** 枠ごとの送る画像（記憶の中だけ）と世代（差し替え・外す・離れたで進め、古い描き直しの結果を捨てる） */
   const chartBytes: Partial<Record<ChartSlot, ChartUpload>> = {};
   const chartGen: Record<ChartSlot, number> = { entry: 0, exit: 0 };
+  /** 時間足の読み取りの要求（枠ごと。差し替え・外す・離れたで止める）と、利用者がその枠の時間足を触ったか */
+  const chartReadAbort: Record<ChartSlot, AbortController | null> = { entry: null, exit: null };
+  const chartTouched: Record<ChartSlot, boolean> = { entry: false, exit: false };
+  /** 読み取りの世代（枠ごと。差し替え・外す・記録・離れたで進め、古い応答を捨てる） */
+  const chartReadGen: Record<ChartSlot, number> = { entry: 0, exit: 0 };
+  /** AI の読み取りは 1 つずつ: 送るのを待つ枠（順）と、送っている枠 */
+  let chartQueue: ChartSlot[] = [];
+  let chartRunning: ChartSlot | null = null;
+  /** 枠の読み取りが終わる（送った・止めた）のを待つ setChart の Promise の解決 */
+  const chartDone: Partial<Record<ChartSlot, { readonly gen: number; readonly ok: () => void }>> =
+    {};
+  /** 送っているチャートの読み取りが終わるのを待つ明細の読み取り */
+  let chartIdleWaiters: (() => void)[] = [];
+
+  /** setChart の Promise を解く（gen を渡したときは、その世代の読み取りの待ちだけ） */
+  const settleChart = (slot: ChartSlot, gen?: number) => {
+    const done = chartDone[slot];
+    if (!done || (gen !== undefined && done.gen !== gen)) return;
+    delete chartDone[slot];
+    done.ok();
+  };
+
+  /** 枠の読み取りを止める（送る前なら送らない。送っていれば止めて、後で届いた応答を捨てる） */
+  const stopChartRead = (slot: ChartSlot) => {
+    chartReadGen[slot]++;
+    chartQueue = chartQueue.filter((s) => s !== slot);
+    chartReadAbort[slot]?.abort();
+    chartReadAbort[slot] = null;
+    settleChart(slot);
+  };
+
+  const statementBusy = () =>
+    state.statement?.phase === 'preparing' || state.statement?.phase === 'reading';
+
+  /** 次の読み取りを送る（明細の読み取り中・ほかのチャートを送っている間は待つ） */
+  const pump = () => {
+    if (chartRunning !== null || statementBusy()) return;
+    const slot = chartQueue.shift();
+    if (slot === undefined) return;
+    const upload = chartBytes[slot];
+    const gen = chartReadGen[slot];
+    if (!upload || state.charts?.[slot]?.read !== 'reading') {
+      settleChart(slot, gen);
+      pump();
+      return;
+    }
+    chartRunning = slot;
+    void readChart(slot, gen, upload).finally(() => {
+      chartRunning = null;
+      settleChart(slot, gen);
+      const waiters = chartIdleWaiters;
+      chartIdleWaiters = [];
+      for (const w of waiters) w();
+      pump();
+    });
+  };
+
+  /** 送っているチャートの読み取りが終わるまで待つ（明細の読み取りを後から送る） */
+  const chartIdle = (): Promise<void> =>
+    chartRunning === null ? Promise.resolve() : new Promise((ok) => chartIdleWaiters.push(ok));
 
   /** 枠の画像とプレビューを捨てる（状態は呼び出し側が直す） */
   const dropChart = (slot: ChartSlot) => {
     chartGen[slot]++;
+    stopChartRead(slot);
+    chartTouched[slot] = false;
     state.charts?.[slot]?.preview?.close();
     delete chartBytes[slot];
   };
@@ -484,6 +575,14 @@ export function createRecordController(deps: {
   };
 
   const readImage = async (file: Blob) => {
+    try {
+      await readImageInner(file);
+    } finally {
+      pump();
+    }
+  };
+
+  const readImageInner = async (file: Blob) => {
     if (state.phase === 'saved') next();
     if (!deps.prepare) return;
     if (state.phase !== 'editing') {
@@ -540,6 +639,10 @@ export function createRecordController(deps: {
       return;
     }
     set({ statement: { ...st0, phase: 'reading', preview } });
+    // 送っているチャートの読み取りがあれば終わるのを待つ（AI の読み取りは 1 つずつ。明細が先なので、待っている
+    // チャートより前に送る）
+    await chartIdle();
+    if (gen !== readGen) return;
     try {
       const res = await request(
         READ_PATH,
@@ -644,7 +747,88 @@ export function createRecordController(deps: {
     }
     const { bytes, contentType, preview } = prepared.image;
     chartBytes[slot] = { bytes, contentType };
-    set({ charts: { ...state.charts, [slot]: { phase: 'ready', preview, message: null } } });
+    set({
+      charts: {
+        ...state.charts,
+        [slot]: { phase: 'ready', preview, message: null, read: 'reading', readNote: null },
+      },
+    });
+    // 読み取りの順に並べる（送るのは pump。明細の読み取り中・ほかの枠を送っている間は待つ）
+    const done = new Promise<void>((ok) => {
+      chartDone[slot] = { gen: chartReadGen[slot], ok };
+    });
+    chartQueue.push(slot);
+    pump();
+    await done;
+  };
+
+  /** 枠のチャートの時間足の表示を読み取りに送り、結果で時間足の欄を埋める（#27。chart-read.ts） */
+  const readChart = async (slot: ChartSlot, gen: number, upload: ChartUpload) => {
+    const ctl = new AbortController();
+    chartReadAbort[slot] = ctl;
+    const live = () => gen === chartReadGen[slot] && state.charts?.[slot]?.phase === 'ready';
+    const finish = (patch: Partial<ChartState>) => {
+      const c = state.charts?.[slot];
+      if (!live() || !c) return;
+      set({ charts: { ...state.charts, [slot]: { ...c, read: 'done', ...patch } } });
+    };
+    try {
+      const res = await request(
+        CHART_READ_PATH,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': upload.contentType },
+          body: upload.bytes as BodyInit,
+        },
+        { ms: readTimeoutMs, ctl },
+      );
+      if (!live()) return;
+      if (res.status !== 200) {
+        finish({ readNote: chartReadFailureMessage(res.status) });
+        return;
+      }
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (!live()) return;
+      const result = parseChartReadResponse(json);
+      if (result === null) {
+        finish({ readNote: CHART_READ_MSG.failed });
+        return;
+      }
+      const field = CHART_TIMEFRAME_FIELD[slot];
+      const applied = applyChartRead(result, state.draft[field], chartTouched[slot]);
+      const c = state.charts?.[slot];
+      if (!c) return;
+      set({
+        ...(applied.value === undefined
+          ? {}
+          : { draft: { ...state.draft, [field]: applied.value } }),
+        charts: {
+          ...state.charts,
+          [slot]: {
+            ...c,
+            read: 'done',
+            readNote: applied.note,
+            readMark: applied.marked,
+            readSuggest: applied.suggest ?? null,
+          },
+        },
+      });
+    } catch (e) {
+      if (!live()) return;
+      if (kindOf(e) === 'auth') {
+        finish({ readNote: null });
+        set({ error: AUTH_EXPIRED, errorKind: 'auth' });
+        return;
+      }
+      finish({ readNote: CHART_READ_MSG.failed });
+    } finally {
+      if (chartReadAbort[slot] === ctl) chartReadAbort[slot] = null;
+    }
   };
 
   const removeChart = (slot: ChartSlot) => {
@@ -681,6 +865,22 @@ export function createRecordController(deps: {
     const read = state.read;
     const body = read.body;
     if (state.phase !== 'editing' || !read.canSave || body === undefined) return;
+    // 終わっていない時間足の読み取りは止めて結果を捨てる（時間足は利用者が選んだ値か空のまま記録する。#27）
+    const stopped: ChartSlot[] = [];
+    for (const slot of CHART_SLOTS) {
+      const c = state.charts?.[slot];
+      if (c?.read !== 'reading') continue;
+      stopChartRead(slot);
+      stopped.push(slot);
+    }
+    if (stopped.length > 0) {
+      const charts: Partial<Record<ChartSlot, ChartState>> = { ...state.charts };
+      for (const slot of CHART_SLOTS) {
+        const c = charts[slot];
+        if (c?.read === 'reading') charts[slot] = { ...c, read: 'done', readNote: null };
+      }
+      state = { ...state, charts };
+    }
     set({ phase: 'saving', error: null });
     try {
       const inst = await resolveInstrument(read.instrument.name, read.instrument.matchedId);
@@ -747,7 +947,25 @@ export function createRecordController(deps: {
     } catch (e) {
       const kind = kindOf(e);
       set({ phase: 'editing', error: messageOf(kind), errorKind: kind });
+      // 記録が失敗して編集に戻った: 記録の前に止めた時間足の読み取りを送り直す（1 つずつ・明細が先の順のまま。#27 R1）
+      requeueCharts(stopped);
     }
+  };
+
+  /** 止めた枠の読み取りを待ち行列に戻す（枠の画像が残っているときだけ。結果の当て方は今までどおり） */
+  const requeueCharts = (slots: readonly ChartSlot[]) => {
+    let any = false;
+    const charts: Partial<Record<ChartSlot, ChartState>> = { ...state.charts };
+    for (const slot of slots) {
+      const c = charts[slot];
+      if (c?.phase !== 'ready' || !chartBytes[slot]) continue;
+      charts[slot] = { ...c, read: 'reading', readNote: null };
+      chartQueue.push(slot);
+      any = true;
+    }
+    if (!any) return;
+    set({ charts });
+    pump();
   };
 
   /** 足す欄の誤り（名前が空の誤りは [足す] を押した後だけ。API の 409 の名前は重複） */
@@ -889,6 +1107,25 @@ export function createRecordController(deps: {
     },
     update(action) {
       if (state.phase !== 'editing') return;
+      // チャートの時間足を利用者が選んだ: 後で届く読み取りで上書きせず、読み取りの印と知らせを消す（#27）
+      if (action.type === 'set') {
+        for (const slot of CHART_SLOTS) {
+          if (action.field !== CHART_TIMEFRAME_FIELD[slot]) continue;
+          chartTouched[slot] = true;
+          const c = state.charts?.[slot];
+          if (c && (c.readMark || c.readNote || c.readSuggest)) {
+            // 読めた値と同じ値を選んだら案は消す（違う値のままなら案を残す）
+            const suggest = c.readSuggest && c.readSuggest !== action.value ? c.readSuggest : null;
+            state = {
+              ...state,
+              charts: {
+                ...state.charts,
+                [slot]: { ...c, readMark: false, readNote: null, readSuggest: suggest },
+              },
+            };
+          }
+        }
+      }
       const st = state.statement;
       if (st && action.type === 'set') {
         touched.add(action.field);
@@ -926,6 +1163,20 @@ export function createRecordController(deps: {
       if (!st || (st.phase !== 'preparing' && st.phase !== 'reading')) return;
       endStatement();
       set({});
+      pump();
+    },
+    acceptChartTimeframe(slot) {
+      const c = state.charts?.[slot];
+      if (state.phase !== 'editing' || !c?.readSuggest) return;
+      const field = CHART_TIMEFRAME_FIELD[slot];
+      set({
+        error: null,
+        draft: { ...state.draft, [field]: c.readSuggest },
+        charts: {
+          ...state.charts,
+          [slot]: { ...c, readMark: true, readSuggest: null, readNote: null },
+        },
+      });
     },
     confirmTimeZone() {
       const st = state.statement;

@@ -15,7 +15,8 @@
 - SDK を上げるときは subprocess_cli の connect の重ね方（親の環境 → options.env の順）を確かめ直す。spawn_env はその
   写しで、本物の SDK を通すテストは依存グループ ai があるときだけ流れる（api/tests/test_real_sdk_env.py）
 - SDK は読むときにだけ import する（確認コマンドと CI は SDK を入れない。資格情報が無いときは import しない）
-- ツールは SDK MCP の report_statement 1 本。PreToolUse のフックが deny + continue_=False を返し、関数は実行せずに
+- ツールは SDK MCP の 1 本（読み取りの種類 task.ReadTask が決める。明細は report_statement、チャートの時間足は
+  report_chart_timeframe。#27）。PreToolUse のフックが deny + continue_=False を返し、関数は実行せずに
   入力だけを受け取る。組み込みのツールなし・設定ファイルを読まない・turn 1
 - 子の CLAUDE_CONFIG_DIR・CLAUDE_CODE_TMPDIR・cwd は実行ごとの一時ディレクトリ（道具の実物のときは data/local/ の下、
   API はシステムの一時ディレクトリ）。成功・失敗・締め切り超えのどれでも終わったら消す。CLI の標準エラー・例外の本文は
@@ -44,8 +45,8 @@ from dataclasses import dataclass
 
 import anyio
 
-from . import prompt
 from . import result as schema
+from .task import STATEMENT_TASK, ReadTask
 from .values import Usage
 
 # 値 1 つで決まる方式 → その変数（道具の --credential もこの 2 つ）
@@ -155,6 +156,11 @@ PASS_THROUGH_ENV = (
 )
 SERVER = "eval"
 CLI_TOOL_NAME = f"mcp__{SERVER}__{schema.TOOL_NAME}"
+
+
+def cli_tool_name(task: ReadTask) -> str:
+    """CLI から見たツールの名前（SDK MCP のサーバー名を前に付けたもの）"""
+    return f"mcp__{SERVER}__{task.tool_name}"
 DENY_REASON = "Recorded. Do not call any tool again; the turn is over."
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
 # CLI の最大出力（トークン）の変数。CLI はモデルの最大出力を上限にこの値を要求の max_tokens にする（#44）
@@ -233,14 +239,14 @@ def isolated_env(base_dir: str) -> dict[str, str]:
 
 
 def option_kwargs(model: str, effort: str, credential: str, secret, base_dir: str,
-                  max_output_tokens: int | None = None) -> dict:
+                  max_output_tokens: int | None = None, task: ReadTask = STATEMENT_TASK) -> dict:
     """ClaudeAgentOptions の引数のうち SDK の型を要らないもの（テストで中身を確かめる）。子の環境は child_env に
-    isolated_env を重ねる（書き込み先を base_dir の中に閉じる）"""
+    isolated_env を重ねる（書き込み先を base_dir の中に閉じる）。task は読み取りの種類（指示。既定は決済明細。#27）"""
     return {
         "tools": [],
         "setting_sources": [],
         "strict_mcp_config": True,
-        "system_prompt": prompt.READ_SYSTEM,
+        "system_prompt": task.system,
         "model": model,
         "effort": effort,
         "max_turns": 1,
@@ -254,9 +260,9 @@ def option_kwargs(model: str, effort: str, credential: str, secret, base_dir: st
     }
 
 
-def _hook(captured: list):
+def _hook(captured: list, tool_name: str = CLI_TOOL_NAME):
     async def pre_tool_use(input_data, tool_use_id, context):
-        if input_data.get("tool_name") == CLI_TOOL_NAME and not captured:
+        if input_data.get("tool_name") == tool_name and not captured:
             captured.append(input_data.get("tool_input"))
         return {
             "continue_": False,
@@ -270,26 +276,27 @@ def _hook(captured: list):
     return pre_tool_use
 
 
-def sdk_options(kwargs: dict, captured: list):
-    """SDK の ClaudeAgentOptions（ツールの MCP サーバーとフックを足す）。SDK はここで初めて import する"""
+def sdk_options(kwargs: dict, captured: list, task: ReadTask = STATEMENT_TASK):
+    """SDK の ClaudeAgentOptions（種類のツールの MCP サーバーとフックを足す）。SDK はここで初めて import する"""
     from claude_agent_sdk import ClaudeAgentOptions, HookMatcher, create_sdk_mcp_server
     from claude_agent_sdk import tool as sdk_tool
 
     async def handler(args):  # 呼ばれない前提（フックが止める）
         return {"content": [{"type": "text", "text": "not available"}], "is_error": True}
 
-    t = sdk_tool(schema.TOOL_NAME, schema.TOOL_DESCRIPTION, schema.TOOL_INPUT_SCHEMA)(handler)
+    t = sdk_tool(task.tool_name, task.tool_description, task.input_schema)(handler)
     server = create_sdk_mcp_server(name=SERVER, version="1.0.0", tools=[t])
     return ClaudeAgentOptions(
         **kwargs,
         mcp_servers={SERVER: server},
-        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[_hook(captured)])]},
+        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[_hook(captured, cli_tool_name(task))])]},
     )
 
 
 @dataclass
 class ReadOutcome:
-    """1 回の読み取りの結果。result は検査済みの {"kind", "rows"}（失敗なら None）。error は種類の名前だけ"""
+    """1 回の読み取りの結果。result は種類の検査済みの dict（明細は {"kind", "rows"}。失敗なら None）。
+    error は種類の名前だけ"""
 
     result: dict | None
     seconds: float | None
@@ -321,7 +328,9 @@ class Reader:
     渡したときは options に option_kwargs の dict をそのまま渡す（SDK を import しない）。timeout は締め切りの秒数
     （None = 無し。道具の既定）。max_output_tokens は CLI の最大出力（None = CLI の既定。道具の既定）。
     secret は値 1 つ（api_key・oauth_token）か、方式の変数の dict（federation。credential_values の結果）。
-    identity_token は federation の ID トークン（この 1 回の読み取りの間だけ、一時ディレクトリのファイルに置く）"""
+    identity_token は federation の ID トークン（この 1 回の読み取りの間だけ、一時ディレクトリのファイルに置く）。
+    task は読み取りの種類（指示・決まった文・ツール・検査。既定は決済明細。チャートの時間足は
+    chart_timeframe.CHART_TASK。#27）"""
 
     def __init__(
         self,
@@ -335,7 +344,9 @@ class Reader:
         timeout: float | None = None,
         max_output_tokens: int | None = None,
         identity_token: str | None = None,
+        task: ReadTask = STATEMENT_TASK,
     ):
+        self.task = task
         self._credential = credential
         self._secret = secret
         self._identity_token = identity_token
@@ -389,18 +400,19 @@ class Reader:
 
     async def _read(self, data: bytes, media_type: str, base: str, values: dict[str, str]) -> ReadOutcome:
         captured: list = []
+        task = self.task
         kwargs = option_kwargs(self.model, self.effort, self._credential, values, base,
-                               max_output_tokens=self.max_output_tokens)
-        query_fn, opts = resolve_query(self._query_fn, kwargs, captured)
+                               max_output_tokens=self.max_output_tokens, task=task)
+        query_fn, opts = resolve_query(self._query_fn, kwargs, captured, task)
         done = asyncio.Event()
-        message = user_message(data, media_type)
+        message = user_message(data, media_type, task)
 
         async def prompt_stream():
             # 結果を受け取るまで入力を閉じない（閉じると CLI の制御要求 = SDK MCP・フックに答えられない）
             yield message
             await done.wait()
 
-        collector = Collector(self._clock, self._clock())
+        collector = Collector(self._clock, self._clock(), task)
         try:
             # 締め切りは cancel scope で（超えたら TimeoutError。generator の中の await に取り消しが届き、SDK の後始末が
             # 走る）。generator は同じ scope の中で閉じる
@@ -414,7 +426,8 @@ class Reader:
         return collector.outcome(captured)
 
 
-def resolve_query(query_fn: Callable | None, kwargs: dict, captured: list) -> tuple[Callable, object]:
+def resolve_query(query_fn: Callable | None, kwargs: dict, captured: list,
+                  task: ReadTask = STATEMENT_TASK) -> tuple[Callable, object]:
     """送る関数と options。query_fn（テスト用）があれば options は option_kwargs の dict のまま
     （SDK を import しない）。無ければ SDK を import し、親の環境に資格情報の系統の名前が残っていれば送らない
     （外すのは入口の 1 回だけ。ここでは os.environ を書き換えない）"""
@@ -427,15 +440,15 @@ def resolve_query(query_fn: Callable | None, kwargs: dict, captured: list) -> tu
     # SDK は親の環境に options.env を重ねて子を起動する
     if credential_names_in():
         raise CredentialEnvPresent("credential_env")
-    return sdk_query, sdk_options(kwargs, captured)
+    return sdk_query, sdk_options(kwargs, captured, task)
 
 
-def user_message(data: bytes, media_type: str) -> dict:
-    """CLI へ送る user の message（画像 1 枚と決まった文）"""
+def user_message(data: bytes, media_type: str, task: ReadTask = STATEMENT_TASK) -> dict:
+    """CLI へ送る user の message（画像 1 枚と、読み取りの種類の決まった文）"""
     content = [
         {"type": "image", "source": {"type": "base64", "media_type": media_type,
                                      "data": base64.b64encode(data).decode("ascii")}},
-        {"type": "text", "text": prompt.READ_USER_TEXT},
+        {"type": "text", "text": task.user_text},
     ]
     return {"type": "user", "message": {"role": "user", "content": content}, "parent_tool_use_id": None,
             "session_id": "default"}
@@ -443,9 +456,10 @@ def user_message(data: bytes, media_type: str) -> dict:
 
 class Collector:
     """stream の message を受けて ReadOutcome を組み立てる（その場で立てる送り口と先立て（warm）が共有する）。
-    started は秒数を数え始めた時刻（clock の値）"""
+    started は秒数を数え始めた時刻（clock の値）。task は読み取りの種類（ツールの名前と検査。既定は明細。#27）"""
 
-    def __init__(self, clock: Callable[[], float], started: float):
+    def __init__(self, clock: Callable[[], float], started: float, task: ReadTask = STATEMENT_TASK):
+        self.task = task
         self._clock = clock
         self.started = started
         self.seconds: float | None = None
@@ -460,7 +474,7 @@ class Collector:
         kind = type(m).__name__
         if kind == "AssistantMessage":
             for b in getattr(m, "content", None) or []:
-                if type(b).__name__ == "ToolUseBlock" and str(getattr(b, "name", "")).endswith(schema.TOOL_NAME):
+                if type(b).__name__ == "ToolUseBlock" and str(getattr(b, "name", "")).endswith(self.task.tool_name):
                     self.tool_inputs.append(getattr(b, "input", None))
         elif kind == "ResultMessage" and self.seconds is None:
             self.seconds = self._clock() - self.started
@@ -486,7 +500,7 @@ class Collector:
                 out.error = "result_error" if self.is_error else "no_tool_call"
             return out
         try:
-            out.result = schema.check_result(raw)
+            out.result = self.task.check(raw)
         except schema.Bad as e:
             out.error = f"bad_result:{e.reason}"
         return out

@@ -1,0 +1,88 @@
+{
+  "images": [
+    {
+      "file": "c01.png",
+      "kind": "chart",
+      "timeframe": "4h",
+      "label_shown": true
+    },
+    {
+      "file": "c02.png",
+      "kind": "chart",
+      "timeframe": "1d",
+      "label_shown": true
+    },
+    {
+      "file": "c03.png",
+      "kind": "chart",
+      "timeframe": "4h",
+      "label_shown": true
+    },
+    {
+      "file": "c04.png",
+      "kind": "chart",
+      "timeframe": "15m",
+      "label_shown": true
+    },
+    {
+      "file": "c05.png",
+      "kind": "chart",
+      "timeframe": "1d",
+      "label_shown": true
+    },
+    {
+      "file": "c06.png",
+      "kind": "chart",
+      "timeframe": "4h",
+      "label_shown": true
+    },
+    {
+      "file": "c07.png",
+      "kind": "chart",
+      "timeframe": "4h",
+      "label_shown": true
+    },
+    {
+      "file": "c08.png",
+      "kind": "chart",
+      "timeframe": "1h",
+      "label_shown": true
+    },
+    {
+      "file": "c09.png",
+      "kind": "chart",
+      "timeframe": null,
+      "label_shown": false
+    },
+    {
+      "file": "c10.png",
+      "kind": "chart",
+      "timeframe": null,
+      "label_shown": true
+    },
+    {
+      "file": "c11.png",
+      "kind": "chart",
+      "timeframe": "1w",
+      "label_shown": true
+    },
+    {
+      "file": "c12.png",
+      "kind": "chart",
+      "timeframe": "5m",
+      "label_shown": true
+    },
+    {
+      "file": "c13.png",
+      "kind": "not_chart",
+      "timeframe": null,
+      "label_shown": false
+    },
+    {
+      "file": "c14.png",
+      "kind": "chart",
+      "timeframe": null,
+      "label_shown": true
+    }
+  ]
+}

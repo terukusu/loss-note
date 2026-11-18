@@ -43,8 +43,11 @@ CLI_OVERHEAD_TOKENS = 20_000
 MICRO = Decimal(1_000_000)
 
 
-def prompt_bytes() -> int:
-    """指示（system）・画像に添える文・ツールの名前・説明・入力の形（JSON）の UTF-8 のバイト数（トークン数の上界）"""
+def prompt_bytes(task=None) -> int:
+    """指示（system）・画像に添える文・ツールの名前・説明・入力の形（JSON）の UTF-8 のバイト数（トークン数の上界）。
+    task（読み取りの種類。#27）を渡せばその種類の数、無ければ明細の数"""
+    if task is not None:
+        return task.prompt_bytes()
     parts = (
         prompt.READ_SYSTEM,
         prompt.READ_USER_TEXT,
@@ -55,9 +58,9 @@ def prompt_bytes() -> int:
     return sum(len(p.encode("utf-8")) for p in parts)
 
 
-def input_tokens_bound() -> int:
-    """読み取り 1 回の入力のトークン数の上界"""
-    return IMAGE_TOKENS_BOUND + prompt_bytes() + CLI_OVERHEAD_TOKENS
+def input_tokens_bound(task=None) -> int:
+    """読み取り 1 回の入力のトークン数の上界（task は読み取りの種類。無ければ明細）"""
+    return IMAGE_TOKENS_BOUND + prompt_bytes(task) + CLI_OVERHEAD_TOKENS
 
 
 def _ceil_int(d: Decimal) -> int:
@@ -70,10 +73,11 @@ def output_tokens_bound(model: str, max_output_tokens: int | None = None) -> int
     return cap if max_output_tokens is None else min(cap, max_output_tokens)
 
 
-def reserve_micro_usd(model: str, max_output_tokens: int | None = None) -> int:
-    """読み取り 1 回の費用の上界（整数の µUSD。切り上げ）。表に無いモデルは KeyError（起動時に分かる）"""
+def reserve_micro_usd(model: str, max_output_tokens: int | None = None, task=None) -> int:
+    """読み取り 1 回の費用の上界（整数の µUSD。切り上げ）。表に無いモデルは KeyError（起動時に分かる）。
+    task は読み取りの種類（チャートの時間足など。#27。無ければ明細）"""
     inp, out, _cache_read = PRICES_PER_MTOK[model]
-    total = Decimal(input_tokens_bound()) * inp * CACHE_WRITE_1H_FACTOR + Decimal(
+    total = Decimal(input_tokens_bound(task)) * inp * CACHE_WRITE_1H_FACTOR + Decimal(
         output_tokens_bound(model, max_output_tokens)
     ) * out
     return _ceil_int(total)

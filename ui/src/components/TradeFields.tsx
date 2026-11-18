@@ -38,6 +38,8 @@ export interface TradeFieldsProps {
   readonly accountAction?: ComponentChildren;
   /** 見出しの下に開く口座を足す欄（開いている間は口座の欄を隠す） */
   readonly accountAdd?: ComponentChildren;
+  /** 3 つ目のタップの下に添える 1 行（チャートの時間足の違いと食い違うとき。記録する画面だけ。#27） */
+  readonly timeframeHint?: string | null;
 }
 
 export const INSTRUMENT_LIST_ID = 'record-instruments';
@@ -254,6 +256,7 @@ export function TradeMainFields(p: TradeFieldsProps) {
           onChange={set('timeframeChange')}
           options={TIMEFRAME_OPTIONS}
         />
+        {p.timeframeHint ? <p class="field__hint">{p.timeframeHint}</p> : null}
       </section>
     </>
   );

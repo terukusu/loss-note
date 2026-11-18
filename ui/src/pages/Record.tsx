@@ -35,6 +35,13 @@ import {
   verdictAsideText,
 } from '../lib/accounts';
 import {
+  CHART_READ_MARK,
+  CHART_READ_NOTICE,
+  suggestButton,
+  suggestText,
+  timeframeConflict,
+} from '../lib/chart-read';
+import {
   CHART_SLOT_TEXT,
   CHART_SLOTS,
   CHART_TIMEFRAME_FIELD,
@@ -207,6 +214,11 @@ export function RecordScreen() {
       onPickChart={(slot, file) => {
         void controller.setChart(slot, file);
       }}
+      onAcceptChartTimeframe={(slot) => {
+        controller.acceptChartTimeframe(slot);
+        // ボタンは消えるので時間足の欄へ
+        focusSoon(`${chartBoxId(slot)}-tf`);
+      }}
       onRemoveChart={(slot) => {
         controller.removeChart(slot);
         // [外す] の後は枠へフォーカスを戻す（ボタンは消える）
@@ -262,6 +274,8 @@ export interface RecordViewProps {
   readonly onCloseAddAccount?: () => void;
   readonly onNewAccount?: (field: 'name' | 'capital', value: string) => void;
   readonly onAddAccount?: () => void;
+  /** チャートから読めた値の [〈値〉にする]（#27） */
+  readonly onAcceptChartTimeframe?: (slot: ChartSlot) => void;
 }
 
 const FIRST_FIELD_ID = 'record-instrument';
@@ -276,10 +290,11 @@ const chartBoxId = (slot: ChartSlot) => `record-chart-${slot}`;
 
 /**
  * 送る前の注意（枠に常に出す。畳まない・ダイアログにしない。R10・設計書 7.5・C38）。3 つの中身（AI の提供元に送る・
- * 口座番号などを切り取る・画像を保存しない）を 2 文にまとめ、幅 360px で 3 行以下にする（Issue #33 AC-4）
+ * 口座番号などを切り取る・画像を保存しない）を 2 文にまとめ、幅 360px で 3 行以下にする（Issue #33 AC-4）。
+ * チャートの注意はチャートの枠の見出しの下に別に出す（#27。チャートは記録と一緒に保存するので主語を分ける）
  */
 export const STATEMENT_NOTICE = [
-  '明細は AI の提供元（Anthropic）に送って読み取り、画像は保存しません。',
+  '明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません。',
   '口座番号・氏名は切り取って貼ってください。',
 ] as const;
 
@@ -372,6 +387,8 @@ function RecordForm(p: RecordViewProps) {
   const hasReadMarks = Object.keys(marks).length > 0;
   // 押せない理由（判定の枠の案内。[記録する] の読み上げの説明に結ぶ）と、帯の 1 行の状態の文
   const reason = blockReason(read, errorLabels);
+  // 3 つ目のタップの答えとチャートの時間足の違いの食い違い（#27。責めずに事実として並べる）
+  const conflict = timeframeConflict(d.timeframeChange, read.preview.judgment?.reasons ?? []);
   const describe = !read.canSave && reason !== null ? VERDICT_HINT_ID : undefined;
   // 口座（#47）: 選んでいる口座と、2 つ以上のときの判定の枠の 1 行（U10）
   const accountId = selectedAccountId(d.accountId);
@@ -425,6 +442,7 @@ function RecordForm(p: RecordViewProps) {
                 ),
               }
             : {})}
+          timeframeHint={conflict?.tapHint ?? null}
         />
 
         <Verdict
@@ -448,6 +466,7 @@ function RecordForm(p: RecordViewProps) {
           hasErrors={errorFields.length > 0}
           hint={reason}
           hintId={VERDICT_HINT_ID}
+          chartConflict={conflict?.verdictLine ?? null}
         />
 
         <ChartPanel {...p} />
@@ -600,6 +619,8 @@ function ChartPanel(p: RecordViewProps) {
       <h2 class="section__title" id={CHARTS_TITLE_ID}>
         根拠の足のチャート（任意）
       </h2>
+      {/* 送る前の注意（常に出す。C38・#27） */}
+      <p class="charts__notice">{CHART_READ_NOTICE}</p>
       {p.state.chartBlocked ? (
         <p class="statement__text" role="status">
           {p.state.chartBlocked}
@@ -635,7 +656,8 @@ function ChartBox(p: RecordViewProps & { readonly slot: ChartSlot }) {
       <legend class="chart__name" id={`${id}-name`}>
         {text.name}
       </legend>
-      <p class="chart__hint" id={`${id}-hint`}>
+      {/* 撮る足の添え書きは空の枠だけに見せる（貼った後は読み上げの説明にだけ残す。#27 デザイン 7） */}
+      <p class={preview ? 'chart__hint sr-only' : 'chart__hint'} id={`${id}-hint`}>
         {text.hint}
       </p>
       {c?.phase === 'preparing' ? (
@@ -662,12 +684,25 @@ function ChartBox(p: RecordViewProps & { readonly slot: ChartSlot }) {
           />
           <div class="chart__row">
             <div class="field chart__tf">
-              <label class="field__label" for={`${id}-tf`}>
-                時間足（任意）
-              </label>
+              {c?.readMark ? (
+                <div class="field__head">
+                  <label class="field__label" for={`${id}-tf`}>
+                    時間足（任意）
+                  </label>
+                  <span id={`${id}-tf-mark`} class="field__mark field__mark--chart">
+                    <Icon name="image" class="field__markicon" />
+                    {CHART_READ_MARK}
+                  </span>
+                </div>
+              ) : (
+                <label class="field__label" for={`${id}-tf`}>
+                  時間足（任意）
+                </label>
+              )}
               <select
                 id={`${id}-tf`}
-                class="select"
+                {...(c?.readMark ? { 'aria-describedby': `${id}-tf-mark` } : {})}
+                class={c?.readMark ? 'select select--read' : 'select'}
                 value={tf ?? ''}
                 onChange={(ev) => {
                   const v = ev.currentTarget.value;
@@ -690,6 +725,28 @@ function ChartBox(p: RecordViewProps & { readonly slot: ChartSlot }) {
               外す
             </Button>
           </div>
+          {c?.read === 'reading' ? (
+            <p class="statement__reading" role="status">
+              時間足を読み取っています…
+            </p>
+          ) : null}
+          {c?.readNote ? (
+            <p class="field__hint" role="status">
+              {c.readNote}
+            </p>
+          ) : null}
+          {c?.readSuggest ? (
+            // 利用者の選んだ値と読めた値が違う: 上書きせず、読めた値と 1 タップで直すボタンを出す（#27 デザイン 3）
+            // ボタンは知らせ（role="status"）の外に置き、ほかの小さな操作（[この行を飛ばす] など）と同じ線つきの部品にする（R5）
+            <div class="chart__suggest">
+              <p class="field__hint" role="status">
+                {suggestText(c.readSuggest)}
+              </p>
+              <Button variant="secondary" onClick={() => p.onAcceptChartTimeframe?.(slot)}>
+                {suggestButton(c.readSuggest)}
+              </Button>
+            </div>
+          ) : null}
         </>
       ) : c?.phase === 'preparing' ? null : (
         <div class="statement__pick">
@@ -714,7 +771,7 @@ function ChartBox(p: RecordViewProps & { readonly slot: ChartSlot }) {
         </div>
       )}
       <p class="chart__ready" aria-hidden="true">
-        ここに貼れます
+        {preview ? '貼ると差し替えます' : 'ここに貼れます'}
       </p>
     </fieldset>
   );

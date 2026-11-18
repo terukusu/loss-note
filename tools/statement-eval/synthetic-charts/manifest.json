@@ -1,0 +1,75 @@
+{
+  "note": "合成のチャート（架空の値）。python -m statement_eval generate-charts で作り直す",
+  "images": [
+    {
+      "file": "c01.png",
+      "style": "legend",
+      "dark": false
+    },
+    {
+      "file": "c02.png",
+      "style": "legend",
+      "dark": true
+    },
+    {
+      "file": "c03.png",
+      "style": "mt",
+      "dark": false
+    },
+    {
+      "file": "c04.png",
+      "style": "mt",
+      "dark": true
+    },
+    {
+      "file": "c05.png",
+      "style": "ja",
+      "dark": false
+    },
+    {
+      "file": "c06.png",
+      "style": "ja",
+      "dark": true
+    },
+    {
+      "file": "c07.png",
+      "style": "numeric",
+      "dark": false
+    },
+    {
+      "file": "c08.png",
+      "style": "toolbar",
+      "dark": false
+    },
+    {
+      "file": "c09.png",
+      "style": "none",
+      "dark": false
+    },
+    {
+      "file": "c10.png",
+      "style": "legend",
+      "dark": false
+    },
+    {
+      "file": "c11.png",
+      "style": "mt",
+      "dark": false
+    },
+    {
+      "file": "c12.png",
+      "style": "legend",
+      "dark": true
+    },
+    {
+      "file": "c13.png",
+      "style": "not_chart",
+      "dark": false
+    },
+    {
+      "file": "c14.png",
+      "style": "two_panes",
+      "dark": false
+    }
+  ]
+}

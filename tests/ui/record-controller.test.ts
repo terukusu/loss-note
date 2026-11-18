@@ -1224,13 +1224,16 @@ describe('根拠の足のチャート（Issue #12）', () => {
     expect(previews[0]?.closed()).toBe(true);
   });
 
-  it('E12・AC-5: 2 枚貼って保存せずに離れる → 要求 0・サーバーのチャート 0 枚・プレビューは閉じる', async () => {
+  it('E12・AC-5（#27 で読み替え）: 2 枚貼って保存せずに離れる → 保存の要求 0（時間足の読み取りは枠ごとに 1 回送る）・サーバーのチャート 0 枚・プレビューは閉じる', async () => {
     const { fake, c, previews } = await openedForRead([]);
     const before = fake.calls.length;
     await c.setChart('entry', img());
     await c.setChart('exit', img());
     c.dispose();
-    expect(fake.calls.length).toBe(before);
+    // 保存の要求は 0。時間足の読み取り（#27）は枠に入れたときに 1 枠 1 回送る（保存はしない）
+    const saves = fake.calls.filter((x) => x.path !== '/api/chart-reads');
+    expect(saves.length).toBe(before);
+    expect(fake.calls.filter((x) => x.path === '/api/chart-reads').length).toBe(2);
     expect(fake.charts.size).toBe(0);
     expect(previews.every((p) => p.closed())).toBe(true);
   });

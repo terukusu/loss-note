@@ -1,5 +1,6 @@
 """記録の API（取引・銘柄・口座・設定。Issue #4・#47・設計書 4 章・ADR-0004・ADR-0012）と、
-決済明細の読み取りの入口（#11・ADR-0005。``statement_read.py``。同じ認証を通す）。
+決済明細の読み取りの入口（#11・ADR-0005。``statement_read.py``）、チャートの時間足の読み取りの入口（#27。
+``chart_read.py``）。同じ認証を通す。
 
 入口で ID トークンを検証してから処理する（認証の前に ID の形も存在も見ない → 未認証は常に 401）。
 検証の後に使える利用者の許可リスト（Issue #43・``allowlist.py``）を見て、外れたら 403
@@ -22,7 +23,7 @@ from collections.abc import Callable
 from flask import Blueprint, Response, g, jsonify, request
 from werkzeug.exceptions import RequestEntityTooLarge
 
-from loss_note_api import accounts, allowlist, charts, schema, statement_read
+from loss_note_api import accounts, allowlist, chart_read, charts, schema, statement_read
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import ReadLimits
@@ -540,8 +541,10 @@ def make_blueprint(
         return settings_response(store.update_settings(g.uid, mutate))
 
     # ── 決済明細の読み取り（#11）──
-    statement_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock,
-                            read_limits or ReadLimits())
+    limits = read_limits or ReadLimits()
+    statement_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock, limits)
+    # ── チャートの時間足の読み取り（#27。明細と同じ設定・同じ上限 = 同じ財布）──
+    chart_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock, limits)
 
     @bp.errorhandler(StoreUnavailable)
     def store_unavailable(e: StoreUnavailable):
@@ -564,6 +567,7 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/accounts/<path:_id>", methods=["GET", "PUT"])
     @bp.route("/settings", methods=["GET", "PUT"])
     @bp.route(statement_read.PATH, methods=["POST"])
+    @bp.route(chart_read.PATH, methods=["POST"])
     def unavailable(_id: str | None = None, _slot: str | None = None):
         return error(503, "unavailable")
 

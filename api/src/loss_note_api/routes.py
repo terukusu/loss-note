@@ -21,6 +21,7 @@ from werkzeug.exceptions import RequestEntityTooLarge
 from loss_note_api import allowlist, charts, schema, statement_read
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
+from loss_note_api.read_limits import ReadLimits
 from loss_note_api.store import Conflict, InvalidRecord, MissingInstrument, Store, StoreUnavailable
 
 SCHEMA_VERSION = 1
@@ -170,6 +171,7 @@ def make_blueprint(
     read_config: statement_read.ReadConfig | None = None,
     *,
     allowed: frozenset[str] | None = None,
+    read_limits: ReadLimits | None = None,
 ) -> Blueprint:
     """allowed は許可リスト（``allowlist.policy_for`` の結果。None = 制限しない）"""
     bp = Blueprint("records", __name__, url_prefix="/api")
@@ -442,7 +444,8 @@ def make_blueprint(
         return settings_response(store.update_settings(g.uid, mutate))
 
     # ── 決済明細の読み取り（#11）──
-    statement_read.register(bp, read_config or statement_read.ReadConfig(None))
+    statement_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock,
+                            read_limits or ReadLimits())
 
     @bp.errorhandler(StoreUnavailable)
     def store_unavailable(e: StoreUnavailable):

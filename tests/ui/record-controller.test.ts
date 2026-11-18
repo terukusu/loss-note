@@ -868,6 +868,11 @@ describe('失敗（AC-10・E11）', () => {
       { status: 503, body: { error: 'read_unavailable', ...SECRET } },
       READ_MSG.unavailable,
     ],
+    [
+      '(e) 429（1 日の上限。#44 の AC-9）',
+      { status: 429, body: { error: 'read_limited', ...SECRET } },
+      '今日の読み取りの上限に達しました。手で入れてください。',
+    ],
     ['(d) 502', { status: 502, body: { error: 'read_failed', ...SECRET } }, READ_MSG.failed],
     ['(d) 504', { status: 504, body: { error: 'read_timeout', ...SECRET } }, READ_MSG.failed],
     ['(d) 通信の失敗', 'throw', READ_MSG.failed],

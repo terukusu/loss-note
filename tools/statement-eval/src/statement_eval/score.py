@@ -18,6 +18,7 @@ from decimal import Decimal
 from typing import Literal
 
 # 数・日時・向き・手数料の純関数は API の直しと共有する（statement_read.values。#11）。ここからも同じ名前で使える
+from statement_read.pricing import CACHE_WRITE_FACTOR, PRICES_PER_MTOK
 from statement_read.values import ORDER_TYPES, Usage, normalize_number, opened_side, sum_fees, time_key
 
 # R1 の 10 欄（出力の順番）
@@ -218,14 +219,8 @@ def median_max(xs: list[float]) -> tuple[float, float] | None:
 
 # ---- 費用 ----
 
-# 2026-11-03 時点の公開価格（USD / 100 万トークン）: 入力・出力・cache 読み。cache 作成は入力の 1.25 倍。
-# Haiku 5.5 は 10 万トークン以下の要求の価格（明細 1 枚の読み取りはこれに収まる）
-PRICES_PER_MTOK: dict[str, tuple[Decimal, Decimal, Decimal]] = {
-    "claude-opus-5-5": (Decimal("4"), Decimal("20"), Decimal("0.20")),
-    "claude-sonnet-5-5": (Decimal("2"), Decimal("10"), Decimal("0.10")),
-    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50"), Decimal("0.01")),
-}
-CACHE_WRITE_FACTOR = Decimal("1.25")
+# 価格表（USD / 100 万トークン）と cache 作成の倍率は共有のパッケージ（statement_read.pricing。
+# API の費用の上限と同じ表。#44）
 
 
 def cost_usd(model: str, usage: Usage) -> Decimal | None:

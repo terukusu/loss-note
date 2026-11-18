@@ -14,6 +14,8 @@
 - ``"no_result"``: 結果も例外も無いまま終わる（CLI の異常終了の真似）
 - ``"hang"``: 締め切りまで返さない（取り消されたら shield の中で後始末をする。``cleaned`` に記録）
 
+ResultMessage の使用量・合計額は ``result_usage``・``result_cost``（既定は入力 1,500・出力 300・0.01 USD。#44 の精算）。
+
 ``write_tmp`` が真なら、CLI の振る舞い（画像を CLAUDE_CODE_TMPDIR・CLAUDE_CONFIG_DIR・HOME・TMPDIR・XDG の置き場所に
 書く）を真似る。
 """
@@ -70,12 +72,16 @@ class AssistantMessage:
         self.content = content
 
 
+DEFAULT_USAGE = {"input_tokens": 1500, "output_tokens": 300}
+DEFAULT_COST = 0.01
+
+
 class ResultMessage:
-    def __init__(self, is_error=False):
+    def __init__(self, is_error=False, usage=DEFAULT_USAGE, cost=DEFAULT_COST):
         self.is_error = is_error
-        self.usage = {"input_tokens": 1500, "output_tokens": 300}
+        self.usage = usage
         self.duration_api_ms = 1200
-        self.total_cost_usd = 0.01
+        self.total_cost_usd = cost
 
 
 class FakeSdk(types.ModuleType):
@@ -91,7 +97,13 @@ class FakeSdk(types.ModuleType):
         self.raise_text = "upstream failed"
         self.write_tmp = False
         self.cleaned = 0
+        # ResultMessage の使用量と合計額（#44 の精算の試験。None = 返さない）
+        self.result_usage: dict | None = dict(DEFAULT_USAGE)
+        self.result_cost: float | None = DEFAULT_COST
         self.query = self._query
+
+    def _result(self, is_error=False):
+        return ResultMessage(is_error=is_error, usage=self.result_usage, cost=self.result_cost)
 
     async def _query(self, *, prompt, options):
         call = {"options": options, "message": None}
@@ -115,18 +127,18 @@ class FakeSdk(types.ModuleType):
             return
         if self.script == "is_error":
             yield AssistantMessage([])
-            yield ResultMessage(is_error=True)
+            yield self._result(is_error=True)
             return
         if self.script == "text":
             yield AssistantMessage([TextBlock("読み取りました。")])
-            yield ResultMessage()
+            yield self._result()
             return
         server_name, server = next(iter(options.mcp_servers.items()))
         cli_name = f"mcp__{server_name}__{server['tools'][0].name}"
         hook = options.hooks["PreToolUse"][0].hooks[0]
         await hook({"tool_name": cli_name, "tool_input": self.tool_input}, "toolu_1", None)
         yield AssistantMessage([ToolUseBlock(cli_name, self.tool_input)])
-        yield ResultMessage()
+        yield self._result()
 
     @staticmethod
     def _write_like_cli(options, message):

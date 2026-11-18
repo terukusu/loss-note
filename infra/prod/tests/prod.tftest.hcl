@@ -72,7 +72,7 @@ run "defaults" {
     condition     = google_cloud_run_v2_service.app.invoker_iam_disabled == false && google_cloud_run_v2_service.app.ingress == "INGRESS_TRAFFIC_ALL"
     error_message = "IAM の検査を無効にしない・ingress は all（run.app の URL）"
   }
-  # 時間（gunicorn の --timeout 60 と同じ。#44 の読み取りの締め切り 30 秒より長い）・同時実行（gunicorn の --threads 8）
+  # 時間（gunicorn の --timeout 60 と同じ。画面の待ち 30 秒 = 読み取りの締め切り 20 秒 + 後始末 約 5 秒 より長い）・同時実行（gunicorn の --threads 8）
   assert {
     condition     = google_cloud_run_v2_service.app.template[0].timeout == "60s" && google_cloud_run_v2_service.app.template[0].max_instance_request_concurrency == 8
     error_message = "タイムアウト 60 秒・同時実行 8"

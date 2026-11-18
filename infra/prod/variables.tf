@@ -51,3 +51,12 @@ variable "max_instances" {
     error_message = "max_instances は 1〜10 の整数で指定する。"
   }
 }
+
+# 明細の読み取りのキーの参照を付けるか（#44・ADR-0010）。オーナーが Secret Manager にキーの版を入れた後に true にする
+# （CI は repository variable STATEMENT_READ_KEY が "true" のときだけ true を渡す。deploy.yml）。版の無い参照ではインスタンスが
+# 起動しないので、既定は false（キーの前のデプロイも通り、読み取りは 503 read_unavailable）
+variable "statement_read_key" {
+  description = "Cloud Run に明細の読み取りの Anthropic API のキー（Secret Manager の参照）を載せるか"
+  type        = bool
+  default     = false
+}

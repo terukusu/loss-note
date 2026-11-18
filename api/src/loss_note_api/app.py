@@ -25,6 +25,7 @@ from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 from loss_note_api import allowlist, logs, schema, statement_read, web
 from loss_note_api.auth import TokenVerifier
+from loss_note_api.read_limits import ReadLimits
 from loss_note_api.routes import error, invalid, make_blueprint, make_unconfigured_blueprint
 from loss_note_api.runtime import StartupRefused, decide_runtime
 from loss_note_api.store import FirestoreStore, Store, StoreUnavailable
@@ -62,9 +63,11 @@ def create_app(
     store: Store | None = None,
     clock: Callable[[], int] | None = None,
     read_timeout: float | None = None,
+    read_limits: ReadLimits | None = None,
 ) -> Flask:
     """env は環境変数（既定は os.environ）。明細の読み取りの資格情報もここから読む（ADR-0005）。
-    read_timeout は読み取りの締め切りの秒数（テスト用。既定は statement_read.app_settings.APP_TIMEOUT_SECONDS）"""
+    read_timeout は読み取りの締め切りの秒数（テスト用。既定は statement_read.app_settings.APP_TIMEOUT_SECONDS）。
+    read_limits は読み取りの 1 日の上限（テスト用。既定は read_limits.ReadLimits() = 30 回・2.00 USD。#44）"""
     env = os.environ if env is None else env
     runtime = decide_runtime(env)
     clock = clock or _now_ms
@@ -85,8 +88,8 @@ def create_app(
     else:
         app.register_blueprint(
             make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock,
-                           statement_read.read_config(env, read_timeout),
-                           allowed=allowlist.policy_for(runtime.mode, env))
+                           statement_read.read_config(env, read_timeout, mode=runtime.mode),
+                           allowed=allowlist.policy_for(runtime.mode, env), read_limits=read_limits)
         )
 
     # 画面の静的ファイル（STATIC_DIR があるときだけ。無ければ今のまま = /api 以外は 404 の JSON）

@@ -7,11 +7,13 @@ locals {
   runtime_sa = "sa-loss-note@${var.project_id}.iam.gserviceaccount.com"
   # 名前は infra/bootstrap の google_secret_manager_secret.allowed_emails と同じ（#43。読み取りの付与も bootstrap）
   allowed_emails_secret = "loss-note-allowed-emails"
+  # 明細の読み取りのキーの入れ物（infra/bootstrap/statement_read_credentials.tf と同じ名前。#44）
+  statement_read_secret = "statement-read-anthropic-api-key"
 }
 
 # ingress は all（run.app の URL で配る。ロードバランサは使わない）。IAM の検査は無効にしない（invoker は下の付与）。
 # 第 1 世代（起動が速い）・CPU 1・1Gi（明細の読み取りの同梱の CLI の子プロセスの分。#44）・リクエスト中だけ CPU。
-# 同時実行 8 は gunicorn の --threads 8、タイムアウト 60 秒は gunicorn の --timeout 60 と同じ（読み取りの締め切り 30 秒より長い）。
+# 同時実行 8 は gunicorn の --threads 8、タイムアウト 60 秒は gunicorn の --timeout 60 と同じ（画面の待ち 30 秒 = 読み取りの締め切り 20 秒 + 後始末 約 5 秒 より長い）。
 # deletion_protection = false: データは Firestore にありサービスは持たないので、撤去を 1 つの PR で行えるようにする。
 # トラフィックは最新のリビジョンに 100%（切り戻しの後の次の deploy で最新に戻る。R8・infra/README.md「切り戻し」）
 resource "google_cloud_run_v2_service" "app" {
@@ -68,6 +70,23 @@ resource "google_cloud_run_v2_service" "app" {
           secret_key_ref {
             secret  = local.allowed_emails_secret
             version = "latest"
+          }
+        }
+      }
+
+      # 明細の読み取りの資格情報（#44・ADR-0010）: Anthropic API のキーを Secret Manager の参照で載せる（値は Terraform に入らない）。
+      # 参照はインスタンスの起動時に解決され、版が無い・無効だとインスタンスが起動しないので、オーナーがキーの版を入れた後に
+      # statement_read_key = true にしたときだけ付ける（それまで読み取りは 503・ほかの機能は動く）。
+      # STATEMENT_READ_CREDENTIAL は載せない（既定の api_key。本番は OAuth トークンを使わない）
+      dynamic "env" {
+        for_each = var.statement_read_key ? [local.statement_read_secret] : []
+        content {
+          name = "ANTHROPIC_API_KEY"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
           }
         }
       }

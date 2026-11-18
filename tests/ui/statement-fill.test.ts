@@ -406,7 +406,8 @@ describe('失敗の文言（E11・E12）', () => {
     expect(readFailureOf(400)).toBe('rejected');
     expect(readFailureOf(503)).toBe('unavailable');
     expect(readFailureOf(401)).toBe('auth');
-    for (const s of [500, 502, 504, 404, 413]) expect(readFailureOf(s)).toBe('failed');
+    expect(readFailureOf(429)).toBe('limited');
+    for (const s of [500, 502, 504, 404, 413, 403]) expect(readFailureOf(s)).toBe('failed');
   });
 
   it('決まった文言（Issue の例の表）', () => {
@@ -415,6 +416,7 @@ describe('失敗の文言（E11・E12）', () => {
       rejected: 'この画像は読み取れません。別の画像を貼るか、手で入れてください。',
       unavailable: '今は読み取りを使えません。手で入れてください。',
       failed: '読み取れませんでした。もう一度貼るか、手で入れてください。',
+      limited: '今日の読み取りの上限に達しました。手で入れてください。',
       notImage: '画像を読み込めませんでした。PNG か JPEG のスクショを貼ってください。',
     });
   });

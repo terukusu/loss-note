@@ -67,6 +67,8 @@ SERVER = "eval"
 CLI_TOOL_NAME = f"mcp__{SERVER}__{schema.TOOL_NAME}"
 DENY_REASON = "Recorded. Do not call any tool again; the turn is over."
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
+# CLI の最大出力（トークン）の変数。CLI はモデルの最大出力を上限にこの値を要求の max_tokens にする（#44）
+MAX_OUTPUT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
 
 
 class SdkMissing(RuntimeError):
@@ -88,9 +90,11 @@ def credential_secret(credential: str | None, env: dict[str, str]) -> str:
     return secret
 
 
-def child_env(credential: str, secret: str, base_dir: str, parent_env: dict[str, str] | None = None) -> dict[str, str]:
+def child_env(credential: str, secret: str, base_dir: str, parent_env: dict[str, str] | None = None,
+              max_output_tokens: int | None = None) -> dict[str, str]:
     """子（CLI）の環境。許可リスト（PASS_THROUGH_ENV）にない親の変数はすべて空で上書きし、選んだ資格情報の変数と
-    CLI の設定だけを足す。parent_env はテスト用（既定は os.environ）"""
+    CLI の設定だけを足す。parent_env はテスト用（既定は os.environ）。max_output_tokens があれば CLI の最大出力
+    （MAX_OUTPUT_ENV）にする（無ければ親の値も空で上書きされ、CLI の既定 = モデルの最大出力。#44）"""
     parent = os.environ if parent_env is None else parent_env
     env = {k: "" for k in parent if k not in PASS_THROUGH_ENV}
     # 親に無くても、資格情報・送信先を指す変数は空で固定する（選んだもの以外を CLI に使わせない）
@@ -109,6 +113,8 @@ def child_env(credential: str, secret: str, base_dir: str, parent_env: dict[str,
             "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
         }
     )
+    if max_output_tokens is not None:
+        env[MAX_OUTPUT_ENV] = str(max_output_tokens)
     return env
 
 
@@ -129,7 +135,8 @@ def isolated_env(base_dir: str) -> dict[str, str]:
     }
 
 
-def option_kwargs(model: str, effort: str, credential: str, secret: str, base_dir: str) -> dict:
+def option_kwargs(model: str, effort: str, credential: str, secret: str, base_dir: str,
+                  max_output_tokens: int | None = None) -> dict:
     """ClaudeAgentOptions の引数のうち SDK の型を要らないもの（テストで中身を確かめる）。子の環境は child_env に
     isolated_env を重ねる（書き込み先を base_dir の中に閉じる）"""
     return {
@@ -143,7 +150,8 @@ def option_kwargs(model: str, effort: str, credential: str, secret: str, base_di
         "verbatim_prompts": True,
         "include_partial_messages": False,
         "cwd": f"{base_dir}/cwd",
-        "env": {**child_env(credential, secret, base_dir), **isolated_env(base_dir)},
+        "env": {**child_env(credential, secret, base_dir, max_output_tokens=max_output_tokens),
+                **isolated_env(base_dir)},
         "stderr": lambda line: None,  # CLI の標準エラーは本文を含みうるので捨てる
         "max_buffer_size": MAX_BUFFER_BYTES,
     }
@@ -214,7 +222,7 @@ def _usage(d) -> Usage | None:
 class Reader:
     """1 枚ずつ読む。query_fn はテスト用（claude_agent_sdk.query と同じ形の async generator 関数）。query_fn を
     渡したときは options に option_kwargs の dict をそのまま渡す（SDK を import しない）。timeout は締め切りの秒数
-    （None = 無し。道具の既定）"""
+    （None = 無し。道具の既定）。max_output_tokens は CLI の最大出力（None = CLI の既定。道具の既定）"""
 
     def __init__(
         self,
@@ -226,6 +234,7 @@ class Reader:
         query_fn: Callable | None = None,
         clock: Callable[[], float] = time.monotonic,
         timeout: float | None = None,
+        max_output_tokens: int | None = None,
     ):
         self._credential = credential
         self._secret = secret
@@ -235,6 +244,7 @@ class Reader:
         self._query_fn = query_fn
         self._clock = clock
         self.timeout = timeout
+        self.max_output_tokens = max_output_tokens
 
     def __repr__(self) -> str:  # 資格情報の値を repr に出さない
         return f"Reader(model={self.model!r}, effort={self.effort!r}, credential={self._credential!r})"
@@ -258,7 +268,8 @@ class Reader:
 
     async def _read(self, data: bytes, media_type: str, base: str) -> ReadOutcome:
         captured: list = []
-        kwargs = option_kwargs(self.model, self.effort, self._credential, self._secret, base)
+        kwargs = option_kwargs(self.model, self.effort, self._credential, self._secret, base,
+                               max_output_tokens=self.max_output_tokens)
         query_fn = self._query_fn
         if query_fn is None:
             try:

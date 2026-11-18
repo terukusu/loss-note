@@ -3,6 +3,9 @@
 場所は利用者ごと: ``users/{uid}/trades/{id}``・``users/{uid}/instruments/{id}``・``users/{uid}/settings/current``・
 ``users/{uid}/charts/{tradeId}-{slot}``（根拠の足のチャート画像。1 文書 1 枚 ``{contentType, data}``。
 Issue #12・ADR-0006）。
+明細の読み取りの 1 日の計上（Issue #44・ADR-0010）: 利用者ごと
+``users/{uid}/statement_read_days/{YYYY-MM-DD}`` = ``{count}``、全体 ``statement_read_spend/{YYYY-MM-DD}`` =
+``{count, microUsd}``（日付は日本時間。日付・回数・金額だけ）。
 チャートは取引の作成・削除・差し替え・外すと同じトランザクションで書く（取引が無いチャート・チャートが書けなかった取引を残さない）。
 uid は ``auth.check_claims`` が形を確かめた値、ID は ``schema.ID_PATTERN`` に合う値だけが来る（ほかの利用者の
 場所を指せない）。手元・テストはエミュレーター（``FIRESTORE_EMULATOR_HOST`` を google-cloud-firestore が見て、
@@ -49,6 +52,11 @@ BuildTrade = Callable[[Doc, Doc | None], Doc]
 MutateTrade = Callable[[Doc, Doc | None], Doc]
 # チャートの文書 {contentType, data}。枠（"entry" / "exit"）ごと
 Charts = dict[str, Doc]
+# 読み取りの上限の判定: (その日の利用者の回数, 全体の計上額 µUSD) -> "ok" / "user" / "spend"（read_limits.decide）
+DecideRead = Callable[[int, int], str]
+# 計上の文書の場所（ADR-0010）
+READ_DAYS = "statement_read_days"
+READ_SPEND = "statement_read_spend"
 
 
 class Store(Protocol):
@@ -80,6 +88,13 @@ class Store(Protocol):
 
     def get_settings(self, uid: str) -> Doc | None: ...
     def update_settings(self, uid: str, mutate: Callable[[Doc | None], Doc]) -> Doc: ...
+
+    # 明細の読み取りの 1 日の計上（#44）。利用者の日の文書と全体の日の文書を 1 つのトランザクションで読み、decide が
+    # "ok" のときだけ利用者の回数 + 1・全体の回数 + 1・全体の金額 + reserve_micro を書く。decide の結果を返す
+    # （同時の要求でも上限を越えて "ok" を返さない）
+    def reserve_read(self, uid: str, day: str, decide: DecideRead, reserve_micro: int) -> str: ...
+    # 送った後に全体の金額を delta_micro だけ直す（実額 − 予約額。負もある）
+    def settle_read(self, day: str, delta_micro: int) -> None: ...
 
 
 def _guard(fn):
@@ -291,6 +306,35 @@ class FirestoreStore:
             return True
 
         return self._transaction(body)
+
+    # ── 明細の読み取りの計上（#44）──
+    @_guard
+    def reserve_read(self, uid, day, decide, reserve_micro):
+        user_ref = self._user(uid).collection(READ_DAYS).document(day)
+        spend_ref = self._db().collection(READ_SPEND).document(day)
+
+        def body(tx):
+            user_snap = user_ref.get(transaction=tx)
+            spend_snap = spend_ref.get(transaction=tx)
+            user = user_snap.to_dict() if user_snap.exists else {}
+            spend = spend_snap.to_dict() if spend_snap.exists else {}
+            count = int(user.get("count", 0))
+            spent = int(spend.get("microUsd", 0))
+            decision = decide(count, spent)
+            if decision == "ok":
+                tx.set(user_ref, {"count": count + 1})
+                tx.set(spend_ref, {"count": int(spend.get("count", 0)) + 1, "microUsd": spent + reserve_micro})
+            return decision
+
+        return self._transaction(body)
+
+    @_guard
+    def settle_read(self, day, delta_micro):
+        from google.cloud import firestore
+
+        if delta_micro == 0:
+            return
+        self._db().collection(READ_SPEND).document(day).set({"microUsd": firestore.Increment(delta_micro)}, merge=True)
 
     # ── 設定 ──
     @_guard

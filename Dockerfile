@@ -58,6 +58,6 @@ ENV PATH=/opt/venv/bin:$PATH \
     PORT=8080
 WORKDIR /app
 USER 10001
-# 1 ワーカー・8 スレッド（Cloud Run の同時実行 8 と同じ）。--timeout 60 は Cloud Run のタイムアウトと同じ（読み取りの締め切り 30 秒より長い）。
+# 1 ワーカー・8 スレッド（Cloud Run の同時実行 8 と同じ）。--timeout 60 は Cloud Run のタイムアウトと同じ（画面の待ち 30 秒 = 読み取りの締め切り 20 秒 + 後始末 約 5 秒 より長い）。
 # アクセスログは出さない（gunicorn の既定。パス・クエリをログに出さない。API の request の出来事だけ）
 CMD ["sh", "-c", "exec gunicorn --bind :${PORT} --workers 1 --threads 8 --timeout 60 --no-control-socket 'loss_note_api.app:create_app()'"]

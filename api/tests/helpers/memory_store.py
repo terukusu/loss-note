@@ -34,6 +34,8 @@ class MemoryStore:
         self.fail_settle = False  # 読み取りの精算で失敗する（何も書かない）
         self.read_days: dict[str, dict[str, dict]] = {}  # 利用者の日の計上（users/{uid}/statement_read_days/{day}）
         self.spend: dict[str, dict] = {}  # 全体の日の計上（statement_read_spend/{day}）
+        self.warm_calls = 0  # 起動の準備の回数（#60）
+        self.fail_warm: Exception | None = None  # 起動の準備で投げる例外（#60）
 
     def _col(self, uid, name):
         if self.fail_with is not None:
@@ -197,6 +199,13 @@ class MemoryStore:
                 return
             doc = self.spend.setdefault(day, {})
             doc["microUsd"] = int(doc.get("microUsd", 0)) + delta_micro
+
+    # ── 起動の準備（#60）──
+    def warm(self):
+        with self._lock:
+            self.warm_calls += 1
+            if self.fail_warm is not None:
+                raise self.fail_warm
 
     # ── 設定 ──
     def get_settings(self, uid):

@@ -20,7 +20,7 @@
 6. **締め切りは 20 秒**。anyio の cancel scope（`fail_after`）で取り消す。SDK の後始末（子の stdin を閉じ → 待って SIGTERM → SIGKILL）は SDK の shield の中で走る。asyncio の素の `task.cancel()` / `wait_for` は後始末を飛ばして子が残るので使わない（option-simulator の `agent_sdk.py` と同じ）。後始末に最大約 5 秒かかる
 7. **画像も結果も残さない**。記録の保存先・Storage に触れない。CLI の `CLAUDE_CODE_TMPDIR`・`CLAUDE_CONFIG_DIR`・cwd に加えて `HOME`・`TMPDIR`・`XDG_CONFIG_HOME`・`XDG_CACHE_HOME`・`XDG_DATA_HOME`・`XDG_STATE_HOME` も要求ごとの一時ディレクトリの中にし（子が一時ディレクトリの外に書かない）、成功・失敗・締め切り超えのどれでも `finally` で一緒に消す。Content-Length の無い分割の本文は上限 + 1 B まで読み、超えたら 400 `bytes`（切り詰めて送らない）
 8. **結果は形の決まった値だけ**。`check_result` で知らない鍵・型・列挙・日時の書式・21 行以上を弾き、`normalize` で暦にない日時も弾く（全体を捨てて 502 `read_invalid_result`）。銘柄の名前の長さ・文字の違反と範囲の外の数（数量・価格が 0 以下、絶対値 1e12 超）はその欄だけ空。向き（L / S）・日本時間・手数料の合計は純関数で直す（C27）。損益・価格・数量は書かれた値のまま
-9. **失敗は決まった符号だけ**: 401 `unauthorized` / 400 `image_rejected` / 503 `read_unavailable` / 502 `read_invalid_result`（形の違反・ツールを呼ばない）/ 502 `read_failed`（送り先のエラー・例外）/ 504 `read_timeout`。応答とログに画像の中身・結果の値・資格情報・送り先の文言を出さない。ログは `{"event":"statement_read","reason","rows","ms"}`（足した鍵は件数の `rows` だけ）
+9. **失敗は決まった符号だけ**: 401 `unauthorized` / 400 `image_rejected` / 503 `read_unavailable` / 502 `read_invalid_result`（形の違反・ツールを呼ばない）/ 502 `read_failed`（送り先のエラー・例外）/ 504 `read_timeout`。応答とログに画像の中身・結果の値・資格情報・送り先の文言を出さない。ログは `{"event":"statement_read","reason","rows","ms"}`（足した鍵は件数の `rows` だけ）。#60 で時間の内訳の数だけの鍵を足した: `token_ms`（federation の ID トークンの取得）・`limit_ms`（1 日の上限の予約）・`read_ms`（送り口の全体）・`api_ms`（CLI が報告する AI の API の時間）。その段まで進んだ回だけ出す
 
 ## 選択肢
 

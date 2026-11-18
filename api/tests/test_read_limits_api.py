@@ -491,8 +491,9 @@ def test_limit_log_shape(limited, sdk, capfd):
     lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
     reads = [ln for ln in lines if ln.get("event") == "statement_read"]
     assert [ln["reason"] for ln in reads] == ["limited_user", "limited_spend"]
+    # 予約まで進んだ回は予約の時間（limit_ms。#60）も出る。AI へは送っていないので read_ms・api_ms は無い
     for ln in reads:
-        assert set(ln) == {"event", "reason", "rows", "ms"} and ln["rows"] == 0
+        assert set(ln) == {"event", "reason", "rows", "ms", "limit_ms"} and ln["rows"] == 0
     for needle in (A, B, D1118, "1960000", KEY_MARKER):
         assert needle not in err
 
@@ -511,7 +512,7 @@ def test_limit_unavailable_log_reason(monkeypatch, sdk, capfd):
     _out, err = capfd.readouterr()
     reads = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{") and '"statement_read"' in ln]
     assert [ln["reason"] for ln in reads] == ["limit_unavailable"]
-    assert set(reads[0]) == {"event", "reason", "rows", "ms"}
+    assert set(reads[0]) == {"event", "reason", "rows", "ms", "limit_ms"}
 
 
 def test_other_apis_unaffected_by_limits(limited, sdk):

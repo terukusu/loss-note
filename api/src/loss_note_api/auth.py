@@ -6,11 +6,18 @@
 どちらも ``check_claims`` で exp と uid の形を重ねて見る（firebase-admin はエミュレーターでは exp を見ない。
 エミュレーターでは誰でも sub を作れるので、``/`` を含む uid で他人の場所を指させない）。
 firebase-admin の例外の文言にはトークンや aud が入るので、ログにも応答にも出さない（型の名前だけ）。
+
+起動の準備（Issue #60。``warmup.py``）: ``TokenVerifier.warm`` が firebase-admin のクライアントを作り、``verify`` では
+検証が使うのと同じ取り口・URL で公開鍵を 1 回取って、HTTP のキャッシュ（firebase-admin の cachecontrol の session）に
+ためる。公開の手段が無いので firebase-admin の内部（``Client._token_verifier``）に寄りかかる。版を上げて形が変わったら
+``api/tests/test_warmup.py`` が落ちる（本番では準備の ``auth`` が失敗し、最初の要求が取りに行く今までの振る舞いに
+戻る）。
 """
 
 import math
 import os
 import re
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -25,6 +32,8 @@ from loss_note_api.runtime import AUTH_EMULATOR, Runtime
 UID_PATTERN = re.compile(r"^(?!__.*__$)[A-Za-z0-9_-]{1,128}$")
 _BEARER = re.compile(r"^[Bb][Ee][Aa][Rr][Ee][Rr] ([A-Za-z0-9\-_.=]+)$")
 _MAX_TOKEN = 8192
+# 準備の公開鍵の取得の待ちの上限（秒。firebase-admin の既定 120 秒では、つながらないときに起動の確かめを越える）
+WARM_TIMEOUT_SECONDS = 3.0
 
 
 class InvalidToken(Exception):
@@ -37,6 +46,10 @@ class InvalidToken(Exception):
 
 class AuthUnavailable(Exception):
     """公開鍵を取れない（こちらの都合。401 にせず 503 にする）"""
+
+
+class WarmFailed(Exception):
+    """起動の準備で公開鍵を取れなかった（状態の数だけ。応答の本文・URL を持たない）"""
 
 
 def bearer_token(header: str | None) -> str | None:
@@ -82,18 +95,33 @@ class TokenVerifier:
         self._mode = runtime.mode
         self._project_id = runtime.project_id
         self._client = None
+        self._client_lock = threading.Lock()
 
     def _auth_client(self):
+        # 起動直後に同時に来た要求で 2 度作らない（#60。同じ名前の initialize_app の 2 度目は ValueError になる）
         if self._client is None:
-            name = f"loss-note-{self._mode}-{self._project_id}"
-            try:
-                app = firebase_admin.get_app(name)
-            except ValueError:
-                app = firebase_admin.initialize_app(
-                    _NoCredential(), options={"projectId": self._project_id}, name=name
-                )
-            self._client = fb_auth.Client(app)
+            with self._client_lock:
+                if self._client is None:
+                    name = f"loss-note-{self._mode}-{self._project_id}"
+                    try:
+                        app = firebase_admin.get_app(name)
+                    except ValueError:
+                        app = firebase_admin.initialize_app(
+                            _NoCredential(), options={"projectId": self._project_id}, name=name
+                        )
+                    self._client = fb_auth.Client(app)
         return self._client
+
+    def warm(self) -> None:
+        """起動の準備（#60）: クライアントを作り、verify では公開鍵を 1 回取ってキャッシュにためる（エミュレーターは
+        公開鍵を使わないので取りに行かない）。取れなければ WarmFailed（起動は止めない）"""
+        client = self._auth_client()
+        if self._mode != "verify":
+            return
+        verifier = client._token_verifier
+        res = verifier.request(url=verifier.id_token_verifier.cert_url, method="GET", timeout=WARM_TIMEOUT_SECONDS)
+        if res.status != 200:
+            raise WarmFailed(str(res.status))
 
     def verify(self, token: str, now_ms: int) -> str:
         return self.verify_identity(token, now_ms).uid

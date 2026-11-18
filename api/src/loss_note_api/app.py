@@ -13,6 +13,10 @@ CSP の土台と ``nosniff``・``no-referrer`` を付ける。
 ログイン（Issue #43・ADR-0003「縦切り 2 で決めたこと」）: 署名を検証する起動では、``FIREBASE_AUTH_DOMAIN`` が
 あるときだけ CSP に Google ログインのポップアップの許可を足す（形が合わなければ起動しない）。使える利用者の許可リスト
 ``LOSS_NOTE_ALLOWED_EMAILS``（``allowlist.py``）は起動時に 1 回読み、記録の API の入口で見る。
+
+起動の準備（Issue #60・``warmup.py``）: 環境変数から起動したとき（本番の gunicorn・手元の起動）は、資格情報の名前を
+環境から外し、保存先と ID トークンの検証器を作った後に、保存先の接続・公開鍵の取得・読み取りの SDK の読み込みを
+済ませてから返す（gunicorn は返るまで要求を受けない）。失敗しても起動は止めない。
 """
 
 import io
@@ -24,7 +28,7 @@ from flask import Flask, Request, Response, g, request
 from statement_read.agent_reader import scrub_process_env
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
-from loss_note_api import allowlist, logs, schema, statement_read, web
+from loss_note_api import allowlist, logs, schema, statement_read, warmup, web
 from loss_note_api.auth import TokenVerifier
 from loss_note_api.read_limits import ReadLimits
 from loss_note_api.routes import error, invalid, make_blueprint, make_unconfigured_blueprint
@@ -58,6 +62,15 @@ def _login_csp(mode: str, env: Mapping[str, str]) -> dict[str, tuple[str, ...]] 
         ) from None
 
 
+def _warm_steps(records: Store, verifier: TokenVerifier, read_config: statement_read.ReadConfig) -> list:
+    """起動の準備の段（#60）。読み取りの SDK は読み取りが使える起動だけ
+    （import の確かめ。入っていなくても失敗にしない）"""
+    steps: list = [("store", records.warm), ("auth", verifier.warm)]
+    if read_config.usable:
+        steps.append(("sdk", statement_read.sdk_available))
+    return steps
+
+
 def create_app(
     env: Mapping[str, str] | None = None,
     *,
@@ -66,6 +79,7 @@ def create_app(
     read_timeout: float | None = None,
     read_limits: ReadLimits | None = None,
     identity_token: Callable[[], str] | None = None,
+    warm: bool | None = None,
 ) -> Flask:
     """env は環境変数（既定は os.environ）。明細の読み取りの資格情報もここから読む（ADR-0005）。
     read_timeout は読み取りの締め切りの秒数（テスト用。既定は statement_read.app_settings.APP_TIMEOUT_SECONDS）。
@@ -73,7 +87,8 @@ def create_app(
     identity_token は読み取りの federation の ID トークンの取り方（テスト用。既定はメタデータ サーバー。#55）。
     env を渡さない起動（本番・手元の起動）では、読み取りの資格情報を読んだ後に、この process の環境から
     資格情報・送り先の系統の名前を外す（明細の読み取りの子の CLI に選ばなかった方式の変数を引き継がせない。
-    #55・ADR-0011）"""
+    #55・ADR-0011）。
+    warm は起動の準備をするか（#60。None = env を渡さない起動のときだけ。テストは env を渡すので既定ではしない）"""
     from_process = env is None
     env = os.environ if env is None else env
     runtime = decide_runtime(env)
@@ -101,10 +116,15 @@ def create_app(
     if read_config is None:
         app.register_blueprint(make_unconfigured_blueprint())
     else:
+        records = store or FirestoreStore(runtime.project_id)
+        verifier = TokenVerifier(runtime)
         app.register_blueprint(
-            make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock, read_config,
+            make_blueprint(records, verifier, clock, read_config,
                            allowed=allowlist.policy_for(runtime.mode, env), read_limits=read_limits)
         )
+        # 起動の準備（#60）: 資格情報の名前を外した後（背後のスレッドを起こすのはここから）
+        if from_process if warm is None else warm:
+            warmup.run(_warm_steps(records, verifier, read_config))
 
     # 画面の静的ファイル（STATIC_DIR があるときだけ。無ければ今のまま = /api 以外は 404 の JSON）
     static_dir = env.get(web.STATIC_DIR_VAR) or ""

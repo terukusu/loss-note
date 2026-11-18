@@ -5,6 +5,7 @@
   ログインした利用者の自分の場所でも 403。チャート画像の場所 ``users/{uid}/charts`` も同じ（Issue #12 KEEP-3）
 - Storage も画面から読み書きできない（ルールはすべて拒否。チャートは Firestore に置き、Storage は使っていない）
 - チャートと取引は 1 トランザクション（チャートが書けなければ取引も無い。Issue #12 AC-6）
+- 起動の準備（``FirestoreStore.warm``）は何も書かない（Issue #60 KEEP-3）
 値はすべて架空（メールは example.com）。
 """
 
@@ -154,6 +155,17 @@ def test_chart_and_trade_are_one_transaction(emulator):
     assert len(list(db.collection("charts").stream())) == 2
     assert store.delete_trade(uid, tid)
     assert list(db.collection("charts").stream()) == []
+
+
+def test_store_warm_writes_nothing(emulator):
+    """Issue #60 KEEP-3: 起動の準備は存在しない決まった文書を 1 件読むだけで、何も書かない
+    （根のコレクションが 0 のまま）"""
+    store = FirestoreStore(PROJECT)
+    db = store._db()
+    assert list(db.collections()) == []
+    store.warm()
+    store.warm()
+    assert list(db.collections()) == []
 
 
 def test_allowlist_with_emulator_tokens(emulator):

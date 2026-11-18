@@ -18,7 +18,7 @@ trap cleanup EXIT
 fail() { echo "NG: $*" >&2; exit 1; }
 
 # 1. gunicorn と同じ create_app() を作れること（本番の形: STATIC_DIR はイメージの値・プロジェクト ID は架空・エミュレーターの接続先なし
-#    = verify。Firestore のクライアントとトークンの検証は遅延生成なので、資格情報なしで作れる）
+#    = verify。起動の準備（#60。Firestore のクライアント・公開鍵の取得）は失敗しても起動を止めないので、資格情報なしで作れる）
 docker run --rm -e GOOGLE_CLOUD_PROJECT=example-project "$img" python -c '
 from loss_note_api.app import create_app
 from loss_note_api.runtime import decide_runtime
@@ -84,7 +84,8 @@ if grep -rlsF -e '127.0.0.1:9099' -e 'demo-loss-note' -e 'demo-api-key' -e '部�
 fi
 echo "ok: 開発の時だけの値・部品の見本なし"
 
-# 6. 起動して振り分け（例 S）とヘッダ（例 H）を状態コードで見る（GCP の資格情報なし。Firestore には触れない）
+# 6. 起動して振り分け（例 S）とヘッダ（例 H）を状態コードで見る（GCP の資格情報なし。起動の準備の Firestore は資格情報が
+#    無くて失敗し、記録には触れない）
 cid=$(docker run -d -p 127.0.0.1::8080 -e GOOGLE_CLOUD_PROJECT=example-project "$img")
 port=$(docker port "$cid" 8080/tcp | head -n 1 | sed 's/.*://')
 base="http://127.0.0.1:${port}"
@@ -111,6 +112,9 @@ header() {  # 名前 ヘッダ名 → 値
 }
 
 check /api/health 200 health
+# 起動の準備（#60）が gunicorn の起動の段で走り、失敗しても起動している（ログの warmup の行が 1 行）
+[ "$(docker logs "$cid" 2>&1 | grep -c '"event":"warmup"')" = 1 ] || fail "起動の準備のログ（warmup）が 1 行でない"
+echo "ok: 起動の準備（warmup の行 1 行）"
 grep -q '"status":"ok"' "$work/health.body" || fail "/api/health の本文が {\"status\":\"ok\"} でない"
 check / 200 index
 cmp -s "$work/index.body" "$work/static/index.html" || fail "/ が同梱の index.html と違う"

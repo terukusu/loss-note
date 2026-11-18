@@ -4,10 +4,12 @@ loss-note の本番の土台です。自分の GCP プロジェクトと GitHub 
 
 | ルート | apply する人 | 中身 |
 |---|---|---|
-| `bootstrap/` | 所有者（手元から） | API の有効化・Terraform の state のバケット 2 つ・Workload Identity 連携・CI のサービスアカウント（plan 用・apply 用）・Cloud Run の実行用サービスアカウント・Artifact Registry・Firebase（Web アプリ 1 つ）と Authentication の初期化（Identity Platform）・月の予算 |
-| `prod/` | CI（Environment `prod` の承認の後） | Cloud Run など（#42 で足します） |
+| `bootstrap/` | 所有者（手元から） | API の有効化・Terraform の state のバケット 2 つ・Workload Identity 連携・CI のサービスアカウント（plan 用・apply 用）・Cloud Run の実行用サービスアカウントとそのデータのロール（`roles/datastore.user`）・Artifact Registry・Firebase（Web アプリ 1 つ）と Authentication の初期化（Identity Platform）・Firestore（ネイティブ・東京・既定のデータベース・削除の防止・日次のバックアップ・クライアントからの読み書きをすべて拒否するルール）・月の予算 |
+| `prod/` | CI（`.github/workflows/deploy.yml`。Environment `prod` の承認の後） | Cloud Run のサービス `loss-note`（画面と API を 1 つのイメージで配る）と、未認証の呼び出しの許可（`allUsers` に `roles/run.invoker`） |
 
-プロジェクトの作成・請求先の紐付けは Terraform の外（gcloud）で行います。理由と、戻せないもの（Identity Platform・Firebase の追加）は [`docs/adr-0008-production-foundation.md`](../docs/adr-0008-production-foundation.md) にあります。
+プロジェクトの作成・請求先の紐付けは Terraform の外（gcloud）で行います。理由と、戻せないもの（Identity Platform・Firebase の追加）は [`docs/adr-0008-production-foundation.md`](../docs/adr-0008-production-foundation.md) にあります。本番の配信・デプロイ・切り戻しの決定は [`docs/adr-0009-production-delivery.md`](../docs/adr-0009-production-delivery.md) にあります。
+
+全体の順: bootstrap の初回の apply → GitHub の設定（変数・secret・Environment）→ main へのマージで deploy（承認）→ 確かめ。
 
 前提: リポジトリの `mise.toml` の道具（terraform 1.17.1）、gcloud（プロジェクトを作れて、請求先の予算を作れる所有者のアカウントでログイン済み）、gh（リポジトリの管理者でログイン済み）、jq。
 
@@ -18,9 +20,16 @@ terraform fmt -check -recursive infra
 terraform -chdir=infra/bootstrap init -backend=false -input=false
 terraform -chdir=infra/bootstrap validate
 terraform -chdir=infra/bootstrap test                  # モックのプロバイダ。実リソースは作らない
-.github/scripts/tf-required-vars.sh                    # 変数なしの plan が、必須の変数の未指定で止まること
+.github/scripts/tf-required-variables.sh                    # 変数なしの plan が、必須の変数の未指定で止まること
 .github/scripts/tf-iam-grants.test.sh                  # 下の検査の自己テスト
 .github/scripts/tf-iam-grants.sh                       # IAM の付与の宣言が期待の集合だけ（権威的な _binding・_policy、*.tf.json・module は 0 件）
+terraform -chdir=infra/prod init -backend=false -input=false
+terraform -chdir=infra/prod validate
+terraform -chdir=infra/prod test                       # モックのプロバイダ
+.github/scripts/tf-required-variables.sh infra/prod project_id image
+# 本番のイメージ（docker が要る）
+.github/scripts/image.sh loss-note check-dockerignore  # イメージの入力と .dockerignore の許可リストが同じ
+docker build -t loss-note:ci . && .github/scripts/image-check.sh loss-note:ci   # 中身・非 root・CSP・起動して振り分けとヘッダ
 ```
 
 ## 変数
@@ -84,14 +93,14 @@ gcloud auth application-default print-access-token > /dev/null 2>&1 || export GO
    $TF -chdir=infra/bootstrap init -input=false -no-color -backend-config="bucket=$P-tfstate-bootstrap" > "$LOG/init.log" 2>&1; echo $?
    # plan・apply の出力（エラーの文を含む）にはプロジェクト ID・番号が出るので、ログに書いて件数・状態だけを見る
    $TF -chdir=infra/bootstrap plan -input=false -no-color -out=bootstrap.tfplan > "$LOG/plan.log" 2>&1; echo $?   # 0 でなければ grep -c '^Error' "$LOG/plan.log"
-   # 要約（アドレスと操作だけ）。初回は create 34・import 1（bootstrap のバケット。設定の in-place update を伴う）
+   # 要約（アドレスと操作だけ）。初回は create 40・import 1（bootstrap のバケット。設定の in-place update を伴う）
    $TF -chdir=infra/bootstrap show -json bootstrap.tfplan | jq -r '.resource_changes[]
      | select(.change.actions != ["no-op"] or .change.importing)
      | "\(.address): \(.change.actions | join(","))\(if .change.importing then " (import)" else "" end)"'
    # 変更の対象がすべてこのプロジェクト（true）
    $TF -chdir=infra/bootstrap show -json bootstrap.tfplan | jq --arg p "$P" '[.resource_changes[] | .change.after.project? // empty] | unique == [$p]'
    $TF -chdir=infra/bootstrap apply -input=false -no-color bootstrap.tfplan > "$LOG/apply.log" 2>&1; echo $?
-   grep -oE 'Resources: [0-9a-z ,]+ destroyed' "$LOG/apply.log"   # 件数の行だけ（初回の目安: 1 imported, 34 added, 1 changed, 0 destroyed）
+   grep -oE 'Resources: [0-9a-z ,]+ destroyed' "$LOG/apply.log"   # 件数の行だけ（初回の目安: 1 imported, 40 added, 1 changed, 0 destroyed）
    rm -f infra/bootstrap/bootstrap.tfplan
    ```
 
@@ -105,12 +114,12 @@ gcloud auth application-default print-access-token > /dev/null 2>&1 || export GO
 $TF -chdir=infra/bootstrap plan -input=false -detailed-exitcode > /dev/null; echo $?          # 差分なし: 0
 gcloud billing projects describe "$P" --format='value(billingEnabled)'                       # True
 
-# API: 14
+# API: 15
 printf '%s.googleapis.com\n' cloudresourcemanager serviceusage cloudbilling billingbudgets iam iamcredentials sts \
-  storage artifactregistry run firestore firebase identitytoolkit securetoken \
+  storage artifactregistry run firestore firebaserules firebase identitytoolkit securetoken \
   | grep -cxF -f - <(gcloud services list --enabled --project="$P" --format='value(config.name)')
 
-# プロジェクト単位のロール: sa-tf-apply = roles/run.admin、sa-tf-plan = roles/run.viewer、sa-loss-note = （空）
+# プロジェクト単位のロール: sa-tf-apply = roles/run.admin、sa-tf-plan = roles/run.viewer、sa-loss-note = roles/datastore.user
 for sa in sa-tf-apply sa-tf-plan sa-loss-note; do printf '%s: ' $sa
   gcloud projects get-iam-policy "$P" --flatten=bindings \
     --filter="bindings.members:serviceAccount:$sa@$P.iam.gserviceaccount.com" --format='value(bindings.role)' | sort | paste -sd, -
@@ -130,6 +139,10 @@ curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-
 curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(gcloud auth print-access-token)" -H "x-goog-user-project: $P" \
   "https://identitytoolkit.googleapis.com/admin/v2/projects/$P/config"
 
+# Firestore: FIRESTORE_NATIVE asia-northeast1 DELETE_PROTECTION_ENABLED（1 行）・日次のバックアップの予定が 1 件（保持 604800s）
+gcloud firestore databases describe --database='(default)' --project="$P" --format='value(type,locationId,deleteProtectionState)'
+gcloud firestore backups schedules list --database='(default)' --project="$P" --format='value(retention)'
+
 # 予算: 対象がこのプロジェクトだけの予算が 1 件（1）
 PN=$(gcloud projects describe "$P" --format='value(projectNumber)')
 gcloud billing budgets list --billing-account="$BA" --format=json \
@@ -138,23 +151,27 @@ gcloud billing budgets list --billing-account="$BA" --format=json \
 
 ## GitHub の設定
 
-CI（#42 の plan / apply）が使う値と Environment `prod` を設定します。値は表示せず、Terraform の出力からパイプで渡します（WIF のプロバイダの完全名はプロジェクト番号を含むので secret にします）。リポジトリの管理者の権限が要ります。
+CI（`deploy.yml`・`rollback.yml`）が使う値と Environment `prod` を設定します。値は表示せず、Terraform の出力からパイプで渡します。**値はすべて repository secrets に置きます**（リポジトリは公開で Actions のログは誰でも読めます。variables の値はログの見出しに平文で出ますが、secrets は GitHub が自動で伏せます。repository variables は使いません）。リポジトリの管理者の権限が要ります。変数の意味は下の「prod の変数」にあります。
 
 | 種類 | 名前 | 中身 |
 |---|---|---|
-| repository variable | `GCP_PROJECT_ID` | プロジェクト ID |
-| repository variable | `GCP_SA_TF_PLAN` | plan 用 SA のメール（出力 `sa_tf_plan_email`） |
-| repository variable | `GCP_SA_TF_APPLY` | apply 用 SA のメール（出力 `sa_tf_apply_email`） |
-| repository variable | `TF_STATE_BUCKET` | prod の state のバケット（出力 `tf_state_bucket`） |
+| secret | `GCP_PROJECT_ID` | プロジェクト ID |
+| secret | `GCP_SA_TF_PLAN` | plan 用 SA のメール（出力 `sa_tf_plan_email`） |
+| secret | `GCP_SA_TF_APPLY` | apply 用 SA のメール（出力 `sa_tf_apply_email`） |
+| secret | `TF_STATE_BUCKET` | prod の state のバケット（出力 `tf_state_bucket`） |
+| secret | `FIREBASE_API_KEY` | Firebase の Web の apiKey（出力 `firebase_web_config.api_key`） |
+| secret | `FIREBASE_AUTH_DOMAIN` | Firebase の Web の authDomain（出力 `firebase_web_config.auth_domain`） |
 | secret | `GCP_WIF_PROVIDER` | WIF のプロバイダの完全名（出力 `wif_provider_name`） |
 | Environment | `prod` | デプロイできるブランチは `main` だけ・承認者は所有者 1 名 |
 
 ```sh
 $TF -chdir=infra/bootstrap output -raw wif_provider_name | gh secret set GCP_WIF_PROVIDER -R "$REPO"
-$TF -chdir=infra/bootstrap output -raw sa_tf_plan_email  | gh variable set GCP_SA_TF_PLAN -R "$REPO"
-$TF -chdir=infra/bootstrap output -raw sa_tf_apply_email | gh variable set GCP_SA_TF_APPLY -R "$REPO"
-$TF -chdir=infra/bootstrap output -raw tf_state_bucket   | gh variable set TF_STATE_BUCKET -R "$REPO"
-printf '%s' "$P" | gh variable set GCP_PROJECT_ID -R "$REPO"
+$TF -chdir=infra/bootstrap output -raw sa_tf_plan_email  | gh secret set GCP_SA_TF_PLAN -R "$REPO"
+$TF -chdir=infra/bootstrap output -raw sa_tf_apply_email | gh secret set GCP_SA_TF_APPLY -R "$REPO"
+$TF -chdir=infra/bootstrap output -raw tf_state_bucket   | gh secret set TF_STATE_BUCKET -R "$REPO"
+printf '%s' "$P" | gh secret set GCP_PROJECT_ID -R "$REPO"
+$TF -chdir=infra/bootstrap output -json firebase_web_config | jq -r .api_key     | gh secret set FIREBASE_API_KEY -R "$REPO"
+$TF -chdir=infra/bootstrap output -json firebase_web_config | jq -r .auth_domain | gh secret set FIREBASE_AUTH_DOMAIN -R "$REPO"
 # Environment prod: main だけ、承認者は所有者（自分で承認できる）
 jq -n --argjson id "$(gh api user --jq .id)" '{wait_timer: 0, prevent_self_review: false,
   reviewers: [{type: "User", id: $id}],
@@ -166,15 +183,131 @@ gh api -X POST $R/environments/prod/deployment-branch-policies -f name=main -f t
 確認（値は表示しない。すべて `true`）:
 
 ```sh
-gh api $R/actions/variables --jq '[.variables[].name] | contains(["GCP_PROJECT_ID", "GCP_SA_TF_APPLY", "GCP_SA_TF_PLAN", "TF_STATE_BUCKET"])'
-gh api $R/actions/secrets --jq '[.secrets[].name] | index("GCP_WIF_PROVIDER") != null'
+gh api $R/actions/secrets --jq '[.secrets[].name] | contains(["GCP_WIF_PROVIDER", "GCP_PROJECT_ID", "GCP_SA_TF_APPLY", "GCP_SA_TF_PLAN", "TF_STATE_BUCKET", "FIREBASE_API_KEY", "FIREBASE_AUTH_DOMAIN"])'
+gh api $R/actions/variables --jq '.total_count == 0'   # variables は使わない（値がログに出る）。以前の手順で variables に置いた値は、secrets に入れ直してから gh variable delete で消す
 gh api $R/environments/prod --jq '.deployment_branch_policy == {"protected_branches": false, "custom_branch_policies": true} and ([.protection_rules[] | select(.type == "required_reviewers") | .reviewers[]] | length) == 1'
 gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[] | {name, type}] == [{"name": "main", "type": "branch"}]'
+```
+
+## prod の変数
+
+`infra/prod` と画面のビルドが使う値です。どれも GitHub の repository secrets から `deploy.yml` が渡します（リポジトリ・Terraform に値を書きません。識別子に既定値はありません）。
+
+| 渡す先 | 名前 | 中身 | 出どころ |
+|---|---|---|---|
+| Terraform `project_id` | `GCP_PROJECT_ID`（secret） | プロジェクト ID。Firebase のプロジェクト ID を兼ねる（画面のビルドの `VITE_FIREBASE_PROJECT_ID`） | `$P` |
+| Terraform `image` | （deploy.yml が求める） | `<REGION>-docker.pkg.dev/<PROJECT_ID>/loss-note/loss-note@sha256:<64 桁の 16 進>`。digest でだけ受ける | `.github/scripts/image.sh loss-note resolve` |
+| Terraform `region` | （既定 `asia-northeast1`） | Cloud Run の場所 | |
+| Terraform `max_instances` | （既定 `2`） | 最大インスタンス（1〜10。費用の上限） | |
+| state | `TF_STATE_BUCKET`（secret） | prod の state のバケット | 出力 `tf_state_bucket` |
+| 借用 | `GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`・`GCP_WIF_PROVIDER`（secret） | plan / apply の SA と WIF のプロバイダ | 出力 `sa_tf_plan_email`・`sa_tf_apply_email`・`wif_provider_name` |
+| 画面のビルド | `FIREBASE_API_KEY`（secret） | Firebase の Web の apiKey（公開の JS に入る値。秘密ではない） | 出力 `firebase_web_config.api_key` |
+| 画面のビルド | `FIREBASE_AUTH_DOMAIN`（secret） | Firebase の Web の authDomain | 出力 `firebase_web_config.auth_domain` |
+
+- GCP の 4 つ（`GCP_PROJECT_ID`・`TF_STATE_BUCKET`・`GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`）のどれかが無いと、deploy は notice を出して何もせずに成功で終わります（clone しただけのリポジトリで main への push を失敗にしない）
+- GCP の 4 つがあるのに `FIREBASE_API_KEY`・`FIREBASE_AUTH_DOMAIN` が無いと、deploy はビルドの前に足りない secret の名前を出して失敗します
+- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT` だけです（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
+- prod の state は plan 用 SA が読めるので、秘密を入れません（資格情報は Secret Manager の参照だけにし、値を変数・リソースに書きません）
+
+## デプロイの流れと確認
+
+```text
+main へのマージ（push）→ ci.yml の check が成功 → deploy.yml の plan（plan 用 SA）
+  → 差分なし: 何もしない（承認待ちを作らない）
+  → 差分あり: apply job が Environment prod の承認を待つ → 承認
+     → イメージが Artifact Registry に無ければ: ビルド（GCP の認証より前）→ image-check.sh → push
+     → digest で terraform apply（承認の後に plan し直す）→ 新しいリビジョンが 100%
+```
+
+- CI の check が落ちたコミット・PR のブランチ・fork からは動きません。Actions の画面から手で動かす（`workflow_dispatch`）ときも main だけで、main の HEAD の ci が push で成功していなければ止まります。Environment `prod` は main だけ・所有者の承認つきです
+- apply は 1 度に 1 つです（deploy と rollback で同じ concurrency `terraform-prod`）。承認待ちの間に次のマージがあれば、前の run が終わってから後の run が動き、最後に 100% を受けるのは後のコミットのイメージです
+- イメージのタグは入力（`.github/scripts/image.sh` の入力パス）の git のハッシュと Firebase の Web の設定の値から決まります。画面・API・依存を変えないマージ（文書だけ）は同じタグ = 既存の digest になり、差分なしで終わります。Firebase の secrets を直したときは新しいタグになるので、`gh workflow run deploy.yml -R "$REPO" --ref main` で動かします
+- plan の要約（アドレスと操作の件数だけ）、承認の後に plan し直して実際に当てた差分の要約、apply したイメージの digest の先頭 12 文字は、run の Summary に出ます。ログに出る値の範囲: プロジェクト固有の値はすべて secrets なので、見出しの env の一覧・コマンドの出力では GitHub が伏せます（`***`）。デプロイの後に、run のログを値で検索して 0 件であることを確かめます（下の確かめ）。失敗のログは末尾だけを、9 桁以上の数字（プロジェクト番号）とメールを伏せて出します
+
+デプロイの後の確かめ（値・URL は表示せず、状態コード・件数だけを見ます）:
+
+```sh
+U=$(gcloud run services describe loss-note --region=$L --project="$P" --format='value(status.url)')   # 表示しない
+for p in / /trades/abc123 /api/health; do curl -s -o /dev/null -w '%{http_code}\n' "$U$p"; done       # 200 200 200
+curl -s -o /dev/null -w '%{http_code}\n' "$U/api/trades"                                             # 401（トークンなし）
+curl -s -o /dev/null -w '%{http_code}\n' "$U/api/nope"                                               # 404
+# CSP の土台の 8 つの指示（8）と nosniff・no-referrer（2）
+curl -sI "$U/" | tr -d '\r' | grep -i '^content-security-policy:' | sed 's/^[^:]*: *//' | tr ';' '\n' | sed 's/^ *//' \
+  | grep -cxE "default-src 'none'|script-src 'self'|style-src 'self'|img-src 'self'|connect-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'"
+curl -sI "$U/" | tr -d '\r' | grep -ciE '^(x-content-type-options: nosniff|referrer-policy: no-referrer)$'
+# 100% を受けるリビジョンのイメージの digest の先頭 12 文字（run の Summary と同じ）
+gcloud run services describe loss-note --region=$L --project="$P" --format='value(spec.template.spec.containers[0].image)' | sed -E 's/.*@sha256:(.{12}).*/\1/'
+# 公開の Actions のログに値が出ていない（deploy の最新の run。値ごとに 0）
+RUN=$(gh run list -R "$REPO" --workflow deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+SA_PLAN=$($TF -chdir=infra/bootstrap output -raw sa_tf_plan_email); SA_APPLY=$($TF -chdir=infra/bootstrap output -raw sa_tf_apply_email)
+BUCKET=$($TF -chdir=infra/bootstrap output -raw tf_state_bucket); WEB=$($TF -chdir=infra/bootstrap output -json firebase_web_config)
+for v in "$P" "$SA_PLAN" "$SA_APPLY" "$BUCKET" "$(jq -r .api_key <<<"$WEB")" "$(jq -r .auth_domain <<<"$WEB")" "${U#https://}"; do
+  gh run view "$RUN" -R "$REPO" --log 2>/dev/null | grep -cF -- "$v"
+done
+```
+
+ブラウザ（スマホ・PC）でも開き、ログインの画面に Google ログインのボタンが出ること、開発者ツールに CSP の違反が出ないことを見ます（ログインそのものが通るのは #43 の後です）。
+
+## 切り戻し
+
+前のリビジョン（今 100% を受けるリビジョンの直前に作られた、Ready のリビジョン）へトラフィックを 100% 戻します。Cloud Run のトラフィックだけを変え、Firestore のデータには触れません。
+
+**GitHub から**（手元に gcloud が無くても行えます）: Actions の画面で `rollback` を main から実行し（`gh workflow run rollback.yml -R "$REPO" --ref main` でも同じ）、Environment `prod` の承認をします。run の Summary に「戻し: <今> → <前>」、`/` と `/api/health` の状態コード、100% のリビジョン名が出ます。戻し先が無い（リビジョンが 1 つしか無い）ときは何も変えずに失敗します。
+
+**手元から**（所有者の gcloud。同じことを行います）:
+
+```sh
+gcloud run revisions list --service=loss-note --region=$L --project="$P" \
+  --format='table(metadata.name,metadata.creationTimestamp,status.conditions[0].status)'           # 作られた順と Ready を見る
+gcloud run services describe loss-note --region=$L --project="$P" --format='value(status.traffic)'     # 今 100% のリビジョン
+gcloud run services update-traffic loss-note --region=$L --project="$P" --to-revisions=<REVISION>=100 > /dev/null
+gcloud run services describe loss-note --region=$L --project="$P" --format='value(status.traffic)'     # <REVISION> が 100
+```
+
+切り戻しの後の注意:
+
+- `infra/prod` は「最新のリビジョンに 100%」を宣言しているので、切り戻しの後の deploy の plan には必ず差分が出ます。**関係ないマージの deploy の承認は拒否し**、直す PR か revert の PR を先にマージしてから承認します（そのまま承認すると最新のリビジョン = 壊れたものに戻ります）。手元から最新へ戻すときは `gcloud run services update-traffic loss-note --region=$L --project="$P" --to-latest`
+- Artifact Registry は直近 5 版を残し、それより古く 30 日を過ぎた版を消します（bootstrap）。直前のリビジョンのイメージは残りますが、それより古いリビジョンへ戻すと、イメージが消えていて新しいインスタンスが起動できないことがあります
+- 初回のデプロイが失敗したとき（前のリビジョンが無い）は切り戻せません。原因を直す PR をマージして deploy します
+
+待ちと取り消しの振る舞い（deploy と rollback は同じ concurrency `terraform-prod`。GitHub の concurrency に優先度はありません）:
+
+- 承認待ちの deploy があると、rollback はその後ろで待ちます（承認待ちの deploy を承認か拒否するまで動きません）
+- 同じグループで待てる（pending の）run は 1 つだけで、新しく入った run が前の pending を取り消します。待っている rollback の後に次の deploy（main へのマージ）が入ると、その rollback は取り消されます
+- 障害のときは、**承認待ちの deploy を先に拒否してから** rollback を動かします。急ぐとき・GitHub の承認を待てないときは、上の「手元から」の gcloud で戻します
+- CI が失敗した main の run・fork の PR の CI の完了・main 以外から動かした run は `terraform-prod` に入らない（run ごとの別のグループ）ので、待っている deploy・rollback を取り消しません（`.github/scripts/workflow-concurrency-check.sh` が式を確かめます）
+
+## バックアップからの戻し
+
+Firestore の日次のバックアップ（保持 7 日。bootstrap の `google_firestore_backup_schedule.daily`）から戻します。自動化はしていません。**バックアップは既存のデータベースへ直接は戻せない** ので、別の名前のデータベースへ戻して件数を確かめてから、一時バケット経由で `(default)` へ入れます。所有者の資格情報で行います。
+
+```sh
+gcloud firestore backups list --location=$L --project="$P" --format='table(name.basename(),snapshotTime)'   # 戻したい時点のものを選ぶ
+B=<BACKUP_ID>; D=restore-<YYYYMMDD>                                                                           # 戻し先は新しい名前
+gcloud firestore databases restore --source-backup="projects/$P/locations/$L/backups/$B" --destination-database="$D" --project="$P"
+# 件数を確かめる（取引の文書の数。中身は表示しない）
+curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" -H 'Content-Type: application/json' \
+  "https://firestore.googleapis.com/v1/projects/$P/databases/$D/documents:runAggregationQuery" \
+  -d '{"structuredAggregationQuery":{"structuredQuery":{"from":[{"collectionId":"trades","allDescendants":true}]},"aggregations":[{"alias":"n","count":{}}]}}' \
+  | jq '.[0].result.aggregateFields.n.integerValue'
+```
+
+中身がよければ、一時バケットへ書き出して `(default)` へ取り込みます（取り込みは同じ ID の文書を上書きします。バックアップの後に作られた文書は残るので、残すかどうかを先に決めます）:
+
+```sh
+gcloud storage buckets create "gs://$P-firestore-restore" --project="$P" --location=$L --uniform-bucket-level-access --public-access-prevention
+gcloud firestore export "gs://$P-firestore-restore/$D" --database="$D" --project="$P"
+gcloud firestore import "gs://$P-firestore-restore/$D" --database='(default)' --project="$P"
+# 終わったら一時のものを消す（記録の写しなので残さない）
+gcloud firestore databases delete --database="$D" --project="$P"
+gcloud storage rm --recursive "gs://$P-firestore-restore"
 ```
 
 ## 変更
 
 土台を変える（API・付与・予算の金額など）ときは、PR で `infra/bootstrap` を直し、マージの後に所有者が「共通のシェルの変数」→ `init` → plan の要約を確かめて → apply します。CI は bootstrap を apply しません。付与を足すときは `.github/scripts/tf-iam-grants.sh` の期待の集合と `tests/bootstrap.tftest.hcl` も一緒に直します。
+
+#41 の土台を作った後に #42 の差分（Firestore）を足すときの要約は create 6 です（`firebaserules.googleapis.com` の有効化・Firestore の `(default)`・日次のバックアップの予定・ルールの ruleset と release・実行用 SA の `roles/datastore.user`）。Firestore の場所は後から変えられず、削除の防止があるので、要約を確かめてから apply します。
 
 リポジトリ・オーナーの名前を変えても、CI の借用は続きます（照合も借用の主体も数値 ID と Environment だけで決めています）。次の apply でプールの説明だけが新しい名前に変わります。リポジトリを作り直した（数値 ID が変わった）ときは、新しい ID で apply し直します。
 
@@ -183,7 +316,7 @@ gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[]
 `terraform destroy` 全体は使いません（SA・プール・バケット・Artifact Registry・Web アプリは削除の防止 = `PREVENT` で止まります）。全部をやめるときは次の順で行います。
 
 1. **予算を先に消す**。予算は請求先のリソースなので、プロジェクトを消しても残ります: `$TF -chdir=infra/bootstrap destroy -target=google_billing_budget.monthly`
-2. GitHub の設定を消す: `gh api -X DELETE $R/environments/prod`、`gh variable delete <名前> -R "$REPO"`（4 つ）、`gh secret delete GCP_WIF_PROVIDER -R "$REPO"`
+2. GitHub の設定を消す: `gh api -X DELETE $R/environments/prod`、`gh secret delete <名前> -R "$REPO"`（7 つ）
 3. 請求先を外してプロジェクトを消す: `gcloud billing projects unlink "$P"` → `gcloud projects delete "$P"`（30 日の保留の後に消えます。同じ ID は再利用できません）
 
-Identity Platform の有効化と Firebase の追加は、プロジェクトの中では戻せません（戻すにはプロジェクトの削除だけです）。
+Identity Platform の有効化と Firebase の追加は、プロジェクトの中では戻せません（戻すにはプロジェクトの削除だけです）。Firestore のデータベースは削除の防止があり、Terraform から外しても消えません（`ABANDON`）。Cloud Run のサービスだけを撤去するときは、`infra/prod/run.tf` を消す PR をマージして deploy を承認します（`deletion_protection = false`。データは Firestore に残ります）。

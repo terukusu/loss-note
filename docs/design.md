@@ -570,17 +570,21 @@ Cloud Run（1 つのサービス）
 | 計算 | TypeScript の純関数が正。API は同じ例の表を Python で通す | 入力中の即時の表示と、集計を同じ規則に |
 | インフラ | Terraform（`infra/bootstrap` = 所有者が apply、`infra/prod` = CI が apply） | option-simulator と同じ分け方 |
 | GCP プロジェクト | loss-note 専用のプロジェクト（ID・番号・請求先はリポジトリに書かない）。プロジェクトの作成と請求先の紐付けは gcloud、中身は `infra/bootstrap`（ADR-0008・`infra/README.md`） | 権限・費用・データの境界をプロジェクト単位で切る。プロジェクトを Terraform の管理に入れず、誤った destroy でプロジェクトごと消えないようにする |
-| リージョン | 東京（asia-northeast1）。Artifact Registry・state のバケット・後の Cloud Run | 利用者が日本から使う |
+| リージョン | 東京（asia-northeast1）。Artifact Registry・state のバケット・Cloud Run・Firestore | 利用者が日本から使う |
 | CI の権限 | CI の SA は plan 用（run.viewer と、state・イメージの読み取り）と apply 用（run.admin・実行用 SA の serviceAccountUser と、state・イメージの書き込み）だけ。apply 用は Environment `prod` の job だけが借用できる。owner・editor・viewer・IAM の管理は付けず、鍵は作らない。API の有効化は所有者の bootstrap で行う | 利用者の売買の記録が入る場所なので、本番を変えられる主体を絞る |
 | 費用の見張り | 請求先に、このプロジェクトだけを対象にした月の予算（既定 3,000 円）。50 / 90 / 100% で請求先の管理者に通知する（止めはしない） | 想定外の利用（暴走・誤設定）に気づく。12 章の費用の目安の上の方に置き、想定外のときだけ鳴らす |
 | CI / CD | GitHub Actions、Workload Identity Federation、Environment `prod` の承認 | |
-| Cloud Run の最小インスタンス | 0 | 費用優先 |
+| Cloud Run のインスタンス | 最小 0・最大 2（変数で 1〜10）。実行用 SA（`sa-loss-note`。データのロールは `roles/datastore.user` だけ）で動き、イメージは digest で指す。未認証の呼び出しを受ける（ログイン前の画面は公開。記録の API はトークン必須） | 費用優先。利用者はオーナー 1 人で、公開の URL への想定外の要求でも費用の上限が効く |
+| 配信 | 画面のビルド成果物と API を 1 つのイメージ・1 つの Cloud Run で配る（同じオリジン）。`/api`・`/api/…` は API だけ（無い入口は API の 404 の JSON）、`/assets/…` はビルド成果物だけ（無ければ 404・`immutable`）、それ以外の GET / HEAD は `index.html`（`no-cache`）。戻しは 404 の扱いの中で行う（ADR-0009） | 1 つの URL で画面も API も動き、どの画面の URL を直接開いても同じ画面に着く |
+| 配信のヘッダ | すべての応答に CSP の土台（`default-src 'none'`・`script-src`・`style-src`・`img-src`・`connect-src` は `'self'`・`base-uri`・`form-action`・`frame-ancestors` は `'none'`）と `nosniff`・`no-referrer`。ログインに要る許可は #43 が足す | XSS の被害を抑える層を本番に出す時点で持つ |
+| デプロイ | main へのマージ → CI の check の成功 → plan → 差分があるときだけ Environment `prod` の承認 → イメージのビルド・検査・push → digest で apply（`.github/workflows/deploy.yml`）。apply は 1 度に 1 つ | 承認者が赤いビルドを承認しても本番に出ない。変えた物だけを出す |
+| 切り戻し | 前のリビジョンへトラフィックを 100% 戻す。GitHub から Environment `prod` の承認つき（`.github/workflows/rollback.yml`）か手元の gcloud。データには触れない。次の deploy で最新に戻る（`infra/README.md`「切り戻し」） | オーナーはスマホから使うので、手元の gcloud が無い場面でも戻せる |
 | 画面の URL | History API（`/trades/<id>` の形）。本番の静的配信は `/api` 以外の知らないパスに `index.html` を返す | どの画面にも URL があり、戻る・再読み込み・直接開くで迷わない（ADR-0002・C35） |
 
 ### 10.1 セキュリティとプライバシー
 
 - 利用者の分離は API で強制する（AC5 をテストで固定）
-- CSP（インラインの script / style なし、HTML 文字列を DOM に入れない）
+- CSP（インラインの script / style なし、HTML 文字列を DOM に入れない）。本番の CSP のヘッダの土台は #42（すべての応答。`api/src/loss_note_api/web.py`）、ログインの許可は #43
 - Google ログインのポップアップは、Google の gapi の script（apis.google.com）と iframe を読み込み、gapi が iframe に style を付ける。手元（CSP のヘッダなし）では許容し、本番の CSP のヘッダ（縦切り 2）で script-src・frame-src・connect-src・style の扱い、または `signInWithRedirect` + 同じドメインの authDomain の中継に変えるかを決める（ADR-0003）
 - ログに記録の中身・メールを出さない
 - データの書き出し（JSON / CSV）とアカウントの削除を MVP に入れる
@@ -606,7 +610,7 @@ Cloud Run（1 つのサービス）
 | 画面の応答 | 入力に対する再計算・再描画 16 ms 以内。最初の表示は 4G のスマホで 2 秒以内 |
 | API | 通常の読み書き 300 ms 以内（コールドスタートを除く） |
 | 費用 | 利用者が少ない間は月数百円〜数千円（AI を除く）。AI は 8.2 の上限で抑える。想定外の費用は月の予算の通知で気づく（10 章「費用の見張り」） |
-| バックアップ | Firestore の日次の書き出し |
+| バックアップ | Firestore の日次のバックアップ（保持 7 日。戻しは手順だけ = `infra/README.md`「バックアップからの戻し」） |
 
 ---
 

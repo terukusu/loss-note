@@ -29,7 +29,7 @@ locals {
   apply_repo_env = "${var.github_repository_id}:${var.github_owner_id}:prod"
 
   # プロジェクト単位の付与はここに並べたものだけ（テストで集合を比べる）。Cloud Run の作成にはプロジェクト単位の run.admin が要る。
-  # plan は Cloud Run の読み取りだけ（data.google_project の projects.get は run.viewer に含まれる）。実行用 SA（runtime.tf）にはここでは付けない（データのロールは #42）
+  # plan は Cloud Run の読み取りだけ（data.google_project の projects.get は run.viewer に含まれる）。実行用 SA（runtime.tf）にはここでは付けない（データのロールは firestore.tf。#42）
   project_roles = {
     tf_apply_run_admin = {
       role   = "roles/run.admin"

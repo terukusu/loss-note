@@ -17,6 +17,8 @@ locals {
     "artifactregistry.googleapis.com",
     "run.googleapis.com",
     "firestore.googleapis.com",
+    # Firestore のルールの公開（#42。firestore.tf）
+    "firebaserules.googleapis.com",
     # ログイン（#43）
     "firebase.googleapis.com",
     "identitytoolkit.googleapis.com",

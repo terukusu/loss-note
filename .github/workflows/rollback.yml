@@ -1,0 +1,130 @@
+# 本番の切り戻し（Issue #42 の R8・例 K・ADR-0009）: Cloud Run loss-note のトラフィックを、今 100% を受けるリビジョンの
+# 直前のリビジョン（それより前に作られた Ready のリビジョンのうち最新）へ 100% 戻す。Firestore のデータには触れない（例 K3）。
+# GitHub の Actions の画面から手で動かし（workflow_dispatch）、Environment prod（main だけ・所有者の承認）の job が apply SA
+# （roles/run.admin）で行う。戻し先が無い（リビジョンが 1 つ）ときは何も変えずに失敗する（例 K4）。
+# 次の main のデプロイ（infra/prod は最新に 100%）で最新のリビジョンに戻る（例 K2）。切り戻しの間は、関係ない deploy の承認を拒否し、
+# 直す・戻す PR を先にマージする（infra/README.md「切り戻し」）。手元の gcloud で同じことをする手順も infra/README.md にある。
+# ログ・要約に出すのはリビジョン名と状態コードだけ（URL・プロジェクト ID は出さない）
+name: rollback
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# deploy.yml と同じ（apply と切り戻しを同時に走らせない）。job の if で弾かれる run（main 以外から動かしたもの）は
+# terraform-prod に入れない（pending の deploy・rollback を取り消さない）。**式は rollback job の if と対**
+# （.github/scripts/workflow-concurrency-check.sh が突き合わせる）。承認待ちの deploy があると rollback はその後ろで待ち、
+# さらに次の deploy が入るとその pending の rollback は取り消される（infra/README.md「切り戻し」）
+concurrency:
+  group: ${{ (github.ref == 'refs/heads/main') && 'terraform-prod' || format('rollback-skip-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+# プロジェクト ID・SA は repository secrets から読む（公開リポジトリのログに値を出さない。deploy.yml と同じ）
+env:
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_REGION: asia-northeast1
+  SERVICE: loss-note
+  MASK_SED: >-
+    s/[0-9]{9,}/<num>/g;
+    s/@([A-Za-z0-9-]+)\.iam\.gserviceaccount\.com/__SA__\1__/g;
+    s/[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\.)+[A-Za-z]{2,}/<email>/g;
+    s/__SA__([A-Za-z0-9-]+)__/@\1.iam.gserviceaccount.com/g;
+    s#https://[A-Za-z0-9.-]+\.run\.app#<url>#g
+
+jobs:
+  rollback:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: repository secrets の確認
+        env:
+          GCP_SA_TF_APPLY: ${{ secrets.GCP_SA_TF_APPLY }}
+        run: |
+          for v in GCP_PROJECT_ID GCP_SA_TF_APPLY; do
+            if [ -z "${!v}" ]; then
+              echo "::error::repository secret ${v} が未設定（infra/README.md「GitHub の設定」）"
+              exit 1
+            fi
+          done
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_TF_APPLY }}
+
+      - name: 戻し先のリビジョンを決める
+        id: target
+        run: |
+          gc() { CLOUDSDK_CORE_DISABLE_PROMPTS=1 gcloud "$@" --region="$GCP_REGION" --project="$GCP_PROJECT_ID" 2> gcloud.err; }
+          if ! svc=$(gc run services describe "$SERVICE" --format=json); then
+            echo "サービスを読めない。エラー（マスク済み）:"; sed -E "$MASK_SED" gcloud.err | tail -n 20; exit 1
+          fi
+          if ! revs=$(gc run revisions list --service="$SERVICE" --format=json); then
+            echo "リビジョンを読めない。エラー（マスク済み）:"; sed -E "$MASK_SED" gcloud.err | tail -n 20; exit 1
+          fi
+          # 今 100% を受けるリビジョン（1 つのリビジョンに 100% でないなら止める。分け合いの扱いは手で決める）
+          current=$(jq -r '[.status.traffic[]? | select(.percent == 100)] | if length == 1 then .[0].revisionName else "" end' <<<"$svc")
+          if [ -z "$current" ]; then
+            echo "::error::100% を受けるリビジョンが 1 つでない。手で確かめる（infra/README.md「切り戻し」の手元の手順）"
+            exit 1
+          fi
+          # 直前 = current より前に作られた Ready のリビジョンのうち最新
+          previous=$(jq -r --arg cur "$current" '
+            (map(select(.metadata.name == $cur)) | .[0].metadata.creationTimestamp) as $t
+            | if $t == null then "" else
+                [ .[] | select(.metadata.creationTimestamp < $t)
+                      | select(any(.status.conditions[]?; .type == "Ready" and .status == "True")) ]
+                | sort_by(.metadata.creationTimestamp) | (last // {}) | (.metadata.name // "")
+              end' <<<"$revs")
+          if [ -z "$previous" ]; then
+            echo "::error::戻し先のリビジョンが無い（${current} より前に Ready のリビジョンが無い）。本番は変えない"
+            exit 1
+          fi
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+          echo "戻し: \`${current}\` → \`${previous}\`" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: トラフィックを直前のリビジョンへ 100%
+        env:
+          PREVIOUS: ${{ steps.target.outputs.previous }}
+        run: |
+          if ! CLOUDSDK_CORE_DISABLE_PROMPTS=1 gcloud run services update-traffic "$SERVICE" --to-revisions="${PREVIOUS}=100" \
+              --region="$GCP_REGION" --project="$GCP_PROJECT_ID" --quiet > update.log 2>&1; then
+            echo "切り替えに失敗した。ログの末尾（マスク済み）:"; sed -E "$MASK_SED" update.log | tail -n 20; exit 1
+          fi
+
+      - name: 確かめ（100% が直前のリビジョン・/ と /api/health が 200）
+        env:
+          PREVIOUS: ${{ steps.target.outputs.previous }}
+        run: |
+          svc=$(CLOUDSDK_CORE_DISABLE_PROMPTS=1 gcloud run services describe "$SERVICE" --region="$GCP_REGION" \
+            --project="$GCP_PROJECT_ID" --format=json 2> /dev/null)
+          now=$(jq -r '[.status.traffic[]? | select(.percent == 100) | .revisionName] | join(",")' <<<"$svc")
+          if [ "$now" != "$PREVIOUS" ]; then
+            echo "::error::100% を受けるリビジョンが ${PREVIOUS} でない（${now}）"
+            exit 1
+          fi
+          url=$(jq -r '.status.url // ""' <<<"$svc")
+          [ -n "$url" ] || { echo "::error::サービスの URL を読めない"; exit 1; }
+          echo "::add-mask::${url}"
+          for p in / /api/health; do
+            code=000
+            for _ in $(seq 1 10); do
+              code=$(curl -s -o /dev/null -w '%{http_code}' "${url}${p}" || true)
+              [ "$code" = 200 ] && break
+              sleep 3
+            done
+            echo "${p}: ${code}" | tee -a "$GITHUB_STEP_SUMMARY"
+            [ "$code" = 200 ] || { echo "::error::${p} が 200 でない"; exit 1; }
+          done
+          echo "100% のリビジョン: \`${now}\`" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,4 @@
-# Cloud Run（#42）が動くときの実行用 SA。ここではロールを付けない（データのロールは #42 が足す）。
+# Cloud Run（#42）が動くときの実行用 SA。データのロール（roles/datastore.user）は firestore.tf（#42）。
 # CI の SA に SA を作る権限を持たせないため、SA そのものは所有者の apply で作る。
 resource "google_service_account" "runtime" {
   project         = var.project_id

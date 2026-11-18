@@ -16,7 +16,8 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # イメージのビルドと検査（#42）の分を足して 30 分
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,8 +105,29 @@ jobs:
       - name: terraform test（bootstrap、モックのプロバイダ）
         run: terraform -chdir=infra/bootstrap test -no-color
       - name: 変数なしの plan が必須の変数の未指定で止まるか（bootstrap、モックのプロバイダ）
-        run: .github/scripts/tf-required-vars.sh
+        run: .github/scripts/tf-required-variables.sh
       - name: IAM の付与の宣言の検査の自己テスト
         run: .github/scripts/tf-iam-grants.test.sh
       - name: IAM の付与の宣言が期待の集合だけか（bootstrap。権威的な型・*.tf.json・module は 0 件）
         run: .github/scripts/tf-iam-grants.sh
+      # infra/prod（#42。Cloud Run。deploy.yml が承認の後に apply する）。資格情報なし: validate とモックのプロバイダの test だけ
+      - name: terraform validate（prod）
+        run: |
+          terraform -chdir=infra/prod init -backend=false -input=false -no-color
+          terraform -chdir=infra/prod validate -no-color
+      - name: terraform test（prod、モックのプロバイダ）
+        run: terraform -chdir=infra/prod test -no-color
+      - name: 変数なしの plan が必須の変数の未指定で止まるか（prod、モックのプロバイダ）
+        run: .github/scripts/tf-required-variables.sh infra/prod project_id image
+      # 本番のイメージ（#42。Dockerfile）。Firebase の Web の設定は渡さない（ログインの画面は「設定が無い」の案内になる）
+      - name: イメージの入力と .dockerignore の一致
+        run: .github/scripts/image.sh loss-note check-dockerignore
+      - name: イメージのビルド
+        run: docker build -t loss-note:ci .
+      - name: イメージの検査（中身・非 root・CSP・起動して振り分けとヘッダ）
+        run: .github/scripts/image-check.sh loss-note:ci
+      # deploy.yml・rollback.yml の concurrency が job の if と対になっているか（pending の deploy・rollback を取り消さない。#42）
+      - name: ワークフローの concurrency の検査の自己テスト
+        run: .github/scripts/workflow-concurrency-check.test.sh
+      - name: ワークフローの concurrency の検査
+        run: .github/scripts/workflow-concurrency-check.sh

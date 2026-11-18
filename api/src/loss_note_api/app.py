@@ -5,6 +5,10 @@
 
 起動の判定は ``runtime.decide_runtime``（ADR-0004）。エミュレーターの接続先があるのにプロジェクト ID が
 ``demo-`` で始まらない設定では ``StartupRefused`` を投げ、アプリを返さない。
+
+本番（Issue #42・ADR-0009）はイメージの gunicorn が ``create_app()`` を呼ぶ。環境変数 ``STATIC_DIR``
+（画面のビルド成果物の置き場）があるときだけ画面の静的ファイルも配る（``web.py``）。すべての応答に
+CSP の土台と ``nosniff``・``no-referrer`` を付ける。
 """
 
 import io
@@ -15,7 +19,7 @@ from collections.abc import Callable, Mapping
 from flask import Flask, Request, Response, g, request
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
-from loss_note_api import logs, schema, statement_read
+from loss_note_api import logs, schema, statement_read, web
 from loss_note_api.auth import TokenVerifier
 from loss_note_api.routes import error, invalid, make_blueprint, make_unconfigured_blueprint
 from loss_note_api.runtime import decide_runtime
@@ -67,15 +71,21 @@ def create_app(
                            statement_read.read_config(env, read_timeout))
         )
 
+    # 画面の静的ファイル（STATIC_DIR があるときだけ。無ければ今のまま = /api 以外は 404 の JSON）
+    static_dir = env.get(web.STATIC_DIR_VAR) or ""
+    site = web.register_static(app, static_dir) if static_dir else None
+    headers = web.security_headers(web.build_csp(web.BASE_CSP))
+
     @app.before_request
     def start_timer():
         g.started = time.perf_counter()
 
     @app.after_request
     def finish(res: Response) -> Response:
-        if request.path.startswith("/api/"):
+        if request.path == "/api" or request.path.startswith("/api/"):
             res.headers["Cache-Control"] = "no-store"
-            res.headers["X-Content-Type-Options"] = "nosniff"
+        # すべての応答（静的ファイル・404・500 を含む）
+        res.headers.update(headers)
         started = g.get("started")
         logs.log_event(
             event="request",
@@ -93,6 +103,9 @@ def create_app(
     @app.errorhandler(HTTPException)
     def http_error(e: HTTPException):
         code = e.code or 500
+        # 画面の URL（ADR-0002）: どのルールにも当たらない GET / HEAD で /api・/assets の配下でなければ index.html
+        if code == 404 and site is not None and request.method in ("GET", "HEAD") and web.is_spa_path(request.path):
+            return site.index()
         names = {404: "not_found", 405: "method_not_allowed"}
         return error(code, names.get(code, "http_error"))
 

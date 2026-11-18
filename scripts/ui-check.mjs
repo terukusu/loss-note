@@ -3348,7 +3348,7 @@ async function runFlows(browser, base, signedIn) {
       // やめて手で入れる（E13）: 読み取り中にやめ、後で届いた応答で欄が変わらない
       fake.read = { status: 200, rows: [READ_E1], holdMs: 1500 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.getByRole('button', { name: 'やめて手で入れる' }).click();
+      await p.getByRole('button', { name: '明細の読み取りをキャンセル' }).click();
       await expectPollAsync(
         async () => (await p.evaluate(() => document.activeElement?.id)) === 'record-instrument',
         'やめた後のフォーカス（レビュー指摘 2）',
@@ -3895,7 +3895,7 @@ async function runFlows(browser, base, signedIn) {
         .waitFor();
       await p.locator('#settings-inst-multiplier-error').waitFor();
       expectEq(fake.writes.length, before, '誤りのときの書き込み');
-      await p.getByRole('button', { name: 'やめる' }).click();
+      await p.getByRole('button', { name: 'キャンセル' }).click();
       // フォーカスは描き直しの後の effect で移る（待つ）
       await expectPollAsync(
         async () =>
@@ -3981,7 +3981,7 @@ async function runFlows(browser, base, signedIn) {
           '[保存] へ',
         );
         // やめると口座の [直す] へ戻る
-        await p.locator('form.instedit').getByRole('button', { name: 'やめる' }).click();
+        await p.locator('form.instedit').getByRole('button', { name: 'キャンセル' }).click();
         await expectPollAsync(
           async () => (await focused(p)) === 'settings-account-edit-default',
           'やめた後のフォーカス',

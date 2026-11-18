@@ -22,9 +22,10 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Protocol
 
-from loss_note_api import accounts
+from loss_note_api import accounts, trade_pages
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID, BuildDefault
 from loss_note_api.charts import SLOTS, chart_doc_id
+from loss_note_api.logs import log_event
 from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
 
 Doc = dict
@@ -87,6 +88,9 @@ WARM_TIMEOUT_SECONDS = 3.0
 
 class Store(Protocol):
     def list_trades(self, uid: str) -> list[tuple[str, Doc]]: ...
+    # 一覧の 1 ページ（#87・ADR-0016）: 並び order（"exit" / "created"。trade_pages.py）で after（並びの鍵の値。
+    # None = 先頭）より後の取引を最大 limit + 1 件読む（続きがあるかを見分ける 1 件を含む）。全件を読まない
+    def list_trades_page(self, uid: str, order: str, after: tuple | None, limit: int) -> list[tuple[str, Doc]]: ...
     def get_trade(self, uid: str, trade_id: str) -> Doc | None: ...
     # 銘柄・口座の読みと取引の書き込みを 1 つのトランザクションで行う（銘柄の削除と同時でも、
     # 無い銘柄を指す取引を残さない）。銘柄が無ければ MissingInstrument、口座が無ければ MissingAccount
@@ -204,6 +208,32 @@ class FirestoreStore:
     @_guard
     def list_trades(self, uid):
         return [(s.id, s.to_dict()) for s in self._user(uid).collection("trades").stream()]
+
+    @_guard
+    def list_trades_page(self, uid, order, after, limit):
+        from google.api_core import exceptions as gexc
+        from google.cloud import firestore
+
+        col = self._user(uid).collection("trades")
+        down, up = firestore.Query.DESCENDING, firestore.Query.ASCENDING
+        if order == "exit":
+            # 複合索引（record.exit.time 降・createdAt 降・__name__ 昇）。infra/bootstrap/firestore.tf
+            q = col.order_by("record.exit.time", direction=down).order_by("createdAt", direction=down)
+            q = q.order_by("__name__", direction=up)
+            fields = ("record.exit.time", "createdAt", "__name__")
+        else:
+            # 単一フィールドの索引（createdAt）で足りる並び（__name__ は最後の並びと同じ向き）
+            q = col.order_by("createdAt", direction=down).order_by("__name__", direction=down)
+            fields = ("createdAt", "__name__")
+        if after is not None:
+            q = q.start_after(dict(zip(fields, after, strict=True)))
+        try:
+            return [(s.id, s.to_dict()) for s in q.limit(limit + 1).stream()]
+        except gexc.FailedPrecondition:
+            # 索引がまだ無い・作成中（apply とデプロイの順が前後したとき）: 全件を読んで切る形に一時的に戻す
+            log_event(event="trades_page_fallback", reason=f"index_{order}")
+            items = [(s.id, s.to_dict()) for s in col.stream()]
+            return trade_pages.page_of(items, order, after, limit)
 
     @_guard
     def get_trade(self, uid, trade_id):

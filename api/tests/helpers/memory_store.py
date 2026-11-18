@@ -16,9 +16,10 @@ import secrets
 import string
 import threading
 
-from loss_note_api import accounts
+from loss_note_api import accounts, trade_pages
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
+from loss_note_api.logs import log_event
 from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
 from loss_note_api.store import Conflict, MissingAccount, MissingInstrument, StoreUnavailable
 
@@ -44,6 +45,10 @@ class MemoryStore:
         self.usage_reads = 0  # 使った量の読みの回数（#62）
         self.fail_warm: Exception | None = None  # 起動の準備で投げる例外（#60）
         self.default_created = 0  # 既定の口座を移し替えで作った回数（#47 M3）
+        # 一覧の 1 ページで読んだ取引の文書の件数（#87 AC-2。Firestore の limit + 1 と同じ）
+        self.trade_page_reads: list[int] = []
+        # 索引の不足（FailedPrecondition）の逃げ道を通す（#87。FirestoreStore と同じログを出して全件から切る）
+        self.page_index_missing = False
 
     def _col(self, uid, name):
         if self.fail_with is not None:
@@ -59,6 +64,18 @@ class MemoryStore:
     def list_trades(self, uid):
         with self._lock:
             return [(k, copy.deepcopy(v)) for k, v in self._col(uid, "trades").items()]
+
+    def list_trades_page(self, uid, order, after, limit):
+        # Firestore の並び・start_after・limit(limit + 1) と同じ結果（並びと切り出しは trade_pages.page_of）
+        with self._lock:
+            items = [(k, copy.deepcopy(v)) for k, v in self._col(uid, "trades").items()]
+        page = trade_pages.page_of(items, order, after, limit)
+        if self.page_index_missing:
+            log_event(event="trades_page_fallback", reason=f"index_{order}")
+            self.trade_page_reads.append(len(items))
+            return page
+        self.trade_page_reads.append(len(page))
+        return page
 
     def get_trade(self, uid, trade_id):
         with self._lock:

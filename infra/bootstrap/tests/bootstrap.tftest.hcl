@@ -307,6 +307,15 @@ run "defaults" {
     condition     = google_firebaserules_release.firestore.name == "cloud.firestore" && google_firebaserules_release.firestore.ruleset_name == "projects/example-project/rulesets/${google_firebaserules_ruleset.firestore.name}"
     error_message = "ルールの公開先は cloud.firestore で、この ruleset を指す"
   }
+  # #87 の AC-7: 取引の一覧のページ分けの複合索引（決済の時刻 降順・作った時刻 降順・ID 昇順。取引のコレクション）
+  assert {
+    condition     = google_firestore_index.trades_by_exit.collection == "trades" && google_firestore_index.trades_by_exit.query_scope == "COLLECTION" && google_firestore_index.trades_by_exit.database == google_firestore_database.default.name && google_firestore_index.trades_by_exit.project == "example-project"
+    error_message = "索引は既定のデータベースの trades コレクション（COLLECTION）"
+  }
+  assert {
+    condition     = [for f in google_firestore_index.trades_by_exit.fields : "${f.field_path}:${f.order}"] == ["record.exit.time:DESCENDING", "createdAt:DESCENDING", "__name__:ASCENDING"]
+    error_message = "索引の欄と向きは record.exit.time 降・createdAt 降・__name__ 昇（API の trade_sort_key と同じ並び）"
+  }
   # 例 F4: 実行用 SA のプロジェクト単位のロールは roles/datastore.user の 1 件だけ
   assert {
     condition     = google_project_iam_member.runtime_datastore.role == "roles/datastore.user" && google_project_iam_member.runtime_datastore.member == "serviceAccount:sa-loss-note@example-project.iam.gserviceaccount.com" && google_project_iam_member.runtime_datastore.project == "example-project" && length(google_project_iam_member.runtime_datastore.condition) == 0

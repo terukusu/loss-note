@@ -11,11 +11,12 @@ import { summarize } from '../../ui/src/lib/record-form';
 import { Link } from '../../ui/src/lib/router';
 import type { PreviewHandle } from '../../ui/src/lib/statement-image';
 import type { ChartView, DetailState } from '../../ui/src/lib/trade-detail-controller';
-import type { TradesState } from '../../ui/src/lib/trades-controller';
+import { LIST_PAGE } from '../../ui/src/lib/trade-pages';
+import { TRADES_MORE_FAILED, type TradesState } from '../../ui/src/lib/trades-controller';
 import { Home, HomeView } from '../../ui/src/pages/Home';
 import { notFoundState, TradeDetail, TradeDetailView } from '../../ui/src/pages/TradeDetail';
 import { TradeEdit, TradeEditView } from '../../ui/src/pages/TradeEdit';
-import { Trades, TradesView } from '../../ui/src/pages/Trades';
+import { TRADES_MORE_ID, Trades, TradesView } from '../../ui/src/pages/Trades';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
 import {
@@ -88,6 +89,7 @@ const ready = (trades: readonly StoredTrade[]): TradesState => ({
   trades,
   instruments: INSTRUMENTS,
   accounts: [],
+  more: 'done',
 });
 
 function rowsOf(tree: Node[]) {
@@ -614,6 +616,7 @@ const readyWith = (
   trades,
   instruments: INSTRUMENTS,
   accounts,
+  more: 'done',
 });
 const detailWith = (t: StoredTrade, accounts: readonly AccountRecord[]): DetailState => ({
   ...(detailState(t) as Extract<DetailState, { phase: 'ready' }>),
@@ -850,5 +853,159 @@ describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
     expect(rows).toContain('建ての通貨USD');
     expect(rows).toContain('為替1 USD = 150円');
     expect(rows).toContain('1R7,500円');
+  });
+});
+
+// ---- ページ分け（Issue #87 AC-8・AC-9・例 #8・#9・#11 とレビューの指摘）。値はすべて架空 ----
+
+describe('一覧の末尾の段（Issue #87）', () => {
+  const view = (state: TradesState, hidden: ReadonlySet<string> = EMPTY, more = noop) =>
+    expand(
+      <TradesView
+        state={state}
+        hidden={hidden}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+        onMore={more}
+        sentinelRef={noop}
+      />,
+    );
+  const withMore = (
+    more: 'idle' | 'loading' | 'failed',
+    extra = {},
+    trades: readonly StoredTrade[] = [L1, L2, L3],
+  ): TradesState => ({
+    ...(ready(trades) as Extract<TradesState, { phase: 'ready' }>),
+    more,
+    ...extra,
+  });
+  const tail = (tree: Node[]) => all(tree, hasClass('tradelist-more'));
+  const moreButton = (tree: Node[]) =>
+    all(tree, (e) => e.type === 'button' && e.props.id === TRADES_MORE_ID);
+  const status = (tree: Node[]) =>
+    all(tree, (e) => e.props.role === 'status').map((e) => ({ cls: cls(e), text: text(e) }));
+  const card = (tree: Node[]) => all(tree, hasClass('tradelist-card'))[0] as El;
+  /** カードの子の並び（class の先頭の語） */
+  const order = (tree: Node[]) =>
+    card(tree).children.map((c) => (typeof c === 'string' ? c : cls(c).split(' ')[0]));
+  /** 架空の取引 n 件（判定は L1 と同じ） */
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({ ...L1, id: `m${String(i).padStart(3, '0')}` }));
+
+  it('続きがある: 「続きあり」の件数・末尾の印と [続きを読み込む]（押すと onMore）', () => {
+    let pressed = 0;
+    const tree = view(withMore('idle'), EMPTY, () => {
+      pressed++;
+    });
+    expect(text(tree)).toContain('3 件を表示中（決済の新しい順・続きあり）');
+    expect(text(tree)).not.toContain('全 3 件');
+    const t = tail(tree)[0] as El;
+    expect(all([t], hasClass('tradelist-more__sentinel'))).toHaveLength(1);
+    const btn = moreButton(tree)[0] as El;
+    expect(text(btn)).toBe('続きを読み込む');
+    expect(btn.props['aria-disabled']).toBeUndefined();
+    (btn.props.onClick as () => void)();
+    expect(pressed).toBe(1);
+  });
+
+  it('読み込み中: 同じボタン（同じ ID）を押せない形で残す（フォーカスが落ちない・高さが変わらない）。印は描かない', () => {
+    let pressed = 0;
+    const tree = view(withMore('loading'), EMPTY, () => {
+      pressed++;
+    });
+    expect(rowsOf(tree)).toHaveLength(3);
+    const btn = moreButton(tree)[0] as El;
+    expect(text(btn)).toBe('続きを読み込み中…');
+    expect(btn.props['aria-disabled']).toBe('true');
+    expect(btn.props['aria-busy']).toBe('true');
+    (btn.props.onClick as () => void)();
+    expect(pressed).toBe(0);
+    expect(all(tree, hasClass('tradelist-more__sentinel'))).toHaveLength(0);
+  });
+
+  it('失敗（例 #9）: 行は残り、短い決まった文言（role=alert）と同じボタンの [もう一度読み込む]', () => {
+    let pressed = 0;
+    const tree = view(
+      withMore('failed', { moreError: TRADES_MORE_FAILED, moreErrorKind: 'network' }),
+      EMPTY,
+      () => {
+        pressed++;
+      },
+    );
+    expect(TRADES_MORE_FAILED).toBe('続きを読み込めませんでした。通信を確認してください。');
+    expect(rowsOf(tree)).toHaveLength(3);
+    const t = tail(tree)[0] as El;
+    expect(all([t], (e) => e.props.role === 'alert').map(text)).toEqual([TRADES_MORE_FAILED]);
+    const btn = moreButton(tree)[0] as El;
+    expect(text(btn)).toBe('もう一度読み込む');
+    (btn.props.onClick as () => void)();
+    expect(pressed).toBe(1);
+    expect(all([t], hasClass('tradelist-more__sentinel'))).toHaveLength(0);
+    const auth = view(withMore('failed', { moreError: 'x', moreErrorKind: 'auth' }));
+    expect(text(tail(auth)[0] as El)).toContain('ログインし直す');
+  });
+
+  it('最後まで: 先頭に「全 N 件」。1 ページに収まる一覧は末尾の文を出さない', () => {
+    const tree = view(ready([L1, L2, L3]));
+    expect(text(tree)).toContain('全 3 件（決済の新しい順）');
+    expect(tail(tree)).toHaveLength(0);
+    expect(all(tree, hasClass('tradelist-end'))).toHaveLength(0);
+  });
+
+  it('2 ページ以上読んで最後まで: 末尾に「全 N 件を表示しました」（フォーカスを受けられる）', () => {
+    const tree = view(ready(many(LIST_PAGE + 1)));
+    const end = all(tree, hasClass('tradelist-end'));
+    expect(end.map(text)).toEqual([`全 ${LIST_PAGE + 1} 件を表示しました`]);
+    expect(end[0]?.props.tabIndex).toBe(-1);
+  });
+
+  it('読み上げの欄（role=status）は常に 1 つあり、中身だけが状態で替わる', () => {
+    expect(status(view(withMore('idle')))).toEqual([
+      { cls: 'sr-only', text: '3 件を表示中（決済の新しい順・続きあり）' },
+    ]);
+    expect(status(view(withMore('loading')))).toEqual([
+      { cls: 'sr-only', text: '続きを読み込んでいます' },
+    ]);
+    expect(status(view(withMore('failed', { moreError: 'x', moreErrorKind: 'network' })))).toEqual([
+      { cls: 'sr-only', text: '' },
+    ]);
+    expect(status(view(ready([L1, L2, L3])))).toEqual([
+      { cls: 'sr-only', text: '全 3 件を表示しました' },
+    ]);
+  });
+
+  it('「—」の理由は末尾の段の後に 1 回。続きがある間は件数の括弧を出さない', () => {
+    const loading = view(withMore('idle'));
+    expect(order(loading)).toEqual([
+      'tradelist-card__count',
+      'tradelist-wrap',
+      'tradelist-more',
+      'tradelist__notes',
+      'sr-only',
+    ]);
+    const notes = all(loading, hasClass('tradelist__notes')).map(text).join('');
+    expect(notes).toContain('リスクの「—」: 資金を設定すると表示されます');
+    expect(notes).not.toMatch(/件）/);
+    const done = all(view(ready([L1, L2, L3])), hasClass('tradelist__notes'))
+      .map(text)
+      .join('');
+    expect(done).toContain('リスクの「—」: 資金を設定すると表示されます（1 件）');
+    expect(order(view(ready(many(LIST_PAGE + 1))))).toEqual([
+      'tradelist-card__count',
+      'tradelist-wrap',
+      'tradelist-end',
+      'sr-only',
+    ]);
+  });
+
+  it('例 #11: [元に戻す] を待つ取引は隠れたまま。見える行が 0 でも続きがあれば空の状態にしない', () => {
+    const hidden = new Set(['l2']);
+    const tree = view(withMore('idle'), hidden);
+    expect(rowsOf(tree).map((r) => r.href)).not.toContain('/trades/l2');
+    expect(text(tree)).toContain('2 件を表示中');
+    const none = view(withMore('idle', {}, [L2]), hidden);
+    expect(text(none)).not.toBe('空');
+    expect(tail(none)).toHaveLength(1);
   });
 });

@@ -1,4 +1,5 @@
 // ホーム（Issue #9 契約 U-1。設計書 9.2）: [記録する] と直近の判定（決済の新しい順に 5 件。一覧と同じ行）。
+// 読むのは決済の新しい順の先頭 10 件だけ（Issue #87。全件を読まない）。
 // 危ない勝ちは B と同じ「崩れ」の段で出し、勝ちの色を付けない（5.4・C34）。取引が無ければ空の状態。
 // Home は hook を持たない（App のテストが 1 段だけ呼ぶ）。空の状態は Home が作って渡す
 import type { JSX } from 'preact';
@@ -7,6 +8,7 @@ import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { TradeList } from '../components/TradeRow';
+import { HOME_LIMIT } from '../lib/trade-pages';
 import { missingNotes, RECENT_COUNT, recentRows, visibleTrades } from '../lib/trade-view';
 import type { TradesState } from '../lib/trades-controller';
 import { LoadState, useTrades } from './Trades';
@@ -33,7 +35,7 @@ export function Home() {
 }
 
 function HomeScreen({ empty }: { readonly empty: JSX.Element }) {
-  const { state, controller, hidden } = useTrades();
+  const { state, controller, hidden } = useTrades({ pageSize: HOME_LIMIT });
   return (
     <HomeView
       state={state}

@@ -4,7 +4,7 @@ loss-note の本番の土台です。自分の GCP プロジェクトと GitHub 
 
 | ルート | apply する人 | 中身 |
 |---|---|---|
-| `bootstrap/` | 所有者（手元から） | API の有効化・Terraform の state のバケット 2 つ・Workload Identity 連携・CI のサービスアカウント（plan 用・apply 用）・Cloud Run の実行用サービスアカウントとそのデータのロール（`roles/datastore.user`）・Artifact Registry・Firebase（Web アプリ 1 つ）と Authentication の初期化（Identity Platform）・Firestore（ネイティブ・東京・既定のデータベース・削除の防止・日次のバックアップ・クライアントからの読み書きをすべて拒否するルール）・月の予算 |
+| `bootstrap/` | 所有者（手元から） | API の有効化・Terraform の state のバケット 2 つ・Workload Identity 連携・CI のサービスアカウント（plan 用・apply 用）・Cloud Run の実行用サービスアカウントとそのデータのロール（`roles/datastore.user`）・Artifact Registry・Firebase（Web アプリ 1 つ）と Authentication の初期化（Identity Platform）・Firestore（ネイティブ・東京・既定のデータベース・削除の防止・日次のバックアップ・クライアントからの読み書きをすべて拒否するルール・取引の一覧のページ分けの複合索引（#87））・月の予算 |
 | `prod/` | CI（`.github/workflows/deploy.yml`。Environment `prod` の承認の後） | Cloud Run のサービス `loss-note`（画面と API を 1 つのイメージで配る）と、未認証の呼び出しの許可（`allUsers` に `roles/run.invoker`） |
 
 プロジェクトの作成・請求先の紐付けは Terraform の外（gcloud）で行います。理由と、戻せないもの（Identity Platform・Firebase の追加）は [`docs/adr-0008-production-foundation.md`](../docs/adr-0008-production-foundation.md) にあります。本番の配信・デプロイ・切り戻しの決定は [`docs/adr-0009-production-delivery.md`](../docs/adr-0009-production-delivery.md) にあります。
@@ -423,6 +423,8 @@ AI（いまは明細の読み取り）の 1 日の上限は 3 つです。判定
 土台を変える（API・付与・予算の金額など）ときは、PR で `infra/bootstrap` を直し、マージの後に所有者が「共通のシェルの変数」→ `init` → plan の要約を確かめて → apply します。CI は bootstrap を apply しません。付与を足すときは `.github/scripts/tf-iam-grants.sh` の期待の集合と `tests/bootstrap.tftest.hcl` も一緒に直します。
 
 #41 の土台を作った後に #42 の差分（Firestore）を足すときの要約は create 6 です（`firebaserules.googleapis.com` の有効化・Firestore の `(default)`・日次のバックアップの予定・ルールの ruleset と release・実行用 SA の `roles/datastore.user`）。Firestore の場所は後から変えられず、削除の防止があるので、要約を確かめてから apply します。
+
+#87（取引の一覧のページ分け。ADR-0016）の差分は create 1 です（`google_firestore_index.trades_by_exit`。取引のコレクションの複合索引 = `record.exit.time` 降・`createdAt` 降・`__name__` 昇）。索引の作成には件数に応じて数分かかります。**API のデプロイより先に apply します**（作成が終わる前・apply の前にデプロイしても、API は全件を読んで切る形に一時的に戻るので一覧は開けます。そのときはログに `trades_page_fallback` が出ます）。作成の状態は `gcloud firestore indexes composite list --project=<PROJECT_ID>` の `STATE`（`READY`）で確かめます。
 
 リポジトリ・オーナーの名前を変えても、CI の借用は続きます（照合も借用の主体も数値 ID と Environment だけで決めています）。次の apply でプールの説明だけが新しい名前に変わります。リポジトリを作り直した（数値 ID が変わった）ときは、新しい ID で apply し直します。
 

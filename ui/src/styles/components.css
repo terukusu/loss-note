@@ -2091,6 +2091,44 @@ summary.settings__subtitle {
   flex-direction: column;
 }
 
+/* 一覧の末尾の段（#87）: 続きを読む印とボタン（読み込み中も同じボタンで高さを変えない）・失敗。印は見えない 1px の帯
+   （見えそうになったら続きを読む）。最後まで読んだら末尾の文 */
+.tradelist-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  position: relative;
+  min-height: calc(var(--tap) + var(--sp-5));
+  padding: var(--sp-3) var(--sp-5) var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+
+.tradelist-more--failed .notice {
+  align-self: stretch;
+}
+
+.tradelist-more .btn[aria-disabled="true"] {
+  cursor: progress;
+  color: var(--ink-3);
+}
+
+.tradelist-end {
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.tradelist-more__sentinel {
+  /* 段の高さに効かせない（ボタン → 読み込み中で印が消えても段が跳ねない） */
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+}
+
 .tradelist__item + .tradelist__item {
   border-top: 1px solid var(--line);
 }

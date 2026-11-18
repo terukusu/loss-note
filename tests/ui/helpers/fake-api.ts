@@ -1,6 +1,9 @@
 // 記録の API の偽物（記憶の中だけ。Issue #13 の controller のテスト用）。値はすべて架空。
 // 本物（api/src/loss_note_api/routes.py）に合わせた所:
 // - GET /api/trades = { items }（決済の時刻の新しい順、同じなら作った時刻の新しい順）。POST /api/trades = 201 + 取引
+//   ページ分け（#87）: ?limit=1..100[&cursor=..][&order=created] = { items, next }（並びの鍵のカーソル。本物の trade_pages.py と
+//   同じ並び: created は作った時刻の新しい順 → ID の降順）。形の違うパラメータは 400。fail / failOnce の鍵 'GET /api/trades' は
+//   パラメータつきの読みにも効く
 //   （snapshot = 銘柄の 5 項目 + 資金 + 許容リスク。create_trade の build）。自分の銘柄に無い ID は 400
 // - GET /api/instruments = { items }。POST /api/instruments = 201 + 銘柄（省いた欄は既定: other・spotCfd・通貨 null・
 //   乗数 1・刻み 1）。名前が同じ（name_key）なら 409 { error: 'conflict', reason: 'duplicateName' }
@@ -108,6 +111,54 @@ export interface FakeApi {
   /** チャートの時間足の読み取りの応答だけを止める / 進める（#27） */
   holdChartReads(): void;
   releaseChartReads(): void;
+}
+
+const cmpId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+/** 決済の新しい順 → 作った時刻の新しい順 → ID の昇順（本物の trade_sort_key） */
+const byExit = (a: StoredTrade, b: StoredTrade) =>
+  b.record.exit.time - a.record.exit.time || b.createdAt - a.createdAt || cmpId(a.id, b.id);
+/** 作った時刻の新しい順 → ID の降順（本物の order=created） */
+const byCreated = (a: StoredTrade, b: StoredTrade) =>
+  b.createdAt - a.createdAt || cmpId(b.id, a.id);
+
+/** 取引の一覧の 1 ページ（#87。本物の trade_pages.py と同じ並びと切り出し）。形の違うパラメータは null（400） */
+function tradesPage(
+  trades: readonly StoredTrade[],
+  q: URLSearchParams,
+): { items: StoredTrade[]; next: string | null } | null {
+  const limitText = q.get('limit') ?? '';
+  if (!/^[1-9][0-9]{0,2}$/.test(limitText) || Number(limitText) > 100) return null;
+  const limit = Number(limitText);
+  const order = q.get('order') ?? 'exit';
+  if (order !== 'exit' && order !== 'created') return null;
+  const cmp = order === 'exit' ? byExit : byCreated;
+  const sorted = [...trades].sort(cmp);
+  let start = 0;
+  const cursor = q.get('cursor');
+  if (cursor !== null) {
+    let key: { order: string; t: number; c: number; id: string };
+    try {
+      key = JSON.parse(atob(cursor)) as typeof key;
+    } catch {
+      return null;
+    }
+    if (key.order !== order) return null;
+    const at = {
+      id: key.id,
+      createdAt: key.c,
+      record: { exit: { time: key.t } },
+    } as unknown as StoredTrade;
+    start = sorted.findIndex((t) => cmp(t, at) > 0);
+    if (start < 0) start = sorted.length;
+  }
+  const items = sorted.slice(start, start + limit);
+  const last = items[items.length - 1];
+  const more = start + limit < sorted.length;
+  const next =
+    more && last
+      ? btoa(JSON.stringify({ order, t: last.record.exit.time, c: last.createdAt, id: last.id }))
+      : null;
+  return { items, next };
 }
 
 function json(status: number, body: unknown): Response {
@@ -224,21 +275,21 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       ...(form ? { parts: partNames } : {}),
     });
     if (gate) await gate;
-    const f = opts.fail?.[key] ?? once.get(key);
-    once.delete(key);
+    // 取引の一覧はパラメータつきでも同じ鍵で失敗させる（#87）
+    const failKey = method === 'GET' && path.startsWith('/api/trades?') ? 'GET /api/trades' : key;
+    const f = opts.fail?.[failKey] ?? once.get(failKey);
+    once.delete(failKey);
     if (f === 'throw')
       throw new TypeError('ネットワークの誤り（偽物。この文字列は画面に出ないこと）');
     if (typeof f === 'number')
       return json(f, { error: 'unavailable', secret: '応答の本文（偽物）' });
 
     if (key === 'GET /api/trades') {
-      const items = [...trades].sort(
-        (a, b) =>
-          b.record.exit.time - a.record.exit.time ||
-          b.createdAt - a.createdAt ||
-          (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-      );
-      return json(200, { items });
+      return json(200, { items: [...trades].sort(byExit) });
+    }
+    if (method === 'GET' && path.startsWith('/api/trades?')) {
+      const page = tradesPage(trades, new URLSearchParams(path.slice('/api/trades?'.length)));
+      return page ? json(200, page) : json(400, { error: 'invalid' });
     }
     const chartPath = /^\/api\/trades\/([^/]+)\/charts\/([^/]+)$/.exec(path);
     if (chartPath && method === 'GET') {

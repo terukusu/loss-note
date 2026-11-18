@@ -150,7 +150,7 @@ describe('開いたときの既定（AC-9・E14）', () => {
     expect(fake.calls.map((x) => `${x.method} ${x.path}`).sort()).toEqual([
       'GET /api/accounts',
       'GET /api/instruments',
-      'GET /api/trades',
+      'GET /api/trades?order=created&limit=1',
     ]);
   });
 
@@ -467,6 +467,12 @@ describe('ログインが切れた・つながらない（レビュー指摘 4�
     expect(c.getState().phase).toBe('saved');
     expect(posts(fake, '/api/trades')).toHaveLength(2);
     expect(fake.trades).toHaveLength(1);
+    // 届いたかの確かめは作った時刻の新しい順の先頭 10 件だけを読む（#87。全件を読まない）
+    expect(
+      fake.calls
+        .filter((x) => x.method === 'GET' && x.path.startsWith('/api/trades'))
+        .map((x) => x.path),
+    ).toEqual(['/api/trades?order=created&limit=1', '/api/trades?order=created&limit=10']);
   });
 
   it('時間切れの後に入力を直したら、別の本文として送る', async () => {
@@ -477,9 +483,9 @@ describe('ログインが切れた・つながらない（レビュー指摘 4�
     c.update({ type: 'set', field: 'brokenCondition', value: '架空の一言' });
     await c.save();
     expect(c.getState().phase).toBe('saved');
-    expect(fake.calls.filter((x) => x.method === 'GET' && x.path === '/api/trades')).toHaveLength(
-      1,
-    );
+    // 取引の一覧の読みは開いたときの 1 回だけ（別の本文なので、届いたかの確かめは読まない。#87 で件数つきのパス）
+    const gets = fake.calls.filter((x) => x.method === 'GET' && x.path.startsWith('/api/trades'));
+    expect(gets.map((x) => x.path)).toEqual(['/api/trades?order=created&limit=1']);
   });
 });
 

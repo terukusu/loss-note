@@ -4,12 +4,16 @@
 multipart は大きな本文をディスクに一時保存しうる。生のバイトは ``get_data`` でメモリだけ）。
 
 順番: 認証（blueprint の ``authenticate``。本文を読む前に 401）→ 資格情報と SDK（503）→ 本文の長さ・形式・寸法（400）→
+``federation`` なら ID トークンの取得（取れなければ 502 ``read_failed``。AI を呼ばず数えない。Issue #55）→
 1 日の上限の予約（Issue #44・ADR-0010。利用者ごとの回数と全体の費用。越えるなら 429 ``read_limited``、数える場所が
 使えなければ 503 ``read_unavailable``。どちらも AI を呼ばない）→ 送る（共有の ``statement_read.agent_reader.Reader``。
 指示・画像 1 枚・決まった文・ツール 1 本だけ。最大出力は ``app_settings.APP_MAX_OUTPUT_TOKENS``）→ 精算（実額に直す。
 失敗しても応答は変えない = 予約額が残る）→ 形の検査（502）→ 直し（``statement_read.normalize``）→ 200。
 
-本番の起動（ADR-0004 の verify）では OAuth トークン（``oauth_token``。サブスクの資格情報）を使わない（503）。
+資格情報の方式（Issue #55・ADR-0011）は ``STATEMENT_READ_CREDENTIAL``（``api_key`` 既定 / ``oauth_token`` /
+``federation``）。起動の種類（手元 / 本番）で方式を制限しない（本番の ``oauth_token`` はオーナーだけが使う間に限る。
+設計書 8.2）。子（CLI）に渡る環境は方式ごとの許可リスト（``statement_read.agent_reader.child_env``）で、
+選ばなかった方式の変数は子に名前ごと無い。
 
 画像も結果も保存しない（記録の保存先・Storage に触れない。CLI の一時ディレクトリは要求ごとに作って消す）。応答と
 ログに画像の中身・結果の値・資格情報・送り先の文言を出さない（失敗は決まった符号だけ）。
@@ -18,52 +22,66 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from flask import Blueprint, Response, g, jsonify, request
 from statement_read import app_settings, image
-from statement_read.agent_reader import CREDENTIAL_ENV, Reader
+from statement_read.agent_reader import FEDERATION, NoCredential, Reader, credential_names_in, credential_values
 from statement_read.normalize import normalize_result
 from statement_read.result import Bad
 from werkzeug.exceptions import RequestEntityTooLarge
 
+from loss_note_api import identity_token as id_token
 from loss_note_api import read_limits
 from loss_note_api.logs import log_event
 from loss_note_api.store import Store
 
 PATH = "/statement-reads"
-# 資格情報の切り替え（api_key = ANTHROPIC_API_KEY〔既定〕/ oauth_token = CLAUDE_CODE_OAUTH_TOKEN。後者は手元の実測だけ）
+# 資格情報の方式の切り替え（api_key = ANTHROPIC_API_KEY〔既定〕/ oauth_token = CLAUDE_CODE_OAUTH_TOKEN /
+# federation = ANTHROPIC_FEDERATION_RULE_ID・ANTHROPIC_ORGANIZATION_ID〔任意で SA の ID・ワークスペースの ID〕と
+# ID トークン）
 CREDENTIAL_SWITCH = "STATEMENT_READ_CREDENTIAL"
 DEFAULT_CREDENTIAL = "api_key"
-# 本番の起動（verify）で使える資格情報（サブスクの OAuth トークンは使わない。設計書 8.2・ADR-0005 の決定 3）
-VERIFY_CREDENTIALS = ("api_key",)
+_EMPTY: Mapping[str, str] = MappingProxyType({})
 
 
 @dataclass(frozen=True)
 class ReadConfig:
-    """読み取りの設定。credential が None なら使えない（503）。secret は repr に出さない"""
+    """読み取りの設定。credential が None なら使えない（503）。values（方式の変数の名前 → 値）と ID トークンの取り方は
+    repr に出さない。identity_token は federation のときだけ（要求ごとに呼ぶ）"""
 
     credential: str | None
-    secret: str = field(default="", repr=False)
+    values: Mapping[str, str] = field(default=_EMPTY, repr=False)
     timeout: float = app_settings.APP_TIMEOUT_SECONDS
+    identity_token: Callable[[], str] | None = field(default=None, repr=False, compare=False)
 
     @property
     def usable(self) -> bool:
-        return self.credential is not None and bool(self.secret)
+        if self.credential is None or not self.values:
+            return False
+        return self.credential != FEDERATION or self.identity_token is not None
 
 
-def read_config(env: Mapping[str, str], timeout: float | None = None, *, mode: str) -> ReadConfig:
-    """環境変数 → 読み取りの設定。切り替えの値が不明・選んだ資格情報が空なら使えない設定（値は持たない）。
+def read_config(
+    env: Mapping[str, str],
+    timeout: float | None = None,
+    *,
+    mode: str,
+    identity_token: Callable[[], str] | None = None,
+) -> ReadConfig:
+    """環境変数 → 読み取りの設定。切り替えの値が不明・選んだ方式の必須の値が空なら使えない設定（値は持たない）。
     mode は起動の種類（runtime.decide_runtime。必須・既定なし。渡し忘れで手元の扱いにならないように）。
-    本番（verify）では api_key 以外を使えない設定にする"""
+    方式は起動の種類で制限しない（#55）。identity_token は federation の ID トークンの取り方
+    （テスト用。既定はメタデータ サーバー）"""
+    del mode  # 方式を起動の種類で制限しない（#55・ADR-0011）。呼び出しの形は保つ
     t = app_settings.APP_TIMEOUT_SECONDS if timeout is None else timeout
     kind = env.get(CREDENTIAL_SWITCH) or DEFAULT_CREDENTIAL
-    if mode == "verify" and kind not in VERIFY_CREDENTIALS:
-        return ReadConfig(None, "", t)
-    name = CREDENTIAL_ENV.get(kind)
-    secret = (env.get(name) or "") if name is not None else ""
-    if not secret:
-        return ReadConfig(None, "", t)
-    return ReadConfig(kind, secret, t)
+    try:
+        values = credential_values(kind, env)
+    except NoCredential:
+        return ReadConfig(None, _EMPTY, t)
+    fetch = (identity_token or id_token.fetch_gcp_identity_token) if kind == FEDERATION else None
+    return ReadConfig(kind, MappingProxyType(dict(values)), t, fetch)
 
 
 def sdk_available() -> bool:
@@ -126,6 +144,18 @@ def register(
         if reason is not None:
             return reply(400, {"error": "image_rejected", "reason": reason}, f"image_{reason}")
 
+        # 親の環境に資格情報の系統の名前が残っていたら送らない（#55。入口で外していない起動。数えない）
+        if credential_names_in():
+            return reply(502, {"error": "read_failed"}, "credential_env")
+
+        # federation（#55）: 要求ごとに ID トークンを取る。取れなければ AI を呼ばず、数えない（記録は手で続けられる）
+        token = None
+        if config.credential == FEDERATION and config.identity_token is not None:
+            try:
+                token = config.identity_token()
+            except Exception:  # noqa: BLE001 - 理由の文言・トークンを出さない
+                return reply(502, {"error": "read_failed"}, "identity_token")
+
         # 1 日の上限（#44）: AI へ送る要求だけを数える（ここより前の 401・503・400 は数えない）。
         # 数える場所が使えなければ閉じる側（AI を呼ばない）。理由（回数 / 費用）は応答に出さず、ログの理由だけで分ける
         day = read_limits.jst_day(clock())
@@ -138,8 +168,10 @@ def register(
         if decision != "ok":
             return reply(429, {"error": "read_limited"}, f"limited_{decision}")
 
-        reader = Reader(config.credential, config.secret, app_settings.APP_MODEL, app_settings.APP_EFFORT,
-                        timeout=config.timeout, max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS)
+        reader = Reader(config.credential, config.values, app_settings.APP_MODEL, app_settings.APP_EFFORT,
+                        timeout=config.timeout, max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS,
+                        identity_token=token)
+        del token
         outcome = reader.read(data, image.media_type_of(data))
         del data
         # 精算: 使ったトークン・SDK の合計額が取れた回は実額に、取れなかった回は予約額のまま。予約した日の文書へ

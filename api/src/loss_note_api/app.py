@@ -21,6 +21,7 @@ import time
 from collections.abc import Callable, Mapping
 
 from flask import Flask, Request, Response, g, request
+from statement_read.agent_reader import scrub_process_env
 from werkzeug.exceptions import HTTPException, RequestEntityTooLarge
 
 from loss_note_api import allowlist, logs, schema, statement_read, web
@@ -64,10 +65,16 @@ def create_app(
     clock: Callable[[], int] | None = None,
     read_timeout: float | None = None,
     read_limits: ReadLimits | None = None,
+    identity_token: Callable[[], str] | None = None,
 ) -> Flask:
     """env は環境変数（既定は os.environ）。明細の読み取りの資格情報もここから読む（ADR-0005）。
     read_timeout は読み取りの締め切りの秒数（テスト用。既定は statement_read.app_settings.APP_TIMEOUT_SECONDS）。
-    read_limits は読み取りの 1 日の上限（テスト用。既定は read_limits.ReadLimits() = 30 回・2.00 USD。#44）"""
+    read_limits は読み取りの 1 日の上限（テスト用。既定は read_limits.ReadLimits() = 30 回・2.00 USD。#44）。
+    identity_token は読み取りの federation の ID トークンの取り方（テスト用。既定はメタデータ サーバー。#55）。
+    env を渡さない起動（本番・手元の起動）では、読み取りの資格情報を読んだ後に、この process の環境から
+    資格情報・送り先の系統の名前を外す（明細の読み取りの子の CLI に選ばなかった方式の変数を引き継がせない。
+    #55・ADR-0011）"""
+    from_process = env is None
     env = os.environ if env is None else env
     runtime = decide_runtime(env)
     clock = clock or _now_ms
@@ -83,12 +90,19 @@ def create_app(
         # 生存確認だけ。記録（Firestore・Storage）には触れない
         return {"status": "ok"}
 
-    if runtime.mode == "unconfigured":
+    # 読み取りの資格情報を設定に写したら、すぐに process の環境から系統の名前を外す（#55。保存先・検証器などが背後の
+    # スレッドを起こす前に。以後、要求ごとの処理は os.environ を書き換えない）
+    read_config = None
+    if runtime.mode != "unconfigured":
+        read_config = statement_read.read_config(env, read_timeout, mode=runtime.mode, identity_token=identity_token)
+    if from_process:
+        scrub_process_env()
+
+    if read_config is None:
         app.register_blueprint(make_unconfigured_blueprint())
     else:
         app.register_blueprint(
-            make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock,
-                           statement_read.read_config(env, read_timeout, mode=runtime.mode),
+            make_blueprint(store or FirestoreStore(runtime.project_id), TokenVerifier(runtime), clock, read_config,
                            allowed=allowlist.policy_for(runtime.mode, env), read_limits=read_limits)
         )
 

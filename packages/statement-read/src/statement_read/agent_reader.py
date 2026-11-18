@@ -1,10 +1,19 @@
 """Claude Agent SDK（claude-agent-sdk。使う側の依存グループ ai）で明細の画像 1 枚を読む送り口。API の読み取りの入口と
 評価の道具が同じものを使う（#11・ADR-0005。#14 で測った経路そのまま）。
 
-- 資格情報は使う側が選ぶ（道具は --credential、API は STATEMENT_READ_CREDENTIAL。oauth_token =
-  CLAUDE_CODE_OAUTH_TOKEN / api_key = ANTHROPIC_API_KEY）。子（同梱の CLI）の環境は許可リスト方式: CLI が
-  動くのに要る変数（PASS_THROUGH_ENV）と選んだ資格情報だけを渡し、ほかの親の変数は空で上書きする
-  （選ばなかった資格情報・送信先の変数も空。option-simulator の ADR-0005 S5）
+- 資格情報の方式は使う側が選ぶ（道具は --credential、API は STATEMENT_READ_CREDENTIAL。#55・ADR-0011）:
+  api_key = ANTHROPIC_API_KEY / oauth_token = CLAUDE_CODE_OAUTH_TOKEN / federation = Workload Identity Federation
+  （ANTHROPIC_FEDERATION_RULE_ID・ANTHROPIC_ORGANIZATION_ID と、要求ごとの一時ディレクトリに書く ID トークンの
+  ファイル ANTHROPIC_IDENTITY_TOKEN_FILE。任意で ANTHROPIC_SERVICE_ACCOUNT_ID・ANTHROPIC_WORKSPACE_ID）
+- 子（同梱の CLI）の環境は方式ごとの許可リストで組み立てる（child_env）。資格情報・送り先の系統の名前
+  （is_credential_name。ANTHROPIC_*・CLAUDE_*・AWS_* など）は、選んだ方式の変数を除いて子の環境に **名前ごと置かない**
+  （空の文字列も資格情報の優先順位の枠を占めうるため。Anthropic の WIF reference）。SDK は親の環境（os.environ）に
+  options.env を重ねて子を起動するので、送る直前に親の環境から系統の名前を外す（scrub_process_env）。系統の外で
+  許可リスト（PASS_THROUGH_ENV）に無い親の変数は空で上書きする（ほかのサービスのトークンなどを子に見せない）。
+  親の環境から外すのは各プロセスの入口の 1 回だけ（API の create_app・道具の CLI）。送り口は要求ごとに os.environ を
+  書き換えず、系統の名前が親に残っていれば送らずに失敗にする（"credential_env"。fail closed）
+- SDK を上げるときは subprocess_cli の connect の重ね方（親の環境 → options.env の順）を確かめ直す。spawn_env はその
+  写しで、本物の SDK を通すテストは依存グループ ai があるときだけ流れる（api/tests/test_real_sdk_env.py）
 - SDK は読むときにだけ import する（確認コマンドと CI は SDK を入れない。資格情報が無いときは import しない）
 - ツールは SDK MCP の report_statement 1 本。PreToolUse のフックが deny + continue_=False を返し、関数は実行せずに
   入力だけを受け取る。組み込みのツールなし・設定ファイルを読まない・turn 1
@@ -15,7 +24,9 @@
   閉じ → 待って SIGTERM → SIGKILL）は SDK の shield の中で走る。asyncio の素の task.cancel() / wait_for は後始末を
   飛ばして子が残るので使わない（option-simulator の agent_sdk.py と同じ）
 - ReadOutcome.error の分類: None（成功）/ "timeout" / "sdk_missing"（SDK を import できない）/ "no_tool_call" /
-  "bad_result:<理由>" / "result_error"（送り先のエラー）/ "no_result"（結果も例外も無いまま終わった。CLI の異常終了
+  "bad_result:<理由>" / "result_error"（送り先のエラー）/ "identity_token"（federation の ID トークンが無い。
+  AI を呼ばない）/ "credential_env"（親の環境に資格情報の系統の名前が残っている。AI を呼ばない）/
+  "no_result"（結果も例外も無いまま終わった。CLI の異常終了
   など。送り先の失敗として扱う）/ 例外の型の名前
 - 子の HOME・TMPDIR・XDG_*（設定・キャッシュ・データ・状態の置き場所）も実行ごとの一時ディレクトリの中にする
   （isolated_env）。子が一時ディレクトリの外に書かず、終わったら一緒に消える
@@ -37,7 +48,86 @@ from . import prompt
 from . import result as schema
 from .values import Usage
 
+# 値 1 つで決まる方式 → その変数（道具の --credential もこの 2 つ）
 CREDENTIAL_ENV = {"oauth_token": "CLAUDE_CODE_OAUTH_TOKEN", "api_key": "ANTHROPIC_API_KEY"}
+FEDERATION = "federation"
+CREDENTIALS = ("api_key", "oauth_token", FEDERATION)
+# Workload Identity Federation の変数（Anthropic の WIF reference）。必須の 2 つ + 要求ごとの ID トークンのファイル
+FEDERATION_REQUIRED_ENV = ("ANTHROPIC_FEDERATION_RULE_ID", "ANTHROPIC_ORGANIZATION_ID")
+FEDERATION_OPTIONAL_ENV = ("ANTHROPIC_SERVICE_ACCOUNT_ID", "ANTHROPIC_WORKSPACE_ID")
+IDENTITY_TOKEN_FILE_ENV = "ANTHROPIC_IDENTITY_TOKEN_FILE"
+# ID トークンの audience（Anthropic の文書の値。フェデレーションのルールの audience と同じにする）
+IDENTITY_TOKEN_AUDIENCE = "https://api.anthropic.com"
+# 要求ごとの一時ディレクトリの中の ID トークンのファイル（HOME・設定の置き場の外）
+IDENTITY_TOKEN_SUBDIR = "cred"
+IDENTITY_TOKEN_NAME = "identity-token"
+# 資格情報・送り先の系統（子の環境に名前ごと置かない。選んだ方式の変数と、送り口が決めた CLI の設定だけを足す）。
+# ANTHROPIC_*（キー・トークン・プロファイル・送り先・フェデレーション・設定の置き場）、CLAUDE_*（OAuth トークン・
+# Bedrock / Vertex / Foundry の切り替え CLAUDE_CODE_USE_*・設定の置き場・apiKeyHelper の関係）、
+# AWS_*（Bedrock の資格情報）、Vertex の地域（CLOUD_ML_REGION・VERTEX_REGION_*）。
+# GOOGLE_* は API 自身（Firestore・ID トークンの検証）が使うので親からは外さず、子では空にする
+# （Vertex は CLAUDE_CODE_USE_VERTEX が無ければ使われない）
+CREDENTIAL_PREFIXES = ("ANTHROPIC_", "CLAUDE_", "AWS_", "VERTEX_REGION_")
+CREDENTIAL_NAMES = frozenset({"CLAUDECODE", "CLOUD_ML_REGION"})
+
+
+def is_credential_name(name: str) -> bool:
+    """資格情報・送り先の系統の名前か（大文字・小文字を区別せずに見る）"""
+    n = name.upper()
+    return n in CREDENTIAL_NAMES or n.startswith(CREDENTIAL_PREFIXES)
+
+
+def method_env_names(credential: str) -> frozenset[str]:
+    """方式が子に渡してよい資格情報の変数の名前"""
+    if credential == FEDERATION:
+        return frozenset((*FEDERATION_REQUIRED_ENV, *FEDERATION_OPTIONAL_ENV, IDENTITY_TOKEN_FILE_ENV))
+    name = CREDENTIAL_ENV.get(credential)
+    if name is None:
+        raise ValueError("credential")
+    return frozenset((name,))
+
+
+def credential_values(credential: str | None, env) -> dict[str, str]:
+    """選んだ方式の資格情報の変数（名前 → 値）を環境から取る。必須の値が無ければ NoCredential（値は持たない）。
+    federation の ID トークンのファイルは要求ごとに作るのでここには入らない"""
+    if credential == FEDERATION:
+        out = {}
+        for name in FEDERATION_REQUIRED_ENV:
+            v = env.get(name) or ""
+            if not v:
+                raise NoCredential(name)
+            out[name] = v
+        for name in FEDERATION_OPTIONAL_ENV:
+            v = env.get(name) or ""
+            if v:
+                out[name] = v
+        return out
+    secret = credential_secret(credential, env)  # 不明な方式も NoCredential
+    return {CREDENTIAL_ENV[credential]: secret}
+
+
+def credential_names_in(environ=None) -> list[str]:
+    """環境（既定は os.environ）に残っている資格情報・送り先の系統の名前（値は返さない）"""
+    env = os.environ if environ is None else environ
+    return sorted(k for k in list(env) if is_credential_name(k))
+
+
+def scrub_process_env(environ=None) -> list[str]:
+    """親（この process）の環境から資格情報・送り先の系統の名前を外す（SDK が子に引き継がせないため）。外した名前だけを
+    返す（値は返さない）。各プロセスの入口で、資格情報を読んだ直後に 1 回だけ呼ぶ（API は create_app、道具は CLI の
+    起動。要求ごとには呼ばない = スレッドの中で os.environ を書き換えない）"""
+    env = os.environ if environ is None else environ
+    names = sorted(k for k in list(env) if is_credential_name(k))
+    for k in names:
+        env.pop(k, None)
+    return names
+
+
+def spawn_env(parent_env, options_env: dict[str, str]) -> dict[str, str]:
+    """SDK が子を起動するときの環境の写し（claude-agent-sdk の subprocess_cli の connect:
+    親の環境から CLAUDECODE を除き、options.env を重ねる。SDK が足す固定の名前 CLAUDE_CODE_ENTRYPOINT・
+    CLAUDE_AGENT_SDK_VERSION などは資格情報でないので省く）。テストで「子に渡る名前の集合」を確かめる"""
+    return {**{k: v for k, v in parent_env.items() if k != "CLAUDECODE"}, **options_env}
 # 子（CLI）に親の値のまま渡す変数（許可リスト）。CLI が動くのに要るものだけ。ほかの親の変数（ほかのサービスの
 # トークン・送信先の上書きなど）は空で上書きする（SDK は親の環境に options.env を重ねて子を起動するため）
 PASS_THROUGH_ENV = (
@@ -75,6 +165,10 @@ class SdkMissing(RuntimeError):
     """claude_agent_sdk を import できない（依存グループ ai を入れていない）"""
 
 
+class CredentialEnvPresent(RuntimeError):
+    """親の環境に資格情報・送り先の系統の名前が残っている（入口で外していない）。名前・値は持たない"""
+
+
 class NoCredential(RuntimeError):
     """資格情報が無い（値は持たない）"""
 
@@ -90,17 +184,20 @@ def credential_secret(credential: str | None, env: dict[str, str]) -> str:
     return secret
 
 
-def child_env(credential: str, secret: str, base_dir: str, parent_env: dict[str, str] | None = None,
+def child_env(credential: str, secret, base_dir: str, parent_env=None,
               max_output_tokens: int | None = None) -> dict[str, str]:
-    """子（CLI）の環境。許可リスト（PASS_THROUGH_ENV）にない親の変数はすべて空で上書きし、選んだ資格情報の変数と
-    CLI の設定だけを足す。parent_env はテスト用（既定は os.environ）。max_output_tokens があれば CLI の最大出力
-    （MAX_OUTPUT_ENV）にする（無ければ親の値も空で上書きされ、CLI の既定 = モデルの最大出力。#44）"""
+    """子（CLI）の options.env。secret は値 1 つ（api_key・oauth_token）か、名前 → 値の dict（方式の変数だけ）。
+    資格情報・送り先の系統の名前は選んだ方式の変数だけを入れる（ほかは入れない = scrub_process_env の後の親にも
+    無いので、子に名前ごと無い）。系統の外で許可リスト（PASS_THROUGH_ENV）に無い親の変数は空で上書きする。
+    parent_env はテスト用（既定は os.environ）。max_output_tokens があれば CLI の最大出力（MAX_OUTPUT_ENV）にする
+    （無ければ親の値も空で上書きされ、CLI の既定 = モデルの最大出力。#44）"""
     parent = os.environ if parent_env is None else parent_env
-    env = {k: "" for k in parent if k not in PASS_THROUGH_ENV}
-    # 親に無くても、資格情報・送信先を指す変数は空で固定する（選んだもの以外を CLI に使わせない）
-    env.update(dict.fromkeys(("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN",
-                              "ANTHROPIC_BASE_URL"), ""))
-    env[CREDENTIAL_ENV[credential]] = secret
+    values = {CREDENTIAL_ENV[credential]: secret} if isinstance(secret, str) else dict(secret)
+    allowed = method_env_names(credential)
+    if not set(values) <= allowed:
+        raise ValueError("credential values")
+    env = {k: "" for k in parent if k not in PASS_THROUGH_ENV and not is_credential_name(k)}
+    env.update({k: v for k, v in values.items() if v})
     env.update(
         {
             "CLAUDE_CONFIG_DIR": f"{base_dir}/cfg",
@@ -119,7 +216,7 @@ def child_env(credential: str, secret: str, base_dir: str, parent_env: dict[str,
 
 
 # 子の書き込み先を実行ごとの一時ディレクトリの中に閉じる変数（HOME の下の設定・キャッシュ、一時ファイル）
-ISOLATED_SUBDIRS = ("cfg", "cwd", "tmp", "home")
+ISOLATED_SUBDIRS = ("cfg", "cwd", "tmp", "home", IDENTITY_TOKEN_SUBDIR)
 
 
 def isolated_env(base_dir: str) -> dict[str, str]:
@@ -135,7 +232,7 @@ def isolated_env(base_dir: str) -> dict[str, str]:
     }
 
 
-def option_kwargs(model: str, effort: str, credential: str, secret: str, base_dir: str,
+def option_kwargs(model: str, effort: str, credential: str, secret, base_dir: str,
                   max_output_tokens: int | None = None) -> dict:
     """ClaudeAgentOptions の引数のうち SDK の型を要らないもの（テストで中身を確かめる）。子の環境は child_env に
     isolated_env を重ねる（書き込み先を base_dir の中に閉じる）"""
@@ -222,12 +319,14 @@ def _usage(d) -> Usage | None:
 class Reader:
     """1 枚ずつ読む。query_fn はテスト用（claude_agent_sdk.query と同じ形の async generator 関数）。query_fn を
     渡したときは options に option_kwargs の dict をそのまま渡す（SDK を import しない）。timeout は締め切りの秒数
-    （None = 無し。道具の既定）。max_output_tokens は CLI の最大出力（None = CLI の既定。道具の既定）"""
+    （None = 無し。道具の既定）。max_output_tokens は CLI の最大出力（None = CLI の既定。道具の既定）。
+    secret は値 1 つ（api_key・oauth_token）か、方式の変数の dict（federation。credential_values の結果）。
+    identity_token は federation の ID トークン（この 1 回の読み取りの間だけ、一時ディレクトリのファイルに置く）"""
 
     def __init__(
         self,
         credential: str,
-        secret: str,
+        secret,
         model: str,
         effort: str,
         tmp_parent: str | None = None,
@@ -235,9 +334,11 @@ class Reader:
         clock: Callable[[], float] = time.monotonic,
         timeout: float | None = None,
         max_output_tokens: int | None = None,
+        identity_token: str | None = None,
     ):
         self._credential = credential
         self._secret = secret
+        self._identity_token = identity_token
         self.model = model
         self.effort = effort
         self._tmp_parent = tmp_parent
@@ -256,19 +357,39 @@ class Reader:
         try:
             for sub in ISOLATED_SUBDIRS:
                 os.mkdir(f"{base}/{sub}", 0o700)
-            return asyncio.run(self._read(data, media_type, base))
+            values = self._values(base)
+            if values is None:
+                return ReadOutcome(result=None, seconds=None, error="identity_token")
+            return asyncio.run(self._read(data, media_type, base, values))
         except TimeoutError:
             return ReadOutcome(result=None, seconds=None, error="timeout")
         except SdkMissing:
             return ReadOutcome(result=None, seconds=None, error="sdk_missing")
+        except CredentialEnvPresent:
+            return ReadOutcome(result=None, seconds=None, error="credential_env")
         except Exception as e:  # noqa: BLE001 - 型の名前だけを返す
             return ReadOutcome(result=None, seconds=None, error=type(e).__name__)
         finally:
             shutil.rmtree(base, ignore_errors=True)
 
-    async def _read(self, data: bytes, media_type: str, base: str) -> ReadOutcome:
+    def _values(self, base: str) -> dict[str, str] | None:
+        """子に渡す方式の変数。federation は ID トークンを base の中のファイル（0600）に書き、その場所を足す
+        （ファイルは base ごと消える）。ID トークンが無ければ None（AI を呼ばない）"""
+        values = {CREDENTIAL_ENV[self._credential]: self._secret} if isinstance(self._secret, str) else dict(
+            self._secret)
+        if self._credential != FEDERATION:
+            return values
+        if not self._identity_token:
+            return None
+        path = f"{base}/{IDENTITY_TOKEN_SUBDIR}/{IDENTITY_TOKEN_NAME}"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="ascii") as f:
+            f.write(self._identity_token)
+        return {**values, IDENTITY_TOKEN_FILE_ENV: path}
+
+    async def _read(self, data: bytes, media_type: str, base: str, values: dict[str, str]) -> ReadOutcome:
         captured: list = []
-        kwargs = option_kwargs(self.model, self.effort, self._credential, self._secret, base,
+        kwargs = option_kwargs(self.model, self.effort, self._credential, values, base,
                                max_output_tokens=self.max_output_tokens)
         query_fn = self._query_fn
         if query_fn is None:
@@ -277,6 +398,10 @@ class Reader:
             except ImportError:
                 raise SdkMissing("claude_agent_sdk") from None
 
+            # SDK は親の環境に options.env を重ねて子を起動する。系統の名前が親に残っていたら送らない（外すのは入口の
+            # 1 回だけ。ここでは os.environ を書き換えない）
+            if credential_names_in():
+                raise CredentialEnvPresent("credential_env")
             opts = sdk_options(kwargs, captured)
         else:
             opts = kwargs

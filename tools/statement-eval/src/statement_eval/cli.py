@@ -320,5 +320,11 @@ def main(argv: list[str] | None = None, *, env: dict[str, str] | None = None,
         return int(e.code or 0) if isinstance(e.code, int) else 2
     if args.cmd == "generate":
         return cmd_generate(args, out)
-    return run_eval(args, dict(os.environ) if env is None else env, reader_factory or _default_reader_factory, out,
-                    err)
+    if env is None:
+        # 資格情報を写したら、この process の環境から資格情報・送り先の系統の名前を外す（入口の 1 回だけ。送り口は
+        # 名前が残っていると送らない。#55・ADR-0011）
+        env = dict(os.environ)
+        from .reader import scrub_process_env
+
+        scrub_process_env()
+    return run_eval(args, env, reader_factory or _default_reader_factory, out, err)

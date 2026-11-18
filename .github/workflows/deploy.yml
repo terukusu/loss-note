@@ -37,8 +37,9 @@ defaults:
 
 # プロジェクト固有の値（プロジェクト ID・SA・state のバケット・Firebase の Web の設定・WIF のプロバイダ）はすべて repository secrets
 # から読む（公開リポジトリの Actions のログは誰でも読めるので、見出しの env の一覧・コマンドの出力に値を出さない。secrets は
-# GitHub が自動で伏せる。repository variables は使わない。例外は値を伏せる必要の無い真偽の切り替え STATEMENT_READ_KEY だけ
-# = 下の TF_VAR_statement_read_key。secrets にするとログの true がすべて伏せ字になり、plan・検査のログが読めなくなるため）
+# GitHub が自動で伏せる。repository variables は使わない。例外は値を伏せる必要の無い切り替え STATEMENT_READ_CREDENTIAL と
+# STATEMENT_READ_KEY だけ = 下の TF_VAR_statement_read_credential・TF_VAR_statement_read_key。secrets にするとログの方式の名前・
+# true がすべて伏せ字になり、plan・検査のログが読めなくなるため）
 env:
   TF_IN_AUTOMATION: "1"
   # プロジェクト固有の値は repository secrets で渡す（infra/README.md「GitHub の設定」）
@@ -51,6 +52,14 @@ env:
   # STATEMENT_READ_KEY を true にする（未設定・true 以外なら false = 参照を付けない。版の無い参照ではインスタンスが起動しないため）。
   # 秘密ではない真偽の切り替えなので、例外として variables に置く（値を伏せる必要が無く、secrets だと true が伏せ字になる）
   TF_VAR_statement_read_key: ${{ vars.STATEMENT_READ_KEY == 'true' }}
+  # 明細の読み取りの資格情報の方式（#55・ADR-0011。api_key / oauth_token / federation。未設定なら空 = STATEMENT_READ_KEY を見る）。
+  # 方式の値は、api_key・oauth_token は Secret Manager（オーナーがコンソールで版を入れる）、federation の識別子は repository
+  # secrets（Terraform の変数は sensitive。plan に出さない）
+  TF_VAR_statement_read_credential: ${{ vars.STATEMENT_READ_CREDENTIAL }}
+  TF_VAR_statement_read_federation_rule_id: ${{ secrets.STATEMENT_READ_FEDERATION_RULE_ID }}
+  TF_VAR_statement_read_organization_id: ${{ secrets.STATEMENT_READ_ORGANIZATION_ID }}
+  TF_VAR_statement_read_service_account_id: ${{ secrets.STATEMENT_READ_SERVICE_ACCOUNT_ID }}
+  TF_VAR_statement_read_workspace_id: ${{ secrets.STATEMENT_READ_WORKSPACE_ID }}
   # 画面のビルドに渡す Firebase の Web の設定（公開の JS に入る値。秘密ではない）。プロジェクト ID は GCP_PROJECT_ID を兼ねる
   VITE_FIREBASE_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}

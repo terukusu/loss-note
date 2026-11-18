@@ -52,11 +52,86 @@ variable "max_instances" {
   }
 }
 
-# 明細の読み取りのキーの参照を付けるか（#44・ADR-0010）。オーナーが Secret Manager にキーの版を入れた後に true にする
-# （CI は repository variable STATEMENT_READ_KEY が "true" のときだけ true を渡す。deploy.yml）。版の無い参照ではインスタンスが
-# 起動しないので、既定は false（キーの前のデプロイも通り、読み取りは 503 read_unavailable）
+# 明細の読み取りのキーの参照を付けるか（#44・ADR-0010）。#55 からは statement_read_credential が空のときだけ見る後方互換の
+# 切り替えで、true は statement_read_credential = "api_key" と同じ（CI は repository variable STATEMENT_READ_KEY が "true" の
+# ときだけ true を渡す。deploy.yml）。版の無い参照ではインスタンスが起動しないので、既定は false
 variable "statement_read_key" {
-  description = "Cloud Run に明細の読み取りの Anthropic API のキー（Secret Manager の参照）を載せるか"
+  description = "（後方互換）statement_read_credential が空のとき、true なら api_key を選ぶ"
   type        = bool
   default     = false
+}
+
+# 明細の読み取りの資格情報の方式（#55・ADR-0011）。"" = 載せない（読み取りは 503 read_unavailable・ほかの機能は動く）/
+# api_key / oauth_token（Secret Manager の版を入れた後に選ぶ）/ federation（Anthropic Console でルールを作り、識別子を
+# GitHub の secrets に入れた後に選ぶ）。CI は repository variable STATEMENT_READ_CREDENTIAL を渡す（値を伏せる必要の無い切り替え）
+variable "statement_read_credential" {
+  description = "明細の読み取りの資格情報の方式（\"\" / api_key / oauth_token / federation）"
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = contains(["", "api_key", "oauth_token", "federation"], var.statement_read_credential)
+    error_message = "statement_read_credential は \"\"・api_key・oauth_token・federation のどれか。"
+  }
+}
+
+# federation の識別子（#55）。ID の形は Anthropic の WIF reference（platform.claude.com/docs/en/manage-claude/wif-reference の
+# 「Environment variables」: ルール fdrl_...・組織は UUID・サービスアカウント svac_...・ワークスペース wrkspc_...）に合わせる。
+# 秘密ではないが利用者ごとの値なので、リポジトリに置かず GitHub の secrets から受け、plan に出さない
+# （sensitive）。CI は secrets.STATEMENT_READ_FEDERATION_RULE_ID などを TF_VAR_* で渡す（未設定なら空）
+variable "statement_read_federation_rule_id" {
+  description = "federation のルールの ID（fdrl_ で始まる）"
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^(fdrl_[A-Za-z0-9_-]{1,128})?$", var.statement_read_federation_rule_id))
+    error_message = "statement_read_federation_rule_id は fdrl_ で始まる ID か空。"
+  }
+  # federation を選んだら必須（空のまま deploy すると読み取りが 503 になるので plan で止める）
+  validation {
+    condition     = !(var.statement_read_credential == "federation" && var.statement_read_federation_rule_id == "")
+    error_message = "statement_read_credential = federation のときは statement_read_federation_rule_id が必須。"
+  }
+}
+
+variable "statement_read_organization_id" {
+  description = "federation の Anthropic の組織の ID（UUID）"
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})?$", var.statement_read_organization_id))
+    error_message = "statement_read_organization_id は UUID の形か空。"
+  }
+  validation {
+    condition     = !(var.statement_read_credential == "federation" && var.statement_read_organization_id == "")
+    error_message = "statement_read_credential = federation のときは statement_read_organization_id が必須。"
+  }
+}
+
+variable "statement_read_service_account_id" {
+  description = "federation の Anthropic のサービスアカウントの ID（svac_ で始まる。任意）"
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^(svac_[A-Za-z0-9_-]{1,128})?$", var.statement_read_service_account_id))
+    error_message = "statement_read_service_account_id は svac_ で始まる ID か空。"
+  }
+}
+
+variable "statement_read_workspace_id" {
+  description = "federation のワークスペースの ID（wrkspc_ で始まる。ルールが複数のワークスペースに効くときだけ必須）"
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^(wrkspc_[A-Za-z0-9_-]{1,128})?$", var.statement_read_workspace_id))
+    error_message = "statement_read_workspace_id は wrkspc_ で始まる ID か空。"
+  }
 }

@@ -184,7 +184,7 @@ gh api -X POST $R/environments/prod/deployment-branch-policies -f name=main -f t
 
 ```sh
 gh api $R/actions/secrets --jq '[.secrets[].name] | contains(["GCP_WIF_PROVIDER", "GCP_PROJECT_ID", "GCP_SA_TF_APPLY", "GCP_SA_TF_PLAN", "TF_STATE_BUCKET", "FIREBASE_API_KEY", "FIREBASE_AUTH_DOMAIN"])'
-gh api $R/actions/variables --jq '[.variables[].name] - ["STATEMENT_READ_KEY"] == []'   # variables は使わない（値がログに出る。例外は切り替えの STATEMENT_READ_KEY だけ）。以前の手順で variables に置いた値は、secrets に入れ直してから gh variable delete で消す
+gh api $R/actions/variables --jq '[.variables[].name] - ["STATEMENT_READ_CREDENTIAL", "STATEMENT_READ_KEY"] == []'   # variables は使わない（値がログに出る。例外は切り替えの STATEMENT_READ_CREDENTIAL・STATEMENT_READ_KEY だけ）。以前の手順で variables に置いた値は、secrets に入れ直してから gh variable delete で消す
 gh api $R/environments/prod --jq '.deployment_branch_policy == {"protected_branches": false, "custom_branch_policies": true} and ([.protection_rules[] | select(.type == "required_reviewers") | .reviewers[]] | length) == 1'
 gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[] | {name, type}] == [{"name": "main", "type": "branch"}]'
 ```
@@ -199,7 +199,9 @@ gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[]
 | Terraform `image` | （deploy.yml が求める） | `<REGION>-docker.pkg.dev/<PROJECT_ID>/loss-note/loss-note@sha256:<64 桁の 16 進>`。digest でだけ受ける | `.github/scripts/image.sh loss-note resolve` |
 | Terraform `region` | （既定 `asia-northeast1`） | Cloud Run の場所 | |
 | Terraform `max_instances` | （既定 `2`） | 最大インスタンス（1〜10。費用の上限） | |
-| Terraform `statement_read_key` | `STATEMENT_READ_KEY`（**variable**。秘密ではない切り替えの例外。`true` のときだけ true。未設定は false） | Cloud Run に明細の読み取りの API キーの参照を付けるか（#44） | 下の「明細の読み取りの資格情報」でキーの版を入れた後に `true` |
+| Terraform `statement_read_credential` | `STATEMENT_READ_CREDENTIAL`（**variable**。秘密ではない切り替えの例外。未設定は空） | 明細の読み取りの資格情報の方式（`api_key` / `oauth_token` / `federation`。#55） | 下の「明細の読み取りの資格情報」で方式の値を入れた後に設定 |
+| Terraform `statement_read_key` | `STATEMENT_READ_KEY`（**variable**。#44 の後方互換。`true` のときだけ true） | `STATEMENT_READ_CREDENTIAL` が未設定のとき、`true` なら `api_key` と同じ | 新しく設定しない（`STATEMENT_READ_CREDENTIAL` を使う） |
+| Terraform `statement_read_federation_rule_id`・`statement_read_organization_id`（`federation` では必須）・`statement_read_service_account_id`・`statement_read_workspace_id`（任意） | `STATEMENT_READ_FEDERATION_RULE_ID`・`STATEMENT_READ_ORGANIZATION_ID`・`STATEMENT_READ_SERVICE_ACCOUNT_ID`・`STATEMENT_READ_WORKSPACE_ID`（secret） | `federation` の識別子（Terraform の変数は sensitive。plan に出さない） | Anthropic Console の Workload identity の画面 |
 | state | `TF_STATE_BUCKET`（secret） | prod の state のバケット | 出力 `tf_state_bucket` |
 | 借用 | `GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`・`GCP_WIF_PROVIDER`（secret） | plan / apply の SA と WIF のプロバイダ | 出力 `sa_tf_plan_email`・`sa_tf_apply_email`・`wif_provider_name` |
 | 画面のビルド | `FIREBASE_API_KEY`（secret） | Firebase の Web の apiKey（公開の JS に入る値。秘密ではない） | 出力 `firebase_web_config.api_key` |
@@ -208,7 +210,7 @@ gh api $R/environments/prod/deployment-branch-policies --jq '[.branch_policies[]
 
 - GCP の 4 つ（`GCP_PROJECT_ID`・`TF_STATE_BUCKET`・`GCP_SA_TF_PLAN`・`GCP_SA_TF_APPLY`）のどれかが無いと、deploy は notice を出して何もせずに成功で終わります（clone しただけのリポジトリで main への push を失敗にしない）
 - GCP の 4 つがあるのに `FIREBASE_API_KEY`・`FIREBASE_AUTH_DOMAIN` が無いと、deploy はビルドの前に足りない secret の名前を出して失敗します
-- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT`・`FIREBASE_AUTH_DOMAIN`・`LOSS_NOTE_ALLOWED_EMAILS`（Secret Manager の参照）と、`STATEMENT_READ_KEY` が `true` のときだけ `ANTHROPIC_API_KEY`（Secret Manager の参照）です（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
+- Cloud Run に入る環境変数は `GOOGLE_CLOUD_PROJECT`・`FIREBASE_AUTH_DOMAIN`・`LOSS_NOTE_ALLOWED_EMAILS`（Secret Manager の参照）と、明細の読み取りの方式を選んだときだけその方式の変数です（下の「明細の読み取りの資格情報」の表）（API は署名を検証するモード = ADR-0004 の `verify` で起動します。エミュレーターの接続先は持ちません）。画面の置き場（`STATIC_DIR`）と `PORT` はイメージの側にあります
 - prod の state は plan 用 SA が読めるので、秘密を入れません（資格情報は Secret Manager の参照だけにし、値を変数・リソースに書きません）
 
 ## ログインと使える利用者
@@ -334,29 +336,39 @@ gcloud firestore databases delete --database="$D" --project="$P"
 gcloud storage rm --recursive "gs://$P-firestore-restore"
 ```
 
-## 明細の読み取りの資格情報（Secret Manager。#44・ADR-0010）
+## 明細の読み取りの資格情報（#44・ADR-0010、#55・ADR-0011）
 
-本番の決済明細の読み取りは Anthropic API のキー（従量課金）で動きます。オーナーのサブスクの資格情報（OAuth トークン）は本番で使いません（使う設定にすると読み取りは 503 になります）。キーは Secret Manager の入れ物 `statement-read-anthropic-api-key`（`infra/bootstrap/statement_read_credentials.tf`。東京だけに複製・削除の防止）に置き、読めるのは実行用 SA だけです。値（版）は Terraform で宣言しません。
+本番の決済明細の読み取りの資格情報は、repository variable `STATEMENT_READ_CREDENTIAL` で 3 つの方式から選びます（未設定なら Cloud Run に資格情報を載せず、読み取りは 503 `read_unavailable`・ほかの機能は動きます）。API は子の CLI に **選んだ方式の変数だけ** を渡します（ほかの方式・送り先の変数は子の環境に名前ごと無い）。
 
-1. **入れ物を作る**（所有者の apply。「変更」の節の手順。要約は create 2: `google_secret_manager_secret.statement_read`・`google_secret_manager_secret_iam_member.statement_read`。Secret Manager の API は #43 で有効にしてある）
-2. **キーの前のデプロイ**: `STATEMENT_READ_KEY` を設定しないまま deploy します。Cloud Run に参照は付かず、読み取りは 503 `read_unavailable`、ほかの機能は動きます（版の無い参照ではインスタンスが起動しないため、この順にします）
-3. **キーを作る**（Anthropic Console）: 本番専用のワークスペースを作り、**月の上限を 20 USD** にしてから、そのワークスペースで API キーを作ります（日の上限が働かない不具合への二重の安全弁）
-4. **キーの値を入れる**（オーナー。GCP のコンソールで。キーの値をターミナル・チャット・ファイルに通さない）:
+| 方式 | 値の置き場 | Cloud Run の環境変数 | 向き |
+|---|---|---|---|
+| `api_key` | Secret Manager の `statement-read-anthropic-api-key` | `STATEMENT_READ_CREDENTIAL`・`ANTHROPIC_API_KEY`（参照） | 従量課金のキー。本番専用のワークスペースで月の上限を置く |
+| `oauth_token` | Secret Manager の `statement-read-claude-oauth-token` | `STATEMENT_READ_CREDENTIAL`・`CLAUDE_CODE_OAUTH_TOKEN`（参照） | オーナーのサブスクの資格情報。**オーナーだけが使う間に限る**（他の利用者を受け入れる前に `federation` か `api_key` へ） |
+| `federation` | 秘密なし（識別子は repository secrets → sensitive な Terraform の変数） | `STATEMENT_READ_CREDENTIAL`・`ANTHROPIC_FEDERATION_RULE_ID`・`ANTHROPIC_ORGANIZATION_ID`（+ 設定したときだけ `ANTHROPIC_SERVICE_ACCOUNT_ID`・`ANTHROPIC_WORKSPACE_ID`） | 長く有効な秘密を置かない。API が要求ごとに実行用 SA の ID トークン（audience `https://api.anthropic.com`）をメタデータ サーバーから取り、要求ごとの一時ファイルで渡す |
+
+入れ物はどちらも `infra/bootstrap/statement_read_credentials.tf`（東京だけに複製・削除の防止・読めるのは実行用 SA だけ）。値（版）は Terraform で宣言しません。#44 の `STATEMENT_READ_KEY=true` は、`STATEMENT_READ_CREDENTIAL` が未設定のときだけ `api_key` と同じに扱います。
+
+1. **入れ物を作る**（所有者の apply。「変更」の節の手順。#44 の後に #55 の差分を足すときの要約は create 2: `google_secret_manager_secret.statement_read_oauth`・`google_secret_manager_secret_iam_member.statement_read_oauth`）
+2. **方式の値を入れる**（オーナー。値をターミナル・チャット・ファイルに通さない）:
+   - `api_key`: Anthropic Console で本番専用のワークスペースを作り、**月の上限を 20 USD** にしてから API キーを作る → 下の「Secret Manager に版を入れる」で `statement-read-anthropic-api-key` に入れる
+   - `oauth_token`: オーナーの手元のターミナル（Claude Code の会話の外）で `claude setup-token` を流し、表示されたトークンをコピーする → 下の「Secret Manager に版を入れる」で `statement-read-claude-oauth-token` に入れる
+   - `federation`: Anthropic Console の「Workload identity」（Settings → Workload identity）で「Connect workload」→「Google Cloud」を選び、発行元 `https://accounts.google.com`（discovery）・サービスアカウント・ルール（audience `https://api.anthropic.com`、主張 `sub` = 実行用 SA の一意 ID（GCP のコンソールの「IAM と管理」→「サービス アカウント」→ `sa-loss-note` の「一意の ID」）、`email` = 実行用 SA のメール、scope `workspace:inference`、本番専用のワークスペース）を作る。ルール ID・組織 ID（と使うなら SA の ID・ワークスペースの ID）を GitHub の「Settings → Secrets and variables → Actions → New repository secret」で `STATEMENT_READ_FEDERATION_RULE_ID`・`STATEMENT_READ_ORGANIZATION_ID`（・`STATEMENT_READ_SERVICE_ACCOUNT_ID`・`STATEMENT_READ_WORKSPACE_ID`）に貼る
+3. **Secret Manager に版を入れる**（`api_key`・`oauth_token`）:
    1. GCP のコンソールで loss-note のプロジェクトを選び、「セキュリティ」→「Secret Manager」を開く
-   2. 一覧の `statement-read-anthropic-api-key` を押して詳細を開き、「新しいバージョン」（+ New version）を押す
-   3. 「シークレットの値」の欄に、Anthropic Console でコピーした API キーを貼る（ファイルのアップロードは使わない。前後に空白・改行を入れない）
-   4. 「以前のバージョンをすべて無効にする」はキーを入れ替えるときだけ選ぶ（最初は選ばない）→「新しいバージョンを追加」を押す
-   5. 貼った後はクリップボードを別の文字で上書きし、Anthropic Console のキーの表示を閉じる
+   2. 一覧の入れ物（上の表）を押して詳細を開き、「新しいバージョン」（+ New version）を押す
+   3. 「シークレットの値」の欄にコピーした値を貼る（ファイルのアップロードは使わない。前後に空白・改行を入れない）
+   4. 「以前のバージョンをすべて無効にする」は値を入れ替えるときだけ選ぶ（最初は選ばない）→「新しいバージョンを追加」を押す
+   5. 貼った後はクリップボードを別の文字で上書きし、値の表示を閉じる
 
    確かめ（値は読まない。版の数だけ）:
 
    ```sh
-   gcloud secrets versions list statement-read-anthropic-api-key --project="$P" --filter=state=ENABLED --format='value(name)' | wc -l   # 1
+   gcloud secrets versions list <入れ物> --project="$P" --filter=state=ENABLED --format='value(name)' | wc -l   # 1
    ```
 
-5. **参照を付ける**: `gh variable set STATEMENT_READ_KEY -R "$REPO" -b true`（秘密ではない真偽の切り替えなので repository variable。下の注）→ deploy（`gh workflow run deploy -R "$REPO" --ref main`）を承認します。確かめ: `gcloud run services describe loss-note --region=$L --project="$P" --format=json | jq '[.spec.template.spec.containers[0].env[] | select(.name == "ANTHROPIC_API_KEY") | .valueFrom.secretKeyRef.name] == ["statement-read-anthropic-api-key"]'` → true
+4. **方式を選ぶ**: `gh variable set STATEMENT_READ_CREDENTIAL -R "$REPO" -b <方式>`（秘密ではない切り替えなので repository variable。下の注）→ deploy（`gh workflow run deploy -R "$REPO" --ref main`）を承認します。版の無い入れ物を参照するとインスタンスが起動しないので、`api_key`・`oauth_token` は 3 の後に選びます。`federation` で必須の識別子が無いと plan で止まります
 
-`STATEMENT_READ_KEY` だけは secrets でなく variables に置きます。CI が読む値は secrets に置く決まりですが、値を伏せる必要の無い真偽の切り替えは例外です（secrets にすると Actions のログの `true` がすべて伏せ字になり、plan・検査のログが読めなくなるため）。
+`STATEMENT_READ_CREDENTIAL`・`STATEMENT_READ_KEY` だけは secrets でなく variables に置きます。CI が読む値は secrets に置く決まりですが、値を伏せる必要の無い切り替えは例外です（secrets にすると Actions のログの方式の名前・`true` がすべて伏せ字になり、plan・検査のログが読めなくなるため）。
 
 上限（設計書 8.2）: 利用者ごとに 1 日 30 回、全利用者の合計で 1 日 2.00 USD（日本時間の 0:00 で区切る）。越えると 429 `read_limited`（画面は「今日の読み取りの上限に達しました。手で入れてください。」）。日ごとの計上は Firestore の `statement_read_spend/{YYYY-MM-DD}`（`count`・`microUsd`。1 USD = 1,000,000）と `users/{uid}/statement_read_days/{YYYY-MM-DD}`（`count`）にあり、所有者の資格情報で読めます（中身は日付・回数・金額だけ）。
 
@@ -374,9 +386,10 @@ curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
 
 | 場面 | 手順 |
 |---|---|
-| 読み取りが本番を壊す（起動しない・メモリ超え） | `gh variable delete STATEMENT_READ_KEY -R "$REPO"` → deploy（参照を外す）。それでも駄目なら「切り戻し」 |
-| キーが漏れた疑い | Console でキーを無効にする → `STATEMENT_READ_KEY` を消して deploy → `gcloud secrets versions disable <版> --secret=statement-read-anthropic-api-key --project="$P"`（参照を外した後に。先に無効にするとインスタンスが起動しない）→ 新しいキーで 3〜5 をやり直す |
-| 上限の不具合 | 修正の PR。急ぐときは `STATEMENT_READ_KEY` を消して deploy し、読み取りを止める（記録は手で続けられる） |
+| 読み取りが本番を壊す（起動しない・メモリ超え） | `gh variable delete STATEMENT_READ_CREDENTIAL -R "$REPO"`（あれば `STATEMENT_READ_KEY` も）→ deploy（資格情報を外す）。それでも駄目なら「切り戻し」 |
+| キー・トークンが漏れた疑い | Anthropic Console でキーを無効にする（OAuth トークンは claude.ai の設定で取り消す）→ 方式の variable を消して deploy → `gcloud secrets versions disable <版> --secret=<入れ物> --project="$P"`（参照を外した後に。先に無効にするとインスタンスが起動しない）→ 新しい値で 2〜4 をやり直す |
+| `federation` の交換が通らない | 読み取りは 502 `read_failed`（ログの理由が `identity_token` なら ID トークンの取得、`failed` なら交換・送り先）。Anthropic Console の Workload identity の認証の履歴で拒否の理由を見る。急ぐときは別の方式へ切り替える |
+| 上限の不具合 | 修正の PR。急ぐときは方式の variable を消して deploy し、読み取りを止める（記録は手で続けられる） |
 | 429 が続くのに読み取りの回数が少ない日 | 精算の失敗で予約額（約 0.28 USD）が実額に直らずに残っている。`gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="statement_read_settle"' --project="$P" --freshness=1d --format='value(timestamp)' \| wc -l` で件数を見る（閉じる側の設計どおり。翌日の 0:00 に戻る） |
 
 ## 変更
@@ -392,7 +405,7 @@ curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
 `terraform destroy` 全体は使いません（SA・プール・バケット・Artifact Registry・Web アプリは削除の防止 = `PREVENT` で止まります）。全部をやめるときは次の順で行います。
 
 1. **予算を先に消す**。予算は請求先のリソースなので、プロジェクトを消しても残ります: `$TF -chdir=infra/bootstrap destroy -target=google_billing_budget.monthly`
-2. GitHub の設定を消す: `gh api -X DELETE $R/environments/prod`、`gh secret delete <名前> -R "$REPO"`（7 つ）・`gh variable delete STATEMENT_READ_KEY -R "$REPO"`（あれば）
+2. GitHub の設定を消す: `gh api -X DELETE $R/environments/prod`、`gh secret delete <名前> -R "$REPO"`（7 つ）・`gh variable delete STATEMENT_READ_CREDENTIAL -R "$REPO"`・`gh variable delete STATEMENT_READ_KEY -R "$REPO"`（あれば）と、`federation` の secrets（あれば）
 3. 請求先を外してプロジェクトを消す: `gcloud billing projects unlink "$P"` → `gcloud projects delete "$P"`（30 日の保留の後に消えます。同じ ID は再利用できません）
 
 Identity Platform の有効化と Firebase の追加は、プロジェクトの中では戻せません（戻すにはプロジェクトの削除だけです）。Firestore のデータベースは削除の防止があり、Terraform から外しても消えません（`ABANDON`）。Cloud Run のサービスだけを撤去するときは、`infra/prod/run.tf` を消す PR をマージして deploy を承認します（`deletion_protection = false`。データは Firestore に残ります）。

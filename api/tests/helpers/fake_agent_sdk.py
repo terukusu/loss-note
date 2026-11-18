@@ -1,6 +1,9 @@
 """偽の claude_agent_sdk（Issue #11 の読み取りのテスト用。実際の AI は呼ばない）。
 
 ``install(monkeypatch)`` で ``sys.modules["claude_agent_sdk"]`` に差し込む（monkeypatch が戻すので漏れない）。
+送り口は送る直前にこの process の環境から資格情報の系統の名前を外す（#55）ので、``os.environ`` はテストの間だけ
+写しの dict に差し替える（テストの process の環境を変えない）。``query`` は SDK と同じ重ね方で作った子の環境を
+``calls[*]["child_env"]`` に記録する。
 本物の SDK と同じ名前の部品（``ClaudeAgentOptions``・``HookMatcher``・``create_sdk_mcp_server``・``tool``・
 ``query``）を持ち、共有の送り口（``statement_read.agent_reader``）の配線（MCP のツール 1 本・PreToolUse の
 フック）をそのまま通す。
@@ -26,6 +29,7 @@ import sys
 import types
 
 import anyio
+from statement_read.agent_reader import scrub_process_env, spawn_env
 
 
 class ClaudeAgentOptions:
@@ -106,7 +110,7 @@ class FakeSdk(types.ModuleType):
         return ResultMessage(is_error=is_error, usage=self.result_usage, cost=self.result_cost)
 
     async def _query(self, *, prompt, options):
-        call = {"options": options, "message": None}
+        call = {"options": options, "message": None, "child_env": spawn_env(os.environ, options.env)}
         self.calls.append(call)
         async for m in prompt:  # 最初の user の message を受け取る
             call["message"] = m
@@ -154,4 +158,7 @@ class FakeSdk(types.ModuleType):
 def install(monkeypatch) -> FakeSdk:
     fake = FakeSdk()
     monkeypatch.setitem(sys.modules, "claude_agent_sdk", fake)
+    env = os.environ.copy()
+    scrub_process_env(env)  # 入口（create_app）で外した後の状態から（送り口は名前が残っていると送らない）
+    monkeypatch.setattr(os, "environ", env)
     return fake

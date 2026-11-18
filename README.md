@@ -108,9 +108,12 @@ curl -s -H 'Authorization: Bearer owner' \
 
 | 環境変数 | 中身 |
 |---|---|
-| `STATEMENT_READ_CREDENTIAL` | `api_key`（既定）か `oauth_token`。どちらの資格情報を使うか |
+| `STATEMENT_READ_CREDENTIAL` | `api_key`（既定）・`oauth_token`・`federation` のどれか。どの方式の資格情報を使うか（[`docs/adr-0011-statement-read-credentials.md`](docs/adr-0011-statement-read-credentials.md)） |
 | `ANTHROPIC_API_KEY` | `api_key` のときの Anthropic API のキー |
-| `CLAUDE_CODE_OAUTH_TOKEN` | `oauth_token` のときのトークン（手元の実測だけに使います） |
+| `CLAUDE_CODE_OAUTH_TOKEN` | `oauth_token` のときのトークン（Claude のサブスクの資格情報。本番で使うのはオーナーだけが使う間に限ります） |
+| `ANTHROPIC_FEDERATION_RULE_ID`・`ANTHROPIC_ORGANIZATION_ID`（任意で `ANTHROPIC_SERVICE_ACCOUNT_ID`・`ANTHROPIC_WORKSPACE_ID`） | `federation` のときの Workload Identity Federation の識別子。ID トークンは Google Cloud のメタデータ サーバーから要求ごとに取るので、手元では使えません（本番の Cloud Run 用） |
+
+選んだ方式の変数だけが AI を呼ぶ子のプロセスに渡ります（ほかの方式の変数が環境にあっても渡しません）。
 
 端末 2 の `npm run dev:api` の代わりに、資格情報を環境変数に置いた端末で次を起動します（値は表示しないでください）。
 

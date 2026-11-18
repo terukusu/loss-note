@@ -1616,7 +1616,8 @@ async function measure(page, withTargets, tap) {
         const r = el.getBoundingClientRect();
         // display: contents の親は箱を持たない（子は祖先の並びに入る）ので、箱を持つ祖先と比べる（#47 一覧の 1 行目）
         let parent = el.parentElement;
-        while (parent && getComputedStyle(parent).display === 'contents') parent = parent.parentElement;
+        while (parent && getComputedStyle(parent).display === 'contents')
+          parent = parent.parentElement;
         if (parent) {
           const pr = parent.getBoundingClientRect();
           if (r.left < pr.left - 1 || r.right > pr.right + 1) {

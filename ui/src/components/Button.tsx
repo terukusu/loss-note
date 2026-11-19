@@ -18,7 +18,19 @@ export interface ButtonProps {
   /** 読み上げの説明の要素の id（押せない理由など。aria-describedby） */
   readonly describedBy?: string;
   readonly onClick?: () => void;
+  /** 書きかけの印の点（#75）。読み上げに足す文（例: 「入力の途中あり」）。省けば点を出さない */
+  readonly dot?: string;
   readonly children: ComponentChildren;
+}
+
+/** 書きかけの印の点（見た目は点だけ、読み上げは文。#75） */
+export function DraftDot({ text }: { readonly text: string }) {
+  return (
+    <>
+      <span class="draftdot" aria-hidden="true" />
+      <span class="sr-only">（{text}）</span>
+    </>
+  );
 }
 
 export function buttonClass(p: Pick<ButtonProps, 'variant' | 'size' | 'block'>): string {
@@ -38,6 +50,7 @@ export function Button(p: ButtonProps) {
     <>
       {p.icon ? <Icon name={p.icon} /> : null}
       <span>{p.children}</span>
+      {p.dot ? <DraftDot text={p.dot} /> : null}
     </>
   );
   if (p.href !== undefined) {

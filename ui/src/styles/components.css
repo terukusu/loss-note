@@ -3142,3 +3142,56 @@ summary.settings__subtitle {
 .edit__actions > :last-child {
   flex: 1 1 auto;
 }
+
+/* 書きかけ（#75） */
+/* 印の点: 離れて残している書きかけがある行き先（ナビの [記録する]・詳細の [編集]）。読み上げは隣の文 */
+.draftdot {
+  display: inline-block;
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
+.btn .draftdot {
+  margin-inline-start: calc(var(--sp-1) * -1);
+  align-self: flex-start;
+}
+
+/* 借り直した書きかけの 1 行（見出しの下。前の入力の続き・決済の時刻のまま・[キャンセル] への導き） */
+.draft__resumed {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* 帯の [キャンセル] は幅 720 以上だけ（360 は見出しの右。帯 1 段・文 1 行の #33 を守る） */
+.record__barcancel {
+  display: none;
+}
+
+@media (min-width: 720px) {
+  .record__barcancel {
+    display: contents;
+  }
+}
+
+/* 見出しの右の控えめなボタン: 文字の右端をカードの右端に揃える（当たりの 44px は保つ） */
+.pagehead__actions .btn--ghost:last-child {
+  padding-inline-end: 0;
+}
+
+/* トーストの操作（[元に戻す]・[記録に戻る]）は 8 秒で消えるので、押す所が一目で分かる色にし、本文の左端に揃える */
+.toast .btn--ghost {
+  color: var(--accent);
+  padding-inline-start: 0;
+}
+
+/* 幅 720 未満のトーストは、本文を 1 行目に独りで置き、操作と閉じるは 2 行目（[元に戻す] の左の余白 0 で細くなっても、
+   本文の横に入り込んで並びが崩れない。#75 R4） */
+@media (max-width: 719.98px) {
+  .toast__text {
+    flex-basis: 100%;
+  }
+}

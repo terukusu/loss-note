@@ -148,6 +148,17 @@ body:has(.shell--bare) {
   transition: background-color var(--dur-base) var(--ease);
 }
 
+/* 書きかけの印の点（#75）: アイコンの箱の右上に重ねる */
+.appnav__link {
+  position: relative;
+}
+
+.appnav__link .draftdot {
+  position: absolute;
+  top: calc(50% - 22px);
+  left: calc(50% + 14px);
+}
+
 .appnav__link[aria-current="page"] {
   color: var(--ink);
   font-weight: var(--fw-bold);
@@ -237,11 +248,25 @@ body:has(.shell--bare) {
   pointer-events: auto;
 }
 
+/* 削除の知らせと書きかけの知らせ（#75）は同じ読み上げの領域に縦に並ぶ */
+.toast-region__live {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
 @media (min-width: 720px) {
   .toast-region {
     left: auto;
     right: var(--sp-6);
     bottom: var(--sp-6);
     width: min(420px, calc(100vw - 2 * var(--sp-6)));
+  }
+}
+
+/* 幅 720 以上の横並びの行き先では、印の点は文字の後ろに並べる（#75） */
+@media (min-width: 720px) {
+  .appnav__link .draftdot {
+    position: static;
   }
 }

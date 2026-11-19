@@ -16,6 +16,7 @@ import {
   CHART_PREPARING,
   CHART_SAVE_TIMEOUT_MS,
   createRecordController,
+  enterRecordScreen,
   LOAD_FAILED,
   NETWORK_FAILED,
   READ_BLOCKED,
@@ -1612,6 +1613,80 @@ describe('読み取りの準備（#65 AC-13）', () => {
     c.refreshWarm();
     await settle();
     expect(posts(fake, PREPARE)).toHaveLength(2);
+  });
+
+  it('#75: 書きかけを借り直して画面に戻ったら（読み込み直さず）準備を送る。前に送ってから WARM_REFRESH_MS 未満なら送らない', async () => {
+    const { fake, c, settle, advance } = gatedPrepare();
+    const started = new WeakSet<RecordController>();
+    // 初めて出た: 読み込み（開いたときの準備 1 回）
+    let leave = enterRecordScreen(c, started);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    const reads = () => fake.calls.filter((x) => x.method === 'GET').length;
+    const loaded = reads();
+    leave();
+    // すぐ戻る（60 秒未満）: 送らない・読み込み直さない
+    advance(WARM_REFRESH_MS - 1);
+    leave = enterRecordScreen(c, started);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    expect(reads()).toBe(loaded);
+    leave();
+    // 離れて 60 秒以上たってから戻る: 送る（読み込み直さない）
+    advance(WARM_REFRESH_MS);
+    leave = enterRecordScreen(c, started);
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    await settle();
+    expect(reads()).toBe(loaded);
+    expect(c.getState().phase).toBe('editing');
+    leave();
+  });
+
+  it('#75: 画面の外にいる間は準備を送らない（読み取りが後で返っても）。送れなかった分は戻ったときに間を置かず送る', async () => {
+    const { fake, c, settle, advance } = gatedPrepare([{ status: 200, body: statementBody([]) }]);
+    const started = new WeakSet<RecordController>();
+    const leave = enterRecordScreen(c, started);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    // 読み取りの途中で画面を離れる（書きかけは置き場に残る = dispose しない）
+    const reading = c.readImage(img());
+    leave();
+    await reading;
+    await settle();
+    expect(posts(fake, '/api/statement-reads')).toHaveLength(1);
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    // 画面の外では、見えるようになった合図が来ても（来ない作りだが）時間がたっても送らない
+    advance(WARM_REFRESH_MS * 10);
+    c.refreshWarm();
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    // 戻ったら送る（読み取りが先立てを使ったかもしれない分）
+    const leave2 = enterRecordScreen(c, started);
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    await settle();
+    leave2();
+  });
+
+  it('#75: 画面の外で送れなかった分は、前に送ってから WARM_REFRESH_MS 未満でも戻ったときに送る', async () => {
+    const { fake, c, settle } = gatedPrepare([{ status: 200, body: statementBody([]) }]);
+    const started = new WeakSet<RecordController>();
+    const leave = enterRecordScreen(c, started);
+    await settle();
+    const reading = c.readImage(img());
+    leave();
+    await reading;
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    // 時計を進めずに戻る
+    const leave2 = enterRecordScreen(c, started);
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    await settle();
+    leave2();
+    // 1 回送った後は、60 秒未満の戻りでは送らない（送れなかった分は返した）
+    const leave3 = enterRecordScreen(c, started);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    leave3();
   });
 });
 

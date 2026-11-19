@@ -29,7 +29,6 @@ import {
   infoRefocus,
   infoReveal,
   infoTrail,
-  showsGlossaryLink,
 } from '../lib/info-tip';
 import { Link } from '../lib/router';
 import { GlossaryText } from './GlossaryText';
@@ -59,11 +58,6 @@ export interface InfoTipViewProps {
   readonly popRef?: Ref<HTMLDivElement> | null;
   /** 今の画面のパス（「用語集で見る」の ?from=。用語集の画面の戻るリンクの名前） */
   readonly from?: string | undefined;
-  /**
-   * 末尾の「用語集で見る」を出すか（既定は出す）。入力のある画面（記録する・編集）では出さない（画面を移ると書きかけの欄が
-   * 消えるため。吹き出しの中のたどりで足りる。#57 デザインの再レビュー）
-   */
-  readonly glossaryLink?: boolean;
 }
 
 export function InfoTipView(p: InfoTipViewProps) {
@@ -125,7 +119,7 @@ export function InfoTipView(p: InfoTipViewProps) {
             </ul>
           ) : null}
           {c.example ? <p class="info__example">{c.example}</p> : null}
-          {c.glossary && p.glossaryLink !== false ? (
+          {c.glossary ? (
             <p class="info__more">
               <Link class="info__glossary" href={glossaryHref(c.glossary, p.from)}>
                 用語集で見る
@@ -363,7 +357,6 @@ export function InfoTip(p: InfoTipProps) {
       wrapRef={wrap}
       popRef={pop}
       from={path}
-      glossaryLink={showsGlossaryLink(path ?? '')}
     />
   );
 }

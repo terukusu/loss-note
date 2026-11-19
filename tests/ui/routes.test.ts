@@ -302,3 +302,139 @@ describe('直すの URL（Issue #9。/trades/<id>/edit）', () => {
     );
   });
 });
+
+/** history.state に深さを持つ偽物（#75 の「前の画面」） */
+class DepthBrowser extends FakeBrowser {
+  depths: number[] = [0];
+  override pushState(url: string, depth = 0) {
+    super.pushState(url);
+    this.depths = [...this.depths.slice(0, this.index), depth];
+  }
+  override replaceState(url: string, depth = 0) {
+    super.replaceState(url);
+    this.depths[this.index] = depth;
+  }
+  readDepth() {
+    return this.depths[this.index] ?? 0;
+  }
+}
+
+describe('前の画面へ（nav.back。#75 R1）', () => {
+  it('アプリの中で進んで来た画面があれば戻る（履歴を増やさない）', () => {
+    const b = new DepthBrowser('/trades');
+    const nav = createNavigator(b, PROD);
+    nav.push('/record');
+    expect(b.readDepth()).toBe(1);
+    nav.back('/');
+    expect(b.url).toBe('/trades');
+    expect(nav.current.route).toEqual({ name: 'trades' });
+    expect(nav.current.via).toBe('pop');
+    expect(b.entries).toEqual(['/trades', '/record']);
+  });
+
+  it('URL を直接開いた画面（深さ 0）は fallback へ置き換える（戻るでアプリの外へ出ない）', () => {
+    const b = new DepthBrowser('/record');
+    const nav = createNavigator(b, PROD);
+    nav.back('/');
+    expect(b.entries).toEqual(['/']);
+    expect(nav.current.route).toEqual({ name: 'home' });
+    expect(nav.current.via).toBe('replace');
+    const e = new DepthBrowser('/trades/t1/edit');
+    const nav2 = createNavigator(e, PROD);
+    nav2.back('/trades/t1');
+    expect(e.entries).toEqual(['/trades/t1']);
+  });
+
+  it('置き換えは深さを保つ・深さを持たない履歴は fallback へ置き換える', () => {
+    const b = new DepthBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.push('/trades');
+    nav.replace('/trades?x=1');
+    expect(b.readDepth()).toBe(1);
+    const plain = new FakeBrowser('/trades');
+    const nav2 = createNavigator(plain, PROD);
+    nav2.push('/record');
+    nav2.back('/');
+    expect(plain.entries).toEqual(['/trades', '/']);
+  });
+
+  it('開いて閉じる層の段があれば、巻き戻してから戻る', () => {
+    const b = new DepthBrowser('/trades');
+    let unwound = 0;
+    const nav = createNavigator(b, PROD, {
+      unwind: (done) => {
+        unwound++;
+        done();
+        return true;
+      },
+    });
+    nav.push('/record');
+    nav.back('/');
+    expect(unwound).toBe(1);
+    expect(b.url).toBe('/trades');
+  });
+});
+
+describe('同じ画面への push（#75 B1）', () => {
+  it('今と同じ URL への push は積まずに置き換える → [キャンセル] の back で前の画面へ移る', () => {
+    const b = new DepthBrowser('/trades');
+    const nav = createNavigator(b, PROD);
+    let notified = 0;
+    nav.subscribe(() => notified++);
+    nav.push('/record');
+    nav.push('/record');
+    expect(b.entries).toEqual(['/trades', '/record']);
+    expect(b.readDepth()).toBe(1);
+    nav.back('/');
+    expect(b.url).toBe('/trades');
+    expect(nav.current.route).toEqual({ name: 'trades' });
+    expect(notified).toBe(3);
+  });
+
+  it('検索部分が違えば積む（同じ画面でも別の見方）', () => {
+    const b = new DepthBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.push('/?period=30d');
+    expect(b.entries).toEqual(['/', '/?period=30d']);
+  });
+});
+
+describe('書きかけの印の点（#75 デザイン 1）', () => {
+  it('記録する画面の書きかけを残しているときだけ、行き先の [記録する] に点と読み上げ「入力の途中あり」', () => {
+    const plain = JSON.stringify(Shell({ route: { name: 'home' }, children: null }));
+    expect(plain).not.toContain('入力の途中あり');
+    const marked = JSON.stringify(
+      Shell({ route: { name: 'home' }, children: null, recordDraft: true }),
+    );
+    expect(marked.match(/入力の途中あり/g)).toHaveLength(1);
+  });
+});
+
+describe('同じ画面への push と層・殻への伝え方（#75 R5・R6）', () => {
+  it('R5: 層の段が積まれていれば巻き戻してから置き換える → back で前の画面へ', () => {
+    const b = new DepthBrowser('/trades');
+    let unwound = 0;
+    const nav = createNavigator(b, PROD, {
+      unwind: (done) => {
+        unwound++;
+        done();
+        return true;
+      },
+    });
+    nav.push('/record');
+    expect(unwound).toBe(0);
+    nav.push('/record');
+    expect(unwound).toBe(1);
+    expect(b.entries).toEqual(['/trades', '/record']);
+    nav.back('/');
+    expect(b.url).toBe('/trades');
+  });
+
+  it('R6: 今いる画面のナビを押すと、殻には push（見出しへフォーカス・先頭へスクロール）と伝える', () => {
+    const b = new DepthBrowser('/trades');
+    const nav = createNavigator(b, PROD);
+    nav.push('/trades');
+    expect(nav.current.via).toBe('push');
+    expect(b.entries).toEqual(['/trades']);
+  });
+});

@@ -11,7 +11,8 @@
 // - 要求には時間の上限を置く。保存の要求が時間切れ・通信の失敗になったときは、API に届いて保存された可能性がある。
 //   API に冪等のための ID は無いので、次に押したときはまず取引の一覧を読み、同じ本文の取引があれば
 //   それを保存した取引として扱い、送り直さない（二重に保存しない）
-// - 下書き・取引の値は記憶の中だけ。Web Storage・IndexedDB に触れない（AC-11。画面を離れると入力は消える）
+// - 下書き・取引の値は記憶の中だけ。Web Storage・IndexedDB に触れない（AC-11）。画面を離れても、入力があれば殻の
+//   書きかけの置き場（drafts.ts。#75）がこの controller ごと同じタブの記憶に残す
 // - 決済明細の読み取り（#15）: readImage で画像を描き直して（差し込まれた prepare。DOM はここに来ない）
 //   POST /api/statement-reads に送り、応答の行を下書きに流し込む（statement-fill.ts）。読み取り中も入力でき、
 //   保存の門（gateReading）で読み取り中・時間帯の未確認は保存しない。新しい読み取り・やめた・画面を離れた（dispose）は
@@ -30,7 +31,8 @@
 // - 読み取りの準備（#65・#99 の続き）: warmRead なら、開いたとき・明細の読み取りが API に届いた後（先立ては 1 回で
 //   捨てるので次の 1 枚のために立て直す）・画面に戻ったとき（refreshWarm。前に送ってから WARM_REFRESH_MS 以上）に
 //   POST /api/statement-reads/prepare を送る。重ねて送らない（読み取りの後に送っている間だったら、終わってから 1 回
-//   だけ送り直す）。AI を呼ばず、失敗は画面に出さない。離れた（dispose）後は送らない
+//   だけ送り直す）。AI を呼ばず、失敗は画面に出さない。離れた（dispose）後は送らない。書きかけを残して画面の外に
+//   いる間（setOnScreen(false)。#75）も送らず、そのあいだに送り直せなかった分は戻ったとき（refreshWarm）に間を置かず送る
 
 import {
   type AccountRecord,
@@ -270,6 +272,11 @@ export interface RecordState {
   readonly extras?: readonly ExtraEntry[];
   /** 枠を変えられなかった知らせ（前の保存が届いたか分からない間。黙って捨てない） */
   readonly chartBlocked?: string | null;
+  /**
+   * 空の下書きに戻したときの下書き（開いたとき・次の取引・最後の行のスキップ）。これと違えば「入力がある」（#75 R0。
+   * draft-status.ts）
+   */
+  readonly baseline?: Draft;
 }
 
 export interface RecordController {
@@ -312,8 +319,31 @@ export interface RecordController {
    * （warmRead のときだけ。#99 の続き）
    */
   refreshWarm(): void;
+  /**
+   * 記録する画面に出ている（true）か、書きかけを置き場に残して画面の外にいる（false）か（#75）。画面の外では準備を送らない
+   * （終わっていない読み取りが後で返っても送らない。その分は戻ったときの refreshWarm が間を置かず送る）。既定は true
+   */
+  setOnScreen(on: boolean): void;
   /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる（チャートも捨てる） */
   dispose(): void;
+}
+
+/**
+ * 記録する画面に出た（#75）。初めての controller は読み込む（開いたときの準備を含む）。書きかけを借り直したときは読み込み直さず、
+ * 準備だけを refreshWarm の規則で送る（前に送ってから WARM_REFRESH_MS 以上、または画面の外で送り直せなかった分）。
+ * 返す関数で画面を離れる（以後、戻るまで準備を送らない）。started は読み込みを 1 回にするための印（画面が 1 つ持つ）
+ */
+export function enterRecordScreen(
+  c: RecordController,
+  started: WeakSet<RecordController>,
+): () => void {
+  c.setOnScreen(true);
+  if (started.has(c)) c.refreshWarm();
+  else {
+    started.add(c);
+    void c.load();
+  }
+  return () => c.setOnScreen(false);
 }
 
 /**
@@ -357,6 +387,11 @@ function messageOf(kind: FailureKind): string {
   if (kind === 'auth') return AUTH_EXPIRED;
   if (kind === 'network') return NETWORK_FAILED;
   return SAVE_FAILED;
+}
+
+/** 空の下書きと、それを「入力が無い」の基準にする組（#75） */
+function withBaseline(draft: Draft): { draft: Draft; baseline: Draft } {
+  return { draft, baseline: draft };
 }
 
 export function createRecordController(deps: {
@@ -412,6 +447,9 @@ export function createRecordController(deps: {
   let warmAgain = false;
   let warmSentAt: number | null = null;
   let disposed = false;
+  let onScreen = true;
+  /** 画面の外にいて送り直せなかった（戻ったら WARM_REFRESH_MS を待たずに送る。#75） */
+  let warmMissed = false;
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -506,12 +544,17 @@ export function createRecordController(deps: {
    */
   const warm = (again = false) => {
     if (!deps.warmRead || disposed) return;
+    if (!onScreen) {
+      if (again) warmMissed = true;
+      return;
+    }
     if (warmInflight) {
       if (again) warmAgain = true;
       return;
     }
     warmInflight = true;
     warmAgain = false;
+    warmMissed = false;
     warmSentAt = now();
     void request(READ_PREPARE_PATH, { method: 'POST' }, { ms: READ_PREPARE_TIMEOUT_MS })
       .catch(() => undefined)
@@ -544,7 +587,7 @@ export function createRecordController(deps: {
         phase: 'editing',
         instruments: i.items,
         accounts,
-        draft: applyDraft(EMPTY_DRAFT, { type: 'reset', values: defaults }),
+        ...withBaseline(applyDraft(EMPTY_DRAFT, { type: 'reset', values: defaults })),
         error: null,
       });
     } catch (e) {
@@ -865,10 +908,12 @@ export function createRecordController(deps: {
       {
         phase: 'editing',
         error: null,
-        draft: applyDraft(EMPTY_DRAFT, {
-          type: 'reset',
-          values: { ...defaults, exitTime: toLocalInput(floorToMinute(now())) },
-        }),
+        ...withBaseline(
+          applyDraft(EMPTY_DRAFT, {
+            type: 'reset',
+            values: { ...defaults, exitTime: toLocalInput(floorToMinute(now())) },
+          }),
+        ),
       },
       true,
     );
@@ -1244,10 +1289,12 @@ export function createRecordController(deps: {
       clearCharts();
       set({
         error: null,
-        draft: applyDraft(EMPTY_DRAFT, {
-          type: 'reset',
-          values: { ...defaults, exitTime: toLocalInput(floorToMinute(now())) },
-        }),
+        ...withBaseline(
+          applyDraft(EMPTY_DRAFT, {
+            type: 'reset',
+            values: { ...defaults, exitTime: toLocalInput(floorToMinute(now())) },
+          }),
+        ),
         statement: {
           phase: 'done',
           rows: [],
@@ -1260,8 +1307,11 @@ export function createRecordController(deps: {
       });
     },
     refreshWarm() {
-      if (warmSentAt !== null && now() - warmSentAt < WARM_REFRESH_MS) return;
+      if (!warmMissed && warmSentAt !== null && now() - warmSentAt < WARM_REFRESH_MS) return;
       warm();
+    },
+    setOnScreen(on) {
+      onScreen = on;
     },
     dispose() {
       disposed = true;

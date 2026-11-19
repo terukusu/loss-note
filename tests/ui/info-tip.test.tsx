@@ -16,7 +16,6 @@ import {
   infoRefocus,
   infoReveal,
   infoTrail,
-  showsGlossaryLink,
 } from '../../ui/src/lib/info-tip';
 import { Link } from '../../ui/src/lib/router';
 import { STATEMENT_NOTICE_MORE } from '../../ui/src/pages/Record';
@@ -384,13 +383,14 @@ describe('InfoTipView（描く中身）', () => {
     }
   });
 
-  it('入力のある画面（記録する・編集）では「用語集で見る」を出さない', () => {
-    for (const p of ['/record', '/record/', '/trades/t1/edit'])
-      expect(showsGlossaryLink(p)).toBe(false);
-    for (const p of ['/trades/t1', '/', '/dev/parts', '/trades'])
-      expect(showsGlossaryLink(p)).toBe(true);
-    const t = tree(true, { glossaryLink: false });
-    expect(all(t, hasClass('info__glossary'))).toEqual([]);
+  it('入力のある画面（記録する・編集）でも「用語集で見る」を出す（書きかけは画面を移っても残る。#75 AC-8）', () => {
+    for (const from of ['/record', '/trades/t1/edit', '/trades/t1']) {
+      const links = all(tree(true, { from }), hasClass('info__glossary'));
+      expect(links).toHaveLength(1);
+      expect((links[0] as El).props.href).toBe(
+        `/glossary?from=${encodeURIComponent(from)}#glossary-judgment`,
+      );
+    }
   });
 
   it('「用語集で見る」は来た画面のパスを ?from= に持つ', () => {

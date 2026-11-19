@@ -37,6 +37,8 @@ export interface DeletionsDeps {
   readonly setTimer: (fn: () => void, ms: number) => TimerId;
   readonly clearTimer: (id: TimerId) => void;
   readonly undoMs?: number;
+  /** 削除が確定した（204 / 404）。殻がその取引の編集の書きかけを捨てる（#75 N1） */
+  readonly onDeleted?: (id: string) => void;
 }
 
 export interface Deletions {
@@ -104,7 +106,10 @@ export function createDeletions(deps: DeletionsDeps): Deletions {
     } catch {
       ok = false;
     }
-    if (ok) return;
+    if (ok) {
+      deps.onDeleted?.(id);
+      return;
+    }
     // 失敗の知らせは別に出す（今の [元に戻す] のトースト = 次に消した取引のものは残す）
     set({ hidden: without(id), failed: true });
   };

@@ -1184,6 +1184,9 @@ async function installFakeApi(context, opts = {}) {
 }
 
 /** 記録する画面を開き、入力の欄が出るまで待つ */
+/** 開いたページで出たダイアログの種類（beforeunload を受けた数を DR1 が見る。#75） */
+const dialogsSeen = [];
+
 async function openRecord(page, base) {
   await page.goto(`${base}/record`);
   await waitReady(page, '記録する');
@@ -2845,6 +2848,20 @@ async function main() {
   let browser;
   try {
     browser = await chromium.launch();
+    // 書きかけがある間のタブを閉じる・再読み込み・移動の確認（beforeunload。#75 R8）は受けて進む（ほかのダイアログは
+    // 今までどおり閉じる）。数は dialogsSeen に積む（DR1 が見る）
+    const newContext = browser.newContext.bind(browser);
+    browser.newContext = async (o) => {
+      const ctx = await newContext(o);
+      ctx.on('page', (pg) =>
+        pg.on('dialog', (d) => {
+          dialogsSeen.push(d.type());
+          if (d.type() === 'beforeunload') d.accept().catch(() => {});
+          else d.dismiss().catch(() => {});
+        }),
+      );
+      return ctx;
+    };
   } catch (e) {
     await server.close();
     console.error(
@@ -3712,7 +3729,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
+        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -5872,12 +5889,11 @@ async function runFlows(browser, base, signedIn) {
       await p.goForward();
       await waitReady(p, '記録する');
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
-      // 入力のある画面（記録する・編集）では「用語集で見る」を出さない（画面を移ると書きかけの欄が消えるため。
-      // 吹き出しの中のたどりで足りる。#57 デザインの再レビューの懸念）
+      // 記録する画面でも「用語集で見る」を出す（書きかけは画面を移っても残る。#75 R9。移って戻るは DR1）
       await openInfo(p, '「時間足を変えたか」の説明');
       expectEq(
         await p.locator('.info__pop .info__glossary').count(),
-        0,
+        1,
         '記録する画面の「用語集で見る」',
       );
       await p.keyboard.press('Escape');
@@ -5930,7 +5946,263 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return '判定 → LC → 1R → R と 3 段たどる（履歴 +4）→ 戻るで 1R → LC → 判定 → 閉じる（記録する画面・下書きのまま）→ 次の戻るでホーム。[‹ 前の説明]・Esc でも 1 つずつ。記録する画面には「用語集で見る」を出さない。詳細の「用語集で見る」で用語集の項目 → 戻るで詳細（auto）、用語集の中で 2 回たどってから「‹ 取引の詳細」で 1 回で詳細';
+    return '判定 → LC → 1R → R と 3 段たどる（履歴 +4）→ 戻るで 1R → LC → 判定 → 閉じる（記録する画面・下書きのまま）→ 次の戻るでホーム。[‹ 前の説明]・Esc でも 1 つずつ。記録する画面にも「用語集で見る」がある。詳細の「用語集で見る」で用語集の項目 → 戻るで詳細（auto）、用語集の中で 2 回たどってから「‹ 取引の詳細」で 1 回で詳細';
+  });
+
+  // DR1（#75）: 記録する画面の書きかけ。入力 → 「用語集で見る」で用語集へ（「記録の入力は残っています」）→ 戻ると同じ値。
+  // [キャンセル] は見出しの右・360 で横スクロール 0・当たり 44 以上。押すと前の画面（一覧）+「記録の入力を破棄しました」と
+  // [元に戻す]（フォーカス）→ 押すと記録する画面に同じ値。入力が無い [キャンセル] はトーストなしで一覧へ。
+  // 入力がある間の再読み込みだけブラウザの確認（beforeunload）
+  await check('DR1', async () => {
+    const { c, p, errors } = await recordContext();
+    const toast = (t) => p.locator('.toast', { hasText: t });
+    const cancel = p.locator('.pagehead__actions button[aria-label="記録をキャンセル"]');
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引の一覧');
+      await p.locator('.appnav a[href="/record"]').click();
+      await waitReady(p, '記録する');
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      await p.locator('#record-entry').fill('100.5');
+      // [キャンセル] は見出しの右（下の帯は 1 段・文 1 行のまま。#33）・横スクロール・当たり
+      const bar = await p.evaluate(() => {
+        const cancelBtn = document.querySelector('button[aria-label="記録をキャンセル"]');
+        const cr = cancelBtn?.getBoundingClientRect();
+        return {
+          inHead: !!cancelBtn?.closest('.pagehead__actions'),
+          inBar: !!cancelBtn?.closest('.record__submit'),
+          h: cr ? Math.min(cr.height, cr.width) : 0,
+          over: document.documentElement.scrollWidth - window.innerWidth,
+        };
+      });
+      expectEq(bar.inHead && !bar.inBar, true, '[キャンセル] は見出しの右');
+      expectEq(bar.h >= 44, true, '[キャンセル] の当たり 44 以上');
+      expectEq(bar.over <= 0, true, '360 の横スクロール 0');
+      if (opts.shots) await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-bar.png') });
+      // 「用語集で見る」で移って戻る → 書きかけが残る
+      await openInfo(p, '「時間足を変えたか」の説明');
+      await p.locator('.info__pop .info__glossary').click();
+      await waitReady(p, '用語集');
+      await toast('記録の入力は残っています').waitFor({ timeout: 5000 });
+      if (opts.shots) await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-kept.png') });
+      await p.goBack();
+      await waitReady(p, '記録する');
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      expectEq(await p.locator('#record-entry').inputValue(), '100.5', '戻った後の下書き');
+      // 今いる画面のナビ（[記録する]）を押す: 履歴を積まず、見出しへフォーカス（#75 B1・R6）。下書きはそのまま
+      const histLen = await p.evaluate(() => history.length);
+      await p.locator('.appnav a[href="/record"]').click();
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.tagName)) === 'H1',
+        '今いる画面のナビで見出しへフォーカス',
+      );
+      expectEq(await p.evaluate(() => history.length), histLen, '今いる画面のナビで履歴を積まない');
+      expectEq(await p.locator('#record-entry').inputValue(), '100.5', 'ナビの後の下書き');
+      // [キャンセル] → 一覧 + 破棄のトースト・[元に戻す] にフォーカス → 押すと同じ値
+      await cancel.click();
+      await waitReady(p, '取引の一覧');
+      await toast('記録の入力を破棄しました').waitFor({ timeout: 5000 });
+      await expectPollAsync(
+        async () => (await p.evaluate(() => document.activeElement?.id)) === 'toast-draft-undo',
+        '[元に戻す] にフォーカス',
+      );
+      if (opts.shots)
+        await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-discarded.png') });
+      await p.locator('#toast-draft-undo').click();
+      await waitReady(p, '記録する');
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      expectEq(await p.locator('#record-entry').inputValue(), '100.5', '[元に戻す] の後の下書き');
+      // 再読み込みは確認（beforeunload）を受けて進む
+      const before = dialogsSeen.filter((t) => t === 'beforeunload').length;
+      await p.reload();
+      await waitReady(p, '記録する');
+      expectEq(
+        dialogsSeen.filter((t) => t === 'beforeunload').length,
+        before + 1,
+        '入力がある再読み込みの確認',
+      );
+      // 再読み込みで書きかけは消える（記憶の中だけ）→ 入力が無い [キャンセル] はトーストなしで前の画面（一覧）
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      expectEq(await p.locator('#record-entry').inputValue(), '', '再読み込みの後');
+      await cancel.click();
+      await waitReady(p, '取引の一覧');
+      expectEq(await p.locator('.toast').count(), 0, '入力が無いキャンセルのトースト');
+      // URL を直接開いた記録する画面（アプリの中の前の画面が無い）の [キャンセル] はホームへ置き換える
+      await p.goto(`${base}/record`);
+      await waitReady(p, '記録する');
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      await cancel.click();
+      await waitReady(p, 'ホーム');
+      expectEq(await p.locator('.toast').count(), 0, '入力が無いキャンセルのトースト');
+      const quiet = dialogsSeen.filter((t) => t === 'beforeunload').length;
+      await p.reload();
+      await waitReady(p, 'ホーム');
+      expectEq(
+        dialogsSeen.filter((t) => t === 'beforeunload').length,
+        quiet,
+        '入力が無い再読み込み',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '入力 → 用語集へ（残っています）→ 戻ると同じ値。[キャンセル] は見出しの右・当たり 44 以上・360 で横スクロール 0。押すと一覧 + 破棄のトースト（[元に戻す] にフォーカス）→ [元に戻す] で同じ値。入力がある再読み込みだけ beforeunload の確認、入力が無い [キャンセル] はトーストなしで一覧・URL を直接開いたときはホーム';
+  });
+
+  // DR2（#75 レビュー後）: 書きかけの知らせと戻った後の画面を 360 / 1440 × ダーク / ライトで測って撮る。記録: 入力して離れる
+  // （「残っています」・ナビの印の点）→ 戻る（見出しの下の「前の入力の続きです」）→ 見出しの [キャンセル]（破棄のトースト。
+  // 1440 は帯の [キャンセル] も見える・360 は帯に出さない）→ 入力の無い [キャンセル]（トーストなし）。編集: 変更して離れる
+  // （取引の名前つきの「残っています」）→ 詳細の [編集] の印の点 → 戻る（「前の変更の続きです」）→ [キャンセル]（破棄のトースト）
+  await check('DR2', async () => {
+    const out = [];
+    for (const theme of THEMES)
+      for (const [w, hgt] of [
+        [360, 780],
+        [1440, 900],
+      ]) {
+        const c = await browser.newContext({
+          viewport: { width: w, height: hgt },
+          storageState: signedIn,
+        });
+        try {
+          await setupContext(c, theme);
+          await installFakeApi(c);
+          const p = await c.newPage();
+          const errors = [];
+          p.on('pageerror', (e) => errors.push(e.message));
+          const toast = (t) => p.locator('.toast', { hasText: t });
+          const shot = async (name) => {
+            const over = await p.evaluate(
+              () => document.documentElement.scrollWidth - window.innerWidth,
+            );
+            expectEq(over <= 0, true, `${w} ${theme} ${name} の横スクロール`);
+            if (opts.shots)
+              await p.screenshot({
+                path: join(opts.shots, `${w}x${hgt}-${theme}-dr2-${name}.png`),
+              });
+          };
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引の一覧');
+          await p.locator('.appnav a[href="/record"]').click();
+          await waitReady(p, '記録する');
+          await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+          await p.locator('#record-entry').fill('100.5');
+          await p.locator('.appnav a[href="/trades"]').click();
+          await waitReady(p, '取引の一覧');
+          await toast('記録の入力は残っています').waitFor({ timeout: 5000 });
+          expectEq(
+            await p.locator('.appnav a[href="/record"] .draftdot').count(),
+            1,
+            'ナビの印の点',
+          );
+          await shot('kept');
+          await p.locator('.appnav a[href="/record"]').click();
+          await waitReady(p, '記録する');
+          await p
+            .locator('#record-resumed', { hasText: '前の入力の続きです' })
+            .waitFor({ timeout: 5000 });
+          expectEq(await p.locator('#record-entry').inputValue(), '100.5', '戻った後の下書き');
+          expectEq(
+            await p.locator('.appnav a[href="/record"] .draftdot').count(),
+            0,
+            '戻った後の印',
+          );
+          expectEq(
+            await p.locator('.record__barcancel button').isVisible(),
+            w >= 720,
+            '帯の [キャンセル]（720 以上だけ）',
+          );
+          await shot('restored');
+          await p.locator('.pagehead__actions button[aria-label="記録をキャンセル"]').click();
+          await waitReady(p, '取引の一覧');
+          await toast('記録の入力を破棄しました').waitFor({ timeout: 5000 });
+          await shot('discarded');
+          await p.locator('.toast button[aria-label="通知を閉じる"]').first().click();
+          await p.locator('.appnav a[href="/record"]').click();
+          await waitReady(p, '記録する');
+          await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+          expectEq(await p.locator('#record-resumed').count(), 0, '捨てた後は続きの 1 行なし');
+          await p.locator('.pagehead__actions button[aria-label="記録をキャンセル"]').click();
+          await waitReady(p, '取引の一覧');
+          await p.waitForTimeout(200);
+          expectEq(await p.locator('.toast').count(), 0, '入力の無い [キャンセル] のトースト');
+          await shot('empty-cancel');
+          // 編集
+          await p.goto(`${base}/trades/x-e1`);
+          await waitReady(p, '取引の詳細');
+          await p.locator('a[href="/trades/x-e1/edit"]').click();
+          await waitReady(p, '取引を編集');
+          await p.locator('#edit-submit').waitFor({ state: 'visible', timeout: 15000 });
+          const ex = await p.locator('#record-exit').inputValue();
+          await p.locator('#record-exit').fill(`${ex}1`);
+          await p.locator('.appnav a[href="/trades"]').click();
+          await waitReady(p, '取引の一覧');
+          await toast('の編集の変更は残っています').waitFor({ timeout: 5000 });
+          await shot('edit-kept');
+          await p.goBack();
+          await waitReady(p, '取引を編集');
+          await p.goBack();
+          await waitReady(p, '取引の詳細');
+          // 印は離れた画面（編集）の後始末で付くので、出るのを待つ
+          await p
+            .locator('a[href="/trades/x-e1/edit"] .draftdot')
+            .waitFor({ state: 'attached', timeout: 5000 });
+          expectEq(
+            await p.locator('a[href="/trades/x-e1/edit"] .draftdot').count(),
+            1,
+            '[編集] の印の点',
+          );
+          await shot('detail-dot');
+          await p.locator('a[href="/trades/x-e1/edit"]').click();
+          await waitReady(p, '取引を編集');
+          await p
+            .locator('.draft__resumed', { hasText: '前の変更の続きです' })
+            .waitFor({ timeout: 5000 });
+          expectEq(await p.locator('#record-exit').inputValue(), `${ex}1`, '戻った後の編集');
+          await p.locator('button[aria-label="編集をキャンセル"]').click();
+          await waitReady(p, '取引の詳細');
+          await toast('の編集の変更を破棄しました').waitFor({ timeout: 5000 });
+          await shot('edit-discarded');
+          expectEq(errors.length, 0, 'ページのエラー');
+          out.push(`${w}-${theme}`);
+        } finally {
+          await c.close();
+        }
+      }
+    // N6: 入力したままログアウト → ログイン → 記録する画面は既定（書きかけは捨てる・印も無い）
+    const { c, p, errors } = await recordContext();
+    try {
+      await p.goto(`${base}/record`);
+      await waitReady(p, '記録する');
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      await p.locator('#record-entry').fill('100.5');
+      await p.locator('.appnav a[href="/settings"]').click();
+      await waitReady(p, '設定');
+      expectEq(
+        await p.locator('.appnav a[href="/record"] .draftdot').count(),
+        1,
+        'ログアウト前の印',
+      );
+      await p.getByRole('button', { name: 'ログアウト' }).click();
+      await waitReady(p, 'ログイン');
+      await loginViaPopup(p);
+      await waitReady(p, 'ホーム');
+      expectEq(
+        await p.locator('.appnav a[href="/record"] .draftdot').count(),
+        0,
+        'ログインの後の印',
+      );
+      await p.locator('.appnav a[href="/record"]').click();
+      await waitReady(p, '記録する');
+      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      expectEq(await p.locator('#record-entry').inputValue(), '', 'ログインの後の下書き');
+      expectEq(await p.locator('#record-resumed').count(), 0, 'ログインの後の続きの 1 行');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return `${out.join('・')}: 残っています（ナビの点）→ 戻る（続きの 1 行・帯の [キャンセル] は 720 以上だけ）→ 破棄 → 入力なしの [キャンセル] はトーストなし。編集: 取引の名前つきの残っています → 詳細の [編集] の点 → 続きの 1 行 → 破棄。入力したままログアウト → ログイン → 既定の下書き`;
   });
 
   // GL2（#76）: 用語集の画面。設定から開く・文の中の言葉で 3 回たどり、戻るで 1 つずつ前の項目・最後に設定へ。

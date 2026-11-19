@@ -11,7 +11,7 @@
 // 欄の名前は判定の枠の案内に出す。タップの後に判定が出ていれば、判定の枠を見える範囲へ寄せる（フォーカスは動かさない）
 // 口座（Issue #47 PR-1）: 口座が 2 つ以上なら「取引」の先頭に口座の欄と、判定の枠に「口座 A の資金 … に対して」の 1 行。
 // 「取引」の見出しの行の右端の [＋ 口座を足す] で、その場で名前と資金だけで足せる（設定の画面に移らない）
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { Side, Timeframe } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
 import {
@@ -45,9 +45,19 @@ import {
   isMainSlot,
 } from '../lib/charts';
 import { currencyView } from '../lib/currency';
+import {
+  exitTimeKept,
+  recordDraftImages,
+  recordDraftStatus,
+  resumedAfter,
+  resumedNote,
+} from '../lib/draft-status';
+import { recordKey } from '../lib/drafts';
+import { DraftsContext } from '../lib/drafts-context';
 import { formatPrice } from '../lib/format';
 import {
   createRecordController,
+  enterRecordScreen,
   type RecordController,
   type RecordState,
   watchVisible,
@@ -66,36 +76,120 @@ import { blockReason, isTapAction, submitStatus } from '../lib/verdict-notes';
 export function Record() {
   return (
     <>
-      <PageHeader title="記録する" />
+      <PageHeader title="記録する" actions={<RecordCancel />} />
       <RecordScreen />
     </>
   );
 }
 
-/** controller を作って購読する（画面を開くたびに作り直す。下書きは画面を離れると消える） */
-export function RecordScreen() {
-  const controller = useMemo<RecordController>(
-    () =>
-      createRecordController({
-        api,
-        now: () => Date.now(),
-        prepare: (file) => prepareImage(file, browserCodec),
-        warmRead: true,
-      }),
-    [],
+/** 読み込みを始めた controller（見出しと画面の両方が置き場から借りるので、読み込みは 1 回だけ。借り直しでは読み込まない） */
+const started = new WeakSet<RecordController>();
+
+/** 置き場（殻の drafts.ts。#75）から記録する画面の controller を借りる。見出しの [キャンセル] と画面が同じものを借りる */
+function useRecordDraft(): { controller: RecordController; resumedAt: number | null } | null {
+  const ctx = useContext(DraftsContext);
+  return useMemo(() => {
+    if (!ctx) return null;
+    const got = ctx.drafts.acquire<RecordController>(
+      recordKey(),
+      () => {
+        const c = createScreenController();
+        return {
+          controller: c,
+          kind: 'record',
+          href: '/record',
+          status: () => recordDraftStatus(c.getState()),
+          subscribe: (fn) => c.subscribe(() => fn()),
+          images: () => recordDraftImages(c.getState()),
+          stop: () => c.cancelRead(),
+          dispose: () => c.dispose(),
+        };
+      },
+      // 離れている間に保存し終えた結果は、戻ったときに 1 度見せる（次に離れたら捨てる）
+      { reuseDone: true },
+    );
+    return { controller: got.controller, resumedAt: got.resumedAt };
+  }, [ctx]);
+}
+
+function createScreenController(): RecordController {
+  return createRecordController({
+    api,
+    now: () => Date.now(),
+    prepare: (file) => prepareImage(file, browserCodec),
+    warmRead: true,
+  });
+}
+
+/** controller の保存中かを購読する（[キャンセル] は保存中は押せない。R4） */
+function useSaving(c: RecordController | undefined): boolean {
+  const [saving, setSaving] = useState(c?.getState().phase === 'saving');
+  useEffect(() => c?.subscribe((s) => setSaving(s.phase === 'saving')), [c]);
+  return saving;
+}
+
+/**
+ * 見出しの右の [キャンセル]（#75）。下の帯は 1 段・文 1 行（#33）で 360px に入らないので、フォームの標準の置き場（見出しの右）に
+ * 置く（幅 720 以上は帯の [記録する] の左にも出す）。最初の描画から出す（置き場から借りる。#75 N7）。置き場が無い（テストで
+ * 画面だけ）なら出さない
+ */
+export function RecordCancel() {
+  const ctx = useContext(DraftsContext);
+  const draft = useRecordDraft();
+  const saving = useSaving(draft?.controller);
+  if (!ctx || !draft) return null;
+  return <RecordCancelView saving={saving} onCancel={() => ctx.cancel(recordKey(), '/')} />;
+}
+
+export function RecordCancelView(p: {
+  readonly saving: boolean;
+  readonly onCancel: () => void;
+  /** 帯の中の [キャンセル]（幅 720 以上だけ出す） */
+  readonly inBar?: boolean;
+}) {
+  const btn = (
+    <Button variant="ghost" label="記録をキャンセル" disabled={p.saving} onClick={p.onCancel}>
+      キャンセル
+    </Button>
   );
+  return p.inBar ? <span class="record__barcancel">{btn}</span> : btn;
+}
+
+/**
+ * controller を書きかけの置き場から借りて購読する。入力があるまま離れた書きかけは置き場に残り、戻ると借り直す（読み込み直さない）。
+ * 置き場が無い（テストで画面だけを描く）ときは開くたびに作り、離れると捨てる
+ */
+export function RecordScreen() {
+  const ctx = useContext(DraftsContext);
+  const draft = useRecordDraft();
+  const own = useMemo(() => (draft ? null : createScreenController()), [draft]);
+  const controller = draft?.controller ?? (own as RecordController);
   const [state, setState] = useState<RecordState>(controller.getState());
+  // 続きの 1 行は保存し終えたら出さない（次の取引の空の下書きは前の入力の続きではない。#75 R2）
+  const [resumedAt, setResumedAt] = useState(() =>
+    resumedAfter(draft?.resumedAt ?? null, controller.getState().phase),
+  );
   const prevPhase = useRef(state.phase);
 
   useEffect(() => {
-    const off = controller.subscribe(setState);
-    void controller.load();
-    return off;
-  }, [controller]);
+    const off = controller.subscribe((s) => {
+      setState(s);
+      setResumedAt((cur) => resumedAfter(cur, s.phase));
+    });
+    // 初めてなら読み込む。借り直しは読み込み直さず、読み取りの準備だけ送り直す（#75・#99 の続き）
+    const leave = enterRecordScreen(controller, started);
+    return () => {
+      off();
+      leave();
+      // 画面を離れた: 置き場があれば返す（入力があれば残る）。無ければ捨てる（読み取りを止め、画像を閉じる）
+      if (ctx) ctx.drafts.release(recordKey(), controller);
+      else controller.dispose();
+    };
+  }, [controller, ctx]);
 
   // 画像の貼り付けは文字の欄の外ならどこでも受ける（画像があるときだけ横取りする）。文字の欄に貼ったときは、
   // 画像を含んでいても横取りせず普通の貼り付けに任せる（表計算のコピーは文字と画像の両方を持つ。R1）。
-  // 画面を離れたら読み取りを止め、画像と残りの行を捨てる
+  // 貼り付けを受けるのはこの画面にいる間だけ（書きかけの後始末は上の購読の後始末）
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
       const file = imageFileFromClipboard(e.clipboardData?.items, e.target as PasteTarget | null);
@@ -114,10 +208,10 @@ export function RecordScreen() {
       () => controller.refreshWarm(),
     );
     document.addEventListener('paste', onPaste);
+    // 離れても controller は捨てない（書きかけは置き場に残す。捨てるのは置き場。#75）
     return () => {
       document.removeEventListener('paste', onPaste);
       unwatch();
-      controller.dispose();
     };
   }, [controller]);
 
@@ -197,6 +291,8 @@ export function RecordScreen() {
         void controller.save();
       }}
       onNext={controller.next}
+      {...(ctx ? { onCancel: () => ctx.cancel(recordKey(), '/') } : {})}
+      resumedAt={resumedAt}
       onReload={() => {
         void controller.load();
       }}
@@ -264,6 +360,12 @@ export interface RecordViewProps {
   readonly onUpdate: (action: DraftAction) => void;
   readonly onSave: () => void;
   readonly onNext: () => void;
+  /** [キャンセル]（#75）。帯の [記録する] の左に出す（幅 720 以上だけ。360 は見出しの右）。省けば出さない */
+  readonly onCancel?: () => void;
+  /** 離れていた書きかけを借り直した: 離れた時刻（見出しの下の「前の入力の続きです」。#75 デザイン 1）。省けば出さない */
+  readonly resumedAt?: number | null;
+  /** 今の時刻（「N 分前」。省けば Date.now） */
+  readonly now?: number;
   readonly onReload: () => void;
   /** ログインが切れたとき: もう一度ログイン */
   readonly onRelogin: () => void;
@@ -293,6 +395,8 @@ export interface RecordViewProps {
 }
 
 const FIRST_FIELD_ID = 'record-instrument';
+/** 借り直した書きかけの 1 行（#75） */
+export const RESUMED_ID = 'record-resumed';
 const SUBMIT_ID = 'record-submit';
 const STATEMENT_FILE_ID = 'record-statement-file';
 const STATEMENT_NOTICE_ID = 'record-statement-notice';
@@ -457,6 +561,12 @@ function RecordForm(p: RecordViewProps) {
       <fieldset class="record__fields" disabled={saving}>
         <legend class="sr-only">取引の記録</legend>
 
+        {p.resumedAt != null ? (
+          <p class="draft__resumed" id={RESUMED_ID}>
+            {resumedNote('record', p.resumedAt, p.now ?? Date.now(), exitTimeKept(state))}
+          </p>
+        ) : null}
+
         <StatementPanel {...p} />
 
         <TradeMainFields
@@ -563,6 +673,7 @@ function RecordForm(p: RecordViewProps) {
         <p class="record__status" aria-live="polite">
           {submitStatus(read, errorLabels)}
         </p>
+        {p.onCancel ? <RecordCancelView saving={saving} onCancel={p.onCancel} inBar /> : null}
         <Button
           type="submit"
           id={SUBMIT_ID}

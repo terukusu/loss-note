@@ -3,11 +3,15 @@
 // 次に消した取引の [元に戻す] を置き換えない。読み上げの領域（aria-live）は常に置き、中身だけを入れ替える。
 // フォーカス・ポインタがある間は取り消しの時間を止める（WCAG 2.2.1）。ダイアログにしない（確認を挟まない）。hook を持たない
 import { TOAST_TEXT, type ToastState } from '../lib/deletions';
+import { DRAFT_TOAST_TEXT, type DraftToast } from '../lib/drafts';
 import { Button } from './Button';
 import { Icon } from './Icon';
 
 /** [消す] の後にフォーカスを移す先 */
 export const TOAST_UNDO_ID = 'toast-undo';
+
+/** 書きかけを破棄した後にフォーカスを移す先（[元に戻す]。#75） */
+export const DRAFT_UNDO_ID = 'toast-draft-undo';
 
 export interface ToastProps {
   readonly toast: ToastState;
@@ -17,6 +21,39 @@ export interface ToastProps {
   readonly onDismissFailed: () => void;
   readonly onHold: () => void;
   readonly onResume: () => void;
+  /** 書きかけの知らせ（#75。破棄 = [元に戻す]、残っています = [記録に戻る] / [編集に戻る]）。省けば出さない */
+  readonly draft?: DraftToast;
+  readonly onDraftAction?: () => void;
+  readonly onDraftDismiss?: () => void;
+  readonly onDraftHold?: () => void;
+  readonly onDraftResume?: () => void;
+}
+
+/** 書きかけの知らせの中身（hook を持たない） */
+function DraftToastBody(p: ToastProps) {
+  const d = p.draft;
+  if (!d) return null;
+  const discarded = d.type === 'discarded';
+  return (
+    <div
+      class="toast"
+      onFocusIn={p.onDraftHold}
+      onFocusOut={p.onDraftResume}
+      onPointerEnter={p.onDraftHold}
+      onPointerLeave={p.onDraftResume}
+    >
+      <p class="toast__text">{d.text}</p>
+      <Button
+        {...(discarded ? { id: DRAFT_UNDO_ID, label: DRAFT_TOAST_TEXT.undoName[d.kind] } : {})}
+        variant="ghost"
+        icon={discarded ? 'undo' : 'back'}
+        onClick={() => p.onDraftAction?.()}
+      >
+        {discarded ? '元に戻す' : DRAFT_TOAST_TEXT.back[d.kind]}
+      </Button>
+      <CloseButton onClick={() => p.onDraftDismiss?.()} />
+    </div>
+  );
 }
 
 function CloseButton({ onClick }: { readonly onClick: () => void }) {
@@ -47,6 +84,8 @@ export function Toast(p: ToastProps) {
             <CloseButton onClick={p.onDismiss} />
           </div>
         ) : null}
+        {/* 書きかけの知らせも同じ読み上げの領域に（#75。削除の知らせと並ぶ） */}
+        <DraftToastBody {...p} />
       </div>
       {p.failed ? (
         <div class="toast toast--error" role="alert">

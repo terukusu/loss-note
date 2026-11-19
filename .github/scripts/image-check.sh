@@ -65,13 +65,16 @@ found=$(docker run --rm --entrypoint sh "$img" -c '
     -o -name "conftest.py" \) -print 2>/dev/null
   true')
 [ -z "$found" ] || fail "イメージに入れてはいけないものがある: $(printf '%s\n' "$found" | wc -l) 件"$'\n'"$found"
-# /app は同梱の dist（static）だけ。static は index.html と assets/ と直下のアイコン 3 つ（ui/public/。#52）だけ
+# /app は同梱の dist（static）だけ。static は index.html と assets/ と直下のアイコン 3 つ（ui/public/。#52）と
+# manifest・そのアイコン 4 つ（#77）だけ
 top=$(docker run --rm --entrypoint ls "$img" -A /app | tr '\n' ' ')
 [ "$top" = "static " ] || fail "/app に static 以外がある: ${top}"
 static_ls=$(docker run --rm --entrypoint ls "$img" -A /app/static | tr '\n' ' ')
-[ "$static_ls" = "apple-touch-icon.png assets favicon.ico favicon.svg index.html " ] ||
-  fail "/app/static に index.html・assets・アイコン以外がある（または欠けている）: ${static_ls}"
-echo "ok: 除外物 0 件・/app/static は index.html と assets/ とアイコンだけ"
+want_ls="apple-touch-icon.png assets favicon.ico favicon.svg icon-192.png icon-512.png icon-maskable-192.png"
+want_ls+=" icon-maskable-512.png index.html manifest.webmanifest "
+[ "$static_ls" = "$want_ls" ] ||
+  fail "/app/static に index.html・assets・アイコン・manifest 以外がある（または欠けている）: ${static_ls}"
+echo "ok: 除外物 0 件・/app/static は index.html と assets/ とアイコン・manifest だけ"
 
 # 5. 同梱の index.html と assets/ が ci.yml と同じ CSP の検査（と鍵の形の検査）を通ること。開発の時だけの値・部品の見本が無いこと（KEEP-4）
 cid=$(docker create "$img")
@@ -101,8 +104,10 @@ check() {  # パス 期待の状態 名前（ヘッダは $work/<名前>.h、本
   local csp
   csp=$(grep -i '^content-security-policy:' "$work/$3.h" | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' | tr ';' '\n' | sed 's/^ *//; s/ *$//')
   local n
-  n=$(printf '%s\n' "$csp" | grep -cxE "default-src 'none'|script-src 'self'|style-src 'self'|img-src 'self'|connect-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'" || true)
-  [ "$n" = 8 ] || fail "$1 の CSP に R3 の 8 つの指示が揃っていない（${n} 個）"
+  n=$(printf '%s\n' "$csp" | grep -cxE "default-src 'none'|script-src 'self'|style-src 'self'|img-src 'self'|connect-src 'self'|manifest-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'" || true)
+  [ "$n" = 9 ] || fail "$1 の CSP に R3 の 8 つと manifest-src（#77）の指示が揃っていない（${n} 個）"
+  # サービスワーカーは置かない（#77・ADR-0018）: worker-src を足さない
+  if printf '%s\n' "$csp" | grep -qiE '^worker-src'; then fail "$1 の CSP に worker-src がある"; fi
   grep -qixE 'x-content-type-options: nosniff' <(tr -d '\r' < "$work/$3.h") || fail "$1 に nosniff が無い"
   grep -qixE 'referrer-policy: no-referrer' <(tr -d '\r' < "$work/$3.h") || fail "$1 に no-referrer が無い"
   echo "ok: $1 ${code}（CSP・nosniff・no-referrer）"
@@ -142,6 +147,22 @@ case "$(header favicon content-type)" in
 esac
 check /apple-touch-icon.png 200 touchicon
 cmp -s "$work/touchicon.body" "$work/static/apple-touch-icon.png" || fail "/apple-touch-icon.png が同梱のものでない"
+# ホーム画面に追加（#77）: manifest とそのアイコンは index.html でなく同梱のファイル
+check /manifest.webmanifest 200 manifest
+cmp -s "$work/manifest.body" "$work/static/manifest.webmanifest" || fail "/manifest.webmanifest が同梱のものでない"
+case "$(header manifest content-type)" in
+  application/manifest+json*) ;;
+  *) fail "/manifest.webmanifest の Content-Type が application/manifest+json でない" ;;
+esac
+[ "$(header manifest cache-control)" = "public, max-age=86400" ] || fail "/manifest.webmanifest の Cache-Control が 1 日でない"
+for icon in icon-192 icon-512 icon-maskable-192 icon-maskable-512; do
+  check "/${icon}.png" 200 "$icon"
+  cmp -s "$work/${icon}.body" "$work/static/${icon}.png" || fail "/${icon}.png が同梱のものでない"
+  case "$(header "$icon" content-type)" in
+    image/png*) ;;
+    *) fail "/${icon}.png の Content-Type が image/png でない" ;;
+  esac
+done
 cmp -s "$work/missing.body" "$work/static/index.html" && fail "/assets/missing-0000.js が index.html を返す"
 check /api/nope 404 nope
 grep -q '"error":"not_found"' "$work/nope.body" || fail "/api/nope が API の 404 の JSON でない"

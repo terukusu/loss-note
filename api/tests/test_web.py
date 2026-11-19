@@ -3,6 +3,7 @@
 
 - 静的の置き場は tmp に作る合成のもの（index.html と assets/app-0000aaaa.js。中身は架空の印だけ）
 - AC-1（例 S・R1・R2）・AC-2（例 S12・R4）・AC-3（例 H1・R3）・KEEP-2（STATIC_DIR が無ければ今のまま）
+- #77: manifest とそのアイコンの配信（例 E1〜E5）・CSP の manifest-src（例 E7。worker-src は無い）
 """
 
 from pathlib import Path
@@ -21,6 +22,10 @@ ASSET = b"console.log('ASSET-MARK-2b9');\n"
 ASSET_PATH = "/assets/app-0000aaaa.js"
 # 直下のアイコン（#52）。中身は架空の印（ICO の頭の 4 バイト + 印）
 ICON = b"\x00\x00\x01\x00ICON-MARK-4e2"
+# manifest と manifest のアイコン（#77）。中身は架空の印
+MANIFEST = b'{"name":"MANIFEST-MARK-8a3"}\n'
+PNG = b"\x89PNG\r\n\x1a\nPNG-MARK-1f6"
+MANIFEST_ICONS = ("icon-192.png", "icon-512.png", "icon-maskable-192.png", "icon-maskable-512.png")
 EMULATOR_VARS = (AUTH_EMULATOR, FIRESTORE_EMULATOR, "FIREBASE_STORAGE_EMULATOR_HOST", "STORAGE_EMULATOR_HOST")
 
 R3 = {
@@ -29,6 +34,7 @@ R3 = {
     "style-src 'self'",
     "img-src 'self'",
     "connect-src 'self'",
+    "manifest-src 'self'",
     "base-uri 'none'",
     "form-action 'none'",
     "frame-ancestors 'none'",
@@ -42,6 +48,9 @@ def static_dir(tmp_path: Path) -> Path:
     (root / "index.html").write_bytes(INDEX)
     (root / "assets" / "app-0000aaaa.js").write_bytes(ASSET)
     (root / "favicon.ico").write_bytes(ICON)
+    (root / "manifest.webmanifest").write_bytes(MANIFEST)
+    for name in MANIFEST_ICONS:
+        (root / name).write_bytes(PNG)
     # 置き場の外のファイル（S8: これを返さない）
     (tmp_path / "secret.txt").write_bytes(b"OUTSIDE-MARK-5d3\n")
     return root
@@ -128,6 +137,52 @@ def test_root_icon_missing_is_404_json(client, path):
     assert res.status_code == 404
     assert not is_index(res)
     assert res.get_json() == {"error": "not_found"}
+
+
+# ── manifest とアイコン（#77。例 E1〜E5）
+def test_manifest_is_served_not_index(client):
+    res = client.get("/manifest.webmanifest")
+    assert res.status_code == 200
+    assert res.data == MANIFEST
+    assert not is_index(res)
+    assert res.mimetype == "application/manifest+json"
+    assert res.headers["Cache-Control"] == web.ROOT_FILE_CACHE
+    assert "manifest-src 'self'" in csp_directives(res)
+    head = client.head("/manifest.webmanifest")
+    assert head.status_code == 200
+    assert head.data == b""
+
+
+@pytest.mark.parametrize("name", MANIFEST_ICONS)
+def test_manifest_icons_are_served_not_index(client, name):
+    res = client.get(f"/{name}")
+    assert res.status_code == 200
+    assert res.data == PNG
+    assert res.mimetype == "image/png"
+    assert res.headers["Cache-Control"] == web.ROOT_FILE_CACHE
+
+
+@pytest.mark.parametrize("name", ("manifest.webmanifest", *MANIFEST_ICONS))
+def test_manifest_files_missing_are_404_json(client, static_dir, name):
+    (static_dir / name).unlink()
+    res = client.get(f"/{name}")
+    assert res.status_code == 404
+    assert not is_index(res)
+    assert res.get_json() == {"error": "not_found"}
+
+
+@pytest.mark.parametrize("method", ["POST", "PUT", "DELETE"])
+def test_manifest_rejects_non_get(client, method):
+    res = client.open("/manifest.webmanifest", method=method)
+    assert res.status_code == 405
+    assert not is_index(res)
+
+
+def test_manifest_lookalike_is_index(client):
+    # 似た知らない名前は今までどおり画面の経路の戻し（例 E4）
+    res = client.get("/manifest.webmanifestx")
+    assert res.status_code == 200
+    assert is_index(res)
 
 
 def test_root_icon_rejects_post(client):
@@ -306,6 +361,8 @@ def test_prod_env_statement_read_is_unavailable(client):
 def test_security_headers_on_every_response(client, method, path):
     res = client.open(path, method=method)
     assert R3 <= csp_directives(res), (path, res.headers.get("Content-Security-Policy"))
+    # サービスワーカー・ワーカーは許さない（#77・ADR-0018。default-src 'none' で止まる）
+    assert not any(d.startswith("worker-src") for d in csp_directives(res))
     assert res.headers["X-Content-Type-Options"] == "nosniff"
     assert res.headers["Referrer-Policy"] == "no-referrer"
 
@@ -371,7 +428,9 @@ def test_is_spa_path():
     assert web.is_spa_path("/trades/abc123")
     assert web.is_spa_path("/apix")
     assert web.is_spa_path("/favicon.icox")
-    for p in ("/favicon.ico", "/favicon.svg", "/apple-touch-icon.png"):
+    assert web.is_spa_path("/manifest.webmanifestx")
+    for p in ("/favicon.ico", "/favicon.svg", "/apple-touch-icon.png", "/manifest.webmanifest",
+              "/icon-maskable-512.png"):  # fmt: skip
         assert not web.is_spa_path(p), p
     for p in ("/api", "/api/", "/api/nope", "/assets/", "/assets/a.js"):
         assert not web.is_spa_path(p), p

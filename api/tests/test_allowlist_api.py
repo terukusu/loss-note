@@ -266,8 +266,9 @@ def test_h1_h2_csp_header(prod, static_dir):
     assert d["frame-ancestors"] == ["'none'"]
     assert d["base-uri"] == ["'none'"]
     assert d["form-action"] == ["'none'"]
-    assert set(d) == {"default-src", "script-src", "style-src", "img-src", "connect-src", "base-uri", "form-action",
-                      "frame-ancestors", "frame-src"}  # fmt: skip
+    assert d["manifest-src"] == ["'self'"]  # #77
+    assert set(d) == {"default-src", "script-src", "style-src", "img-src", "connect-src", "manifest-src", "base-uri",
+                      "form-action", "frame-ancestors", "frame-src"}  # fmt: skip
 
 
 def test_csp_without_auth_domain_keeps_base(prod, static_dir):

@@ -8,6 +8,11 @@
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- ホーム画面に追加して開ける（#77・ADR-0018）。サービスワーカーは置かない。theme-color は既定のダークの --bg
+         （画面のテーマは OS の設定を見ないので media で分けない。値は tokens.css と manifest に合わせる = tests/ui/pwa.test.ts） -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0a0c10" />
+    <meta name="apple-mobile-web-app-title" content="損失ノート" />
   </head>
   <body>
     <div id="app"></div>

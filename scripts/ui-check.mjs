@@ -40,6 +40,8 @@
 // 言葉の説明の「i」（Issue #57）: 記録する画面で説明を 1 つ開いた状態（時間足・判定）を同じ幅とテーマで測り、吹き出しが窓の
 // 見える範囲に収まることを見る。手順 IT1（押して開く・閉じる・Esc でフォーカスが「i」・外側・同時に 1 つ）・IT2（押しても
 // 入力の状態が変わらず保存の要求 0）・IT3（戻るで吹き出しだけを閉じ、画面は移らない・閉じた後の履歴の数）を流す。
+// ホーム画面に追加（Issue #77）: 手順 PWA1（/ に manifest-src 'self' の CSP を付けて開き、CDP の Page.getAppManifest のエラー 0 件・
+// manifest の CSP の違反 0 件・manifest のアイコンが 200）を流す。
 // ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
 // （Flask と Firestore のエミュレーターを立てなくてよい。本物の API の経路は Issue #13 の手での確かめで見る）。
 //
@@ -3777,6 +3779,51 @@ async function runFlows(browser, base, signedIn) {
     await waitReady(page, '取引の一覧');
     expectEq(path(page), '/trades', '戻った先');
     return '知らない URL → / に置き換え、戻る → /trades';
+  });
+  // ホーム画面に追加（Issue #77 の AC-6・例 E8）: 開発サーバーは CSP を付けないので、/ の文書だけに本番の manifest-src の
+  // 許可（api の BASE_CSP の manifest-src 'self' と同じ。本番の値は image-check.sh が見る）を付けて開き、Chromium が manifest を
+  // エラーなしで読むこと（CDP の Page.getAppManifest）と、manifest の読み込みが CSP で止まらないことを見る
+  await check('PWA1', async () => {
+    const c = await browser.newContext({ viewport: { width: 360, height: 780 } });
+    try {
+      await c.route(`${base}/`, async (route) => {
+        const res = await route.fetch();
+        await route.fulfill({
+          response: res,
+          headers: { ...res.headers(), 'content-security-policy': "manifest-src 'self'" },
+        });
+      });
+      const p = await c.newPage();
+      const blocked = [];
+      p.on('console', (m) => {
+        if (/manifest/i.test(m.text()) && /Refused|Content Security Policy/i.test(m.text()))
+          blocked.push(m.type());
+      });
+      const seen = new Map();
+      p.on('response', (r) => seen.set(new URL(r.url()).pathname, r.status()));
+      await p.goto(`${base}/`);
+      await p.waitForLoadState('load');
+      const cdp = await c.newCDPSession(p);
+      let got = await cdp.send('Page.getAppManifest');
+      for (let i = 0; i < 20 && !got.data; i++) {
+        await p.waitForTimeout(250);
+        got = await cdp.send('Page.getAppManifest');
+      }
+      expectEq(new URL(got.url).pathname, '/manifest.webmanifest', 'manifest の URL');
+      expectEq(got.errors.length, 0, 'manifest のエラーの件数');
+      const m = JSON.parse(got.data ?? '{}');
+      expectEq(m.display, 'standalone', 'display');
+      expectEq(m.start_url, '/', 'start_url');
+      expectEq(blocked.length, 0, 'manifest の CSP の違反の件数');
+      for (const icon of m.icons ?? []) {
+        const r = await p.request.get(`${base}${icon.src}`);
+        expectEq(r.status(), 200, icon.src);
+      }
+      expectEq(seen.get('/manifest.webmanifest'), 200, '/manifest.webmanifest の状態');
+      return `manifest のエラー 0 件・CSP の違反 0 件・アイコン ${(m.icons ?? []).length} つが 200`;
+    } finally {
+      await c.close();
+    }
   });
   await check('S1', async () => {
     await page.goto(`${base}/dev/parts`);

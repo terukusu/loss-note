@@ -220,7 +220,7 @@ function pointOf(l: Leg): ExitPoint {
 /**
  * リスクが残っていたレッグを最後に閉じた時点（C54）。数えるのは決済したレッグと満期で消えた売りのレッグで、満期で消えた買いは
  * 数えない（損益にだけ入る）。数えるレッグが無ければ（すべてが消えた買い）SQ。同じ時刻なら満期で消えた売りを取る（救わない側）。
- * 数えるレッグが 2 本以上で時刻の無いものがあれば、順が決まらないので無し（C54。SQ の日をその日の何時と読むかは保存の形 #116）
+ * 数えるレッグが 2 本以上で時刻の無いものがあれば、順が決まらないので無し（C54。SQ の日はその日の日本時間の終わりとして保存する。#116）
  */
 export function positionExitPoint(legs: readonly Leg[]): ExitPoint | undefined {
   const counted = legs.filter((l) => l.exit.kind === 'closed' || l.side === 'sell');

@@ -348,3 +348,48 @@ describe('全項目の取引（full-record.json）', () => {
     expect(FILL.instrumentId).toBe(item.record.instrumentId);
   });
 });
+
+describe('レッグを持つ取引の写し（#116・設計書 4.7・C46）', () => {
+  const t1 = fromTradeInput(closedAt(trade({}), 99.5, { reason: 'lc' }));
+  const legs: NonNullable<TradeRecord['legs']> = [
+    {
+      id: 'l1',
+      optionType: 'P',
+      contractMonth: '2027-01',
+      strike: 37_000,
+      side: 'sell',
+      quantity: 1,
+      entry: { price: 250 },
+      exit: { price: 0, kind: 'expired' },
+    },
+  ];
+
+  it('レッグの無い取引（5.6 の全場面）には option を足さない', () => {
+    const items = JSON.parse(fs.readFileSync(DESIGN_FIXTURE, 'utf8')) as DesignFixtureItem[];
+    for (const item of items) expect('option' in toTradeInput(item), `#${item.scene}`).toBe(false);
+    expect('option' in toTradeInput(t1)).toBe(false);
+  });
+
+  it('レッグを option.legs に写す（見込みが無ければ鍵なし）', () => {
+    const input = toTradeInput({ ...t1, record: { ...t1.record, legs } });
+    expect(input.option).toEqual({ legs });
+  });
+
+  it('LC での損失の見込みを option.lcLossPlanYen に写す', () => {
+    const input = toTradeInput({ ...t1, record: { ...t1.record, legs, lcLossPlanYen: 80_000 } });
+    expect(input.option).toEqual({ legs, lcLossPlanYen: 80_000 });
+  });
+
+  it('「最大損失まで」を option.riskPlan に写す（#114）', () => {
+    const input = toTradeInput({ ...t1, record: { ...t1.record, legs, riskPlan: 'maxLoss' } });
+    expect(input.option).toEqual({ legs, riskPlan: 'maxLoss' });
+  });
+
+  it('レッグの無い取引の見込み・riskPlan は写さない（API が 400 にする形）', () => {
+    const input = toTradeInput({
+      ...t1,
+      record: { ...t1.record, lcLossPlanYen: 80_000, riskPlan: 'maxLoss' },
+    });
+    expect('option' in input).toBe(false);
+  });
+});

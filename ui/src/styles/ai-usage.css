@@ -76,7 +76,6 @@
   color: var(--ink-2);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .usage__bar {

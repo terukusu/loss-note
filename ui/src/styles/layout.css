@@ -10,7 +10,7 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  height: var(--topbar-h);
+  min-height: var(--topbar-h);
 }
 
 /* 帯のすりガラスは疑似要素に置く（祖先に backdrop-filter があると、固定配置の下部ナビの基準が帯になるため） */
@@ -28,10 +28,12 @@
 .topbar__inner {
   position: relative;
   display: flex;
+  /* 入りきらないとき（文字を大きくした端末の開発の印など）は次の行へ（横にはみ出さない。#79） */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-4);
-  height: 100%;
+  gap: var(--sp-2) var(--sp-4);
+  min-height: var(--topbar-h);
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 0 var(--gutter);
@@ -39,8 +41,10 @@
 
 .topbar__brand {
   display: flex;
+  /* 開発の印（envchip）は入りきらないときだけ次の行へ（#79） */
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-3);
+  gap: var(--sp-1) var(--sp-3);
   min-width: 0;
 }
 
@@ -51,6 +55,7 @@
   font-weight: var(--fw-heavy);
   font-size: var(--fs-lg);
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 .brand__mark {
@@ -135,6 +140,8 @@ body:has(.shell--bare) {
   min-height: var(--tap);
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
+  /* ラベルは折り返さない（列は 1fr でも、ラベルの幅より狭くならない。#79） */
+  white-space: nowrap;
   color: var(--ink-3);
   transition: color var(--dur-fast) var(--ease);
 }
@@ -198,7 +205,7 @@ body:has(.shell--bare) {
   .appnav__link {
     flex-direction: row;
     gap: var(--sp-2);
-    height: var(--tap);
+    height: auto;
     padding: 0 var(--sp-4);
     border-radius: var(--radius-pill);
     font-size: var(--fs-sm);

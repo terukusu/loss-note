@@ -40,6 +40,14 @@
 // 言葉の説明の「i」（Issue #57）: 記録する画面で説明を 1 つ開いた状態（時間足・判定）を同じ幅とテーマで測り、吹き出しが窓の
 // 見える範囲に収まることを見る。手順 IT1（押して開く・閉じる・Esc でフォーカスが「i」・外側・同時に 1 つ）・IT2（押しても
 // 入力の状態が変わらず保存の要求 0）・IT3（戻るで吹き出しだけを閉じ、画面は移らない・閉じた後の履歴の数）を流す。
+// 文字の拡大 200%（Issue #79・WCAG 1.4.4）: 文字の大きさのトークン（tokens.css の --fs-*）を全部 2 倍にし、ルートの文字の
+// 大きさも 200% にした状態で、全画面と記録する画面・設定の画面・ホームの振り返りの主な状態を 360×780 と 1440×900 × ダークで
+// 測る。文字は px のトークンなので、ルートの文字の大きさだけを 2 倍にしても変わらない。トークンを 2 倍にするのは、文字だけの
+// 拡大（Android の Chrome の文字の拡大。px の文字も大きくなり、窓の幅は変わらない）に当たる。あわせて 1440×900 のページの拡大
+// 200%（窓 720×450・DPR 2・等倍の文字）も同じ状態で測る。横スクロール 0px・部品のはみ出し 0 件に加えて、拡大の漏れ（文字が
+// 20px 未満 = トークンを通らない大きさ）と行の重なり（行の高さが文字より小さい・文字どうしの重なり・切れ）を数える。当たり・
+// 帯の高さ・全長・入れ子は拡大では見ない（文字に合わせて大きくなるのが正しい）。残している崩れは ZOOM_KNOWN（外れの文言で絞る）。
+// 等倍の状態では、ボタン・バッジが 2 行に折れていないかも部品のはみ出しに数える（#79 で親より広いときだけ折り返す作りにした）。
 // ホーム画面に追加（Issue #77）: 手順 PWA1（/ に manifest-src 'self' の CSP を付けて開き、CDP の Page.getAppManifest のエラー 0 件・
 // manifest の CSP の違反 0 件・manifest のアイコンが 200）を流す。
 // ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
@@ -57,6 +65,9 @@
 //                                          カード → 枠 → ボタンの入れ子の見本を全画面に足して流す（部品のはみ出しの検査・入れ子の
 //                                          検査が見逃さないことの確かめ。1 画面 はみ出し 3 件・入れ子 1 件）。幅 360 の記録する画面には
 //                                          帯の見本（長い文・改行・背の高い要素）も足す（帯の外れ 1 状態 3 件）
+//   npm run ui:check -- --zoom             文字の拡大 200% の状態だけを流す（既定の実行にも入る。Issue #79）。
+//                                          --inject-clip と一緒なら、拡大の見本（px の文字・行の高さの決め打ち）も足す
+//                                          （文字の拡大の状態ごとに拡大の漏れ 1 件・行の重なり 1 件）
 //   npm run ui:check -- --shots <dir>      各状態を <dir> に撮る（目で見る補助。画像はコミットしない）
 //
 // 終了コード: 0 = すべて ok / 1 = 外れあり / 2 = 引数の誤り・起動できない
@@ -68,15 +79,17 @@ import { crc32, deflateSync } from 'node:zlib';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 
-const USAGE = `使い方: npm run ui:check [-- --inject-wide <px>] [-- --inject-clip] [-- --shots <dir>]`;
+const USAGE = `使い方: npm run ui:check [-- --inject-wide <px>] [-- --inject-clip] [-- --zoom] [-- --shots <dir>]`;
 
 /** 引数を読む。誤りは終了コード 2 */
 function parseArgs(argv) {
-  const opts = { injectWide: 0, injectClip: false, shots: '' };
+  const opts = { injectWide: 0, injectClip: false, zoom: false, shots: '' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--inject-clip') {
       opts.injectClip = true;
+    } else if (a === '--zoom') {
+      opts.zoom = true;
     } else if (a === '--inject-wide') {
       const v = Number(argv[++i]);
       if (!Number.isInteger(v) || v <= 0)
@@ -140,6 +153,47 @@ const TOTAL_MAX_ACCOUNTS = 2646;
 /** 直す画面の貼り付きの帯の高さの上限（幅 360。Issue #33 KEEP-7: 変える前に測った値 161.1px） */
 const EDIT_BAR_MAX = 161.1;
 const THEME_KEY = 'loss-note.theme';
+/** 文字の拡大（Issue #79）の倍率・幅・テーマ・拡大の漏れとみなす文字の大きさ（いちばん小さいトークン 12px の 2 倍から 1 割ほど下） */
+const ZOOM = 2;
+/**
+ * 拡大の窓。text = 文字の拡大（トークン 2 倍・窓の幅はそのまま）。text が false の 720×450（DPR 2）は 1440×900 の窓を
+ * ブラウザのページの拡大で 200% にしたもの（窓がちょうど PC の並びの境 720px になる。文字は等倍のトークン）
+ */
+const ZOOM_SIZES = [
+  { w: 360, h: 780, text: true },
+  { w: 1440, h: 900, text: true },
+  { w: 720, h: 450, text: false, dpr: 2 },
+];
+const ZOOM_THEMES = ['dark'];
+const ZOOM_MIN_FONT = 20;
+/** 文字の拡大で測る記録する画面・設定の画面の状態（RECORD_STATES・SETTINGS_STATES の slug） */
+const ZOOM_RECORD = [
+  'record-1-open',
+  'record-3-judged-b',
+  'record-5-no-lc-c',
+  'record-8-read',
+  'record-9-rows',
+  'record-10-read-failed',
+  'record-12-charts',
+  'record-15-accounts-2',
+  'record-21-fx',
+  'record-11-info-tap',
+];
+const ZOOM_SETTINGS = ['settings-1-open', 'settings-5-accounts', 'settings-3-errors'];
+/**
+ * 文字の拡大で残している崩れ（`幅:slug` → { match: 既知の外れの文言の正規表現, why: 理由 }）。match に当たる外れだけを
+ * 既知として数え（失敗にしない）、当たらない外れは失敗にする。match に当たる外れが無くなったら「消す」で失敗にする。
+ * 理由は handoff と docs/ui-guidelines.md 5 章
+ */
+const ZOOM_KNOWN = {
+  // 説明の吹き出しは幅 320px まで・高さの上限なしで、文字 2 倍の 360×780 では窓（上の帯・下部の行き先・貼り付きの帯を
+  // 除く）より高くなる。吹き出しの中をスクロールにすると矢印（::before）が切れるので、作りの変更（矢印を外に出す・
+  // 高さの上限と吹き出しの中のスクロール・置き方の infoPlace の見直し）として別に直す
+  '360:record-11-info-tap': {
+    match: /^開けない 「時間足を変えたか」の説明: 吹き出しが窓の上下の外/,
+    why: '説明の吹き出しが窓より高い（吹き出しの作りの変更が要る。ガイドライン 5 章 #6）',
+  },
+};
 const NAV_HREFS = ['/', '/record', '/trades', '/settings'];
 const AUTH_EMULATOR = 'http://127.0.0.1:9099';
 
@@ -156,7 +210,7 @@ async function loginViaPopup(page) {
 }
 
 /** テーマを端末の記憶に入れ、--inject-wide なら幅の広い要素を足す */
-async function setupContext(context, theme) {
+async function setupContext(context, theme, zoom = false) {
   await context.addInitScript(
     ([key, t]) => {
       try {
@@ -165,6 +219,39 @@ async function setupContext(context, theme) {
     },
     [THEME_KEY, theme],
   );
+  if (zoom) {
+    await context.addInitScript((css) => {
+      const add = () => {
+        const st = document.createElement('style');
+        st.setAttribute('data-ui-check-zoom', '');
+        st.textContent = css;
+        document.head.appendChild(st);
+      };
+      if (document.head) add();
+      else document.addEventListener('DOMContentLoaded', add);
+    }, zoomCss());
+  }
+  if (zoom && opts.injectClip) {
+    // 拡大の見本（--zoom --inject-clip）: px の決め打ちの文字（拡大の漏れ 1 件）と、行の高さの決め打ち（行の重なり 1 件）。
+    // 窓の上の外に置き、ページの文字とは重ならない
+    await context.addInitScript(() => {
+      const add = () => {
+        const box = document.createElement('div');
+        box.setAttribute('data-ui-check-zoom-sample', '');
+        box.style.cssText = 'position:absolute;left:0;top:-400px;width:200px';
+        const a = document.createElement('p');
+        a.style.cssText = 'font-size:12px !important;margin:0';
+        a.textContent = '拡大の漏れの見本';
+        const b = document.createElement('p');
+        b.style.cssText = 'line-height:10px;margin:100px 0 0';
+        b.textContent = '行の重なりの見本';
+        box.append(a, b);
+        document.body.appendChild(box);
+      };
+      if (document.body) add();
+      else document.addEventListener('DOMContentLoaded', add);
+    });
+  }
   if (opts.injectClip) {
     await context.addInitScript(() => {
       const add = () => {
@@ -2631,6 +2718,26 @@ async function emulatorUp() {
   }
 }
 
+/**
+ * 文字の拡大 200%（Issue #79）の CSS。tokens.css の文字の大きさのトークン（--fs-*: Npx）を全部 2 倍にし、ルートの文字の
+ * 大きさも 200% にする。トークンを足したら自動で入る（トークンが 1 つも読めなければ起動の誤り）
+ */
+function zoomCss() {
+  const css = readFileSync(join(ROOT, 'ui/src/styles/tokens.css'), 'utf8');
+  const all = [...css.matchAll(/(--fs-[a-z0-9-]+)\s*:/g)].length;
+  const decls = [...css.matchAll(/(--fs-[a-z0-9-]+):\s*([\d.]+)px;/g)].map(
+    ([, name, px]) => `${name}: ${Number(px) * ZOOM}px !important;`,
+  );
+  if (decls.length === 0)
+    throw new Error('tokens.css に文字の大きさのトークン（--fs-*）がありません');
+  // px の数で書いていないトークン（clamp・calc など）は 2 倍にできず、拡大の漏れにも出ないので、起動の誤りにする
+  if (decls.length !== all)
+    throw new Error(
+      `tokens.css の文字の大きさのトークン ${all} 個のうち、px の数で書いたものが ${decls.length} 個です（拡大の検査は px の数だけを 2 倍にします）`,
+    );
+  return `:root { font-size: ${ZOOM * 100}% !important; ${decls.join(' ')} }`;
+}
+
 /** tokens.css のダークの定義の --bg（T2 の期待値） */
 function darkBg() {
   const css = readFileSync(join(ROOT, 'ui/src/styles/tokens.css'), 'utf8');
@@ -2650,9 +2757,10 @@ function freePort() {
 }
 
 /** 横スクロール（px）と、幅 360 のときは 44×44 未満の押せるもの */
-async function measure(page, withTargets, tap) {
+/** slack = 部品の中の文字のはみ出しの許し（px。小数の丸めの分。文字の拡大では倍率の分だけ広げる） */
+async function measure(page, withTargets, tap, slack = 1) {
   return page.evaluate(
-    ({ withTargets, tap }) => {
+    ({ withTargets, tap, slack }) => {
       const d = document.documentElement;
       const b = document.body;
       const h = Math.max(d.scrollWidth - window.innerWidth, b.scrollWidth - b.clientWidth, 0);
@@ -2703,11 +2811,25 @@ async function measure(page, withTargets, tap) {
         const cs = getComputedStyle(el);
         if (cs.display === 'none' || cs.visibility === 'hidden') continue;
         const name = `${el.className.split(' ')[0]}「${(el.textContent || '').trim().slice(0, 16)}」`;
-        if (el.scrollWidth > el.clientWidth + 1) {
+        if (el.scrollWidth > el.clientWidth + slack) {
           clipped.push(`${name} 横 ${el.scrollWidth}>${el.clientWidth}`);
         }
-        if (el.scrollHeight > el.clientHeight + 1) {
+        if (el.scrollHeight > el.clientHeight + slack) {
           clipped.push(`${name} 縦 ${el.scrollHeight}>${el.clientHeight}`);
+        }
+        // ボタン・バッジは親より広いときだけ折り返す作り（#79）。等倍（slack 1）で 2 行に折れていたら外れ
+        if (slack <= 1 && (el.classList.contains('btn') || el.classList.contains('badge'))) {
+          const tops = [];
+          const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          for (let t = tw.nextNode(); t; t = tw.nextNode()) {
+            if (t.textContent.trim() === '' || t.parentElement?.closest('.sr-only')) continue;
+            const range = document.createRange();
+            range.selectNodeContents(t);
+            for (const rr of range.getClientRects()) {
+              if (rr.width > 1 && !tops.some((y) => Math.abs(y - rr.top) < 4)) tops.push(rr.top);
+            }
+          }
+          if (tops.length > 1) clipped.push(`${name} ${tops.length} 行に折れる`);
         }
         const r = el.getBoundingClientRect();
         // display: contents の親は箱を持たない（子は祖先の並びに入る）ので、箱を持つ祖先と比べる（#47 一覧の 1 行目）
@@ -2834,8 +2956,139 @@ async function measure(page, withTargets, tap) {
       }
       return { h, small, clipped, nest, bar, scrollH: d.scrollHeight };
     },
-    { withTargets, tap },
+    { withTargets, tap, slack },
   );
+}
+
+/**
+ * 文字の拡大（Issue #79）の測り。拡大の漏れ = 描かれた文字を持つ要素の文字の大きさが minFont 未満（トークンを通らない
+ * px の大きさ）。行の重なり = 行の高さ（px）が文字の大きさより小さい（折り返すと行が重なる）か、別の要素の文字と文字の
+ * 箱が重なる（列の幅が足りず隣の列に入る）。文字の箱は切る祖先（overflow が visible でない）の箱で切ってから比べ、
+ * 位置を固定した帯（fixed・sticky）の中と外は比べない（スクロールで重なるのは正しい）。開いた説明の吹き出しの文字は
+ * 比べ合いにだけ入れない（拡大の漏れ・行の高さ・切れは見る）。
+ * 文字が切る祖先の左右の外に出る（「…」で省く作りを除く）のも、文字の切れとして重なりに数える
+ */
+async function measureZoom(page, minFont) {
+  return page.evaluate((minFont) => {
+    const unscaled = [];
+    const overlap = [];
+    const texts = [];
+    const seen = new Set();
+    const layerOf = (el) => {
+      for (let a = el; a && a !== document.body; a = a.parentElement) {
+        const pos = getComputedStyle(a).position;
+        if (pos === 'fixed' || pos === 'sticky') return a;
+      }
+      return null;
+    };
+    // hard = 切るだけの祖先（hidden・clip）に限る。スクロールの容器（auto・scroll）は中を送れば読めるので、切れには数えない
+    const scrolls = (cs) =>
+      [cs.overflowX, cs.overflowY].some((v) => v === 'auto' || v === 'scroll');
+    const clipBox = (el, hard = false) => {
+      let box = { left: -1e9, top: -1e9, right: 1e9, bottom: 1e9 };
+      for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+        const cs = getComputedStyle(a);
+        if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+        if (hard && scrolls(cs)) continue;
+        const r = a.getBoundingClientRect();
+        box = {
+          left: Math.max(box.left, r.left),
+          top: Math.max(box.top, r.top),
+          right: Math.min(box.right, r.right),
+          bottom: Math.min(box.bottom, r.bottom),
+        };
+      }
+      // 自分が切る箱（「…」で省く名前など）なら自分の箱でも切る
+      const own = getComputedStyle(el);
+      if (own.overflowX !== 'visible' || own.overflowY !== 'visible') {
+        const r = el.getBoundingClientRect();
+        box = {
+          left: Math.max(box.left, r.left),
+          top: Math.max(box.top, r.top),
+          right: Math.min(box.right, r.right),
+          bottom: Math.min(box.bottom, r.bottom),
+        };
+      }
+      return box;
+    };
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement;
+      if (!el || n.textContent.trim() === '') continue;
+      if (el.closest('[data-ui-check-wide], [data-ui-check-clip], .sr-only, script, style'))
+        continue;
+      // 開いた説明の吹き出しは上に重ねて出すもの。拡大の漏れ・行の高さ・切れは見るが、文字どうしの比べ合いには入れない
+      const inPop = !!el.closest('.info__pop');
+      if (typeof el.checkVisibility === 'function' && !el.checkVisibility()) continue;
+      const cs = getComputedStyle(el);
+      const fs = Number.parseFloat(cs.fontSize);
+      const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+      const name = `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}「${n.textContent.trim().slice(0, 12)}」`;
+      if (!seen.has(el)) {
+        seen.add(el);
+        if (fs < minFont) unscaled.push(`${name} ${fs}px`);
+        const lh = cs.lineHeight === 'normal' ? fs : Number.parseFloat(cs.lineHeight);
+        if (lh < fs - 0.5) overlap.push(`${name} 行の高さ ${lh}px < 文字 ${fs}px`);
+      }
+      // 文字の箱（行ごと）。上下は字面に近づけるため、行の箱を文字の大きさの 0.8 倍に縮めて比べる
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      const clip = clipBox(el);
+      const hardClip = clipBox(el, true);
+      const rects = [];
+      // 文字の切れ: 文字が切る祖先の左右の外に出る（「…」で省く作り = text-overflow: ellipsis の要素は除く）
+      const ellipsis = getComputedStyle(el).textOverflow === 'ellipsis';
+      let cut = false;
+      for (const r of range.getClientRects()) {
+        if (r.width < 1 || r.height < 1) continue;
+        if (!ellipsis && (r.left < hardClip.left - 2 || r.right > hardClip.right + 2)) cut = true;
+        const mid = (r.top + r.bottom) / 2;
+        const half = Math.min(r.height, fs) * 0.4;
+        const b = {
+          left: Math.max(r.left, clip.left),
+          right: Math.min(r.right, clip.right),
+          top: Math.max(mid - half, clip.top),
+          bottom: Math.min(mid + half, clip.bottom),
+        };
+        if (b.right - b.left > 1 && b.bottom - b.top > 1) rects.push(b);
+      }
+      if (cut) overlap.push(`${name} の文字が切れる（切る祖先の外）`);
+      if (rects.length > 0 && !inPop) texts.push({ el, name, rects, layer: layerOf(el) });
+    }
+    const hit = (a, b) =>
+      Math.min(a.right, b.right) - Math.max(a.left, b.left) > 2 &&
+      Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 2;
+    for (let i = 0; i < texts.length; i++) {
+      for (let j = i + 1; j < texts.length; j++) {
+        const a = texts[i];
+        const b = texts[j];
+        if (a.layer !== b.layer) continue;
+        if (a.rects.some((ra) => b.rects.some((rb) => hit(ra, rb)))) {
+          overlap.push(`${a.name} と ${b.name} の文字が重なる`);
+        }
+      }
+    }
+    // 横スクロールの元（窓の右端を超える要素のうち、子が超えていないもの。先頭の 3 つ）
+    const wide = [];
+    for (const el of document.body.querySelectorAll('*')) {
+      if (wide.length >= 3) break;
+      if (el.closest('[data-ui-check-wide], [data-ui-check-clip]')) continue;
+      const r = el.getBoundingClientRect();
+      if (r.right <= window.innerWidth + 1 || r.width === 0) continue;
+      if ([...el.children].some((c) => c.getBoundingClientRect().right > window.innerWidth + 1))
+        continue;
+      const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+      wide.push(
+        `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}「${(el.textContent || '').trim().slice(0, 12)}」右端 ${Math.round(r.right)}px`,
+      );
+    }
+    return {
+      bodyFont: Number.parseFloat(getComputedStyle(document.body).fontSize),
+      unscaled,
+      overlap,
+      wide,
+    };
+  }, minFont);
 }
 
 async function waitReady(page, h1) {
@@ -2851,6 +3104,12 @@ function pad(s, n) {
 
 async function main() {
   process.chdir(ROOT);
+  try {
+    zoomCss();
+  } catch (e) {
+    console.error(`文字の拡大の CSS を作れません: ${e instanceof Error ? e.message : e}`);
+    process.exit(2);
+  }
   if (!(await emulatorUp())) {
     console.error(
       `Auth のエミュレーター（${AUTH_EMULATOR}）に繋がりません。別の端末で \`npm run emulators\` を起動してください。`,
@@ -2931,6 +3190,10 @@ async function main() {
   let clippedTotal = 0;
   let nestTotal = 0;
   let barTotal = 0;
+  let zoomTotal = 0;
+  let zoomUnscaled = 0;
+  let zoomOverlap = 0;
+  let zoomKnown = 0;
   /** 枠の入れ子 3 段以上（Issue #33 AC-5。部品の見本 /dev/parts は見本を並べる画面なので数えない） */
   const checkNest = (label, m) => {
     if (label.includes('/dev/parts')) return;
@@ -2944,10 +3207,11 @@ async function main() {
 
   try {
     // ── 画面 × 幅 × テーマ（C1〜C3）
-    console.log(
-      `画面の検査: ${PAGES.length} 画面 × ${SIZES.length} 幅 × ${THEMES.length} テーマ${opts.injectWide ? `（幅 ${opts.injectWide}px の要素を足す）` : ''}`,
-    );
-    for (const theme of THEMES) {
+    if (!opts.zoom)
+      console.log(
+        `画面の検査: ${PAGES.length} 画面 × ${SIZES.length} 幅 × ${THEMES.length} テーマ${opts.injectWide ? `（幅 ${opts.injectWide}px の要素を足す）` : ''}`,
+      );
+    for (const theme of opts.zoom ? [] : THEMES) {
       for (const [w, hgt] of SIZES) {
         const pageFor = new Map();
         const contexts = [];
@@ -3813,8 +4077,166 @@ async function main() {
       }
     }
 
+    // ── 文字の拡大 200%（Issue #79・WCAG 1.4.4）。全画面と記録する画面・設定の画面・ホームの振り返りの主な状態 ×
+    // 幅 360 / 1440（文字の拡大）と 720×450（1440 のページの拡大）× ダーク
+    {
+      const recStates = ZOOM_RECORD.map((slug) => {
+        const st = RECORD_STATES.find((x) => x.slug === slug);
+        if (!st) throw new Error(`ZOOM_RECORD の ${slug} が RECORD_STATES に無い`);
+        return st;
+      });
+      const setStates = ZOOM_SETTINGS.map((slug) => {
+        const st = SETTINGS_STATES.find((x) => x.slug === slug);
+        if (!st) throw new Error(`ZOOM_SETTINGS の ${slug} が SETTINGS_STATES に無い`);
+        return st;
+      });
+      const zoomStates = PAGES.length + recStates.length + setStates.length + 1;
+      console.log('');
+      console.log(
+        `文字の拡大 ${ZOOM * 100}%: ${zoomStates} 状態 × ${ZOOM_SIZES.length} 窓（${ZOOM_SIZES.map((z) => `${z.w}x${z.h}${z.text ? '' : ' ページの拡大'}`).join('・')}）× ${ZOOM_THEMES.length} テーマ`,
+      );
+      for (const theme of ZOOM_THEMES) {
+        for (const { w, h: hgt, text, dpr } of ZOOM_SIZES) {
+          const contexts = [];
+          const errors = [];
+          const pageFor = new Map();
+          let recApi;
+          for (const forLoginPage of [false, true]) {
+            const context = await browser.newContext({
+              viewport: { width: w, height: hgt },
+              ...(dpr ? { deviceScaleFactor: dpr } : {}),
+              reducedMotion: 'reduce',
+              hasTouch: w < 720,
+              ...(forLoginPage ? {} : { storageState: signedIn }),
+            });
+            contexts.push(context);
+            await setupContext(context, theme, text);
+            if (!forLoginPage) recApi = await installFakeApi(context);
+            const page = await context.newPage();
+            page.on('pageerror', (e) => errors.push(e.message));
+            pageFor.set(forLoginPage, page);
+          }
+          const kind = text ? '拡大' : 'ページの拡大';
+          /**
+           * 1 状態を測って記す。open は画面をその状態にする。open が途中で外れても、その時点の画面を測る。
+           * 既知（ZOOM_KNOWN）は match に当たる外れだけを失敗にせず、当たらない外れは失敗にする
+           */
+          const zoomState = async (page, name, slug, open) => {
+            const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`${name}（${kind}）`, 26)}`;
+            const known = ZOOM_KNOWN[`${w}:${slug}`];
+            const found = [];
+            try {
+              await open();
+            } catch (e) {
+              const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+              found.push(`開けない ${msg}`);
+            }
+            let line = `${label} 測れない`;
+            try {
+              await page.mouse.move(0, 0);
+              const m = await measure(page, false, TAP, text ? ZOOM : 1);
+              const z = await measureZoom(page, text ? ZOOM_MIN_FONT : 0);
+              states++;
+              zoomTotal++;
+              worstH = Math.max(worstH, m.h);
+              clippedTotal += m.clipped.length;
+              zoomUnscaled += z.unscaled.length;
+              zoomOverlap += z.overlap.length;
+              if (text && z.bodyFont < ZOOM_MIN_FONT)
+                found.push(`拡大が効いていない（本文 ${z.bodyFont}px）`);
+              if (m.h > 0)
+                found.push(
+                  `横スクロール ${m.h}px${z.wide.length > 0 ? `（${z.wide.join('、')}）` : ''}`,
+                );
+              for (const x of m.clipped) found.push(`はみ出し ${x}`);
+              for (const x of z.unscaled) found.push(`拡大の漏れ ${x}`);
+              for (const x of z.overlap) found.push(`行の重なり ${x}`);
+              line = `${label} 横 ${m.h}px  本文 ${z.bodyFont}px  漏れ ${z.unscaled.length}件  重なり ${z.overlap.length}件`;
+              if (opts.shots) {
+                await page.screenshot({
+                  path: join(
+                    opts.shots,
+                    `${w}x${hgt}-${theme}-${text ? 'zoom' : 'pagezoom'}-${slug}.png`,
+                  ),
+                  fullPage: true,
+                });
+              }
+            } catch (e) {
+              const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+              found.push(`測れない ${msg}`);
+            }
+            for (const e of errors.splice(0)) found.push(`ページのエラー ${e}`);
+            const isKnown = (x) => !!known && known.match.test(x);
+            const bad = found.filter((x) => !isKnown(x));
+            const knownHits = found.filter(isKnown);
+            console.log(`${line}${bad.length > 0 ? '  NG' : knownHits.length > 0 ? '  既知' : ''}`);
+            for (const x of found.slice(0, 10))
+              console.log(`    ${isKnown(x) ? '既知: ' : ''}${x}`);
+            if (found.length > 10) console.log(`    ほか ${found.length - 10} 件`);
+            for (const x of bad) problems.push(`${label}: ${x}`);
+            if (known && knownHits.length === 0)
+              problems.push(`${label}: 既知（ZOOM_KNOWN）の外れが無い。ZOOM_KNOWN から消す`);
+            if (knownHits.length > 0) {
+              zoomKnown++;
+              console.log(`    既知の理由: ${known.why}`);
+            }
+          };
+          for (const p of PAGES) {
+            const page = pageFor.get(p.path === '/login');
+            const slug = p.path === '/' ? 'home' : p.path.slice(1).replace(/\//g, '-');
+            await zoomState(page, p.path, slug, async () => {
+              await page.goto(base + p.path);
+              await waitReady(page, p.h1);
+              if (p.wait) await page.locator(p.wait).first().waitFor({ timeout: 15000 });
+            });
+          }
+          const recPage = pageFor.get(false);
+          for (const st of recStates) {
+            await zoomState(recPage, `/record（${st.name}）`, st.slug, async () => {
+              setAccounts(recApi, []);
+              st.prep?.(recApi);
+              recApi.chartTimeframes = [];
+              recApi.chartRead = { status: 200, kind: 'chart', holdMs: 0 };
+              await openRecord(recPage, base);
+              await st.fn(recPage, recApi);
+            });
+          }
+          for (const st of setStates) {
+            await zoomState(recPage, `/settings（${st.name}）`, st.slug, async () => {
+              recApi.instruments.splice(0, recApi.instruments.length, FAKE_US30);
+              recApi.settings = {
+                capitalYen: null,
+                riskTolerancePct: 1,
+                performanceUnit: 'R',
+                capitalHistory: [],
+              };
+              setAccounts(recApi, []);
+              recApi.aiUsage = { status: 200, body: FAKE_AI_USAGE };
+              st.prep(recApi);
+              await openSettings(recPage, base);
+              await st.fn(recPage, recApi);
+            });
+          }
+          // ホームの規律の振り返り（取引のある 7 日・数の段・曲線・「数で見る」を開いた形）
+          {
+            const saved = recApi.trades;
+            recApi.trades = [...REVIEW_S1];
+            await zoomState(recPage, '/（振り返り・数で見る）', 'home-review-table', async () => {
+              await recPage.goto(`${base}/?period=7d`);
+              await waitReady(recPage, 'ホーム');
+              await recPage.locator('.curve').first().waitFor({ timeout: 15000 });
+              await recPage.locator('.review__table > summary').click();
+              await recPage.locator('.review__table table').waitFor();
+            });
+            recApi.trades = saved;
+          }
+          for (const c of contexts) await c.close();
+        }
+      }
+    }
+
     // ── 行き来・テーマ・ログインの手順。--inject-wide / --inject-clip のときは画面の崩れの確かめだけにする
-    if (!opts.injectWide && !opts.injectClip) {
+    if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
         '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
@@ -3832,7 +4254,7 @@ async function main() {
 
   console.log('');
   console.log(
-    `要約: ${states} 状態、横スクロールの最大 ${worstH}px、幅 360 の当たり<44 ${smallTotal} 件、部品のはみ出し ${clippedTotal} 件、入れ子 3 段以上 ${nestTotal} 件、帯の外れ ${barTotal} 件、外れ ${problems.length} 件`,
+    `要約: ${states} 状態、横スクロールの最大 ${worstH}px、幅 360 の当たり<44 ${smallTotal} 件、部品のはみ出し ${clippedTotal} 件、入れ子 3 段以上 ${nestTotal} 件、帯の外れ ${barTotal} 件、文字の拡大 ${zoomTotal} 状態（拡大の漏れ ${zoomUnscaled} 件・行の重なり ${zoomOverlap} 件・既知 ${zoomKnown} 状態）、外れ ${problems.length} 件`,
   );
   if (opts.shots) console.log(`撮影: ${opts.shots}（コミットしない）`);
   if (problems.length > 0) {
@@ -6634,7 +7056,12 @@ async function runFlows(browser, base, signedIn) {
         return {
           text: e.textContent,
           lines: lines(e),
-          segLines: [...e.querySelectorAll('.verdict__seg')].map((s) => s.getClientRects().length),
+          // 区切りの中の行の数（区切りは inline-block なので、文字の範囲の行の上端の数で数える。#79）
+          segLines: [...e.querySelectorAll('.verdict__seg')].map((s) => {
+            const r = document.createRange();
+            r.selectNodeContents(s);
+            return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+          }),
           ink3: cs.color === ink3,
           h: document.documentElement.scrollWidth - window.innerWidth,
           afterStats: e.previousElementSibling?.classList.contains('verdict__stats') ?? false,

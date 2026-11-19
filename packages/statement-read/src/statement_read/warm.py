@@ -26,6 +26,11 @@
 - 静まり（#99。``prepare_settled``）: CLI は立ち上がった後も止めていた起動の仕事（プラグイン・設定の書き込みなど）を
   続ける。準備の要求は、立ち上がった後に CLI の CPU 時間（``cli_cpu_ms``。``/proc`` の stat）が静まるまで最大 settle 秒
   待ち、その仕事を CPU が割り当てられている要求の中で済ませる（応答の後に CPU が止まると、次の読み取りに持ち越される）
+- 使われなかった先立ての印（#99 の続き）: slot ごとに出どころ（``origin`` = ``startup`` / ``prepare``）・作った時刻・
+  立ち上がった時刻を持つ。読み取りに取られずに終わった slot は終わり方（``WarmEnd.kind``）を決めて ``on_end`` に渡し、
+  最後の 1 つを覚える。読み取りが先立てを使えなかったときは、その理由と時間を ``attempt`` に入れる（``miss``・
+  ``origin``・``age_ms`` = 作ってから今まで・``ready_ms`` = 作ってから立ち上がるまで・``end_ms`` = 作ってから
+  終わるまで）。時間は ``time.monotonic``（CPU が絞られている間も進む）で数える
 """
 
 import asyncio
@@ -96,6 +101,28 @@ class _Job:
         self.stages = ar.Stages(time.monotonic, time.monotonic())
 
 
+# 読み取りに取られずに終わった slot の終わり方（#99 の続き）
+END_STARTUP_TIMEOUT = "startup_timeout"  # 立ち上がる前に起動の上限（作ってから startup 秒）を過ぎた
+END_START_FAILED = "start_failed"  # 立ち上がる前に失敗した（例外・CLI が終わった）
+END_EXPIRED = "expired"  # 立ち上がった後、作ってから ttl を過ぎた（loop の締め切り・取るときの時計）
+END_ENDED = "ended"  # 立ち上がった後、取られる前に CLI が自分で終わった
+END_CLOSED = "closed"  # プロセスの終了（close）
+# 読み取りが先立てを使えなかった理由（attempt["miss"]）。上の終わり方のほかに
+MISS_NONE = "none"  # 一度も立てていない
+MISS_USED = "used"  # 最後の先立ては前の読み取りが取った（画像を送った・送っている）。1 回で捨てるので、次の準備まで無い
+MISS_RETRIED = "retried"  # 最後の先立ては前の読み取りが取ったが、画像を送る前に失敗した（その回は cli = cold_retry）
+MISS_CLOSED = "closed"
+
+
+class WarmEnd(NamedTuple):
+    """読み取りに取られずに終わった slot（#99 の続き）。時間はミリ秒。ready_ms は立ち上がらなかったら None"""
+
+    kind: str
+    origin: str
+    end_ms: float
+    ready_ms: float | None
+
+
 class Prepared(NamedTuple):
     """準備の結果（#99）。ready = 立ち上がっている。settle_ms = 静まりを待ったミリ秒（測れない・静まり済みなら 0）。
     ended = 静まりを待つ間に CLI が自分で終わった（ready は False）"""
@@ -108,8 +135,12 @@ class Prepared(NamedTuple):
 class _Slot:
     """先立て 1 つ。Python の側（lock の下）と loop の側で分けて触る"""
 
-    def __init__(self, expires_at: float):
+    def __init__(self, expires_at: float, origin: str):
         self.expires_at = expires_at  # 時計（clock）の値
+        self.origin = origin  # startup / prepare（#99 の続き）
+        self.created_mono = time.monotonic()
+        self.ready_mono: float | None = None
+        self.discard_kind: str | None = None  # 捨てた理由（expired / closed）
         self.ready = threading.Event()  # 立ち上がった、または終わった（待つ側を起こす）
         self.ok = False  # 立ち上がった
         self.finished = threading.Event()  # task が終わり、一時ディレクトリを消した
@@ -147,6 +178,7 @@ class WarmPool:
         query_fn: Callable | None = None,
         clock: Callable[[], float] = time.monotonic,
         cpu_probe: Callable[[str], int | None] = cli_cpu_ms,
+        on_end: Callable[[WarmEnd], None] | None = None,
     ):
         self._credential = credential
         self._secret = secret
@@ -161,8 +193,11 @@ class WarmPool:
         self._query_fn = query_fn
         self._clock = clock
         self.cpu_probe = cpu_probe
+        self._on_end = on_end
         self._lock = threading.Lock()
         self._slot: _Slot | None = None
+        # 置き場から外れた最後の slot と、取られずに終わったならその終わり方（取られたなら None。#99 の続き）
+        self._last: tuple[_Slot, WarmEnd | None] | None = None
         self._active: set[_Slot] = set()  # task が終わっていない slot（取られて処理中を含む）
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
@@ -173,21 +208,21 @@ class WarmPool:
 
     # ── Python の側（Flask のスレッド）──
 
-    def start(self) -> bool:
+    def start(self, origin: str = "startup") -> bool:
         """先立てが無ければ 1 つ立て始める（待たない）。立ち上げ中・立ち上がった slot があればそのまま。
-        閉じた後は False"""
-        return self._ensure() is not None
+        閉じた後は False。origin は出どころ（ログの印。#99 の続き）"""
+        return self._ensure(origin) is not None
 
     def prepare(self, wait: float) -> bool:
         """先立てを立て（あればそのまま）、立ち上がるまで最大 wait 秒待つ。立ち上がっていれば True"""
         return self.prepare_settled(wait, 0.0)[0]
 
-    def prepare_settled(self, wait: float, settle: float) -> Prepared:
+    def prepare_settled(self, wait: float, settle: float, origin: str = "prepare") -> Prepared:
         """prepare に加えて、立ち上がった後に CLI の CPU の使用が静まるまで最大 settle 秒待つ（#99）。
         CLI は立ち上がった後も止めていた起動の仕事を続ける。応答の後は CPU がほぼ止まる（ADR-0009）ので、この要求の中で
         済ませて次の読み取りに持ち越さない。CPU を読めない・立ち上がっていない・同じ slot で静まりを確かめ済みなら
         待たない（settle_ms = 0）。待つ間に CLI が自分で終わったら ready = False・ended = True"""
-        slot = self._ensure()
+        slot = self._ensure(origin)
         if slot is None:
             return Prepared(False, 0.0)
         slot.ready.wait(wait)
@@ -240,19 +275,39 @@ class WarmPool:
         """先立てで 1 回読む。使える slot が無い・画像を送る前に slot が失敗したら None（呼ぶ側がその場で立てる）。
         立ち上げ中の slot も取る（残りの立ち上がりを待つ）。締め切りは取った時点から timeout 秒。attempt（dict）を
         渡すと、slot を取ったときに ``attempt["taken"] = True``（None が「slot が無い」か「取ったが送る前に
-        失敗した」かを呼ぶ側が見分ける。#99）"""
+        失敗した」かを呼ぶ側が見分ける。#99）。先立てを使えなかったときは ``attempt["miss"]`` に理由
+        （``MISS_*``・``END_*``）を入れ、slot があれば ``origin``・``age_ms``・``ready_ms``・``end_ms`` も入れる（取った
+        ときも ``origin``・``age_ms``・``ready_ms``。#99 の続き）"""
+        info: dict = {} if attempt is None else attempt
         with self._lock:
             slot = self._slot
-            if slot is None or self._closed or slot.taken or slot.cancelled or slot.finished.is_set():
+            if self._closed:
+                info["miss"] = MISS_CLOSED
+                return None
+            if slot is None:
+                self._describe_last_locked(info)
+                return None
+            if slot.taken:  # 取った slot は置き場から外すので、ここには来ない（念のため）
+                info["miss"] = MISS_USED
+                self._describe(slot, info)
+                return None
+            if slot.cancelled or slot.finished.is_set():
+                info["miss"] = slot.discard_kind or END_START_FAILED
+                self._describe(slot, info)
                 return None
             if self._clock() >= slot.expires_at:
-                self._discard_locked(slot)
+                self._discard_locked(slot, END_EXPIRED)
+                info["miss"] = END_EXPIRED
+                self._describe(slot, info)
                 return None
             if slot.ready.is_set() and not slot.ok:
+                info["miss"] = END_START_FAILED
+                self._describe(slot, info)
                 return None
             slot.taken = True
-            if attempt is not None:
-                attempt["taken"] = True
+            info["taken"] = True
+            self._describe(slot, info)
+            self._last = (slot, None)
             self._slot = None
             job = _Job(ar.user_message(data, media_type), identity_token, self.timeout)
             slot.job = job
@@ -264,6 +319,32 @@ class WarmPool:
         except concurrent.futures.TimeoutError:
             return ar.ReadOutcome(result=None, seconds=None, error="timeout")
 
+    @staticmethod
+    def _describe(slot: "_Slot", info: dict, end_ms: float | None = None) -> None:
+        """slot の出どころと時間（ミリ秒）を info に入れる（#99 の続き）"""
+        now = time.monotonic()
+        info["origin"] = slot.origin
+        info["age_ms"] = round((now - slot.created_mono) * 1000, 1)
+        if slot.ready_mono is not None:
+            info["ready_ms"] = round((slot.ready_mono - slot.created_mono) * 1000, 1)
+        if end_ms is not None:
+            info["end_ms"] = end_ms
+
+    def _describe_last_locked(self, info: dict) -> None:
+        """slot が無いとき: 最後の slot が読み取りに取られて画像を送ったなら used、取られたが送る前に失敗したなら
+        retried、取られずに終わったならその終わり方（どれも無ければ none）"""
+        last = self._last
+        if last is None:
+            info["miss"] = MISS_NONE
+            return
+        slot, end = last
+        if end is None:
+            info["miss"] = MISS_USED
+            self._describe(slot, info)
+            return
+        info["miss"] = end.kind
+        self._describe(slot, info, end.end_ms)
+
     def close(self, wait: float = 10.0) -> None:
         """待っている先立てを取り消し、取られて処理中の先立ても含めて後始末を待ち（最大 wait 秒）、loop を止める。
         プロセスの終了（atexit）でも呼ぶ。間に合わなかった slot の一時ディレクトリもここで消す"""
@@ -272,7 +353,7 @@ class WarmPool:
             slot = self._slot
             self._slot = None
             if slot is not None:
-                self._discard_locked(slot)
+                self._discard_locked(slot, END_CLOSED)
             active = list(self._active)
             loop, thread = self._loop, self._thread
         deadline = time.monotonic() + wait
@@ -303,7 +384,7 @@ class WarmPool:
             slot = self._slot
         return True if slot is None else slot.finished.wait(wait)
 
-    def _ensure(self) -> _Slot | None:
+    def _ensure(self, origin: str) -> _Slot | None:
         with self._lock:
             if self._closed:
                 return None
@@ -313,26 +394,45 @@ class WarmPool:
                     slot.ready.is_set() and not slot.ok)
                 if usable and self._clock() < slot.expires_at:
                     return slot
-                self._discard_locked(slot)
+                self._discard_locked(slot, END_EXPIRED)
             if self._loop is None:
                 self._loop = asyncio.new_event_loop()
                 self._thread = threading.Thread(target=self._loop.run_forever, name="statement-read-warm",
                                                 daemon=True)
                 self._thread.start()
                 atexit.register(self.close)
-            slot = _Slot(self._clock() + self.ttl)
+            slot = _Slot(self._clock() + self.ttl, origin)
             self._slot = slot
             self._active.add(slot)
             asyncio.run_coroutine_threadsafe(self._run(slot), self._loop)
             return slot
 
-    def _discard_locked(self, slot: _Slot) -> None:
-        """slot を捨てる（lock の下で呼ぶ）。取り消しは loop の側で"""
+    def _discard_locked(self, slot: _Slot, kind: str) -> None:
+        """slot を捨てる（lock の下で呼ぶ）。取り消しは loop の側で。kind は終わり方（expired / closed）"""
+        if slot.discard_kind is None:
+            slot.discard_kind = kind
         slot.cancelled = True
         if self._slot is slot:
             self._slot = None
         if self._loop is not None:
             self._loop.call_soon_threadsafe(self._cancel, slot)
+
+    @staticmethod
+    def _end_of(slot: "_Slot", deadline_hit: bool) -> WarmEnd:
+        """取られずに終わった slot の終わり方（#99 の続き）"""
+        if slot.discard_kind is not None:
+            kind = slot.discard_kind
+        elif slot.ok:
+            kind = END_EXPIRED if deadline_hit else END_ENDED
+        else:
+            kind = END_STARTUP_TIMEOUT if deadline_hit else END_START_FAILED
+        return WarmPool._end_with(slot, kind)
+
+    @staticmethod
+    def _end_with(slot: "_Slot", kind: str) -> WarmEnd:
+        ready_ms = (None if slot.ready_mono is None
+                    else round((slot.ready_mono - slot.created_mono) * 1000, 1))
+        return WarmEnd(kind, slot.origin, round((time.monotonic() - slot.created_mono) * 1000, 1), ready_ms)
 
     # ── loop の側 ──
 
@@ -379,6 +479,7 @@ class WarmPool:
         slot.job_event = asyncio.Event()
         collector: ar.Collector | None = None
         outcome: ar.ReadOutcome | None = None
+        deadline_hit = False  # 締め切り（起動の上限・ttl）で取り消した（#99 の続き）
         try:
             with anyio.CancelScope(deadline=created + self.startup) as scope:
                 slot.scope = scope
@@ -410,6 +511,7 @@ class WarmPool:
                     # 立ち上がった（initialize の後に初めて読まれる）
                     if slot.job_started is None:  # まだ取られていない: 作ってから ttl で捨てる
                         scope.deadline = created + self.ttl
+                    slot.ready_mono = time.monotonic()
                     slot.ok = True
                     slot.ready.set()
                     await slot.job_event.wait()
@@ -441,6 +543,7 @@ class WarmPool:
                                 done.set()
                 finally:
                     done.set()
+            deadline_hit = scope.cancelled_caught and not slot.cancelled
             if slot.job is not None and slot.sent:
                 if scope.cancelled_caught:
                     outcome = ar.ReadOutcome(result=None, seconds=None, error="timeout")
@@ -455,10 +558,22 @@ class WarmPool:
         finally:
             if slot.base is not None:
                 shutil.rmtree(slot.base, ignore_errors=True)
+            end: WarmEnd | None = None
             with self._lock:
+                if slot.job is not None and not slot.sent and self._last is not None and self._last[0] is slot:
+                    # 取ったが画像を送る前に失敗した（#99 の続き）。次の読み取りの印を used と分ける
+                    self._last = (slot, self._end_with(slot, MISS_RETRIED))
+                if slot.job is None:  # 取られずに終わった（#99 の続き）
+                    end = self._end_of(slot, deadline_hit)
+                    # 後から作った slot の覚えを、前の slot の遅れた終わりで上書きしない
+                    if self._last is None or self._last[0].created_mono <= slot.created_mono:
+                        self._last = (slot, end)
                 if self._slot is slot:
                     self._slot = None
                 self._active.discard(slot)
+            if end is not None and self._on_end is not None:
+                with contextlib.suppress(Exception):  # 印の失敗で後始末を止めない
+                    self._on_end(end)
             if outcome is not None and slot.job is not None:
                 # 段の時間は一時ディレクトリを消した後に締める（close_ms に後始末を含める。#99）。結果は下の future で
                 # 渡すので、終わりの印より前に入れておく

@@ -528,3 +528,36 @@ def test_prepare_cli_ended_during_settle(make, sdk, capfd, monkeypatch):
     assert w.prepare().get_json() == {"ready": False}
     log = prepare_log(capfd)
     assert log["reason"] == "ended" and log["settle_ms"] == 120.0
+
+
+# ── #99 の続き: 先立てを使えなかった理由と時間のログの印（決まった語と数だけ） ──
+def test_read_logs_warm_miss_reasons(make, sdk, capfd):
+    w = make()
+    capfd.readouterr()
+    assert w.read().status_code == 200  # 立てていない
+    assert w.prepare().get_json() == {"ready": True}
+    assert w.read().status_code == 200  # 準備の先立てを使った
+    assert w.read().status_code == 200  # 前の読み取りが使った
+    logs = read_logs(capfd)
+    assert [(ln["cli"], ln.get("warm")) for ln in logs] == [("cold", "none"), ("warm", None), ("cold", "used")]
+    assert "warm_from" not in logs[0]
+    assert logs[1]["warm_from"] == "prepare" and logs[1]["warm_age_ms"] >= 0 and "warm_ready_ms" in logs[1]
+    assert logs[2]["warm_from"] == "prepare" and "warm_end_ms" not in logs[2]
+
+
+def test_unused_startup_slot_logs_end_and_read_reason(make, sdk, capfd, monkeypatch):
+    # 起動の段の先立てが上限までに立ち上がらずに終わった（本番で CPU が絞られた間に過ぎた締め切りの形）
+    monkeypatch.setattr(app_settings, "APP_WARM_STARTUP_SECONDS", 0.2)
+    sdk.startup_delay = 2.0
+    w = make()
+    assert w.pool.start()  # 起動の段と同じ（待たない）
+    assert w.pool.wait_idle(5)
+    (end,) = read_logs(capfd, event="statement_read_warm_end")
+    assert end["warm"] == "startup_timeout" and end["warm_from"] == "startup"
+    assert end["warm_end_ms"] >= 200 and "warm_ready_ms" not in end
+    assert set(end) == {"event", "warm", "warm_from", "warm_end_ms"}
+    sdk.startup_delay = 0.0
+    assert w.read().status_code == 200
+    (log,) = read_logs(capfd)
+    assert log["cli"] == "cold" and log["warm"] == "startup_timeout" and log["warm_from"] == "startup"
+    assert log["warm_age_ms"] >= log["warm_end_ms"] >= 200

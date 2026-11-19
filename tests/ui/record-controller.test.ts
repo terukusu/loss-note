@@ -24,6 +24,9 @@ import {
   type RecordController,
   ROWS_DONE,
   SAVE_FAILED,
+  sentToAi,
+  WARM_REFRESH_MS,
+  watchVisible,
 } from '../../ui/src/lib/record-controller';
 import { applyDraft, type Draft, EMPTY_DRAFT, summarize } from '../../ui/src/lib/record-form';
 import {
@@ -1477,6 +1480,138 @@ describe('読み取りの準備（#65 AC-13）', () => {
     const fake = createFakeApi({ instruments: [US30] });
     await opened(fake);
     expect(posts(fake, PREPARE)).toHaveLength(0);
+    const c = createRecordController({ api: fake.api, now: () => NOW });
+    c.refreshWarm();
+    expect(posts(fake, PREPARE)).toHaveLength(0);
+  });
+
+  /** 準備の応答を手で返せる api（ほかは偽の記録の API）。時計も手で進める */
+  function gatedPrepare(reads: readonly ReadScript[] = []) {
+    const fake = createFakeApi({ instruments: [B], trades: [], reads });
+    const pending: Array<() => void> = [];
+    const api: typeof fake.api = async (path, init) => {
+      if (path === PREPARE && (init?.method ?? 'GET').toUpperCase() === 'POST') {
+        fake.calls.push({ method: 'POST', path } as (typeof fake.calls)[number]);
+        await new Promise<void>((r) => pending.push(r));
+        return new Response(JSON.stringify({ ready: true }), { status: 200 });
+      }
+      return fake.api(path, init);
+    };
+    let t = NOW;
+    const c = createRecordController({
+      api,
+      now: () => t,
+      warmRead: true,
+      prepare: async () => ({ ok: true, image: preparedImage(fakePreview()) }),
+    });
+    const settle = async () => {
+      for (const r of pending.splice(0)) r();
+      for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+    };
+    return { fake, c, settle, advance: (ms: number) => (t += ms) };
+  }
+
+  it('#99 の続き: 明細の読み取りが API に届いた後に、次の 1 枚のために準備を送り直す（重ねない）', async () => {
+    const { fake, c, settle } = gatedPrepare([
+      { status: 200, body: statementBody([]) },
+      { status: 502 },
+    ]);
+    await c.load();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    await settle();
+    await c.readImage(img());
+    // 読み取りの後に 1 回（開いたときの分は返った後）
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    // 送っている間にもう 1 枚読んでも重ねて送らない。返った後に 1 回だけ送り直す
+    await c.readImage(img());
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(3);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(3);
+    expect(c.getState().error).toBeNull();
+  });
+
+  it('#99 の続き: AI へ送る前に返る応答（400・403・413・429・503）の後は送り直さない', async () => {
+    for (const status of [400, 403, 413, 429, 503]) {
+      const { fake, c, settle } = gatedPrepare([{ status }]);
+      await c.load();
+      await settle();
+      await c.readImage(img());
+      await settle();
+      expect(posts(fake, PREPARE)).toHaveLength(1);
+    }
+  });
+
+  it('#99 の続き: ログインが切れた（401 は request が投げる）後は送り直さない', async () => {
+    const { fake, c, settle } = gatedPrepare([{ status: 401 }]);
+    await c.load();
+    await settle();
+    await c.readImage(img());
+    await settle();
+    expect(c.getState().error).toBe(AUTH_EXPIRED);
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+  });
+
+  it('#99 の続き: 画面の側の通信の失敗・時間切れで読み取りが投げた後も送り直す（API に届いたかもしれない）', async () => {
+    const { fake, c, settle } = gatedPrepare(['throw']);
+    await c.load();
+    await settle();
+    await c.readImage(img());
+    await settle();
+    expect(c.getState().statement?.phase).toBe('failed');
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+  });
+
+  it('#99 の続き: AI へ送った応答の判定 sentToAi', () => {
+    for (const s of [200, 500, 502, 504]) expect(sentToAi(s)).toBe(true);
+    for (const s of [400, 401, 403, 413, 429, 503]) expect(sentToAi(s)).toBe(false);
+  });
+
+  it('#99 の続き: watchVisible は見えるようになったときだけ呼び、外した後は呼ばない', () => {
+    const target = new EventTarget();
+    let visible = false;
+    let calls = 0;
+    const unwatch = watchVisible(
+      target,
+      () => visible,
+      () => calls++,
+    );
+    target.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toBe(0);
+    visible = true;
+    target.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toBe(1);
+    target.dispatchEvent(new Event('other'));
+    expect(calls).toBe(1);
+    unwatch();
+    target.dispatchEvent(new Event('visibilitychange'));
+    expect(calls).toBe(1);
+  });
+
+  it('#99 の続き: 画面に戻ったとき、前に送ってから WARM_REFRESH_MS 以上なら送り直す。離れた後は送らない', async () => {
+    const { fake, c, settle, advance } = gatedPrepare();
+    await c.load();
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    advance(WARM_REFRESH_MS - 1);
+    c.refreshWarm();
+    expect(posts(fake, PREPARE)).toHaveLength(1);
+    advance(1);
+    c.refreshWarm();
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    // 送っている間に戻っても重ねない（返った後にも送り直さない。送っていた準備が先立てを立てる）
+    advance(WARM_REFRESH_MS);
+    c.refreshWarm();
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(2);
+    // 離れた後は送らない
+    c.dispose();
+    advance(WARM_REFRESH_MS * 10);
+    c.refreshWarm();
+    await settle();
+    expect(posts(fake, PREPARE)).toHaveLength(2);
   });
 });
 

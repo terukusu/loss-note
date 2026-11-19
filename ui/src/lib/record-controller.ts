@@ -27,6 +27,10 @@
 //   チャートはその後に枠の順。同時の予約と CPU の取り合いを減らす。ADR-0015）。読み取り中も [記録する] は押せ、
 //   記録した時点で終わっていない読み取りは止めて結果を捨てる（時間足は任意の欄）。差し替え・外す・離れたでも止める。
 //   失敗は決まった文言で知らせ、欄は空のまま
+// - 読み取りの準備（#65・#99 の続き）: warmRead なら、開いたとき・明細の読み取りが API に届いた後（先立ては 1 回で
+//   捨てるので次の 1 枚のために立て直す）・画面に戻ったとき（refreshWarm。前に送ってから WARM_REFRESH_MS 以上）に
+//   POST /api/statement-reads/prepare を送る。重ねて送らない（読み取りの後に送っている間だったら、終わってから 1 回
+//   だけ送り直す）。AI を呼ばず、失敗は画面に出さない。離れた（dispose）後は送らない
 
 import {
   type AccountRecord,
@@ -143,6 +147,32 @@ export const READ_PATH = '/api/statement-reads';
 export const READ_PREPARE_PATH = '/api/statement-reads/prepare';
 /** 準備の要求の時間の上限（API が待つ上限 = 立ち上がり 20 秒 + 静まり 5 秒（#99）より長く、Cloud Run・gunicorn の 60 秒より短い） */
 export const READ_PREPARE_TIMEOUT_MS = 30_000;
+/**
+ * 画面に戻ったときに準備を送り直す間隔（#99 の続き）。API の先立ては作ってから 10 分で捨てられ、インスタンスも
+ * 使われなければ止まる。生きている先立てがあれば API はすぐ返す（AI を呼ばない）ので、短く取ってタブの行き来だけを間引く
+ */
+export const WARM_REFRESH_MS = 60_000;
+
+/** 明細の読み取りの応答が AI へ送った後のものか（200 と、503 を除く 5xx。#99 の続き） */
+export function sentToAi(status: number): boolean {
+  return status === 200 || (status >= 500 && status !== 503);
+}
+
+/**
+ * 画面に戻った（見えるようになった）ときに onVisible を呼ぶつなぎ（#99 の続き）。target は document、
+ * isVisible は document.visibilityState === 'visible'。返す関数で外す（画面を離れたとき）
+ */
+export function watchVisible(
+  target: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>,
+  isVisible: () => boolean,
+  onVisible: () => void,
+): () => void {
+  const fn = () => {
+    if (isVisible()) onVisible();
+  };
+  target.addEventListener('visibilitychange', fn);
+  return () => target.removeEventListener('visibilitychange', fn);
+}
 export const ROWS_DONE = '明細のすべての行を確認しました';
 export const rowSaved = (index: number, total: number) =>
   `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;
@@ -277,6 +307,11 @@ export interface RecordController {
   addAccount(): Promise<void>;
   /** [〈読めた値〉にする]: チャートから読めた値で枠の時間足を直す（印を付ける） */
   acceptChartTimeframe(slot: AnySlot): void;
+  /**
+   * 画面に戻った（タブが見えるようになった）: 前に準備を送ってから WARM_REFRESH_MS 以上たっていれば送り直す
+   * （warmRead のときだけ。#99 の続き）
+   */
+  refreshWarm(): void;
   /** 画面を離れた: 読み取りを止め、画像と残りの行を捨てる（チャートも捨てる） */
   dispose(): void;
 }
@@ -331,7 +366,10 @@ export function createRecordController(deps: {
   /** 画像を送る形に描き直す（画面が statement-image.ts の prepareImage を渡す。テストは偽物） */
   readonly prepare?: (file: Blob) => Promise<PrepareResult>;
   readonly readTimeoutMs?: number;
-  /** 開いたときに読み取りの準備を送る（#65。画面が true を渡す。失敗は画面に出さない） */
+  /**
+   * 読み取りの準備を送る（#65。画面が true を渡す。失敗は画面に出さない）: 開いたとき・読み取りの後・画面に
+   * 戻ったとき（#99 の続き）
+   */
   readonly warmRead?: boolean;
 }): RecordController {
   const { now } = deps;
@@ -369,6 +407,11 @@ export function createRecordController(deps: {
   let accountTaken: string | null = null;
   let uncertainAccount: string | null = null;
   let addingAccount: Promise<void> | null = null;
+  /** 読み取りの準備（#99 の続き）: 送っている間・送っている間に要るようになった・最後に送った時刻・離れた */
+  let warmInflight = false;
+  let warmAgain = false;
+  let warmSentAt: number | null = null;
+  let disposed = false;
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -457,13 +500,30 @@ export function createRecordController(deps: {
     }
   };
 
+  /**
+   * 読み取りの準備を送る（重ねない）。again = 送っている間なら、終わってから 1 回だけ送り直す（読み取りの後。
+   * 送っている準備の先立ては、その読み取りが使ったかもしれない）
+   */
+  const warm = (again = false) => {
+    if (!deps.warmRead || disposed) return;
+    if (warmInflight) {
+      if (again) warmAgain = true;
+      return;
+    }
+    warmInflight = true;
+    warmAgain = false;
+    warmSentAt = now();
+    void request(READ_PREPARE_PATH, { method: 'POST' }, { ms: READ_PREPARE_TIMEOUT_MS })
+      .catch(() => undefined)
+      .finally(() => {
+        warmInflight = false;
+        if (warmAgain) warm(true);
+      });
+  };
+
   const load = async () => {
     set({ phase: 'loading', error: null, readBlocked: null }, true);
-    if (deps.warmRead) {
-      void request(READ_PREPARE_PATH, { method: 'POST' }, { ms: READ_PREPARE_TIMEOUT_MS }).catch(
-        () => undefined,
-      );
-    }
+    warm();
     try {
       const [t, i, a] = await Promise.all([
         // 既定に使うのは前回（作った時刻が最大）の 1 件だけ。全件を読まない（Issue #87）
@@ -687,6 +747,10 @@ export function createRecordController(deps: {
         { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes as BodyInit },
         { ms: readTimeoutMs, ctl },
       );
+      // API が先立てを使った（または使えずにその場で立てた）ので、次の 1 枚のために立て直す（#99 の続き）。
+      // AI へ送った応答（200・送り口の失敗の 502 / 504 など）だけ。AI へ送る前に返す 400・403・413・429・503 の後は
+      // 送らない（401 は request が投げる）
+      if (sentToAi(res.status)) warm(true);
       if (gen !== readGen) return;
       if (res.status !== 200) {
         const kind = readFailureOf(res.status);
@@ -757,6 +821,9 @@ export function createRecordController(deps: {
         set({ error: AUTH_EXPIRED, errorKind: 'auth' });
         return;
       }
+      // 時間切れ・通信の失敗: API に届いて先立てを使ったかもしれないので立て直す（利用者がやめた・新しい読み取りは
+      // 上の世代の確かめで返っている。#99 の続き）
+      if (kindOf(e) === 'network') warm(true);
       statementFailed(gen, READ_MSG.failed);
     } finally {
       if (readAbort === ctl) readAbort = null;
@@ -1192,7 +1259,12 @@ export function createRecordController(deps: {
         },
       });
     },
+    refreshWarm() {
+      if (warmSentAt !== null && now() - warmSentAt < WARM_REFRESH_MS) return;
+      warm();
+    },
     dispose() {
+      disposed = true;
       endStatement();
       clearCharts();
     },

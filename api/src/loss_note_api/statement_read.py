@@ -29,6 +29,15 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 結果まで・``turn_ms`` = CLI が報告するターンの時間・``close_ms`` = 結果から CLI が終わって一時ディレクトリを消すまで
 （``read_ms`` ≈ ``wait_ms`` + ``result_ms`` + ``close_ms``）。
 
+先立ての印（#99 の続き）: ``warm`` = 先立てを使えなかった理由（``none`` = 立てていない・``used`` = 最後の
+先立ては前の読み取りが取って画像を送った・``retried`` = 前の読み取りが取ったが画像を送る前に失敗した（その回は
+``cli=cold_retry``）・``expired``・``startup_timeout`` = 立ち上がる前に起動の上限を過ぎた・``start_failed``・
+``ended`` = 立ち上がった後に CLI が自分で終わった・``closed``）、``warm_from`` = 先立ての出どころ（``startup`` /
+``prepare``）、``warm_age_ms`` = 先立てを作ってからこの読み取りまで、``warm_ready_ms`` = 作ってから立ち上がるまで、
+``warm_end_ms`` = 作ってから終わるまで。取られずに終わった先立ては、終わったときに ``event=statement_read_warm_end``
+（``warm``・``warm_from``・``warm_end_ms``・``warm_ready_ms``）を 1 行出す（CPU が絞られている間に過ぎた締め切りは、
+次に CPU が割り当てられたときに取り消されるので、ログの時刻と ``warm_end_ms`` で見分けられる）。
+
 明細の特徴（Issue #66・ADR-0017）: 検査を通った結果の会社の名前（``issuer``）を ``statement_profile.profile_key`` で
 利用者ごとの鍵に変え、名前はすぐ捨てる（応答・ログ・保存先に出さない）。鍵があれば覚え
 ``users/{uid}/statement_profiles/{鍵}`` を 1 つ読み（書かない）、応答に ``profile: {key, accountId}``（鍵が無ければ
@@ -65,7 +74,7 @@ from statement_read.agent_reader import (
 )
 from statement_read.normalize import normalize_result
 from statement_read.result import Bad
-from statement_read.warm import WarmPool
+from statement_read.warm import WarmEnd, WarmPool
 from werkzeug.exceptions import RequestEntityTooLarge
 
 from loss_note_api import identity_token as id_token
@@ -124,8 +133,22 @@ def read_config(
     frozen = MappingProxyType(dict(values))
     warm = WarmPool(kind, frozen, app_settings.APP_MODEL, app_settings.APP_EFFORT, timeout=t,
                     max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS, identity_token=fetch,
-                    ttl=app_settings.APP_WARM_TTL_SECONDS, startup=app_settings.APP_WARM_STARTUP_SECONDS)
+                    ttl=app_settings.APP_WARM_TTL_SECONDS, startup=app_settings.APP_WARM_STARTUP_SECONDS,
+                    on_end=log_warm_end)
     return ReadConfig(kind, frozen, t, fetch, warm)
+
+
+def log_warm_end(end: WarmEnd) -> None:
+    """読み取りに取られずに終わった先立ての印（#99 の続き）。終わり方・出どころ・作ってから終わるまで・立ち上がるまで
+    （立ち上がらなかったら出さない）だけ。ログの時刻が終わった時刻"""
+    extra: dict[str, float] = {} if end.ready_ms is None else {"warm_ready_ms": end.ready_ms}
+    log_event(event="statement_read_warm_end", warm=end.kind, warm_from=end.origin, warm_end_ms=end.end_ms,
+              **extra)
+
+
+# 先立ての印（attempt の鍵 → ログの鍵。#99 の続き）
+_WARM_TAGS = {"miss": "warm", "origin": "warm_from"}
+_WARM_TIMINGS = {"age_ms": "warm_age_ms", "ready_ms": "warm_ready_ms", "end_ms": "warm_end_ms"}
 
 
 def sdk_available() -> bool:
@@ -260,12 +283,19 @@ def register(
         taken_at = time.monotonic()  # 段の時間の起点（#99。Stages の時計）
         # 先立てがあれば使う（1 回で捨てる。#65）。無い・送る前に失敗したら、残りの時間でその場で立てる。
         # 先立てを取ったが送る前に失敗した回は cli = cold_retry（純粋な cold と見分ける。#99）
-        attempt: dict[str, bool] = {}
+        attempt: dict[str, object] = {}
         outcome = config.warm.read(data, media_type, token, attempt=attempt) if config.warm is not None else None
         if outcome is not None:
             tags["cli"] = "warm"
         else:
             tags["cli"] = "cold_retry" if attempt.get("taken") else "cold"
+        # 先立てを使えなかった理由・出どころ・時間（#99 の続き。使えたときも出どころと時間）
+        for k, key in _WARM_TAGS.items():
+            if isinstance(attempt.get(k), str):
+                tags[key] = attempt[k]
+        for k, key in _WARM_TIMINGS.items():
+            if isinstance(attempt.get(k), int | float):
+                timings[key] = attempt[k]
         if outcome is None:
             remaining = config.timeout - (time.perf_counter() - t)
             if remaining <= 0:

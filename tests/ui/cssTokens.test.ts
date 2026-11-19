@@ -311,8 +311,11 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(btn.get('border')).toBe('1px solid var(--gsi-line)');
     expect(btn.get('background')).toBe('var(--gsi-bg)');
     expect(btn.get('color')).toBe('var(--gsi-ink)');
-    expect(btn.get('font-size')).toBe('14px');
-    expect(btn.get('line-height')).toBe('20px');
+    // 14/20（--fs-sm = 14px。文字の拡大に付いていくようトークンから決める。#79）
+    expect(btn.get('font-size')).toBe('var(--fs-sm)');
+    const rootDecls = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(rootDecls.get('--fs-sm')).toBe('14px');
+    expect(btn.get('line-height')).toBe('calc(var(--fs-sm) * 10 / 7)');
     expect(btn.get('font-weight')).toBe('var(--fw-medium)');
     expect(btn.get('font-family')).toMatch(/^"Google Sans"/);
     expect(btn.get('padding')).toBe('0 12px');

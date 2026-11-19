@@ -105,8 +105,15 @@
   border-radius: var(--radius-md);
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
-  line-height: 1;
-  white-space: nowrap;
+  /* 折り返したときに行が詰まりすぎない高さ。1.25 は文字 16px で行 20px（上下 2px ずつの整数）で、1 行のときの字の位置は
+     行の高さ 1 のときと変わらない（#79） */
+  line-height: 1.25;
+  /* 文字は 1 行（縮めて折り返さない = flex-shrink: 0）。親より広くなるとき（文字を大きくした端末）だけ、親の幅で
+     折り返す（横にはみ出さない。#79） */
+  flex-shrink: 0;
+  max-width: 100%;
+  white-space: normal;
+  text-align: center;
   user-select: none;
   transition:
     background-color var(--dur-fast) var(--ease),
@@ -481,9 +488,22 @@
   flex-wrap: nowrap;
 }
 
+.seg[data-count="3"]:not(.seg--truncate) {
+  container-type: inline-size;
+}
+
 .seg[data-count="3"]:not(.seg--truncate) .seg__item {
   min-width: 0;
   padding: 0 var(--sp-2);
+}
+
+/* 文字を大きくした端末（#79）: 3 択の幅が文字の大きさに比べて狭いときだけ、項目の中で折り返す（切らない・隣に
+   出ない）。閾値は em（セグメントの文字の大きさ）なので、等倍の文字では幅 360 の画面（3 択の幅 240px 以上）でも 1 行 */
+@container (max-width: 15em) {
+  .seg[data-count="3"] .seg__item {
+    white-space: normal;
+    text-align: center;
+  }
 }
 
 .seg__item .seg__check--off.icon {
@@ -519,10 +539,14 @@
   font-size: var(--fs-sm);
   font-weight: var(--fw-bold);
   line-height: 1.4;
-  white-space: nowrap;
+  /* 1 行（縮めて折り返さない）。親より広くなるとき（文字を大きくした端末）だけ親の幅で折り返す（#79） */
+  flex-shrink: 0;
+  max-width: 100%;
+  white-space: normal;
 }
 
 .badge__mark {
+  flex: none;
   width: 16px;
   height: 16px;
   stroke-width: 2.6;
@@ -1058,7 +1082,7 @@
 
 /* 数量と提案の数量の 1 行（#67）。区切り（「数量 10,000 ·」「提案の数量 4,000（2.5 倍）」）の中では折らず、幅が足りないときは
    区切りの間で折る（語の途中・括弧の前で折らない）。区切りは 1 つの塊（inline-block）で、行に収まらなければ塊ごと次の行へ。
-   1 つの区切りが枠の幅より長いとき（9 桁以上の数量など）だけ、塊の中で折って枠からはみ出さない（#40） */
+   1 つの区切りが枠の幅より長いとき（9 桁以上の数量など）だけ、塊の中で折って枠からはみ出さない（#40。文字を大きくした端末でも同じ。#79） */
 .verdict__seg {
   display: inline-block;
   max-width: 100%;
@@ -1743,9 +1767,9 @@
   gap: var(--sp-1) var(--sp-2);
 }
 
-/* 札「チャートから」はラベルと同じ行に収める（幅 360px でも別の行に落とさない。R6） */
+/* 札「チャートから」はラベルと同じ行に収める（幅 360px でも別の行に落とさない。R6）。ラベルと札が 1 行に入らない
+   とき（文字を大きくした端末）だけ札を次の行へ（横にはみ出さない。#79） */
 .chart__tf .field__head {
-  flex-wrap: nowrap;
   white-space: nowrap;
 }
 
@@ -1838,6 +1862,9 @@
 }
 
 .login__title {
+  /* 句の中で折り返すのは入りきらないときだけ（文字を大きくした端末。横にはみ出さない。#79） */
+  min-width: 0;
+  overflow-wrap: anywhere;
   text-wrap: balance;
   word-break: auto-phrase;
   font-size: var(--fs-3xl);
@@ -1906,9 +1933,10 @@
   background: var(--gsi-bg);
   color: var(--gsi-ink);
   font-family: "Google Sans", Roboto, var(--font);
-  font-size: 14px;
+  /* ガイドラインの 14/20。文字の大きさのトークンから決め、文字を大きくした端末でも一緒に大きくなる（#79） */
+  font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
-  line-height: 20px;
+  line-height: calc(var(--fs-sm) * 10 / 7);
   letter-spacing: 0.25px;
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease);
@@ -2480,6 +2508,46 @@ summary.settings__subtitle {
 
   .tradelist__head-num {
     justify-self: end;
+  }
+}
+
+/* 文字を大きくした端末（#79）: 一覧の幅が文字の大きさに比べて狭いときは、列を段に組み替える（列の幅は rem・ch で
+   文字と一緒に広がり、等倍の並びのままでは横にはみ出す・隣の列に重なる）。閾値は em（一覧の文字の大きさ）なので、
+   等倍の文字では幅 360（一覧 296px 以上）・768（一覧 704px 以上）でも今の並びのまま */
+.tradelist-wrap {
+  container-type: inline-size;
+}
+
+@container (max-width: 18em) {
+  .traderow__badge {
+    flex-wrap: wrap;
+  }
+
+  /* 列の幅は行ごとに変えない（リスクの右の線が揃う。幅は等倍の並びと同じ 4.75rem） */
+  .traderow {
+    grid-template-columns: minmax(0, 1fr) 4.75rem;
+    grid-template-areas:
+      "badge badge"
+      "inst inst"
+      "date risk";
+  }
+}
+
+@media (min-width: 720px) {
+  @container (max-width: 36em) {
+    .tradelist__head {
+      display: none;
+    }
+
+    /* R・リスクの列は等倍の並びと同じ 6.5ch・5.5ch（行ごとに変えない。右の線が揃う） */
+    .traderow {
+      grid-template-columns: minmax(0, 1fr) 6.5ch 5.5ch;
+      grid-template-areas:
+        "badge r risk"
+        "inst date date";
+      row-gap: var(--sp-1);
+      padding: var(--sp-3) var(--sp-5);
+    }
   }
 }
 
@@ -3092,7 +3160,8 @@ summary.settings__subtitle {
   margin-block-start: -5px;
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
-  line-height: 16px;
+  /* 16px（文字の 4/3）。文字を大きくしても行が重ならないよう、文字の大きさから決める（#79） */
+  line-height: calc(var(--fs-xs) * 4 / 3);
   color: var(--ink-3);
 }
 

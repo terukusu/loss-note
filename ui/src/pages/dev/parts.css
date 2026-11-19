@@ -97,6 +97,8 @@
 
 .num-table__row {
   display: flex;
+  /* 1 行に入らないとき（文字を大きくした端末）だけ値を次の行へ（#79） */
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-3);

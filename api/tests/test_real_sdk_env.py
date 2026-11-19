@@ -43,6 +43,7 @@ def captured(monkeypatch):
 
     async def fake_open_process(cmd, **kw):
         seen["env"] = dict(kw["env"])
+        seen["cmd"] = list(cmd)
         raise _Stop()
 
     async def no_version_check(self):
@@ -78,6 +79,8 @@ def test_real_sdk_child_env(captured, tmp_path, method):
     for k in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_PROFILE", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK",
               "AWS_BEARER_TOKEN_BEDROCK", "CLAUDECODE"):
         assert k not in env
+    # #99: 会話を保存しない指定が CLI の引数になる（SDK の extra_args → --no-session-persistence）
+    assert "--no-session-persistence" in captured["cmd"]
     assert env["GH_TOKEN"] == ""
     assert list((tmp_path / "t").iterdir()) == []
 

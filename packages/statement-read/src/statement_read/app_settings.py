@@ -22,3 +22,7 @@ APP_CHART_MAX_OUTPUT_TOKENS = 2_000
 APP_WARM_TTL_SECONDS = 600
 # 先立ての CLI が立ち上がるまでの上限（秒）。準備の要求が待つ上限も同じ
 APP_WARM_STARTUP_SECONDS = 20
+# 先立ての CLI が立ち上がった後、準備の要求が CLI の CPU の使用が静まるまで待つ上限（秒。Issue #99）。
+# CLI は立ち上がった後も止めていた起動の仕事を続ける（手元で立ち上がりから約 1.5 秒の間に CPU 約 0.14 秒。本番は
+# 手元の約 4〜9 倍遅い）。応答の後は CPU がほぼ止まるので、準備の要求の中で済ませて読み取りに持ち越さない
+APP_WARM_SETTLE_SECONDS = 5

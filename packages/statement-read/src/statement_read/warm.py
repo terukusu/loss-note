@@ -21,6 +21,11 @@
 - 期限: 作ってから ttl 秒。取るときにも時計で確かめる（CPU が止まって loop の deadline が遅れても古い slot を
   使わない）。``close``（プロセスの終了の atexit）で slot を取り消し、一時ディレクトリを消す
 - ログ・例外の文言は出さない（呼ぶ側が種類だけを出す）
+- 段の時間（#99）: 取った時刻から ``agent_reader.Stages`` で数え（``wait_ms`` = 取ってから立ち上がりの残りを
+  待った時間）、一時ディレクトリを消した後に ``ReadOutcome.stages`` に入れる
+- 静まり（#99。``prepare_settled``）: CLI は立ち上がった後も止めていた起動の仕事（プラグイン・設定の書き込みなど）を
+  続ける。準備の要求は、立ち上がった後に CLI の CPU 時間（``cli_cpu_ms``。``/proc`` の stat）が静まるまで最大 settle 秒
+  待ち、その仕事を CPU が割り当てられている要求の中で済ませる（応答の後に CPU が止まると、次の読み取りに持ち越される）
 """
 
 import asyncio
@@ -33,6 +38,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from typing import NamedTuple
 
 import anyio
 
@@ -40,6 +46,44 @@ from . import agent_reader as ar
 
 # 取ってから結果を待つ上限に足す余裕（SDK の後始末は最大約 15 秒。ADR-0005 の決定 6）
 CLOSE_MARGIN_SECONDS = 20.0
+# 立ち上がった後の静まり（#99）: SETTLE_STEP 秒ごとに CLI の CPU 時間を測り、SETTLE_WINDOW 秒前との差が
+# SETTLE_QUIET_MS 以下になったら静まったとする（CPU 時間の刻みは 10 ms）。同梱の CLI 2.1.316 は立ち上がった後、
+# 約 0.3・0.6・1.0・1.5 秒の時点で小さな仕事を流し（1.0 秒の時点は止めていた起動の仕事 5 つ。CLI の startupWorkGate の
+# 待ちの上限 1 秒）、間は 0.3〜0.5 秒静か、その後は 1 秒以上静かになる（手元の実測）。窓は間の静けさとゲートの上限より
+# 長くとる
+SETTLE_STEP = 0.05
+SETTLE_WINDOW = 1.0
+SETTLE_QUIET_MS = 10
+
+
+def cli_cpu_ms(base: str) -> int | None:
+    """先立ての CLI（このプロセスの子で、cwd が ``<base>/cwd`` のもの）の CPU 時間の合計（ミリ秒。utime + stime と、
+    その子の分 cutime + cstime）。``/proc`` を読めない・見つからなければ None。読むのは stat と cwd だけ（cmdline・
+    environ は読まない）"""
+    want = os.path.realpath(f"{base}/cwd")
+    me = os.getpid()
+    try:
+        names = os.listdir("/proc")
+        tick = os.sysconf("SC_CLK_TCK")
+    except (OSError, ValueError):
+        return None
+    total = 0
+    found = False
+    for name in names:
+        if not name.isdecimal():
+            continue
+        try:
+            with open(f"/proc/{name}/stat", encoding="ascii", errors="replace") as f:
+                fields = f.read().rsplit(")", 1)[1].split()
+            if int(fields[1]) != me:  # 親（ppid）
+                continue
+            if os.path.realpath(os.readlink(f"/proc/{name}/cwd")) != want:
+                continue
+            total += sum(int(x) for x in fields[11:15])  # utime・stime・cutime・cstime
+            found = True
+        except (OSError, ValueError, IndexError):
+            continue
+    return total * 1000 // tick if found else None
 
 
 class _Job:
@@ -48,6 +92,17 @@ class _Job:
         self.identity_token = identity_token
         self.timeout = timeout
         self.future: concurrent.futures.Future = concurrent.futures.Future()
+        # 段の時間（#99）。取った時刻から数える（時計は time.monotonic。期限の clock はテストが止めるので使わない）
+        self.stages = ar.Stages(time.monotonic, time.monotonic())
+
+
+class Prepared(NamedTuple):
+    """準備の結果（#99）。ready = 立ち上がっている。settle_ms = 静まりを待ったミリ秒（測れない・静まり済みなら 0）。
+    ended = 静まりを待つ間に CLI が自分で終わった（ready は False）"""
+
+    ready: bool
+    settle_ms: float
+    ended: bool = False
 
 
 class _Slot:
@@ -68,6 +123,7 @@ class _Slot:
         self.job_started: float | None = None
         self.sent = False
         self.prep_failed = False  # 送る前の段（ID トークンの差し替え）で失敗した
+        self.settled = False  # 静まりを確かめた（次の準備では待たない。#99）
 
 
 class WarmPool:
@@ -90,6 +146,7 @@ class WarmPool:
         tmp_parent: str | None = None,
         query_fn: Callable | None = None,
         clock: Callable[[], float] = time.monotonic,
+        cpu_probe: Callable[[str], int | None] = cli_cpu_ms,
     ):
         self._credential = credential
         self._secret = secret
@@ -103,6 +160,7 @@ class WarmPool:
         self._tmp_parent = tmp_parent
         self._query_fn = query_fn
         self._clock = clock
+        self.cpu_probe = cpu_probe
         self._lock = threading.Lock()
         self._slot: _Slot | None = None
         self._active: set[_Slot] = set()  # task が終わっていない slot（取られて処理中を含む）
@@ -122,15 +180,67 @@ class WarmPool:
 
     def prepare(self, wait: float) -> bool:
         """先立てを立て（あればそのまま）、立ち上がるまで最大 wait 秒待つ。立ち上がっていれば True"""
+        return self.prepare_settled(wait, 0.0)[0]
+
+    def prepare_settled(self, wait: float, settle: float) -> Prepared:
+        """prepare に加えて、立ち上がった後に CLI の CPU の使用が静まるまで最大 settle 秒待つ（#99）。
+        CLI は立ち上がった後も止めていた起動の仕事を続ける。応答の後は CPU がほぼ止まる（ADR-0009）ので、この要求の中で
+        済ませて次の読み取りに持ち越さない。CPU を読めない・立ち上がっていない・同じ slot で静まりを確かめ済みなら
+        待たない（settle_ms = 0）。待つ間に CLI が自分で終わったら ready = False・ended = True"""
         slot = self._ensure()
         if slot is None:
-            return False
+            return Prepared(False, 0.0)
         slot.ready.wait(wait)
-        return slot.ok and not slot.cancelled and not slot.taken
+        ready = slot.ok and not slot.cancelled and not slot.taken
+        if not ready or settle <= 0 or slot.settled:
+            return Prepared(ready, 0.0)
+        waited, quiet = self._settle(slot, settle)
+        if slot.cancelled:
+            return Prepared(False, waited)
+        if slot.finished.is_set() and not slot.taken:
+            return Prepared(False, waited, ended=True)
+        if quiet:
+            slot.settled = True
+        # 待つ間に読み取りが取った slot は、立ち上がっていたので True のまま
+        return Prepared(True, waited)
 
-    def read(self, data: bytes, media_type: str, identity_token: str | None = None) -> ar.ReadOutcome | None:
+    def _settle(self, slot: "_Slot", limit: float) -> tuple[float, bool]:
+        """slot の CLI の CPU 時間が SETTLE_WINDOW の間に SETTLE_QUIET_MS 以下しか増えなくなるまで待つ
+        （最大 limit 秒）。読み取りに取られた・捨てられた・終わったらそこで終える。返すのは (待ったミリ秒, 静まったか)。
+        測れなければ (0, False)"""
+        base = slot.base
+        if base is None:
+            return 0.0, False
+        t0 = time.monotonic()
+        first = self.cpu_probe(base)
+        if first is None:
+            return 0.0, False
+        samples = [(t0, first)]
+        quiet = False
+        while True:
+            now = time.monotonic()
+            if now - t0 >= limit:
+                break
+            time.sleep(min(SETTLE_STEP, max(0.0, limit - (now - t0))))
+            if slot.taken or slot.cancelled or slot.finished.is_set():
+                break
+            cpu = self.cpu_probe(base)
+            now = time.monotonic()
+            if cpu is None:
+                break
+            samples.append((now, cpu))
+            old = [c for t, c in samples if now - t >= SETTLE_WINDOW]
+            if old and cpu - old[-1] <= SETTLE_QUIET_MS:
+                quiet = True
+                break
+        return round((time.monotonic() - t0) * 1000, 1), quiet
+
+    def read(self, data: bytes, media_type: str, identity_token: str | None = None,
+             attempt: dict | None = None) -> ar.ReadOutcome | None:
         """先立てで 1 回読む。使える slot が無い・画像を送る前に slot が失敗したら None（呼ぶ側がその場で立てる）。
-        立ち上げ中の slot も取る（残りの立ち上がりを待つ）。締め切りは取った時点から timeout 秒"""
+        立ち上げ中の slot も取る（残りの立ち上がりを待つ）。締め切りは取った時点から timeout 秒。attempt（dict）を
+        渡すと、slot を取ったときに ``attempt["taken"] = True``（None が「slot が無い」か「取ったが送る前に
+        失敗した」かを呼ぶ側が見分ける。#99）"""
         with self._lock:
             slot = self._slot
             if slot is None or self._closed or slot.taken or slot.cancelled or slot.finished.is_set():
@@ -141,6 +251,8 @@ class WarmPool:
             if slot.ready.is_set() and not slot.ok:
                 return None
             slot.taken = True
+            if attempt is not None:
+                attempt["taken"] = True
             self._slot = None
             job = _Job(ar.user_message(data, media_type), identity_token, self.timeout)
             slot.job = job
@@ -314,6 +426,7 @@ class WarmPool:
                             return
                     nonlocal collector
                     collector = ar.Collector(loop.time, loop.time())
+                    job.stages.mark_sent()
                     slot.sent = True
                     # 結果を受け取るまで入力を閉じない（Reader と同じ）
                     yield job.message
@@ -322,6 +435,8 @@ class WarmPool:
                 try:
                     async with contextlib.aclosing(query_fn(prompt=gated(), options=opts)) as stream:
                         async for m in stream:
+                            if slot.job is not None:
+                                slot.job.stages.feed(m)
                             if collector is not None and collector.feed(m):
                                 done.set()
                 finally:
@@ -344,6 +459,10 @@ class WarmPool:
                 if self._slot is slot:
                     self._slot = None
                 self._active.discard(slot)
+            if outcome is not None and slot.job is not None:
+                # 段の時間は一時ディレクトリを消した後に締める（close_ms に後始末を含める。#99）。結果は下の future で
+                # 渡すので、終わりの印より前に入れておく
+                outcome.stages = slot.job.stages.ms(time.monotonic())
             slot.ready.set()
             slot.finished.set()
             if slot.job is not None and not slot.job.future.done():

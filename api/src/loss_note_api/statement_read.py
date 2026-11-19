@@ -22,7 +22,12 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 ログの時間の内訳（Issue #60。その段まで進んだときだけ出す）: ``token_ms`` = federation の ID トークンの取得・
 ``limit_ms`` = 1 日の上限の予約（Firestore のトランザクション）・``read_ms`` = 送り口の全体（CLI の起動・資格情報の
 交換・AI の API・後始末）・``api_ms`` = CLI が報告する AI の API の時間（``read_ms - api_ms`` がおおよそ CLI の側の
-時間）。``cli`` = 先立ての CLI を使ったか（``warm`` / ``cold``。#65）。
+時間）。``cli`` = 先立ての CLI を使ったか（``warm`` / ``cold``。#65。先立てを取ったが画像を送る前に失敗して
+その場で立て直した回は ``cold_retry``。その回の ``wait_ms`` は先立てを取った時刻から数える。#99）。送り口の段ごとの
+時間（#99。進んだ段だけ。``statement_read.agent_reader.Stages``）: ``wait_ms`` = CLI が画像を受け取れるまで（先立ての
+立ち上がりの残り・その場で立てた起動）・``first_ms`` = 画像を渡してから CLI の最初の message まで・``result_ms`` =
+結果まで・``turn_ms`` = CLI が報告するターンの時間・``close_ms`` = 結果から CLI が終わって一時ディレクトリを消すまで
+（``read_ms`` ≈ ``wait_ms`` + ``result_ms`` + ``close_ms``）。
 
 明細の特徴（Issue #66・ADR-0017）: 検査を通った結果の会社の名前（``issuer``）を ``statement_profile.profile_key`` で
 利用者ごとの鍵に変え、名前はすぐ捨てる（応答・ログ・保存先に出さない）。鍵があれば覚え
@@ -34,9 +39,12 @@ null、覚えが無い・読めなければ accountId = null。読めなくて�
 ``POST /api/statement-reads/prepare`` のときだけ、CLI を 1 つ先に起動して待たせる。読み取りは先立てがあれば使い
 （1 回で捨てる）、無い・期限切れ・画像を送る前に失敗したら、残りの時間でその場で立てる（AI へ送るのは 1 回）。
 準備の要求は AI を呼ばず、1 日の上限に数えない（認証・許可リストは blueprint の門のまま）。応答は 200
-``{"ready": bool}``（使えない設定・SDK なしは 503 ``read_unavailable``）。ログは ``event=statement_read_prepare``・
-``reason``（``ok`` / ``not_ready`` / ``limit_config``）・``ms`` だけ（``limit_config`` のときは誤っている上限の
-環境変数の名前 ``var`` も。値は出さない。#51）。
+``{"ready": bool}``（使えない設定・SDK なしは 503 ``read_unavailable``）。立ち上がったら、CLI の CPU の使用が静まるまで
+最大 ``app_settings.APP_WARM_SETTLE_SECONDS`` 秒待ってから返す（#99。CLI の残りの起動の仕事を、CPU が割り当てられて
+いるこの要求の中で済ませる）。ログは ``event=statement_read_prepare``・``reason``（``ok`` / ``not_ready`` /
+``limit_config`` / ``ended`` = 静まりを待つ間に CLI が終わった）・``ms``・``settle_ms``（静まりを待ったミリ秒。
+測れない・同じ先立てで静まり済みなら 0）だけ（``limit_config`` のときは誤っている上限の環境変数の名前 ``var`` も。
+値は出さない。#51）。
 """
 
 import math
@@ -155,7 +163,7 @@ def register(
         # 読み取りの準備（#65）: 先立ての CLI を立て、立ち上がるまで待つ。AI を呼ばず、上限に数えない
         started = time.perf_counter()
 
-        def reply(status: int, body: dict, reason: str, **extra: str) -> Response:
+        def reply(status: int, body: dict, reason: str, **extra: str | float) -> Response:
             log_event(event="statement_read_prepare", reason=reason,
                       ms=round((time.perf_counter() - started) * 1000, 1), **extra)
             res = jsonify(body)
@@ -167,8 +175,11 @@ def register(
         # 上限の値の形の誤り（#51）は読み取りと同じく 503（CLI を立てない。利用者の上限は AI を呼ばないので見ない）
         if limits.config_error is not None:
             return reply(503, {"error": "read_unavailable"}, "limit_config", var=limits.config_error)
-        ready = config.warm.prepare(app_settings.APP_WARM_STARTUP_SECONDS)
-        return reply(200, {"ready": ready}, "ok" if ready else "not_ready")
+        # 立ち上がった後、CLI の残りの起動の仕事が静まるまで待つ（#99。待った時間は settle_ms。測れなければ 0）
+        # 待つ間に CLI が自分で終わったら ready = false・reason = ended（立ち上がらなかった not_ready と分ける）
+        p = config.warm.prepare_settled(app_settings.APP_WARM_STARTUP_SECONDS, app_settings.APP_WARM_SETTLE_SECONDS)
+        reason = "ok" if p.ready else ("ended" if p.ended else "not_ready")
+        return reply(200, {"ready": p.ready}, reason, settle_ms=p.settle_ms)
 
     @bp.post(PATH)
     def read_statement():
@@ -246,9 +257,15 @@ def register(
 
         media_type = image.media_type_of(data)
         t = time.perf_counter()
-        # 先立てがあれば使う（1 回で捨てる。#65）。無い・送る前に失敗したら、残りの時間でその場で立てる
-        outcome = config.warm.read(data, media_type, token) if config.warm is not None else None
-        tags["cli"] = "warm" if outcome is not None else "cold"
+        taken_at = time.monotonic()  # 段の時間の起点（#99。Stages の時計）
+        # 先立てがあれば使う（1 回で捨てる。#65）。無い・送る前に失敗したら、残りの時間でその場で立てる。
+        # 先立てを取ったが送る前に失敗した回は cli = cold_retry（純粋な cold と見分ける。#99）
+        attempt: dict[str, bool] = {}
+        outcome = config.warm.read(data, media_type, token, attempt=attempt) if config.warm is not None else None
+        if outcome is not None:
+            tags["cli"] = "warm"
+        else:
+            tags["cli"] = "cold_retry" if attempt.get("taken") else "cold"
         if outcome is None:
             remaining = config.timeout - (time.perf_counter() - t)
             if remaining <= 0:
@@ -257,9 +274,11 @@ def register(
                 reader = Reader(config.credential, config.values, app_settings.APP_MODEL, app_settings.APP_EFFORT,
                                 timeout=remaining, max_output_tokens=app_settings.APP_MAX_OUTPUT_TOKENS,
                                 identity_token=token)
-                outcome = reader.read(data, media_type)
+                outcome = reader.read(data, media_type, taken_at=taken_at)
         del token
         timings["read_ms"] = ms_since(t)
+        # 送り口の段ごとの時間（#99。wait_ms・first_ms・result_ms・turn_ms・close_ms のうち進んだ段だけ）
+        timings.update(outcome.stages)
         api_seconds = outcome.api_seconds
         if isinstance(api_seconds, int | float) and not isinstance(api_seconds, bool) and math.isfinite(api_seconds) \
                 and api_seconds >= 0:

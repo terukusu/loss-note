@@ -195,7 +195,9 @@ def test_prepare_starts_one_and_is_not_counted(make, sdk, capfd):
     assert w.store.read_days == {} and w.store.spend == {}
     logs = read_logs(capfd, "statement_read_prepare")
     assert [ln["reason"] for ln in logs] == ["ok"] * 3
-    assert all(set(ln) == {"event", "reason", "ms"} for ln in logs)
+    # #99: 静まりを待った時間 settle_ms（偽の SDK は子のプロセスが無く CPU を測れないので 0）
+    assert all(set(ln) == {"event", "reason", "ms", "settle_ms"} for ln in logs)
+    assert all(ln["settle_ms"] == 0 for ln in logs)
 
 
 # ── AC-6（例 #10）: 準備の入口は読み取りと同じ門 ──
@@ -288,7 +290,10 @@ def test_taken_slot_failing_before_send_falls_back(make, sdk, capfd):
     capfd.readouterr()
     res = w.read()
     assert res.status_code == 200
-    assert [ln["cli"] for ln in read_logs(capfd)] == ["cold"]
+    # #99: 先立てを取ったが送る前に失敗した回は cold_retry。wait_ms は先立てを取った時刻から（先立ての 0.3 秒を含む）
+    (log,) = read_logs(capfd)
+    assert log["cli"] == "cold_retry" and log["wait_ms"] >= 300
+    assert log["read_ms"] >= log["wait_ms"] + log["result_ms"] + log["close_ms"] - 1
     assert len(sdk.calls) == calls_before + 1
     assert sum(1 for c in sdk.calls if c["message"] is not None) == 1
     (day,) = w.store.spend.values()
@@ -367,3 +372,159 @@ def test_warm_child_env_has_only_selected_credential(make, sdk, method):
     family = {k for k in child if k.startswith(("ANTHROPIC_", "AWS_")) or k in (
         "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDECODE")}
     assert family == names
+
+
+# ═══ Issue #99: 段の時間・準備の静まり・会話を保存しない ═══
+
+STAGE_KEYS = {"wait_ms", "first_ms", "result_ms", "turn_ms", "close_ms"}
+
+
+# ── AC-1（例 #1）: 立ち上がった先立てを使う読み取りの段の時間 ──
+def test_warm_read_stage_timings(make, sdk, capfd):
+    sdk.startup_delay, sdk.first_delay, sdk.result_delay, sdk.close_delay = 0.5, 0.2, 0.8, 0.1
+    w = make()
+    assert w.prepare().get_json() == {"ready": True}
+    capfd.readouterr()
+    assert w.read().status_code == 200
+    (log,) = read_logs(capfd)
+    assert log["cli"] == "warm" and STAGE_KEYS <= set(log)
+    assert log["wait_ms"] < 250  # 起動（500）の半分未満 = 起動を待っていない（揺れない広さ。レビューの指摘 5）
+    assert log["first_ms"] >= 200 and log["result_ms"] >= 1000 and log["close_ms"] >= 100
+    assert log["turn_ms"] == 1300.0
+    assert log["read_ms"] >= log["result_ms"] + log["close_ms"]
+    assert all(isinstance(log[k], int | float) and not isinstance(log[k], bool) for k in STAGE_KEYS)
+
+
+# ── AC-2（例 #2）: 立ち上げ中の先立てを取ると、残りの立ち上がりが wait_ms に出る ──
+def test_warm_read_while_starting_shows_wait(make, sdk, capfd):
+    sdk.startup_delay = 1.0
+    w = make()
+    assert w.pool.start()  # 起動の段と同じく立て始めるだけ
+    capfd.readouterr()
+    assert w.read().status_code == 200
+    (log,) = read_logs(capfd)
+    assert log["cli"] == "warm" and log["wait_ms"] >= 800
+
+
+# ── AC-3（例 #3）: その場で立てる読み取りの段の時間 ──
+def test_cold_read_stage_timings(make, sdk, capfd):
+    sdk.startup_delay = 0.5
+    w = make()
+    capfd.readouterr()
+    assert w.read().status_code == 200
+    (log,) = read_logs(capfd)
+    assert log["cli"] == "cold" and log["wait_ms"] >= 500
+    assert "result_ms" in log and "close_ms" in log
+
+
+# ── AC-4（例 #4）: 結果の前に締め切り → 進んだ段だけ ──
+@pytest.mark.parametrize("warm", [True, False])
+def test_timeout_logs_only_reached_stages(make, sdk, capfd, warm):
+    w = make(read_timeout=0.5)
+    if warm:
+        assert w.prepare().get_json() == {"ready": True}
+    sdk.script = "hang"
+    capfd.readouterr()
+    res = w.read()
+    assert res.status_code == 504
+    (log,) = read_logs(capfd)
+    assert log["cli"] == ("warm" if warm else "cold")
+    assert "wait_ms" in log and not {"result_ms", "turn_ms", "close_ms"} & set(log)
+
+
+class Probe:
+    """偽の CPU の測り（busy 秒のあいだ増え、その後は止まる / 増え続ける / 読めない）"""
+
+    def __init__(self, busy=0.0, forever=False, unreadable=False):
+        self.busy, self.forever, self.unreadable = busy, forever, unreadable
+        self.t0 = None
+
+    def __call__(self, base):
+        if self.unreadable:
+            return None
+        now = time.monotonic()
+        if self.t0 is None:
+            self.t0 = now
+        if self.forever or now - self.t0 < self.busy:
+            return int((now - self.t0) * 1000)
+        return int(self.busy * 1000)
+
+
+def prepare_log(capfd) -> dict:
+    (log,) = read_logs(capfd, "statement_read_prepare")
+    return log
+
+
+# ── AC-5（例 #5）: 準備は立ち上がった後の CPU が静まるまで待つ ──
+def test_prepare_waits_until_settled(make, sdk, capfd):
+    w = make()
+    w.pool.cpu_probe = Probe(busy=0.6)
+    capfd.readouterr()
+    t = time.monotonic()
+    res = w.prepare()
+    took = time.monotonic() - t
+    assert res.status_code == 200 and res.get_json() == {"ready": True}
+    assert took >= 0.6
+    log = prepare_log(capfd)
+    assert log["reason"] == "ok" and log["settle_ms"] >= 600
+
+
+# ── AC-6（例 #6）: 静まりの待ちは 5 秒で打ち切る ──
+def test_prepare_settle_capped(make, sdk, capfd):
+    assert app_settings.APP_WARM_SETTLE_SECONDS == 5
+    w = make()
+    w.pool.cpu_probe = Probe(forever=True)
+    capfd.readouterr()
+    res = w.prepare()
+    assert res.get_json() == {"ready": True}
+    log = prepare_log(capfd)
+    assert 5000 <= log["settle_ms"] < 5500
+
+
+# ── AC-7（例 #7・#8）: 読めない・立ち上がらないときは待たない ──
+def test_prepare_unreadable_cpu_does_not_wait(make, sdk, capfd):
+    w = make()
+    w.pool.cpu_probe = Probe(unreadable=True)
+    capfd.readouterr()
+    assert w.prepare().get_json() == {"ready": True}
+    assert prepare_log(capfd)["settle_ms"] == 0
+
+
+def test_prepare_not_ready_does_not_wait(make, sdk, capfd):
+    sdk.startup_fail = True
+    w = make()
+    w.pool.cpu_probe = Probe(forever=True)
+    capfd.readouterr()
+    assert w.prepare().get_json() == {"ready": False}
+    log = prepare_log(capfd)
+    assert log["reason"] == "not_ready" and log["settle_ms"] == 0
+
+
+# ── AC-8（例 #9）: 会話を保存しない指定（3 方式・先立て / その場で立てる）──
+@pytest.mark.parametrize("method", ["api_key", "oauth_token", "federation"])
+@pytest.mark.parametrize("warm", [True, False])
+def test_cli_started_without_session_persistence(make, sdk, method, warm):
+    extra = {
+        "api_key": {"ANTHROPIC_API_KEY": KEY},
+        "oauth_token": {"STATEMENT_READ_CREDENTIAL": "oauth_token", "CLAUDE_CODE_OAUTH_TOKEN": "OAUTH-MARKER"},
+        "federation": {"STATEMENT_READ_CREDENTIAL": "federation", "ANTHROPIC_FEDERATION_RULE_ID": "fdrl_example",
+                       "ANTHROPIC_ORGANIZATION_ID": ORG},
+    }[method]
+    w = make(identity_token=lambda: TOKEN_A, **extra)
+    if warm:
+        assert w.prepare().get_json() == {"ready": True}
+    assert w.read().status_code == 200
+    (call,) = sdk.calls
+    assert call["options"].extra_args == {"no-session-persistence": None}
+
+
+# ── レビューの指摘 2: 静まりを待つ間に CLI が自分で終わった準備は ready = false・reason = ended ──
+def test_prepare_cli_ended_during_settle(make, sdk, capfd, monkeypatch):
+    from statement_read.warm import Prepared
+
+    w = make()
+    monkeypatch.setattr(w.pool, "prepare_settled", lambda wait, settle: Prepared(False, 120.0, ended=True))
+    capfd.readouterr()
+    assert w.prepare().get_json() == {"ready": False}
+    log = prepare_log(capfd)
+    assert log["reason"] == "ended" and log["settle_ms"] == 120.0

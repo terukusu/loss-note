@@ -3,6 +3,7 @@
 実際の AI・SDK は使わない（偽の query_fn。SDK と同じく、prompt を読む前に「起動」の時間を眠る）。値は架空。
 """
 
+import asyncio
 import contextlib
 import os
 import sys
@@ -38,6 +39,7 @@ class AssistantMessage:
 class ResultMessage:
     def __init__(self):
         self.usage, self.duration_api_ms, self.total_cost_usd, self.is_error = {}, 1000, 0.01, False
+        self.duration_ms = 1300  # CLI が報告するターンの時間（#99 の turn_ms）
 
 
 def good_input(symbol="US30"):
@@ -365,3 +367,231 @@ def test_no_unawaited_generator_warnings(tmp_path):
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert r.returncode == 0 and "done" in r.stdout
     assert "never awaited" not in r.stderr and "was destroyed" not in r.stderr, r.stderr
+
+
+# ── #99: 段の時間（AC-1・AC-2・AC-4）と、準備の静まり（AC-5〜AC-7）──
+
+
+class SystemMessage:
+    pass
+
+
+class StagedCli(FakeCli):
+    """FakeCli に段の時間を足す（画像を受けてから最初の message まで first・結果まで result・終わるまで close 秒）"""
+
+    def __init__(self, startup=0.0, first=0.0, result=0.0, close=0.0, script="tool"):
+        super().__init__(startup=startup, script=script)
+        self.first, self.result, self.close = first, result, close
+
+    async def __call__(self, *, prompt, options):
+        rec = {"options": options, "message": None, "token_at_send": None}
+        with self.lock:
+            self.spawned.append(rec)
+        try:
+            await anyio.sleep(self.startup)
+            async with contextlib.aclosing(prompt) as stream:
+                async for m in stream:
+                    rec["message"] = m
+                    break
+            if rec["message"] is None:
+                return
+            await anyio.sleep(self.first)
+            yield SystemMessage()
+            if self.script == "hang":
+                await anyio.sleep(60)
+            await anyio.sleep(self.result)
+            yield AssistantMessage([ToolUseBlock(agent_reader.CLI_TOOL_NAME, good_input())])
+            yield ResultMessage()
+            await anyio.sleep(self.close)
+        finally:
+            with anyio.CancelScope(shield=True):
+                await anyio.sleep(0.01)
+                with self.lock:
+                    self.cleaned += 1
+
+
+def test_warm_stages_after_ready(make_pool):
+    # 例 #1: 立ち上がった先立ては wait が小さく、CLI の中の段と終わらせる時間が出る
+    cli = StagedCli(startup=0.3, first=0.2, result=0.3, close=0.1)
+    pool = make_pool(cli)
+    assert pool.prepare(5)
+    t = time.monotonic()
+    o = pool.read(PNG, "image/png")
+    took = (time.monotonic() - t) * 1000
+    st = o.stages
+    assert o.error is None
+    assert set(st) == {"wait_ms", "first_ms", "result_ms", "turn_ms", "close_ms"}
+    assert st["wait_ms"] < 150  # 起動（300）の半分未満 = 起動を待っていない
+    assert st["first_ms"] >= 200 and st["result_ms"] >= 500 and st["close_ms"] >= 100
+    assert st["turn_ms"] == 1300.0
+    assert took >= st["wait_ms"] + st["result_ms"] + st["close_ms"] - 1
+
+
+def test_warm_stages_while_starting(make_pool):
+    # 例 #2: 立ち上げ中の先立てを取ると、残りの立ち上がりが wait_ms に出る
+    cli = StagedCli(startup=1.0)
+    pool = make_pool(cli)
+    assert pool.start()
+    o = pool.read(PNG, "image/png")
+    assert o is not None and o.error is None
+    assert o.stages["wait_ms"] >= 800
+
+
+def test_warm_stages_timeout(make_pool):
+    # 例 #4: 結果の前に締め切り → 進んだ段だけ
+    cli = StagedCli(script="hang")
+    pool = make_pool(cli, timeout=0.5)
+    assert pool.prepare(5)
+    o = pool.read(PNG, "image/png")
+    assert o.error == "timeout"
+    assert "wait_ms" in o.stages and "first_ms" in o.stages
+    assert not {"result_ms", "turn_ms", "close_ms"} & set(o.stages)
+
+
+class Probe:
+    """偽の CPU の測り: busy 秒のあいだ呼ばれるたびに増え、その後は止まる。None を返す設定も"""
+
+    def __init__(self, busy=0.0, forever=False, unreadable=False):
+        self.busy, self.forever, self.unreadable = busy, forever, unreadable
+        self.t0: float | None = None
+        self.bases: list[str] = []
+
+    def __call__(self, base):
+        self.bases.append(base)
+        if self.unreadable:
+            return None
+        now = time.monotonic()
+        if self.t0 is None:
+            self.t0 = now
+        if self.forever or now - self.t0 < self.busy:
+            return int((now - self.t0) * 1000)  # 1 CPU を使い切っている形
+        return int(self.busy * 1000)
+
+
+def test_prepare_settles_after_busy(make_pool):
+    # 例 #5: 立ち上がった後 0.6 秒 CPU が増え続け、止まったら返す
+    probe = Probe(busy=0.6)
+    pool = make_pool(StagedCli(), cpu_probe=probe)
+    t = time.monotonic()
+    ready, settle_ms, ended = pool.prepare_settled(5, 30)
+    took = time.monotonic() - t
+    # 上限（30 秒）より十分前に静まりで終わる（上限は揺れない広さ。下限が AC の条件）
+    assert ready is True and ended is False and 600 <= settle_ms < 15_000 and took >= 0.6
+    # 測ったのは先立ての一時ディレクトリ
+    assert probe.bases and all(Path(b).name.startswith("statement-read-") for b in probe.bases)
+
+
+def test_prepare_settle_is_capped(make_pool):
+    # 例 #6: 増え続けたら上限で打ち切る
+    pool = make_pool(StagedCli(), cpu_probe=Probe(forever=True))
+    ready, settle_ms, _ = pool.prepare_settled(5, 0.5)
+    assert ready is True and 500 <= settle_ms < 5_000
+
+
+def test_prepare_settle_quiet_returns_soon(make_pool):
+    # 立ち上がった時点で静かなら、1 つの窓（SETTLE_WINDOW 秒）を見て返す
+    pool = make_pool(StagedCli(), cpu_probe=Probe(busy=0))
+    ready, settle_ms, _ = pool.prepare_settled(5, 30)
+    assert ready is True and warm.SETTLE_WINDOW * 1000 <= settle_ms < 15_000
+
+
+def test_prepare_settle_unreadable(make_pool):
+    # 例 #7: CPU を読めなければ待たない
+    pool = make_pool(StagedCli(), cpu_probe=Probe(unreadable=True))
+    assert pool.prepare_settled(5, 3) == (True, 0.0, False)
+
+
+def test_prepare_settle_not_ready(make_pool):
+    # 例 #8: 立ち上がらなければ静まりを待たない
+    probe = Probe(forever=True)
+    pool = make_pool(FakeCli(script="fail_startup"), cpu_probe=probe)
+    assert pool.prepare_settled(5, 3) == (False, 0.0, False)
+    assert probe.bases == []
+
+
+def test_prepare_settle_stops_when_taken(make_pool):
+    # 静まりを待つ間に読み取りが取ったら、そこで終える（立ち上がっていたので ready は True）
+    pool = make_pool(StagedCli(), cpu_probe=Probe(forever=True))
+    out: list = []
+    th = threading.Thread(target=lambda: out.append(pool.prepare_settled(5, 30)))
+    th.start()
+    time.sleep(0.3)
+    o = pool.read(PNG, "image/png")
+    th.join(5)
+    assert o is not None and o.error is None
+    ready, settle_ms, ended = out[0]
+    assert ready is True and ended is False and settle_ms < 15_000  # 上限 30 秒より前に取られて終えた
+
+
+def test_prepare_settle_cli_ends_is_not_ready(make_pool):
+    # レビューの指摘 2: 静まりを待つ間に CLI が自分で終わったら ready = False・ended = True
+    class Ends(StagedCli):
+        async def __call__(self, *, prompt, options):
+            rec = {"options": options, "message": None, "token_at_send": None}
+            self.spawned.append(rec)
+
+            async def first_only():
+                async for m in prompt:  # 立ち上がった（prompt を読み始めた）
+                    yield m
+
+            stream = first_only()
+            task = asyncio.ensure_future(stream.__anext__())
+            await anyio.sleep(0.3)  # 立ち上がった後、0.3 秒で自分で終わる
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+            await stream.aclose()
+            return
+            yield  # pragma: no cover
+
+    pool = make_pool(Ends(), cpu_probe=Probe(forever=True))
+    ready, settle_ms, ended = pool.prepare_settled(5, 30)
+    assert ready is False and ended is True and settle_ms < 15_000
+
+
+def test_prepare_settle_once_per_slot(make_pool):
+    # レビューの指摘 3: 同じ先立てで静まりを確かめた後の準備は待たない
+    probe = Probe(busy=0)
+    pool = make_pool(StagedCli(), cpu_probe=probe)
+    first = pool.prepare_settled(5, 30)
+    assert first.ready is True and first.settle_ms >= warm.SETTLE_WINDOW * 1000
+    n = len(probe.bases)
+    assert pool.prepare_settled(5, 30) == (True, 0.0, False)
+    assert len(probe.bases) == n  # 測りもしない
+
+
+def test_prepare_without_settle_unchanged(make_pool):
+    probe = Probe(forever=True)
+    pool = make_pool(StagedCli(), cpu_probe=probe)
+    assert pool.prepare(5) is True
+    assert probe.bases == []  # prepare は今までどおり静まりを待たない
+
+
+@pytest.mark.skipif(not os.path.isdir("/proc/self"), reason="/proc の無い環境")
+def test_cli_cpu_ms_reads_own_child(tmp_path):
+    # 本物の /proc: このプロセスの子で cwd が <base>/cwd のものの CPU 時間を読む（ほかの cwd の子は数えない）
+    import subprocess
+
+    base = tmp_path / "statement-read-x"
+    (base / "cwd").mkdir(parents=True)
+    other = tmp_path / "other"
+    other.mkdir()
+    busy = "import time\nt=time.process_time()\nwhile time.process_time()-t<0.3: pass\ntime.sleep(30)\n"
+    idle = "import time\nt=time.process_time()\nwhile time.process_time()-t<0.5: pass\ntime.sleep(30)\n"
+    p = subprocess.Popen([sys.executable, "-c", busy], cwd=base / "cwd")
+    q = subprocess.Popen([sys.executable, "-c", idle], cwd=other)
+    try:
+        deadline = time.monotonic() + 10
+        got = None
+        while time.monotonic() < deadline:
+            got = warm.cli_cpu_ms(str(base))
+            if got is not None and got >= 250:
+                break
+            time.sleep(0.05)
+        assert got is not None and 250 <= got < 480  # ほかの cwd の子（0.5 秒）は足していない
+        assert warm.cli_cpu_ms(str(tmp_path / "missing")) is None
+    finally:
+        p.kill()
+        q.kill()
+        p.wait()
+        q.wait()

@@ -195,3 +195,88 @@ def test_isolated_env_overrides_parent_home(no_sdk):
     kw = agent_reader.option_kwargs("m", "low", "api_key", "S", "/b")
     assert kw["env"]["HOME"] == "/b/home" and kw["env"]["TMPDIR"] == "/b/tmp"
     assert kw["env"]["CLAUDE_CONFIG_DIR"] == "/b/cfg" and kw["env"]["ANTHROPIC_API_KEY"] == "S"
+
+
+# ---- #99: 会話を保存しない（AC-8）・段の時間（AC-3・AC-4）----
+
+
+@pytest.mark.parametrize("credential,secret", [
+    ("api_key", "S"), ("oauth_token", "S"),
+    ("federation", {"ANTHROPIC_FEDERATION_RULE_ID": "fdrl_example", "ANTHROPIC_ORGANIZATION_ID": "org-example"}),
+])
+def test_option_kwargs_no_session_persistence(credential, secret):
+    kw = agent_reader.option_kwargs("m", "low", credential, secret, "/b")
+    assert kw["extra_args"] == {"no-session-persistence": None}
+    # 呼ぶたびに別の dict（呼ぶ側が書き換えても共有の値が変わらない）
+    assert kw["extra_args"] is not agent_reader.SESSION_ARGS
+
+
+class SystemMessage:
+    pass
+
+
+def staged(startup=0.0, first=0.0, result=0.0, close=0.0, hang=False):
+    async def q(*, prompt, options):
+        await anyio.sleep(startup)  # CLI の起動（SDK は initialize の後に prompt を読む）
+        async for _m in prompt:
+            break
+        await anyio.sleep(first)
+        yield SystemMessage()
+        if hang:
+            await anyio.sleep(30)
+        await anyio.sleep(result)
+        yield AssistantMessage([ToolUseBlock(agent_reader.CLI_TOOL_NAME, good_input())])
+        r = ResultMessage()
+        r.duration_ms = 1300
+        yield r
+        await anyio.sleep(close)
+
+    return q
+
+
+def test_cold_stages(no_sdk, tmp_path):
+    # 例 #3: その場で立てると、起動の時間が wait_ms に出る
+    o = make_reader(staged(startup=0.3, first=0.1, result=0.2, close=0.1), tmp_path, timeout=5).read(
+        PNG, "image/png")
+    assert o.error is None
+    st = o.stages
+    assert set(st) == {"wait_ms", "first_ms", "result_ms", "turn_ms", "close_ms"}
+    assert st["wait_ms"] >= 300 and st["first_ms"] >= 100 and st["result_ms"] >= 300 and st["close_ms"] >= 100
+    assert st["turn_ms"] == 1300.0
+    assert all(isinstance(v, float) for v in st.values())
+
+
+def test_cold_stages_timeout(no_sdk, tmp_path):
+    # 例 #4: 結果の前に締め切り → 進んだ段だけ（結果・ターン・終わらせる時間は無い）
+    o = make_reader(staged(hang=True), tmp_path, timeout=0.3).read(PNG, "image/png")
+    assert o.error == "timeout"
+    assert {"wait_ms", "first_ms"} <= set(o.stages)
+    assert not {"result_ms", "turn_ms", "close_ms"} & set(o.stages)
+
+
+def test_stages_empty_when_not_sent(no_sdk, tmp_path):
+    # 画像を渡す前に失敗した回は段の時間を出さない
+    async def boom(*, prompt, options):
+        raise ConnectionError("startup failed")
+        yield  # pragma: no cover
+
+    o = make_reader(boom, tmp_path).read(PNG, "image/png")
+    assert o.error == "ConnectionError" and o.stages == {}
+
+
+def test_stages_start_from_taken_at(no_sdk, tmp_path):
+    # レビューの指摘 4: その場で立て直す回は、呼ぶ側が渡した起点（先立てを取った時刻）から wait_ms を数える
+    import time
+
+    taken = time.monotonic() - 0.4
+    o = make_reader(staged(), tmp_path, timeout=5).read(PNG, "image/png", taken_at=taken)
+    assert o.error is None and o.stages["wait_ms"] >= 400
+
+
+def test_stages_ignore_bad_duration():
+    st = agent_reader.Stages(lambda: 1.0, 0.0)
+    st.mark_sent()
+    r = ResultMessage()
+    r.duration_ms = float("nan")
+    st.feed(r)
+    assert "turn_ms" not in st.ms(2.0) and st.ms(2.0)["close_ms"] == 1000.0

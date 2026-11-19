@@ -1,5 +1,7 @@
-// 損益・R 倍数・1R・リスク（%）・明細から逆算した為替（設計書 5.1・C18・C32・C43）。金額は口座の通貨。丸めずに返す
+// 損益・R 倍数・1R・リスク（%）・明細から逆算した為替（設計書 5.1・C18・C32・C43）。金額は口座の通貨。丸めずに返す。
+// レッグを持つ取引（t.option）は option.ts に回す（5.7。5.1 の 1R の補いの式と明細から逆算した為替を当てない。C49）
 import { signOf, TOL } from './numeric';
+import { optionOneR, positionNetYen, positionPnlYen } from './option';
 import { hasPrePlan } from './pre-plan';
 import type { TradeInput } from './trade';
 
@@ -44,6 +46,7 @@ export function priceMove(t: TradeInput): number | undefined {
 
 /** 損益（口座の通貨）。明細の損益があればそれ（C18）、無ければ Σ s(決済 − イン_i) × 数量_i × 乗数 × 決済の為替 */
 export function pnlYen(t: TradeInput): number | undefined {
+  if (t.option !== undefined) return positionPnlYen(t);
   if (t.exit === undefined) return undefined;
   if (t.statementPnlYen !== undefined) return t.statementPnlYen;
   const fx = exitFx(t);
@@ -54,6 +57,13 @@ export function pnlYen(t: TradeInput): number | undefined {
 
 /** R 倍数（価格だけ。為替・口座の通貨・資金に依らない）: Σ s(決済 − イン_i) × 数量_i ÷ Σ |イン_i − LC_i| × 数量_i */
 export function rMultiple(t: TradeInput): number | undefined {
+  // レッグを持つ取引: R = 手数料を除いた損益 ÷ 1R（C49）
+  if (t.option !== undefined) {
+    const net = positionNetYen(t);
+    const oneR = optionOneR(t)?.value;
+    if (net === undefined || oneR === undefined || !(oneR > 0)) return undefined;
+    return net / oneR;
+  }
   const move = priceMove(t);
   const lcs = allLcs(t);
   if (move === undefined || lcs === undefined) return undefined;
@@ -85,6 +95,7 @@ function statementNetAndMove(t: TradeInput): { net: number; move: number } | und
  */
 export function statementFxRate(t: TradeInput): number | undefined {
   // C32 の 1R の逆算と同じく、事後の記録のエントリーが 1 つの取引だけ（買い増しの取引では為替と 1R の根拠が分かれるため）
+  if (t.option !== undefined) return undefined; // レッグを持つ取引には当てない（C49）
   if (t.instrument.priceInAccountCurrency || !isPostSingleEntry(t)) return undefined;
   const nm = statementNetAndMove(t);
   if (nm === undefined) return undefined;
@@ -94,6 +105,7 @@ export function statementFxRate(t: TradeInput): number | undefined {
 
 /** 1R（口座の通貨）（5.1・C32） */
 export function oneRYen(t: TradeInput): number | undefined {
+  if (t.option !== undefined) return optionOneR(t)?.value; // 補いの式を当てない（C49）
   const lcs = allLcs(t);
   if (lcs === undefined) return undefined;
   const mult = t.instrument.multiplier;

@@ -35,8 +35,11 @@ export interface Entry {
   readonly lc?: number;
 }
 
-/** 決済の注文の種類（既定 unknown。C26） */
-export type ExitOrderType = 'stop' | 'market' | 'limit' | 'unknown';
+/**
+ * 決済の注文の種類（既定 unknown。C26）。expiry = 満期（SQ）: レッグを持つ取引で、決済の時点が満期で消えた売りのレッグ
+ * （またはすべてのレッグが満期で消えた）ときだけ。逆指値とみなさない（C54）
+ */
+export type ExitOrderType = 'stop' | 'market' | 'limit' | 'unknown' | 'expiry';
 /** 決済の理由（既定 other。C19） */
 export type ExitReason =
   | 'lc'
@@ -63,6 +66,40 @@ export type LcMove =
   | { readonly kind: 'widened'; readonly after?: number };
 
 export type TimeframeChange = 'none' | 'longer' | 'shorter';
+
+/** レッグの売買（C47。option-simulator と同じ） */
+export type LegSide = 'buy' | 'sell';
+/** レッグの決済の種類: closed = 決済した / expired = 満期で消えた（決済値は SQ での本源的価値、OTM なら 0） */
+export type LegExitKind = 'closed' | 'expired';
+
+/** オプションのポジションの中の建玉 1 本（設計書 4.7・C46）。価格はプレミアム（銘柄の価格の通貨） */
+export interface Leg {
+  /** ポジションの中で一意（l1〜l10） */
+  readonly id: string;
+  readonly optionType: 'P' | 'C';
+  /** YYYY-MM（週次は SQ の日 YYYY-MM-DD） */
+  readonly contractMonth: string;
+  /** 行使価格。> 0 */
+  readonly strike: number;
+  readonly side: LegSide;
+  /** 枚数。> 0 */
+  readonly quantity: number;
+  /** 建値（0 以上）と時刻（任意） */
+  readonly entry: { readonly price: number; readonly time?: number };
+  /** 決済値（0 以上）と時刻（任意。満期で消えたレッグは SQ の日）と種類 */
+  readonly exit: { readonly price: number; readonly time?: number; readonly kind: LegExitKind };
+}
+
+/**
+ * オプションのポジションの中身（5.7・C46〜C49）。これを持つ取引は「原資産の取引 + レッグ」で、
+ * entries は 1 つ（price = 建てたときの原資産・quantity = 1）、exit.price = 決済したときの原資産、lc・tp = 原資産
+ */
+export interface OptionPosition {
+  /** 1〜10 本。順はレッグを建てた順 */
+  readonly legs: readonly [Leg, ...Leg[]];
+  /** LC での損失の見込み（口座の通貨・正の数。C49 の (1)。K15） */
+  readonly lcLossPlanYen?: number;
+}
 
 export interface TradeInput {
   readonly side: Side;
@@ -97,4 +134,6 @@ export interface TradeInput {
   readonly riskTolerancePct: number;
   /** 計画を記録した時刻（時点） */
   readonly plannedAt?: number;
+  /** オプションのポジションのレッグ（5.7）。無い = 今の取引（先物・現物・CFD・前からのオプションの取引） */
+  readonly option?: OptionPosition;
 }

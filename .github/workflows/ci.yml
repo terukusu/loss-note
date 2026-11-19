@@ -22,6 +22,26 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # 個人の値（#80。CLAUDE.md「置かないもの」）: 追跡中のファイルに形（URL・メール・ホームのパス・プロジェクト番号・鍵）と、
+      # オーナー名・secrets の値（プロジェクト ID・番号・state のバケット・認証のドメイン）が無いか。依存を入れる前に回し、
+      # secrets はこの段の env だけに置く。出力はファイル名・行番号・検査名だけ。fork の PR は secrets が空で、形とオーナー名だけ
+      - name: 個人の値の検査の自己テスト
+        run: .github/scripts/repo-values-check.test.sh
+      - name: 個人の値の検査（形・オーナー名・secrets の値）
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
+          FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+          GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+        run: |
+          set -eu
+          # プロジェクト番号は WIF のプロバイダ（projects/<番号>/locations/...）から取り、ログに出ないよう先にマスクする
+          GCP_PROJECT_NUMBER=$(printf '%s' "$GCP_WIF_PROVIDER" | sed -nE 's#^projects/([0-9]+)/.*#\1#p')
+          if [ -n "$GCP_PROJECT_NUMBER" ]; then echo "::add-mask::$GCP_PROJECT_NUMBER"; fi
+          unset GCP_WIF_PROVIDER
+          export GCP_PROJECT_NUMBER
+          .github/scripts/repo-values-check.sh .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version

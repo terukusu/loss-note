@@ -23,6 +23,12 @@
 ``entryChart`` / ``exitChart`` = 画像。どちらも任意）で取引と 1 トランザクション。差し替え・外す・読み戻しは
 ``/api/trades/{id}/charts/{slot}``。API が中継し、画面から保存先は直接読めない。multipart は記憶の中だけで読む
 （``app.py`` の request_class。一時ファイルを作らない）。
+
+オプションのポジションのレッグ（Issue #116・設計書 4.7・ADR-0020）: ``record.legs`` を持つ取引は ``schemaVersion`` 2
+（本文の形で決める。レッグの無い取引は直しても 1 のまま）。レッグを持てるのは写した銘柄の商品の形がオプションの取引
+だけ。直しは保存先のトランザクションの中で、保存済みにレッグがある取引への ``legs`` の無い本文を 409 ``legsMissing``
+（決定 7 の (b)。レッグを知らない画面がレッグを落とさない）、前からの取引にレッグを足す本文を 400 ``legacyTrade``
+にする。チャートの入口は ``legs`` を書き換えない。
 """
 
 from collections.abc import Callable
@@ -54,7 +60,7 @@ from loss_note_api.store import (
     StoreUnavailable,
     UnknownSchemaVersion,
 )
-from loss_note_api.trade_version import SCHEMA_VERSION
+from loss_note_api.trade_version import version_of
 
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
 _INSTRUMENT_SNAPSHOT_KEYS = ("multiplier", "quantityStep", "priceCurrency", "underlyingKind", "productForm")
@@ -62,6 +68,10 @@ _INSTRUMENT_SNAPSHOT_KEYS = ("multiplier", "quantityStep", "priceCurrency", "und
 STATEMENT_PROFILES_PATH = "/statement-profiles"
 # 知らない版の取引への書き込みの 409 の理由（#115。ADR-0020 の決定 7 の (a)）
 UNKNOWN_SCHEMA_VERSION = "unknownSchemaVersion"
+# レッグを持つ取引への legs の無い PUT の 409 の理由（#116。ADR-0020 の決定 7 の (b)）
+LEGS_MISSING = "legsMissing"
+# レッグを持てる銘柄の商品の形（ADR-0020 の決定 9。原資産 + オプション）
+LEGS_PRODUCT_FORM = "option"
 # 取引の PUT のクエリ snapshot の決まった値（#31。今の口座・銘柄の値で写し直す）
 SNAPSHOT_CURRENT = "current"
 
@@ -100,6 +110,13 @@ def valid_id(value: str) -> bool:
 
 def instrument_snapshot(instrument: dict) -> dict:
     return {k: instrument[k] for k in _INSTRUMENT_SNAPSHOT_KEYS}
+
+
+def leg_issues(record: dict, snapshot: dict) -> list[dict]:
+    """レッグを持つ取引は、写した銘柄の商品の形がオプションのときだけ（決定 9。作成・直しの後の snapshot で見る）"""
+    if "legs" in record and snapshot["instrument"].get("productForm") != LEGS_PRODUCT_FORM:
+        return [{"field": "legs", "kind": "productForm"}]
+    return []
 
 
 def trade_response(trade_id: str, doc: dict) -> dict:
@@ -304,12 +321,17 @@ def make_blueprint(
 
         def build(instrument: dict, account: dict) -> dict:
             now = clock()
+            # 資金・許容リスク・口座の通貨は記録したときのその取引の口座の値（#47。通貨は PR-2）
+            snapshot = {"instrument": instrument_snapshot(instrument), **accounts.account_snapshot(account)}
+            issues = leg_issues(record, snapshot)
+            if issues:
+                raise InvalidRecord(issues)
             doc = {
-                "schemaVersion": SCHEMA_VERSION,
+                # レッグを持つ取引だけ 2（#116。本文の形で決める）
+                "schemaVersion": version_of(record),
                 "createdAt": now,
                 "updatedAt": now,
-                # 資金・許容リスク・口座の通貨は記録したときのその取引の口座の値（#47。通貨は PR-2）
-                "snapshot": {"instrument": instrument_snapshot(instrument), **accounts.account_snapshot(account)},
+                "snapshot": snapshot,
                 "record": record,
             }
             return with_chart_summary(doc, chart_docs)
@@ -323,6 +345,8 @@ def make_blueprint(
         except MissingAccount:
             # 自分の口座に無い（ほかの利用者の口座も「無い」と同じ。A5）
             return invalid([{"field": "accountId", "kind": "notFound"}])
+        except InvalidRecord as e:
+            return invalid(e.issues)
         res = jsonify(trade_response(tid, doc))
         res.status_code = 201
         return res
@@ -360,6 +384,14 @@ def make_blueprint(
         chart_docs.update({slot: None for slot in removes})
 
         def mutate(doc: dict, new_instrument: dict | None, new_account: dict | None) -> dict:
+            # レッグを落とさない守り（#116。ADR-0020 の決定 7 の (b)）: 保存済みにレッグがある取引へ legs の無い
+            # 本文（レッグを知らない画面 = 切り戻した後・古いタブ・今の mergeEdit）は 409。前からの取引（レッグの
+            # 無い取引）にレッグを足すのは 400（記録し直す）。どちらも書き込みと同じトランザクションの中で見る
+            stored_legs = "legs" in doc["record"]
+            if stored_legs and "legs" not in record:
+                raise Conflict(LEGS_MISSING)
+            if not stored_legs and "legs" in record:
+                raise InvalidRecord([{"field": "legs", "kind": "legacyTrade"}])
             # チャートの時間足・付属の並びは、直した後にチャートがある枠にだけ（トランザクションの中で見る。R4）
             slots = (set(doc.get("charts") or {}) - removes) | set(images)
             checked = charts.kept_extras(record, doc["record"], slots)
@@ -373,12 +405,17 @@ def make_blueprint(
             # 口座を別の口座に付け替えたときだけ、その口座の今の資金・許容リスク・通貨で写し直す（#47 A4・A9）
             if new_account is not None:
                 snapshot.update(accounts.account_snapshot(new_account))
+            issues = leg_issues(record, snapshot)
+            if issues:
+                raise InvalidRecord(issues)
             new_record = checked
             # 本文に口座が無ければ保存済みの口座を保つ（古い画面が黙って既定の口座へ付け替えない）
             if "accountId" not in record and "accountId" in doc["record"]:
                 new_record = {**new_record, "accountId": doc["record"]["accountId"]}
             new = {
                 **doc,
+                # 版は本文の形で決める（レッグの無い取引は 1 のまま。上の守りでレッグの有無は変わらない）
+                "schemaVersion": version_of(new_record),
                 "updatedAt": next_updated_at(clock(), doc.get("updatedAt")),
                 "snapshot": snapshot,
                 "record": new_record,
@@ -397,6 +434,12 @@ def make_blueprint(
             return invalid(e.issues)
         except UnknownSchemaVersion:
             return unknown_version()
+        except Conflict as e:
+            # レッグを知らない画面（切り戻し・古いタブ）の保存を止めた回数を数えられるよう、決まった語だけをログに出す
+            # （取引の ID・uid・本文は出さない）
+            if e.reason == LEGS_MISSING:
+                log_event(event="trade_legs_missing")
+            return error(409, "conflict", reason=e.reason)
         if doc is None:
             return error(404, "not_found")
         return trade_response(trade_id, doc)

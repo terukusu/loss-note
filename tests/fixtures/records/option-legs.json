@@ -1,0 +1,468 @@
+{
+  "items": [
+    {
+      "name": "P1",
+      "instrument": {
+        "name": "架空指数XYZオプション",
+        "underlying": "XYZ",
+        "underlyingKind": "index",
+        "productForm": "option",
+        "priceCurrency": "JPY",
+        "multiplier": 1000,
+        "quantityStep": 1
+      },
+      "settings": {
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "placed",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "side": "L",
+        "timeframe": "1h",
+        "lc": 37800,
+        "brokenCondition": "37,800 を割ったら押し目の根拠が崩れる",
+        "tp": 39500,
+        "thesis": "架空の押し目の根拠",
+        "entries": [
+          {
+            "time": 1799020800000,
+            "price": 38500,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1799209920000,
+          "price": 37700,
+          "orderType": "stop",
+          "reason": "lc",
+          "gapSlip": "no",
+          "review": "架空の総評"
+        },
+        "statementPnlYen": -71100,
+        "fees": [
+          {
+            "label": "手数料",
+            "amountYen": 1100
+          }
+        ],
+        "legs": [
+          {
+            "id": "l1",
+            "optionType": "P",
+            "contractMonth": "2027-01",
+            "strike": 37000,
+            "side": "buy",
+            "quantity": 1,
+            "entry": {
+              "price": 300,
+              "time": 1799020800000
+            },
+            "exit": {
+              "price": 520,
+              "time": 1799209800000,
+              "kind": "closed"
+            }
+          },
+          {
+            "id": "l2",
+            "optionType": "P",
+            "contractMonth": "2027-01",
+            "strike": 36000,
+            "side": "sell",
+            "quantity": 2,
+            "entry": {
+              "price": 120,
+              "time": 1799020860000
+            },
+            "exit": {
+              "price": 200,
+              "time": 1799209860000,
+              "kind": "closed"
+            }
+          },
+          {
+            "id": "l3",
+            "optionType": "C",
+            "contractMonth": "2027-01",
+            "strike": 40000,
+            "side": "buy",
+            "quantity": 1,
+            "entry": {
+              "price": 150,
+              "time": 1799020920000
+            },
+            "exit": {
+              "price": 20,
+              "time": 1799209920000,
+              "kind": "closed"
+            }
+          }
+        ],
+        "lcLossPlanYen": 80000
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1000,
+          "quantityStep": 1,
+          "priceCurrency": "JPY",
+          "underlyingKind": "index",
+          "productForm": "option"
+        },
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "A",
+        "r": -0.875,
+        "oneR": 80000,
+        "oneRSource": "plan",
+        "pnlYen": -71100,
+        "orderType": "stop"
+      }
+    },
+    {
+      "name": "P2",
+      "instrument": {
+        "name": "架空指数XYZオプション",
+        "underlying": "XYZ",
+        "underlyingKind": "index",
+        "productForm": "option",
+        "priceCurrency": "JPY",
+        "multiplier": 1000,
+        "quantityStep": 1
+      },
+      "settings": {
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "side": "L",
+        "lc": 37500,
+        "entries": [
+          {
+            "time": 1799020800000,
+            "price": 38500,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1799420399999,
+          "price": 38900,
+          "orderType": "expiry",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "legs": [
+          {
+            "id": "l1",
+            "optionType": "P",
+            "contractMonth": "2027-01",
+            "strike": 37000,
+            "side": "sell",
+            "quantity": 1,
+            "entry": {
+              "price": 250
+            },
+            "exit": {
+              "price": 0,
+              "time": 1799420399999,
+              "kind": "expired"
+            }
+          }
+        ]
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1000,
+          "quantityStep": 1,
+          "priceCurrency": "JPY",
+          "underlyingKind": "index",
+          "productForm": "option"
+        },
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "safeWin",
+        "r": null,
+        "oneR": null,
+        "oneRSource": null,
+        "pnlYen": 250000,
+        "orderType": "expiry"
+      }
+    },
+    {
+      "name": "P3",
+      "instrument": {
+        "name": "架空指数XYZオプション",
+        "underlying": "XYZ",
+        "underlyingKind": "index",
+        "productForm": "option",
+        "priceCurrency": "JPY",
+        "multiplier": 1000,
+        "quantityStep": 1
+      },
+      "settings": {
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "side": "L",
+        "entries": [
+          {
+            "price": 38500,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1799209920000,
+          "price": 39300,
+          "orderType": "limit",
+          "reason": "tp",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "legs": [
+          {
+            "id": "l1",
+            "optionType": "C",
+            "contractMonth": "2027-01-15",
+            "strike": 39000,
+            "side": "buy",
+            "quantity": 1,
+            "entry": {
+              "price": 400
+            },
+            "exit": {
+              "price": 700,
+              "kind": "closed"
+            }
+          },
+          {
+            "id": "l2",
+            "optionType": "C",
+            "contractMonth": "2027-01-15",
+            "strike": 40000,
+            "side": "sell",
+            "quantity": 1,
+            "entry": {
+              "price": 150
+            },
+            "exit": {
+              "price": 250,
+              "kind": "closed"
+            }
+          }
+        ],
+        "riskPlan": "maxLoss"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1000,
+          "quantityStep": 1,
+          "priceCurrency": "JPY",
+          "underlyingKind": "index",
+          "productForm": "option"
+        },
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "riskyWin",
+        "r": 0.8,
+        "oneR": 250000,
+        "oneRSource": "maxLoss",
+        "pnlYen": 200000,
+        "orderType": "limit"
+      }
+    },
+    {
+      "name": "P4",
+      "instrument": {
+        "name": "架空指数ABCオプション",
+        "underlying": "ABC",
+        "underlyingKind": "index",
+        "productForm": "option",
+        "priceCurrency": "USD",
+        "multiplier": 100,
+        "quantityStep": 1
+      },
+      "settings": {
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "side": "S",
+        "lc": 5100,
+        "entries": [
+          {
+            "time": 1799020800000,
+            "price": 5000,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1800234000000,
+          "price": 4800,
+          "fxRate": 150,
+          "orderType": "market",
+          "reason": "brokeManual",
+          "gapSlip": "no"
+        },
+        "statementPnlYen": 1049500,
+        "fees": [
+          {
+            "label": "手数料",
+            "amountYen": 500
+          }
+        ],
+        "legs": [
+          {
+            "id": "l1",
+            "optionType": "P",
+            "contractMonth": "2027-01",
+            "strike": 4900,
+            "side": "buy",
+            "quantity": 1,
+            "entry": {
+              "price": 50,
+              "time": 1799020800000
+            },
+            "exit": {
+              "price": 120,
+              "time": 1800234000000,
+              "kind": "closed"
+            }
+          },
+          {
+            "id": "l2",
+            "optionType": "P",
+            "contractMonth": "2027-02",
+            "strike": 4700,
+            "side": "buy",
+            "quantity": 1,
+            "entry": {
+              "price": 20,
+              "time": 1799020860000
+            },
+            "exit": {
+              "price": 0,
+              "time": 1802444399999,
+              "kind": "expired"
+            }
+          }
+        ]
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 100,
+          "quantityStep": 1,
+          "priceCurrency": "USD",
+          "underlyingKind": "index",
+          "productForm": "option"
+        },
+        "capitalYen": 10000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "safeWin",
+        "r": null,
+        "oneR": null,
+        "oneRSource": null,
+        "pnlYen": 749500,
+        "orderType": "market"
+      }
+    }
+  ],
+  "legacyEdit": {
+    "of": "P1",
+    "body": {
+      "status": "closed",
+      "timeframe": "1h",
+      "tp": 39500,
+      "thesis": "架空の押し目の根拠",
+      "source": "manual",
+      "instrumentId": "INSTRUMENT",
+      "side": "L",
+      "lc": 37800,
+      "brokenCondition": "37,800 を割ったら押し目の根拠が崩れる",
+      "lcBasis": "chart",
+      "stopOrderPlaced": "placed",
+      "lcDecidedBeforeEntry": true,
+      "lcMove": {
+        "kind": "none"
+      },
+      "timeframeChange": "none",
+      "entries": [
+        {
+          "price": 38500,
+          "quantity": 1,
+          "time": 1799020800000
+        }
+      ],
+      "exit": {
+        "review": "架空の総評",
+        "time": 1799209920000,
+        "price": 37700,
+        "orderType": "stop",
+        "reason": "lc",
+        "gapSlip": "no"
+      },
+      "statementPnlYen": -71100,
+      "fees": [
+        {
+          "label": "手数料",
+          "amountYen": 1100
+        }
+      ]
+    }
+  }
+}

@@ -5,6 +5,7 @@
 数は丸めず、int / float の区別をそのまま保つ（往復で同じ値が返る）。意味は ``core/trade.ts`` が正。
 """
 
+import datetime
 import json
 import math
 import re
@@ -20,8 +21,9 @@ MAX_BODY_BYTES = 64 * 1024
 MAX_CAPITAL_HISTORY = 1000
 MAX_ISSUES = 50
 
-ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,40}$")
-_CURRENCY = re.compile(r"^[A-Z]{3}$")
+# 末尾は \Z（$ は末尾の改行の前でも当たり、"l1\n" のような値を通してしまう。#116 のレビュー N1）
+ID_PATTERN = re.compile(r"^[A-Za-z0-9]{1,40}\Z")
+_CURRENCY = re.compile(r"^[A-Z]{3}\Z")
 _ZWJ = "\u200d"
 
 # core/trade.ts の TIMEFRAMES と同じ（短い順）
@@ -34,7 +36,8 @@ OPTION_TYPES = ("P", "C")
 LC_BASES = ("chart", "amount")
 LC_MOVES = ("none", "tightened", "widened")
 TIMEFRAME_CHANGES = ("none", "longer", "shorter")
-ORDER_TYPES = ("stop", "market", "limit", "unknown")
+# expiry = 満期（SQ）: レッグを持つ取引だけ（C54。下の _check_legs）
+ORDER_TYPES = ("stop", "market", "limit", "unknown", "expiry")
 EXIT_REASONS = ("lc", "gapSlip", "tp", "brokeManual", "fearEarly", "timeout", "other")
 GAP_SLIP = ("yes", "no", "unanswered")
 STOP_ORDER_PLACED = ("placed", "notPlaced", "unanswered")
@@ -194,8 +197,22 @@ _TRADE_FIELDS = (
     "status", "source", "instrumentId", "accountId", "side", "contractMonth", "optionType", "strike", "timeframe", "lc",
     "brokenCondition", "lcBasis", "tp", "thesis", "entryEmotion", "stopOrderPlaced", "planFxRate", "plannedAt",
     "lcDecidedBeforeEntry", "lcMove", "timeframeChange", "entries", "exit", "statementPnlYen", "fees",
-    "entryChartTimeframe", "exitChartTimeframe", "extraCharts",
+    "entryChartTimeframe", "exitChartTimeframe", "extraCharts", "legs", "riskPlan", "lcLossPlanYen",
 )  # fmt: skip
+# オプションのポジションのレッグ（#116・設計書 4.7・C46。core/trade.ts の Leg と同じ形）
+MAX_LEGS = 10
+LEG_ID = re.compile(r"^l(?:10|[1-9])\Z")
+LEG_SIDES = ("buy", "sell")
+LEG_EXIT_KINDS = ("closed", "expired")
+# 限月: YYYY-MM（週次は SQ の日 YYYY-MM-DD）。実在の月・日だけ
+_CONTRACT_MONTH = re.compile(r"^([0-9]{4})-([0-9]{2})(?:-([0-9]{2}))?\Z")
+# 1R の決め方（4.7・C50）: maxLoss = 「最大損失まで」
+RISK_PLANS = ("maxLoss",)
+_LEG_FIELDS = ("id", "optionType", "contractMonth", "strike", "side", "quantity", "entry", "exit")
+_LEG_ENTRY_FIELDS = ("price", "time")
+_LEG_EXIT_FIELDS = ("price", "time", "kind")
+# レッグを持つ取引では使わない前の欄（4.7。あれば 400）
+_PRE_LEG_FIELDS = ("contractMonth", "optionType", "strike")
 # 付属のチャート（#89）: 枠は x1〜x5、最大 5 枚、一言は 40 字まで（loss_note_api.charts と同じ値）
 EXTRA_CHART_SLOTS = ("x1", "x2", "x3", "x4", "x5")
 EXTRA_CHART_NOTE_MAX = 40
@@ -359,11 +376,134 @@ def validate_trade(body: Any) -> tuple[dict | None, list[Issue]]:
 
     _put(out, "extraCharts", c.field(src, "extraCharts", "", extra_charts))
 
+    def non_negative(v: Any, path: str) -> Any:
+        v = c.number(v, path)
+        if v is not INVALID and v < 0:
+            c.add(path, "range")
+            return INVALID
+        return v
+
+    def contract_month(v: Any, path: str) -> Any:
+        m = _CONTRACT_MONTH.match(v) if isinstance(v, str) else None
+        try:
+            if m is None:
+                raise ValueError
+            datetime.date(int(m[1]), int(m[2]), int(m[3] or 1))
+        except ValueError:
+            c.add(path, "format")
+            return INVALID
+        return v
+
+    def leg_id(v: Any, path: str) -> Any:
+        if not isinstance(v, str) or not LEG_ID.match(v):
+            c.add(path, "format")
+            return INVALID
+        return v
+
+    def leg_side(fields: tuple[str, ...], with_kind: bool) -> Callable[[Any, str], Any]:
+        def check(v: Any, path: str) -> Any:
+            x = c.obj(v, path, fields)
+            if x is None:
+                return INVALID
+            res: dict = {}
+            _put(res, "price", c.field(x, "price", path, non_negative, required=True))
+            _put(res, "time", c.field(x, "time", path, c.time))
+            if with_kind:
+                _put(res, "kind", c.field(x, "kind", path, c.enum(LEG_EXIT_KINDS), required=True))
+            return res
+
+        return check
+
+    def legs(v: Any, path: str) -> Any:
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if not 1 <= len(v) <= MAX_LEGS:
+            c.add(path, "count")
+            return INVALID
+        res = []
+        seen: set = set()
+        for i, item in enumerate(v):
+            p = f"{path}[{i}]"
+            lg = c.obj(item, p, _LEG_FIELDS)
+            if lg is None:
+                continue
+            row: dict = {}
+            _put(row, "id", c.field(lg, "id", p, leg_id, required=True))
+            _put(row, "optionType", c.field(lg, "optionType", p, c.enum(OPTION_TYPES), required=True))
+            _put(row, "contractMonth", c.field(lg, "contractMonth", p, contract_month, required=True))
+            _put(row, "strike", c.field(lg, "strike", p, c.positive, required=True))
+            _put(row, "side", c.field(lg, "side", p, c.enum(LEG_SIDES), required=True))
+            _put(row, "quantity", c.field(lg, "quantity", p, c.positive, required=True))
+            _put(row, "entry", c.field(lg, "entry", p, leg_side(_LEG_ENTRY_FIELDS, False), required=True))
+            _put(row, "exit", c.field(lg, "exit", p, leg_side(_LEG_EXIT_FIELDS, True), required=True))
+            if "id" in row:
+                if row["id"] in seen:
+                    c.add(f"{p}.id", "duplicate")
+                seen.add(row["id"])
+            res.append(row)
+        return res
+
+    _put(out, "legs", c.field(src, "legs", "", legs))
+    _put(out, "riskPlan", c.field(src, "riskPlan", "", c.enum(RISK_PLANS)))
+    _put(out, "lcLossPlanYen", c.field(src, "lcLossPlanYen", "", c.positive))
+
+    if not c.issues:
+        _check_legs(out, c)
     if not c.issues:
         _check_lc_direction(out, c)
     if c.issues:
         return None, c.issues
     return out, []
+
+
+def _check_legs(t: dict, c: _Checker) -> None:
+    """レッグを持つ取引の欄同士の検査（設計書 4.7・C54・ADR-0020）。レッグの無い取引には新しい欄（riskPlan・
+    lcLossPlanYen・満期（SQ））を持たせない（前からの取引の形を変えない）。
+    最大損失が定まるかは見ない（画面が core で見る）"""
+    legs = t.get("legs")
+    if legs is None:
+        for key in ("riskPlan", "lcLossPlanYen"):
+            if key in t:
+                c.add(key, "requiresLegs")
+        if t["exit"]["orderType"] == "expiry":
+            c.add("exit.orderType", "requiresLegs")
+        return
+    for key in _PRE_LEG_FIELDS:
+        if key in t:
+            c.add(key, "withLegs")
+    # エントリーは 1 つ（price = 建てたときの原資産・quantity = 1。使わない値）
+    if len(t["entries"]) != 1:
+        c.add("entries", "count")
+        return
+    entry = t["entries"][0]
+    if entry["quantity"] != 1:
+        c.add("entries[0].quantity", "range")
+    # 「最大損失まで」は LC と見込みを持たない（C50）
+    if t.get("riskPlan") == "maxLoss":
+        if "lc" in t:
+            c.add("lc", "withRiskPlan")
+        if "lc" in entry:
+            c.add("entries[0].lc", "withRiskPlan")
+        if "lcLossPlanYen" in t:
+            c.add("lcLossPlanYen", "withRiskPlan")
+    # 満期（SQ）は満期で消えた売りのレッグがある（またはすべてのレッグが満期で消えた）ポジションだけ（C54）
+    if t["exit"]["orderType"] == "expiry":
+        expired = [lg for lg in legs if lg["exit"]["kind"] == "expired"]
+        if not (any(lg["side"] == "sell" for lg in expired) or len(expired) == len(legs)):
+            c.add("exit.orderType", "expiry")
+    # レッグの時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えたレッグの決済の時刻 = SQ の日は見ない。C54）
+    start, end = entry.get("time"), t["exit"]["time"]
+    for i, lg in enumerate(legs):
+        times = [("entry", lg["entry"].get("time"))]
+        if lg["exit"]["kind"] == "closed":
+            times.append(("exit", lg["exit"].get("time")))
+        for side, at in times:
+            if at is not None and ((start is not None and at < start) or at > end):
+                c.add(f"legs[{i}].{side}.time", "outOfPosition")
+        opened, closed = lg["entry"].get("time"), lg["exit"].get("time")
+        if opened is not None and closed is not None and closed < opened:
+            c.add(f"legs[{i}].exit.time", "legTimeOrder")
 
 
 def _check_lc_direction(t: dict, c: _Checker) -> None:

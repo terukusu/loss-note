@@ -446,6 +446,65 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     expect(entry.props.value).toBe('');
   });
 
+  it('#75 AC-4: [キャンセル] は [保存] の左のボタン（読み上げ「編集をキャンセル」）。保存中は押せない', async () => {
+    const fake = createFakeApi({ trades: [E1], instruments: [US30], capitalYen: CAPITAL_NOW });
+    const c = createEditController({ api: fake.api, id: E1.id });
+    await c.load();
+    let cancelled = 0;
+    const draw = (state: ReturnType<typeof c.getState>) =>
+      expand(
+        <TradeEditView
+          id={E1.id}
+          state={state}
+          hidden={EMPTY}
+          notFound={notFoundState()}
+          onUpdate={c.update}
+          onSave={noop}
+          onReload={noop}
+          onRelogin={noop}
+          onCancel={() => cancelled++}
+        />,
+      );
+    const cancelOf = (tree: Node[]) =>
+      all(
+        tree,
+        (e) => e.type === 'button' && e.props['aria-label'] === '編集をキャンセル',
+      )[0] as El;
+    const tree = draw(c.getState());
+    const actions = all(tree, hasClass('edit__actions'))[0] as El;
+    const buttons = all([actions], (e) => e.type === 'button');
+    expect(buttons[0]).toBe(cancelOf(tree));
+    expect(buttons[1]?.props.type).toBe('submit');
+    expect(cancelOf(tree).props.disabled).toBe(false);
+    (cancelOf(tree).props.onClick as () => void)();
+    expect(cancelled).toBe(1);
+    expect(cancelOf(draw({ ...c.getState(), phase: 'saving' })).props.disabled).toBe(true);
+    // 破棄する操作なので「戻る」の山形を付けない（記録する画面の [キャンセル] と同じ見た目。#75 デザイン 3）
+    expect(all([cancelOf(tree)], (e) => e.type === 'svg')).toEqual([]);
+    // 借り直した書きかけは「前の変更の続きです」（借り直していなければ出さない）
+    const resumed = (t: Node[]) => all(t, hasClass('draft__resumed'));
+    expect(resumed(tree)).toEqual([]);
+    const now = 2_000_000_000;
+    const again = expand(
+      <TradeEditView
+        id={E1.id}
+        state={c.getState()}
+        hidden={EMPTY}
+        notFound={notFoundState()}
+        onUpdate={c.update}
+        onSave={noop}
+        onReload={noop}
+        onRelogin={noop}
+        onCancel={noop}
+        resumedAt={now - 2 * 3_600_000}
+        now={now}
+      />,
+    );
+    expect(text(resumed(again)[0] as El)).toBe(
+      '前の変更の続きです（2 時間前）。破棄するときは [キャンセル] を押してください。',
+    );
+  });
+
   it('#57 AC-1・AC-2: 直す画面の 3 つのタップと判定の枠（判定・R・LC の物差し）に「i」', async () => {
     const tree = await editTree(E1);
     const names = all(tree, (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>

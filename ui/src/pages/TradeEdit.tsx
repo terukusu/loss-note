@@ -1,7 +1,8 @@
 // 取引を編集（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5）: 記録する画面と同じ欄（TradeFields）と判定の枠（Verdict）を、
 // 保存した値が入った状態で出す。直している間も判定・理由・R・リスク（%）はその場で出直し、資金・許容リスクは取引に写した値で
 // 計算する（今の設定を使わない）。明細の枠は出さない。チャート（#89）は記録する画面と同じ枠（ChartPanel）で
-// 追加・差し替え・削除・付属の枠ができ、[保存する] で取引と一緒に 1 要求で保存する（[キャンセル] で捨てる）。
+// 追加・差し替え・削除・付属の枠ができ、[保存する] で取引と一緒に 1 要求で保存する（[キャンセル] で捨てる。変更があれば
+// トーストの [元に戻す] で戻せる。画面を移っても変更は書きかけの置き場に残る。#75）。
 // チャートの無い枠に記録された時間足は保存で外し、その旨を判定の枠の上に出す。保存できたら詳細へ置き換える。
 // TradeEdit は hook を持たない。「見つかりません」の面は詳細と同じ
 import type { JSX } from 'preact';
@@ -29,7 +30,10 @@ import {
 } from '../lib/charts';
 import { CURRENCY_CLEARED_NOTE, CURRENCY_FX_CLEARED_NOTE, currencyView } from '../lib/currency';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
-import { createEditController, type EditState } from '../lib/edit-controller';
+import { editDraftImages, editDraftLabel, editDraftStatus, resumedNote } from '../lib/draft-status';
+import { editKey } from '../lib/drafts';
+import { DraftsContext } from '../lib/drafts-context';
+import { createEditController, type EditController, type EditState } from '../lib/edit-controller';
 import { bandText, changeText } from '../lib/edit-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
@@ -61,28 +65,46 @@ function TradeEditScreen({
   readonly id: string;
   readonly notFound: JSX.Element;
 }) {
-  const controller = useMemo(
-    () =>
+  // 書きかけの置き場（#75）から取引ごとに借りる。変更があるまま離れた書きかけは残り、戻ると借り直す（読み込み直さない）
+  const drafts = useContext(DraftsContext);
+  const store = drafts?.drafts;
+  const { controller, restored, resumedAt } = useMemo(() => {
+    const create = () =>
       createEditController({
         api,
         id,
         prepare: (file) => prepareImage(file, browserCodec),
         preview: (bytes, type) => browserCodec.preview(bytes, type),
-      }),
-    [id],
-  );
+      });
+    if (!store) return { controller: create(), restored: false, resumedAt: null };
+    return store.acquire<EditController>(editKey(id), () => {
+      const c = create();
+      return {
+        controller: c,
+        kind: 'edit',
+        href: `/trades/${id}/edit`,
+        status: () => editDraftStatus(c.getState()),
+        subscribe: (fn) => c.subscribe(() => fn()),
+        // どの取引の編集か（知らせ「US30 L 11/09 の編集の変更は残っています」。#75 N3）
+        label: () => editDraftLabel(c.getState()),
+        images: () => editDraftImages(c.getState()),
+        dispose: () => c.dispose(),
+      };
+    });
+  }, [id, store]);
   const [state, setState] = useState<EditState>(controller.getState());
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
   const prev = useRef(state.phase);
   useEffect(() => {
     const off = controller.subscribe(setState);
-    void controller.load();
+    if (!restored) void controller.load();
     return () => {
       off();
-      controller.dispose();
+      if (store) store.release(editKey(id), controller);
+      else controller.dispose();
     };
-  }, [controller]);
+  }, [controller, restored, store, id]);
   // 枠そのもの（輪と「ここに貼れます」が出ている状態）にフォーカスがあるときだけ、貼った画像をその枠へ（記録する画面と
   // 同じ行き先。#89）。ほかの貼り付けは横取りしない（編集には明細の枠が無い）
   useEffect(() => {
@@ -163,6 +185,8 @@ function TradeEditScreen({
       onRelogin={() => {
         void signOutActive();
       }}
+      {...(drafts ? { onCancel: () => drafts.cancel(editKey(id), `/trades/${id}`) } : {})}
+      resumedAt={resumedAt}
     />
   );
 }
@@ -180,6 +204,15 @@ export interface TradeEditViewProps {
   readonly onSave: () => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
+  /**
+   * [キャンセル]（#75）: 変更を捨てて前の画面へ（変更があれば [元に戻す] のトースト）。省けば詳細へのリンク（置き場の無い
+   * テストの描画）
+   */
+  readonly onCancel?: () => void;
+  /** 離れていた書きかけを借り直した: 離れた時刻（「前の変更の続きです」。#75）。省けば出さない */
+  readonly resumedAt?: number | null;
+  /** 今の時刻（「N 分前」。省けば Date.now） */
+  readonly now?: number;
   /** チャートの枠（#89。省けば何もしない） */
   readonly onPickChart?: (slot: AnySlot, file: File) => void;
   readonly onRemoveChart?: (slot: AnySlot) => void;
@@ -259,6 +292,9 @@ export function TradeEditView(p: TradeEditViewProps) {
     >
       <fieldset class="record__fields" disabled={saving}>
         <legend class="sr-only">取引を編集</legend>
+        {p.resumedAt != null && state.phase === 'editing' ? (
+          <p class="draft__resumed">{resumedNote('edit', p.resumedAt, p.now ?? Date.now())}</p>
+        ) : null}
         <TradeMainFields
           draft={d}
           errors={e}
@@ -367,9 +403,20 @@ export function TradeEditView(p: TradeEditViewProps) {
         </p>
         {/* [キャンセル] は [保存] の左に横並び（帯を 1 段減らす。#89 デザインの再レビュー 8） */}
         <div class="edit__actions">
-          <Button href={`/trades/${p.id}`} variant="ghost" icon="back">
-            キャンセル
-          </Button>
+          {p.onCancel ? (
+            <Button
+              variant="ghost"
+              label="編集をキャンセル"
+              disabled={saving}
+              onClick={() => p.onCancel?.()}
+            >
+              キャンセル
+            </Button>
+          ) : (
+            <Button href={`/trades/${p.id}`} variant="ghost">
+              キャンセル
+            </Button>
+          )}
           <Button
             type="submit"
             id={SUBMIT_ID}

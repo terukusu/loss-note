@@ -21,6 +21,9 @@ import {
 } from '../../ui/src/lib/record-form';
 import { fillFromRow, gateReading, READ_MSG } from '../../ui/src/lib/statement-fill';
 import {
+  RESUMED_ID,
+  RecordCancel,
+  RecordCancelView,
   Record as RecordPage,
   RecordView,
   type RecordViewProps,
@@ -334,6 +337,62 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     const form = all(tree, (e) => e.type === 'form')[0] as El;
     (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault: noop });
     expect(saved).toBe(1);
+  });
+
+  it('#75 AC-4: [キャンセル] は見出しの右（帯は 1 段のまま）。押すと onCancel、保存中は押せない', () => {
+    let cancelled = 0;
+    const btn = (saving: boolean) =>
+      all(
+        expand(RecordCancelView({ saving, onCancel: () => cancelled++ })),
+        (e) => e.type === 'button',
+      )[0] as El;
+    const b = btn(false);
+    expect(b.props['aria-label']).toBe('記録をキャンセル');
+    expect(text(b)).toBe('キャンセル');
+    expect(b.props.disabled).toBe(false);
+    (b.props.onClick as () => void)();
+    expect(cancelled).toBe(1);
+    expect(btn(true).props.disabled).toBe(true);
+    // 置き場の無い描画（onCancel なし）では帯にも出さない
+    const tree = view(stateFor(E1, NO_CAPITAL));
+    expect(all(tree, (e) => e.props['aria-label'] === '記録をキャンセル')).toEqual([]);
+    // 置き場があれば帯の [記録する] の左にも（幅 720 以上だけ見える = .record__barcancel）。保存中は押せない
+    const withCancel = view(stateFor(E1, NO_CAPITAL), { onCancel: noop });
+    const bar = all(withCancel, hasClass('record__submit--bar'))[0] as El;
+    const wrap = all([bar], hasClass('record__barcancel'))[0] as El;
+    const inBar = all([wrap], (e) => e.type === 'button')[0] as El;
+    expect(inBar.props['aria-label']).toBe('記録をキャンセル');
+    const kids = bar.children.filter((n) => typeof n !== 'string') as El[];
+    expect(kids.indexOf(wrap) + 1).toBe(kids.indexOf(submit(withCancel)));
+    const savingBar = view(stateFor(E1, NO_CAPITAL, { phase: 'saving' }), { onCancel: noop });
+    expect(
+      (all(savingBar, (e) => e.props['aria-label'] === '記録をキャンセル')[0] as El).props.disabled,
+    ).toBe(true);
+    const head = RecordPage() as {
+      props: { children: { props: { actions: { type: unknown } } }[] };
+    };
+    expect(head.props.children[0]?.props.actions.type).toBe(RecordCancel);
+  });
+
+  it('#75 デザイン 1: 借り直した書きかけは見出しの下に「前の入力の続きです」と決済の時刻のまま。借り直していなければ出さない', () => {
+    const base = stateFor(E1, NO_CAPITAL);
+    const st = { ...base, baseline: base.draft };
+    const line = (tree: Node[]) => all(tree, (e) => e.props.id === RESUMED_ID);
+    expect(line(view(st))).toEqual([]);
+    const now = 1_000_000_000;
+    const tree = view(st, { resumedAt: now - 5 * 60_000, now });
+    const l = line(tree)[0] as El;
+    expect(text(l)).toContain('前の入力の続きです（5 分前）。');
+    expect(text(l)).toContain('のままです。');
+    expect(text(l)).toContain('[キャンセル]');
+    const changed = view(
+      { ...st, baseline: { ...base.draft, exitTime: '2000-01-01T00:00' } },
+      {
+        resumedAt: now - 60_000,
+        now,
+      },
+    );
+    expect(text(line(changed)[0] as El)).not.toContain('のままです');
   });
 
   it('保存中は入力の欄をまとめて止め、ボタンは「記録しています…」', () => {

@@ -186,14 +186,6 @@ export interface InfoContent {
   readonly depth: number;
 }
 
-/**
- * 吹き出しの末尾に「用語集で見る」を出すか。入力のある画面（記録する・取引の編集）では出さない（用語集の画面へ移ると書きかけの欄が
- * 消えるため。吹き出しの中のたどりで足りる。#57 デザインの再レビュー）
- */
-export function showsGlossaryLink(pathname: string): boolean {
-  return !/^\/record\/?$|^\/trades\/[^/]+\/edit\/?$/.test(pathname);
-}
-
 export function infoName(label: string): string {
   return `「${label}」の説明`;
 }

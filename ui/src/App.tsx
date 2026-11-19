@@ -5,11 +5,13 @@ import { errorCode, loginErrorMessage, SIGN_OUT_FAILED } from './auth/errors';
 import { onAuthKind } from './auth/forbidden';
 import { type AuthState, gate } from './auth/gate';
 import { type AuthSession, api, forbiddenFlag } from './auth/session';
-import { TOAST_UNDO_ID, Toast } from './components/Toast';
+import { DRAFT_UNDO_ID, TOAST_UNDO_ID, Toast } from './components/Toast';
 import { loadParts } from './devPages';
 import { Shell } from './layout/Shell';
 import { createDeletions, type DeletionsState } from './lib/deletions';
 import { DeletionsContext } from './lib/deletions-context';
+import { createDrafts, type DraftsState, editKey, recordKey } from './lib/drafts';
+import { DraftsContext, DraftsKeptContext, type DraftsValue } from './lib/drafts-context';
 import { type Navigator, NavigatorContext, useCurrent } from './lib/router';
 import { hrefOf, type Route, titleOf } from './lib/routes';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
@@ -106,25 +108,63 @@ export function App(props: AppProps) {
   /** 前の画面のパス（同じ画面の検索部分だけの置き換え = ホームの期間（#88）ではフォーカスを動かさない） */
   const lastHref = useRef(hrefOf(route));
   // 取引を消す + [元に戻す]（Issue #9。ADR-0007）: アプリの殻に 1 つ。画面を移っても取り消せる
+  // 書きかけの置き場（Issue #75。ADR-0019）: 記録する画面・編集の画面の書きかけを、画面を移っても同じタブの記憶に残す
+  const drafts = useMemo(
+    () =>
+      createDrafts({
+        setTimer: (fn, ms) => setTimeout(fn, ms),
+        clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+      }),
+    [],
+  );
   const deletions = useMemo(
     () =>
       createDeletions({
         api,
         setTimer: (fn, ms) => setTimeout(fn, ms),
         clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+        // 削除が確定した取引の編集の書きかけは捨てる（開けない画面の書きかけでタブを閉じる確認を出し続けない。#75 N1）
+        onDeleted: (id) => drafts.drop(editKey(id)),
       }),
-    [],
+    [drafts],
   );
   const [delState, setDelState] = useState<DeletionsState>(deletions.getState());
   // 取引の一覧の読み込み済みの分と位置（Issue #87）: 戻るで一覧に戻ったときに使う。ログインしていなければ空にする
   const tradesCache = useMemo(() => createTradesCache(), []);
   useEffect(() => deletions.subscribe(setDelState), [deletions]);
-  /** [消す] の直後の画面の移りでは、見出しではなく [元に戻す] へフォーカスを移す（8 秒の間にキーで届くように） */
-  const focusUndo = useRef(false);
+  const [draftState, setDraftState] = useState<DraftsState>(drafts.getState());
+  useEffect(() => drafts.subscribe(setDraftState), [drafts]);
+  /**
+   * [消す]・書きかけの破棄の直後の画面の移りでは、見出しではなく [元に戻す] へフォーカスを移す（8 秒の間にキーで届くように）。
+   * 値は移す先の要素の id
+   */
+  const focusUndo = useRef<string | null>(null);
   const removeTrade = (id: string, label: string) => {
-    focusUndo.current = true;
+    focusUndo.current = TOAST_UNDO_ID;
     deletions.remove(id, label);
   };
+  const draftsValue = useMemo<DraftsValue>(
+    () => ({
+      drafts,
+      cancel: (key, fallback) => {
+        const r = drafts.cancel(key);
+        if (r === 'busy') return;
+        if (r === 'discarded') focusUndo.current = DRAFT_UNDO_ID;
+        nav.back(fallback);
+      },
+    }),
+    [drafts, nav],
+  );
+  // 書きかけがある間だけ、タブを閉じる・再読み込みにブラウザの確認を出す（書きかけは記憶の中だけで、閉じると消えるため。R8）
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!drafts.hasInput()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [drafts]);
   /** トーストが閉じた後は、見出しへフォーカスを戻す（body に落とさない） */
   const focusHeading = () => {
     setTimeout(
@@ -151,7 +191,9 @@ export function App(props: AppProps) {
   useEffect(() => session.subscribe(setAuth), [session]);
   useEffect(() => {
     if (auth.kind !== 'signedIn') tradesCache.clear();
-  }, [auth.kind, tradesCache]);
+    // ログアウトした（ログインが切れたを含む）: 書きかけを全部捨てる（次の利用者に見せない。R7）
+    if (auth.kind === 'signedOut') drafts.reset();
+  }, [auth.kind, tradesCache, drafts]);
   useEffect(() => forbiddenFlag.subscribe(setForbidden), []);
   // 使えないアカウント（#43）: ログイン・ログアウトで旗を下ろし、ログインしたら 1 度だけ読んで確かめる
   // （ホームは /api を読まないので、403 をすぐ受けて「このアカウントでは使えません」を出す。forbidden.ts）
@@ -188,6 +230,7 @@ export function App(props: AppProps) {
       .then(() => session.signOut())
       .then(() => {
         deletions.reset();
+        drafts.reset();
         tradesCache.clear();
       })
       .then(() => nav.replace('/login'))
@@ -220,8 +263,8 @@ export function App(props: AppProps) {
     }
     // 同じ画面の中で検索部分だけを置き換えた（ホームの期間を選んだ。#88）: 押した部品にフォーカスを残し、スクロールもしない
     if (via === 'replace' && samePage) return;
-    const undo = focusUndo.current ? document.getElementById(TOAST_UNDO_ID) : null;
-    focusUndo.current = false;
+    const undo = focusUndo.current ? document.getElementById(focusUndo.current) : null;
+    focusUndo.current = null;
     if (undo) undo.focus({ preventScroll: true });
     else document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true });
     if (via === 'push') window.scrollTo(0, 0);
@@ -251,6 +294,7 @@ export function App(props: AppProps) {
       <Shell
         route={route}
         emulator={emulator}
+        recordDraft={draftState.kept.has(recordKey())}
         toast={
           <Toast
             toast={delState.toast}
@@ -269,6 +313,19 @@ export function App(props: AppProps) {
             }}
             onHold={deletions.hold}
             onResume={deletions.resume}
+            draft={draftState.toast}
+            onDraftAction={() => {
+              // [元に戻す] = 捨てた書きかけを戻してその画面へ / [記録に戻る]・[編集に戻る] = 残した書きかけの画面へ
+              const href = draftState.toast?.type === 'discarded' ? drafts.undo() : drafts.back();
+              if (href) nav.push(href);
+              else focusHeading();
+            }}
+            onDraftDismiss={() => {
+              drafts.dismiss();
+              focusHeading();
+            }}
+            onDraftHold={drafts.hold}
+            onDraftResume={drafts.resume}
           />
         }
       >
@@ -287,7 +344,11 @@ export function App(props: AppProps) {
   return (
     <NavigatorContext.Provider value={nav}>
       <DeletionsContext.Provider value={{ state: delState, deletions, remove: removeTrade }}>
-        <TradesCacheContext.Provider value={tradesCache}>{body}</TradesCacheContext.Provider>
+        <DraftsContext.Provider value={draftsValue}>
+          <DraftsKeptContext.Provider value={draftState.kept}>
+            <TradesCacheContext.Provider value={tradesCache}>{body}</TradesCacheContext.Provider>
+          </DraftsKeptContext.Provider>
+        </DraftsContext.Provider>
       </DeletionsContext.Provider>
     </NavigatorContext.Provider>
   );

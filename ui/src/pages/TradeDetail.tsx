@@ -18,6 +18,8 @@ import { hasManyAccounts, tradeAccountName, verdictAsideText } from '../lib/acco
 import { APP_NAME } from '../lib/app-name';
 import { type AnySlot, isMainSlot } from '../lib/charts';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
+import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
+import { DraftsKeptContext } from '../lib/drafts-context';
 import { editBlock } from '../lib/edit-form';
 import { Link, NavigatorContext } from '../lib/router';
 import { titleOf } from '../lib/routes';
@@ -72,6 +74,7 @@ function TradeDetailScreen({
   const [state, setState] = useState<DetailState>(controller.getState());
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
+  const kept = useContext(DraftsKeptContext);
   useEffect(() => {
     const off = controller.subscribe(setState);
     void controller.load();
@@ -95,6 +98,7 @@ function TradeDetailScreen({
       state={state}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
+      editDraft={kept.has(editKey(id))}
       onDelete={() => {
         // 確認を挟まずに消す（取り消しはトーストの [元に戻す]。P4）。一覧へ置き換える（戻るで消した取引に戻らない）
         if (state.phase === 'ready') {
@@ -124,6 +128,8 @@ export interface TradeDetailViewProps {
   readonly onReloadChart: (slot: AnySlot) => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
+  /** この取引の編集の書きかけを残している（[編集] に印の点。#75） */
+  readonly editDraft?: boolean;
 }
 
 /** 判定の枠（3 つのタップの答えの札を含む）・チャートの枠・すべての欄（畳む）・[直す] / [消す]（hook を持たない） */
@@ -174,7 +180,12 @@ export function TradeDetailView(p: TradeDetailViewProps) {
         actions={
           <>
             {block === null ? (
-              <Button href={`/trades/${t.id}/edit`} variant="secondary" icon="edit">
+              <Button
+                href={`/trades/${t.id}/edit`}
+                variant="secondary"
+                icon="edit"
+                {...(p.editDraft ? { dot: DRAFT_DOT_TEXT } : {})}
+              >
                 編集
               </Button>
             ) : null}

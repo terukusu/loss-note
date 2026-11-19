@@ -17,8 +17,8 @@ export interface OptionScene extends Scene {
   readonly oneRSource?: OneRSource | 'none';
 }
 
-/** #114（満期の損益を使う行）。場面はその Issue で足す */
-export const PENDING_ROWS: readonly string[] = ['O5', 'O8', 'O9', 'O12', 'O18'];
+/** 場面がまだ無い行（#113・#114 ですべて足した） */
+export const PENDING_ROWS: readonly string[] = [];
 
 // レッグの決済の時刻（エポックからのミリ秒。架空。t1 < t2 < t3 < SQ）
 const T1 = 1_800_000_000_000;
@@ -46,6 +46,23 @@ const stopThenSqLegs = [
   leg('C', 39_500, 'buy', 1, 200, 50, at(T1)),
   expiredLeg('P', 36_500, 'sell', 1, 100, 200, SQ),
 ];
+
+// O8・O18: 買いのスプレッド（P 38,000 買い・P 37,000 売り。最大損失の例と同じ形）を「最大損失まで」。向き S（満期の損益の比べ方。C47）、
+// 建てたときの原資産 38,200、決済したときの原資産 38,600（思惑と逆）。LC の価格は置かない
+const bearPutSpread = (
+  over: Parameters<typeof position>[2],
+  buy: [number, number],
+  sell: [number, number],
+) =>
+  without(
+    position([leg('P', 38_000, 'buy', 1, ...buy), leg('P', 37_000, 'sell', 1, ...sell)], 38_600, {
+      side: 'S',
+      entries: [{ price: 38_200, quantity: 1 }],
+      riskPlan: 'maxLoss',
+      ...over,
+    }),
+    'lc',
+  );
 
 // O17: すべてのレッグが満期で消滅。SQ の原資産 36,800。
 // 売りのプット 37,000（150 → 本源的価値 200。−50,000 円）、買いのプット 36,000（50 → 0。−50,000 円）
@@ -107,6 +124,22 @@ export const OPTION_TABLE_CASES: Readonly<Record<string, readonly OptionScene[]>
       outcome: 'win',
     },
   ],
+  O5: [
+    {
+      // 買いのコールのスプレッド: C 39,000 買い 200 → 170（−30,000 円）・C 40,000 売り 50 → 50（0 円）。原資産は 38,900（思惑どおり）
+      // → (2) は出ない。(3) 原資産 = LC 37,500 の満期: −200,000 + 50,000 = −150,000 → 1R 150,000 円（1.5%）、−0.2R
+      input: position(
+        [leg('C', 39_000, 'buy', 1, 200, 170), leg('C', 40_000, 'sell', 1, 50, 50)],
+        38_900,
+      ),
+      grade: 'A',
+      r: -0.2,
+      oneRSource: 'expiry',
+      reasons: ['asPlannedLc'],
+      absent: ['heldPastLc', 'overRisk'],
+      outcome: 'loss',
+    },
+  ],
   O6: [
     {
       // 売りの裸・LC なし: 150 → 900（−750,000 円）。R は出ない
@@ -130,6 +163,35 @@ export const OPTION_TABLE_CASES: Readonly<Record<string, readonly OptionScene[]>
       ),
       grade: 'riskyWin',
       reasons: ['noLc'],
+      outcome: 'win',
+    },
+  ],
+  O8: [
+    {
+      // P 38,000 買い 400 → 250（−150,000 円）・P 37,000 売り 150 → 130（+20,000 円）= −130,000 円。
+      // 最大損失 (400 − 150) × 1,000 = 250,000 円 → 1R 250,000 円、−0.52R。資金 20,000,000 円（1.25%。設計書の最大損失の例・O8 と同じ）
+      input: bearPutSpread({ capitalYen: 20_000_000 }, [400, 250], [150, 130]),
+      grade: 'A',
+      r: -0.52,
+      oneRSource: 'maxLoss',
+      reasons: [],
+      absent: ['noLc', 'heldPastLc', 'overRisk'],
+      outcome: 'loss',
+    },
+  ],
+  O9: [
+    {
+      // C 39,000 買い 300 → 450（+150,000 円）・C 41,000 売り 20 → 30（−10,000 円）= +140,000 円、原資産 39,200。
+      // (3) 原資産 = LC 37,500 の満期: −300,000 + 20,000 = −280,000 → 1R 280,000 円（2.8%）、+0.5R
+      input: position(
+        [leg('C', 39_000, 'buy', 1, 300, 450), leg('C', 41_000, 'sell', 1, 20, 30)],
+        39_200,
+      ),
+      grade: 'riskyWin',
+      r: 0.5,
+      oneRSource: 'expiry',
+      reasons: ['overRisk'],
+      absent: ['heldPastLc'],
       outcome: 'win',
     },
   ],
@@ -167,6 +229,25 @@ export const OPTION_TABLE_CASES: Readonly<Record<string, readonly OptionScene[]>
       oneRSource: 'actualMove',
       reasons: ['asPlannedLc'],
       absent: ['heldPastLc'],
+    },
+  ],
+  O12: [
+    {
+      // LC 37,500・見込みは空・限月が違う: C 39,000 買い（2027-01）200 → 300（+100,000 円）・P 37,000 売り（2027-02）100 → 50
+      // （+50,000 円）= +150,000 円、原資産 38,900 → 1R はどれも出ない
+      input: position(
+        [
+          leg('C', 39_000, 'buy', 1, 200, 300, {}, '2027-01'),
+          leg('P', 37_000, 'sell', 1, 100, 50, {}, '2027-02'),
+        ],
+        38_900,
+      ),
+      grade: 'safeWin',
+      r: 'none',
+      oneRSource: 'none',
+      reasons: ['riskNotChecked'],
+      absent: ['overRisk', 'heldPastLc'],
+      outcome: 'win',
     },
   ],
   O13: [
@@ -249,6 +330,23 @@ export const OPTION_TABLE_CASES: Readonly<Record<string, readonly OptionScene[]>
       input: position(allExpiredLegs, 36_800, {}, { time: SQ, orderType: 'unknown' }),
       grade: 'B',
       reasons: ['heldPastLc'],
+      outcome: 'loss',
+    },
+  ],
+  O18: [
+    {
+      // USD 建て（乗数 100）で為替が空: P 38,000 買い 4.0 → 2.5（−150 USD）・P 37,000 売り 1.5 → 1.3（+20 USD）= −130 USD（負け）。
+      // 最大損失 250 USD は定まるが口座の通貨にできない → 1R・R・リスク（%）は出さず、C にしない
+      input: bearPutSpread(
+        { instrument: { multiplier: 100, quantityStep: 1, priceInAccountCurrency: false } },
+        [4.0, 2.5],
+        [1.5, 1.3],
+      ),
+      grade: 'A',
+      r: 'none',
+      oneRSource: 'none',
+      reasons: ['riskNotChecked'],
+      absent: ['noLc', 'heldPastLc', 'overRisk'],
       outcome: 'loss',
     },
   ],

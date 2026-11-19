@@ -59,6 +59,7 @@ export function expiredLeg(
 
 export interface PositionOver extends Partial<Omit<TradeInput, 'option' | 'exit'>> {
   readonly lcLossPlanYen?: number;
+  readonly riskPlan?: 'maxLoss';
 }
 
 /** レッグからポジション（原資産の取引 + レッグ）を作り、決済したときの原資産で決済する */
@@ -70,7 +71,7 @@ export function position(
 ): TradeInput {
   const [first, ...rest] = legs.map((l, i) => ({ ...l, id: `l${i + 1}` }));
   if (first === undefined) throw new Error('レッグが 1 本も無い');
-  const { lcLossPlanYen, ...tradeOver } = over;
+  const { lcLossPlanYen, riskPlan, ...tradeOver } = over;
   return {
     side: 'L',
     instrument: { multiplier: MULT, quantityStep: 1, priceInAccountCurrency: true },
@@ -87,6 +88,7 @@ export function position(
     option: {
       legs: [first, ...rest],
       ...(lcLossPlanYen === undefined ? {} : { lcLossPlanYen }),
+      ...(riskPlan === undefined ? {} : { riskPlan }),
     },
   };
 }

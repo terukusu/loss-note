@@ -99,6 +99,11 @@ export interface OptionPosition {
   readonly legs: readonly [Leg, ...Leg[]];
   /** LC での損失の見込み（口座の通貨・正の数。C49 の (1)。K15） */
   readonly lcLossPlanYen?: number;
+  /**
+   * 無い = LC の価格か「なし」/ maxLoss = 「最大損失まで」（C50。lc と lcLossPlanYen を持たない）。
+   * 最大損失が定まらないのに maxLoss なら判定は「なし」と同じに扱う（4.7）
+   */
+  readonly riskPlan?: 'maxLoss';
 }
 
 export interface TradeInput {

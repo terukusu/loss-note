@@ -36,6 +36,9 @@ const REASON_WORDS: ReadonlyArray<{ word: string; kind: ReasonKind }> = [
   { word: '早逃げ', kind: 'earlyExit' },
 ];
 
+/** 判定の言葉の直後が否定（「C にしない」）なら、その言葉は期待の判定ではない */
+const NEGATED_GRADE = /^\s*(?:に|と)(?:は)?しない/;
+
 describe('5.7 例の表（オプションのポジション）', () => {
   it.each(covered.map((r) => [r.id] as const))('5.7 %s', (id) => {
     const scenes = OPTION_TABLE_CASES[id];
@@ -79,34 +82,26 @@ describe('5.7 の表とテストの対応', () => {
     expect([...cases, ...PENDING_ROWS].sort()).toEqual(rows.map((r) => r.id).sort());
   });
 
-  it('この Issue（#113）の対象の 16 行に場面がある', () => {
-    expect(covered.map((r) => r.id).sort()).toEqual(
-      [
-        'O1',
-        'O2',
-        'O3',
-        'O4',
-        'O6',
-        'O7',
-        'O10',
-        'O11',
-        'O13',
-        'O14',
-        'O15',
-        'O16',
-        'O17',
-        'O19',
-        'O20',
-        'O21',
-      ].sort(),
-    );
+  it('保留の行が無い（#114 の O5・O8・O9・O12・O18 にも場面がある）', () => {
+    expect(PENDING_ROWS).toEqual([]);
+    const ids = covered.map((r) => r.id);
+    for (const id of ['O5', 'O8', 'O9', 'O12', 'O18']) expect(ids).toContain(id);
   });
 
   it.each(covered.map((r) => [r.id, r.expectation] as const))(
     '期待の列と場面の期待が食い違わない（%s）',
     (id, expectation) => {
       const scenes = OPTION_TABLE_CASES[id] ?? [];
-      const parts = splitExpectation(expectation);
+      // 「C にしない」のように否定の形で現れた判定の言葉は、期待の判定ではない（O18）
+      const all = splitExpectation(expectation);
+      const isNegated = (p: (typeof all)[number]) =>
+        NEGATED_GRADE.test(p.text.slice(p.word.length));
+      const parts = all.filter((p) => !isNegated(p));
+      // 否定された判定の言葉は場面の判定と違う（O18 の「C にしない」なら C ではない）
+      for (const neg of all.filter(isNegated)) {
+        for (const scene of scenes)
+          expect(GRADE_WORDS[scene.grade], expectation).not.toBe(neg.word);
+      }
       expect(parts.length, `判定の言葉が見つからない: ${expectation}`).toBeGreaterThan(0);
       const first = parts[0];
       if (first === undefined) throw new Error(`${id} の期待が無い`);

@@ -254,7 +254,11 @@ describe('1R の順（C49）', () => {
 
   it('(2) は勝ちでは出ない・思惑どおりの向きの動きでは出ない', () => {
     expect(optionOneR(position([leg('P', 36_000, 'sell', 1, 150, 100)], 37_300))).toBeUndefined();
-    expect(optionOneR(position([leg('C', 39_000, 'buy', 1, 400, 300)], 39_500))).toBeUndefined();
+    // 思惑どおりの向きの負けは (2) を出さず、(3) 満期の損益から（原資産 = LC 37,500 で −400,000 円）に回る（#114）
+    expect(optionOneR(position([leg('C', 39_000, 'buy', 1, 400, 300)], 39_500))).toEqual({
+      value: 400_000,
+      source: 'expiry',
+    });
   });
 
   it('LC が無ければ (2) は出ない', () => {

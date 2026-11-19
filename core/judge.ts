@@ -2,7 +2,7 @@
 // 理由を 5.3 の表の順にすべて集め、判定はその最も重いもの。理由は構造（種類 + 値）で返し、文言は画面で作る
 
 import { signOf, TOL } from './numeric';
-import { positionNetYen, positionPnlPriceCurrency } from './option';
+import { isMaxLossPlan, positionNetYen, positionPnlPriceCurrency } from './option';
 import { allLcs, priceMove } from './pnl';
 import { isLongerTimeframe, type Timeframe, type TradeInput } from './trade';
 
@@ -121,9 +121,11 @@ function heldPast(t: TradeInput, r: number | undefined, ignoreGap: boolean): boo
 
 /**
  * レッグを持つ取引の「持ち続けた」（C48）: 決済したときの原資産が比較先（C30）を不利な側に越えた（誤差 1e-9）、かつ
- * 逆指値でない（満期（SQ）は逆指値とみなさない。C54）・窓・滑りでもない（ignoreGap なら見ない）。1R・損益の符号は見ない
+ * 逆指値でない（満期（SQ）は逆指値とみなさない。C54）・窓・滑りでもない（ignoreGap なら見ない）。1R・損益の符号は見ない。
+ * 「最大損失まで」は見ない（C50）
  */
 function heldPastOption(t: TradeInput, ignoreGap: boolean): boolean {
+  if (isMaxLossPlan(t)) return false; // 「最大損失まで」は持ち続けたを見ない（C50）
   const ref = heldReference(t);
   if (t.exit === undefined || ref === undefined) return false;
   const beyond = signOf(t.side) * (t.exit.price - ref) < -TOL;
@@ -170,7 +172,9 @@ function weightedReasons(t: TradeInput, nums: JudgeNumbers, outcome: Outcome): R
   const reasons: Reason[] = [];
   // 取引の LC が無くても、すべてのエントリーに LC があれば LC あり（R・1R の計算と同じ定義）
   const hasLc = allLcs(t) !== undefined;
-  if (!hasLc || !t.lcDecidedBeforeEntry) reasons.push({ kind: 'noLc' });
+  // 「最大損失まで」（最大損失が定まる）は損失の上限を入る前に決めた計画なので、LC が無いことでは C にしない（C50）
+  const planned = hasLc || isMaxLossPlan(t);
+  if (!planned || !t.lcDecidedBeforeEntry) reasons.push({ kind: 'noLc' });
   if (t.lcMove.kind === 'widened') {
     const { after } = t.lcMove;
     reasons.push({

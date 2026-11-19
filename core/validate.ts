@@ -6,8 +6,14 @@ export type Issue =
   | { readonly kind: 'lcDirection'; readonly entryIndex: number }
   | { readonly kind: 'lcMoveDirection' }
   | { readonly kind: 'invalidNumber'; readonly field: string }
-  /** レッグを持つ取引の形（4.7）: 本数が 1〜10 でない・ID が重なる・エントリーが 1 つでない */
-  | { readonly kind: 'legs'; readonly problem: 'count' | 'duplicateId' | 'entries' };
+  /**
+   * レッグを持つ取引の形（4.7）: 本数が 1〜10 でない・ID が重なる・エントリーが 1 つでない・
+   * 「最大損失まで」が LC か LC での損失の見込みと同時（riskPlan）
+   */
+  | {
+      readonly kind: 'legs';
+      readonly problem: 'count' | 'duplicateId' | 'entries' | 'riskPlan';
+    };
 
 function finite(v: number | undefined): boolean {
   return v === undefined || Number.isFinite(v);
@@ -34,6 +40,11 @@ function legIssues(t: TradeInput): Issue[] {
   }
   if (t.entries.length !== 1) issues.push({ kind: 'legs', problem: 'entries' });
   if (!positive(o.lcLossPlanYen)) bad('option.lcLossPlanYen');
+  // 「最大損失まで」は LC の価格と見込みを持たない（4.7・C50）
+  const hasLc = t.lc !== undefined || t.entries.some((e) => e.lc !== undefined);
+  if (o.riskPlan === 'maxLoss' && (hasLc || o.lcLossPlanYen !== undefined)) {
+    issues.push({ kind: 'legs', problem: 'riskPlan' });
+  }
   o.legs.forEach((l, i) => {
     if (!(Number.isFinite(l.strike) && l.strike > 0)) bad(`legs[${i}].strike`);
     if (!(Number.isFinite(l.quantity) && l.quantity > 0)) bad(`legs[${i}].quantity`);

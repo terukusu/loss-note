@@ -24,7 +24,7 @@ from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
-from loss_note_api.store import Conflict, MissingAccount, MissingInstrument, StoreUnavailable
+from loss_note_api.store import Conflict, MissingAccount, MissingInstrument, StoreUnavailable, check_known_version
 
 _ALNUM = string.ascii_letters + string.digits
 
@@ -124,6 +124,7 @@ class MemoryStore:
             col = self._col(uid, "trades")
             if trade_id not in col:
                 return None
+            check_known_version(col[trade_id])  # 銘柄・口座を読む前・既定の口座を書く前（FirestoreStore と同じ。#115）
             instrument = None
             if refresh or instrument_id != col[trade_id]["record"]["instrumentId"]:
                 inst = self._col(uid, "instruments").get(instrument_id)
@@ -173,6 +174,7 @@ class MemoryStore:
             trades = self._col(uid, "trades")
             if trade_id not in trades:
                 return None
+            check_known_version(trades[trade_id])
             new = mutate(copy.deepcopy(trades[trade_id]))
             self._chart_write()
             self._col(uid, "charts")[chart_doc_id(trade_id, slot)] = copy.deepcopy(chart)
@@ -183,8 +185,11 @@ class MemoryStore:
         with self._lock:
             trades = self._col(uid, "trades")
             key = chart_doc_id(trade_id, slot)
+            if trade_id not in trades:
+                return None
+            check_known_version(trades[trade_id])  # 枠の有無より先（FirestoreStore と同じ。#115）
             # 有無は取引の文書の要約で見る（FirestoreStore と同じ約束）
-            if trade_id not in trades or slot not in (trades[trade_id].get("charts") or {}):
+            if slot not in (trades[trade_id].get("charts") or {}):
                 return None
             new = mutate(copy.deepcopy(trades[trade_id]))
             self._chart_write()

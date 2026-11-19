@@ -52,13 +52,16 @@ from loss_note_api.store import (
     MissingInstrument,
     Store,
     StoreUnavailable,
+    UnknownSchemaVersion,
 )
+from loss_note_api.trade_version import SCHEMA_VERSION
 
-SCHEMA_VERSION = 1
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
 _INSTRUMENT_SNAPSHOT_KEYS = ("multiplier", "quantityStep", "priceCurrency", "underlyingKind", "productForm")
 # 明細の特徴の覚えの入口（#66）
 STATEMENT_PROFILES_PATH = "/statement-profiles"
+# 知らない版の取引への書き込みの 409 の理由（#115。ADR-0020 の決定 7 の (a)）
+UNKNOWN_SCHEMA_VERSION = "unknownSchemaVersion"
 # 取引の PUT のクエリ snapshot の決まった値（#31。今の口座・銘柄の値で写し直す）
 SNAPSHOT_CURRENT = "current"
 
@@ -69,6 +72,14 @@ def error(status: int, code: str, **extra) -> Response:
     if status == 401:
         res.headers["WWW-Authenticate"] = "Bearer"
     return res
+
+
+def unknown_version() -> Response:
+    """知らない版の取引への書き込みを拒む（#115）。切り戻しの間に守りが働いた回数を数えられるよう、経路の形だけを
+    ログに出す（取引の ID・uid・本文は出さない）"""
+    log_event(event="trade_unknown_version", route=request.url_rule.rule if request.url_rule else None,
+              method=request.method)  # fmt: skip
+    return error(409, "conflict", reason=UNKNOWN_SCHEMA_VERSION)
 
 
 def invalid(issues: list[dict]) -> Response:
@@ -384,6 +395,8 @@ def make_blueprint(
             return invalid([{"field": "accountId", "kind": "notFound"}])
         except InvalidRecord as e:
             return invalid(e.issues)
+        except UnknownSchemaVersion:
+            return unknown_version()
         if doc is None:
             return error(404, "not_found")
         return trade_response(trade_id, doc)
@@ -421,7 +434,10 @@ def make_blueprint(
             new = {**doc, "record": record, "updatedAt": next_updated_at(clock(), doc.get("updatedAt"))}
             return with_chart_summary(new, {slot: chart})
 
-        doc = store.put_chart(g.uid, trade_id, slot, chart, mutate)
+        try:
+            doc = store.put_chart(g.uid, trade_id, slot, chart, mutate)
+        except UnknownSchemaVersion:
+            return unknown_version()
         if doc is None:
             return error(404, "not_found")
         return trade_response(trade_id, doc)
@@ -436,7 +452,10 @@ def make_blueprint(
             new = {**doc, "record": record, "updatedAt": next_updated_at(clock(), doc.get("updatedAt"))}
             return with_chart_summary(new, {slot: None})
 
-        doc = store.delete_chart(g.uid, trade_id, slot, mutate)
+        try:
+            doc = store.delete_chart(g.uid, trade_id, slot, mutate)
+        except UnknownSchemaVersion:
+            return unknown_version()
         if doc is None:
             return error(404, "not_found")
         return trade_response(trade_id, doc)

@@ -23,7 +23,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Protocol
 
-from loss_note_api import accounts, trade_pages
+from loss_note_api import accounts, trade_pages, trade_version
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID, BuildDefault
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.logs import log_event
@@ -55,6 +55,17 @@ class MissingAccount(Exception):
 
 class _NeedDefault(Exception):
     """口座を使うトランザクションの中で、既定の口座がまだ無いと分かった（作ってからやり直す。外へは出さない）"""
+
+
+class UnknownSchemaVersion(Exception):
+    """保存済みの取引の版（schemaVersion）がこの版の知る値より大きい（409。Issue #115・ADR-0020 の決定 7 の (a)）。
+    直すと知らない欄（レッグなど）を落とすので、取引の直し・チャートの差し替え・外すは何も書かない"""
+
+
+def check_known_version(doc: dict) -> None:
+    """取引の書き込みのトランザクションの中で、読んだ文書に対して呼ぶ（銘柄・口座・枠を見る前、mutate の前）"""
+    if not trade_version.is_known(doc):
+        raise UnknownSchemaVersion()
 
 
 class InvalidRecord(Exception):
@@ -112,6 +123,7 @@ class Store(Protocol):
     # refresh = True（#31）なら、銘柄・口座が保存済みと同じでも今の値を読んで mutate に渡す（今の値で写し直す）
     # charts（#89）があれば、同じトランザクションで枠ごとにチャートの文書を置く（文書）・消す（None）。
     # 書けなければ取引も前のまま
+    # update_trade・put_chart・delete_chart は、読んだ取引の版を知らなければ何も書かずに UnknownSchemaVersion（#115）
     def update_trade(
         self, uid: str, trade_id: str, instrument_id: str, account_id: str | None, mutate: MutateTrade,
         build_default: BuildDefault = ..., refresh: bool = False, charts: ChartChanges | None = None,
@@ -302,6 +314,7 @@ class FirestoreStore:
             if not snap.exists:
                 return None
             doc = snap.to_dict()
+            check_known_version(doc)  # 知らない版は銘柄・口座を読む前に止める（#115）
             instrument = None
             if refresh or instrument_id != doc["record"]["instrumentId"]:
                 inst = user.collection("instruments").document(instrument_id).get(transaction=tx)
@@ -354,7 +367,9 @@ class FirestoreStore:
             snap = ref.get(transaction=tx)
             if not snap.exists:
                 return None
-            new = mutate(snap.to_dict())
+            doc = snap.to_dict()
+            check_known_version(doc)  # #115
+            new = mutate(doc)
             tx.set(chart_ref, chart)
             tx.set(ref, new)
             return new
@@ -373,6 +388,7 @@ class FirestoreStore:
             if not snap.exists:
                 return None
             doc = snap.to_dict()
+            check_known_version(doc)  # 枠の有無より先（#115）
             if slot not in (doc.get("charts") or {}):
                 return None
             new = mutate(doc)

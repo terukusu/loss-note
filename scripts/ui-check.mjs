@@ -1574,7 +1574,40 @@ const RECORD_STATES = [
       api.read = { status: 200, rows: READ_E10, holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('.statement__row', { hasText: '1 / 3 行目' }).waitFor();
-      await p.getByRole('button', { name: '日本時間で合っている' }).waitFor();
+      // タイムゾーンの選択肢（選ぶ前。#58）: 選択肢ごとに欄に入る日本時間
+      await p.getByRole('radio', { name: /GMT（\+9 時間） ?2026\/11\/10 19:30/ }).waitFor();
+    },
+  },
+  {
+    slug: 'record-9-tz-other',
+    name: 'ほかのタイムゾーン',
+    anchor: '.statement__tz',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: READ_E10, holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.getByRole('radio', { name: /ほかのタイムゾーン/ }).check();
+      const sel = p.getByRole('combobox', { name: 'ほかのタイムゾーン' });
+      await sel.waitFor();
+      await sel.selectOption('us-east');
+      await expectPollAsync(
+        async () => (await p.locator('#record-exit-time').inputValue()) === '2026-11-11T00:30',
+        '米国東部で直した決済の時刻',
+      );
+    },
+  },
+  {
+    slug: 'record-9-tz-remembered',
+    name: '覚えたタイムゾーン',
+    anchor: '.statement__tz',
+    fn: async (p, api) => {
+      await p.evaluate(() => localStorage.setItem('loss-note.statementTimeZone', 'gmt'));
+      api.read = { status: 200, rows: READ_E10, holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.getByText('前に選んだ GMT（+9 時間）で日本時間に直しました。').waitFor();
+      await expectPollAsync(
+        async () => (await p.locator('#record-exit-time').inputValue()) === '2026-11-10T19:30',
+        '覚えた GMT で直した決済の時刻',
+      );
     },
   },
   {
@@ -4951,7 +4984,7 @@ async function runFlows(browser, base, signedIn) {
       fake.read = { status: 200, rows: READ_E10, holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('.statement__row', { hasText: '1 / 3 行目' }).waitFor({ timeout: 10000 });
-      await p.getByRole('button', { name: '日本時間で合っている' }).click();
+      await p.getByRole('radio', { name: /日本時間（そのまま）/ }).check();
       await fillStatementTaps(p);
       await p.locator('button[type="submit"]').click();
       await p.locator('.statement__row', { hasText: '2 / 3 行目' }).waitFor({ timeout: 10000 });
@@ -4971,6 +5004,10 @@ async function runFlows(browser, base, signedIn) {
       await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
       expectEq(fake.posts.length, 3, '保存の要求');
       const after = await snap();
+      // 端末に書いてよいのは選んだタイムゾーンの ID の鍵 1 つだけ（#58 KEEP-7）
+      const zone = await p.evaluate(() => localStorage.getItem('loss-note.statementTimeZone'));
+      expectEq(zone, 'jst', '覚えたタイムゾーン');
+      after.ls = after.ls.filter((k) => k !== 'loss-note.statementTimeZone');
       for (const k of ['ls', 'ss', 'idb', 'caches']) {
         expectEq(JSON.stringify(after[k]), JSON.stringify(before[k]), k);
       }

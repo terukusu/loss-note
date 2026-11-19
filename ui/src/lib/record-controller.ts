@@ -116,7 +116,7 @@ import {
   suggestedAccount,
 } from './statement-account';
 import {
-  confirmTimeZone,
+  type Filled,
   fillFromRow,
   gateReading,
   type Marks,
@@ -129,6 +129,14 @@ import {
   rowLabel,
 } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
+import {
+  applyZone,
+  isOtherZone,
+  type TzField,
+  type TzId,
+  tzFieldsOf,
+  unapplyZone,
+} from './statement-tz';
 import { DELIVERED_LIMIT, tradesPath } from './trade-pages';
 import { CHART_PREPARING } from './verdict-notes';
 
@@ -221,6 +229,31 @@ export interface StatementState {
    * 選びます」。#66 デザイン 1）。本人が口座を選ぶ・追加すると false
    */
   readonly firstTime?: boolean;
+  /** 明細に時間帯の書かれていない時刻があった（#58 の後半）。無ければ省く */
+  readonly tz?: TzState;
+}
+
+/** 時間帯の確かめ（#58 の後半・statement-tz.ts） */
+export interface TzState {
+  /** この行で時間帯が書かれていなかった欄 */
+  readonly fields: readonly TzField[];
+  /** 選んだ（覚えた）時間帯。まだ選んでいなければ null */
+  readonly choice: TzId | null;
+  /**
+   * 覚えた時間帯（またはこの明細の前の行で選んだ時間帯）で最初から入れた。gap があるときは入れておらず、その時間帯では
+   * 存在しない時刻だったことを示す
+   */
+  readonly remembered: boolean;
+  /** [ほかのタイムゾーン…] を開いている */
+  readonly otherOpen: boolean;
+  /** その時間帯に無い時刻だった（夏時間の切り替え）。理由の 1 行に出す */
+  readonly gap: TzId | null;
+}
+
+/** 端末に覚えた時間帯（画面が zone-memory.ts で作る。テストは偽物。書くのは時間帯の ID だけ） */
+export interface ZoneMemory {
+  read(): TzId | null;
+  write(id: TzId): void;
 }
 
 export interface SavedView {
@@ -292,8 +325,10 @@ export interface RecordController {
   readImage(file: Blob): Promise<void>;
   /** [やめて手で入れる]: 読み取りをやめる（後で届いた応答は捨てる。欄はそのまま） */
   cancelRead(): void;
-  /** [日本時間で合っている] */
-  confirmTimeZone(): void;
+  /** 明細の時刻の時間帯を選ぶ: 選んだ時間帯から日本時間に直して欄に入れ、端末に覚える（#58） */
+  chooseTimeZone(id: TzId): void;
+  /** [ほかのタイムゾーン…] を開く（前に選んだ時間帯で入れた欄は明細の時刻に戻す） */
+  openOtherZones(): void;
   /** [この行を飛ばす] */
   skipRow(): void;
   /** チャートを 1 枚、枠に入れる（描き直してプレビューを出すだけ。送るのは [記録する]。同じ枠なら置き換え） */
@@ -406,6 +441,8 @@ export function createRecordController(deps: {
    * 戻ったとき（#99 の続き）
    */
   readonly warmRead?: boolean;
+  /** 明細の時刻の時間帯を端末に覚える（#58。省けば覚えない） */
+  readonly zoneMemory?: ZoneMemory;
 }): RecordController {
   const { now } = deps;
   const timeoutMs = deps.timeoutMs ?? REQUEST_TIMEOUT_MS;
@@ -435,6 +472,8 @@ export function createRecordController(deps: {
   let accountTouched = false;
   /** その明細で覚えを新しくした（記録の後の 1 行。#66 デザイン 5） */
   let learnedInStatement = false;
+  /** その明細で選んだ（当てた）時間帯（同じ明細のほかの行に使う。Z8）。もう 1 枚・やめた・離れたで捨てる */
+  let statementZone: TzId | null = null;
   /** 空の下書きに戻すときの既定（開いたとき、保存の後は今保存した取引から） */
   let defaults: Partial<Draft> = {};
   /** その場で足す口座: [足す] を押した（空の名前の誤りを出す）・409 の名前の鍵・届いたか分からない名前 */
@@ -625,11 +664,57 @@ export function createRecordController(deps: {
     profile = null;
     accountTouched = false;
     learnedInStatement = false;
+    statementZone = null;
     const prev = state.statement;
     if (!prev) return;
     prev.preview?.close();
     const { statement: _gone, ...rest } = state;
     state = rest;
+  };
+
+  /** 覚えた時間帯（読めない・例外は null） */
+  const rememberedZone = (): TzId | null => {
+    try {
+      return deps.zoneMemory?.read() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * 流し込んだ行に時間帯の無い時刻があれば、この明細で選んだ時間帯（無ければ覚えた時間帯）で直して入れる（Z7・Z8）。
+   * どちらも無ければ印 tz のまま（選ぶか欄を直すまで記録しない）
+   */
+  const withZone = (filled: Filled, row: ReadRow): Filled & { tz?: TzState } => {
+    const fields = tzFieldsOf(filled.marks);
+    if (fields.length === 0) return filled;
+    const preferred = statementZone ?? rememberedZone();
+    if (preferred === null) {
+      return {
+        ...filled,
+        tz: { fields, choice: null, remembered: false, otherOpen: false, gap: null },
+      };
+    }
+    const a = applyZone(filled.draft, filled.marks, row, preferred, fields);
+    if (a.gaps.length > 0) {
+      // 覚えた時間帯では存在しない時刻（夏時間の切り替え）: どの欄も直さず（手で選ぶ道と同じ）、ほかを選ぶよう促す
+      return {
+        ...filled,
+        tz: { fields, choice: null, remembered: true, otherOpen: false, gap: preferred },
+      };
+    }
+    statementZone = preferred;
+    return {
+      draft: a.draft,
+      marks: a.marks,
+      tz: {
+        fields,
+        choice: preferred,
+        remembered: true,
+        otherOpen: isOtherZone(preferred),
+        gap: null,
+      },
+    };
   };
 
   /**
@@ -684,10 +769,14 @@ export function createRecordController(deps: {
     touched = new Set();
     clearCharts();
     // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）。外貨の口座では損益・手数料を入れない（PR-2・R7）
-    const filled = fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched, {
-      accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
-      priceCurrency: priceCurrencyOf(row.symbol),
-    });
+    const filled = withZone(
+      fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched, {
+        accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
+        priceCurrency: priceCurrencyOf(row.symbol),
+      }),
+      row,
+    );
+    const { tz: _oldTz, ...rest } = st;
     set(
       {
         phase: 'editing',
@@ -695,7 +784,8 @@ export function createRecordController(deps: {
         chartBlocked: null,
         draft: filled.draft,
         statement: {
-          ...st,
+          ...rest,
+          ...(filled.tz ? { tz: filled.tz } : {}),
           phase: 'ready',
           index,
           marks: filled.marks,
@@ -827,7 +917,10 @@ export function createRecordController(deps: {
       const base = suggested === undefined ? state.draft : { ...state.draft, accountId: suggested };
       const accountCurrency = accountCurrencyIn(state.accounts, base.accountId);
       const priceCurrency = priceCurrencyOf(row.symbol);
-      const filled = fillFromRow(base, row, touched, { accountCurrency, priceCurrency });
+      const filled = withZone(
+        fillFromRow(base, row, touched, { accountCurrency, priceCurrency }),
+        row,
+      );
       // 印「自動で選択」は確かな提案のときだけ（提案の口座の通貨が明細の損益と合わなければ印を付けない。デザイン 4）
       const sure =
         suggested !== undefined &&
@@ -839,11 +932,13 @@ export function createRecordController(deps: {
         state.accounts.length >= 2 &&
         !state.accounts.some((a) => a.id === profile?.accountId);
       const { accountId: _oldMark, ...prevMarks } = st.marks;
+      const { tz: _oldTz, ...stRest } = st;
       set({
         // 読み取りが銘柄・口座を入れ替えたときも為替の規則を当てる（#47 PR-2 の 3 回目の再レビュー 3）
         draft: withFxRule(filled.draft, state.accounts),
         statement: {
-          ...st,
+          ...stRest,
+          ...(filled.tz ? { tz: filled.tz } : {}),
           phase: 'ready',
           rows: result.rows,
           index: 0,
@@ -1269,13 +1364,48 @@ export function createRecordController(deps: {
       state = { ...state, error: null };
       slots.accept(slot);
     },
-    confirmTimeZone() {
+    chooseTimeZone(id) {
       const st = state.statement;
-      if (st?.phase !== 'ready' || state.phase !== 'editing') return;
+      const tz = st?.tz;
+      if (st?.phase !== 'ready' || !tz || state.phase !== 'editing') return;
       const row = st.rows[st.index];
       if (!row) return;
-      const c = confirmTimeZone(state.draft, st.marks, row);
-      set({ draft: c.draft, statement: { ...st, marks: c.marks } });
+      const a = applyZone(state.draft, st.marks, row, id, tz.fields);
+      if (a.gaps.length > 0) {
+        // その時間帯に無い時刻: 欄は変えず、理由を出す（Z5）。覚えない
+        set({ statement: { ...st, tz: { ...tz, gap: id } } });
+        return;
+      }
+      statementZone = id;
+      try {
+        deps.zoneMemory?.write(id);
+      } catch {
+        // 覚えられなくてもその場では当てる
+      }
+      set({
+        draft: a.draft,
+        statement: {
+          ...st,
+          marks: a.marks,
+          tz: { ...tz, choice: id, remembered: false, otherOpen: isOtherZone(id), gap: null },
+        },
+      });
+    },
+    openOtherZones() {
+      const st = state.statement;
+      const tz = st?.tz;
+      if (st?.phase !== 'ready' || !tz || state.phase !== 'editing' || tz.otherOpen) return;
+      const row = st.rows[st.index];
+      if (!row) return;
+      const u = unapplyZone(state.draft, st.marks, row, tz.fields);
+      set({
+        draft: u.draft,
+        statement: {
+          ...st,
+          marks: u.marks,
+          tz: { ...tz, choice: null, remembered: false, otherOpen: true, gap: null },
+        },
+      });
     },
     skipRow() {
       const st = state.statement;

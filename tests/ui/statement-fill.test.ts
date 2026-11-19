@@ -12,8 +12,6 @@ import {
   readDraft,
 } from '../../ui/src/lib/record-form';
 import {
-  confirmJst,
-  confirmTimeZone,
   fillFromRow,
   gateReading,
   imageFileFromClipboard,
@@ -31,6 +29,7 @@ import {
   rowLabel,
   TZ_MISSING,
 } from '../../ui/src/lib/statement-fill';
+import { applyZone, wallToEpoch } from '../../ui/src/lib/statement-tz';
 import { NO_CAPITAL } from './helpers/record-drafts';
 import {
   E1_ENTRY_MS,
@@ -276,7 +275,7 @@ describe('fillFromRow', () => {
     expect(f.marks.lcDecided).toBeUndefined();
   });
 
-  it('E9: 時間帯の無い時刻は書かれた値と「タイムゾーンが明細にありません」。エントリーの時刻が無ければ空', () => {
+  it('E9: 時間帯の無い時刻は書かれた値と「タイムゾーンが書かれていません」。エントリーの時刻が無ければ空', () => {
     const f = fillFromRow(OPENED, ROW_E9, NONE);
     expect(f.draft.exitTime).toBe('2026-11-10T10:30');
     expect(f.marks.exitTime).toBe('tz');
@@ -307,7 +306,14 @@ describe('タイムゾーンの確認（E9・AC-8）', () => {
     else proc.env.TZ = original;
   });
 
-  it('confirmJst: 書かれた時刻を日本時間として epoch に。暦にない日時は undefined', () => {
+  const confirmJst = (w: string) => {
+    const r = wallToEpoch(w, 'jst');
+    return r.kind === 'ok' ? r.ms : undefined;
+  };
+  const confirmTimeZone = (d: Draft, m: Parameters<typeof applyZone>[1]) =>
+    applyZone(d, m, ROW_E9, 'jst', ['exitTime']);
+
+  it('日本時間（そのまま）: 書かれた時刻を日本時間として epoch に。暦にない日時は読めない', () => {
     expect(confirmJst('2026-11-10T10:30')).toBe(Date.UTC(2026, 10, 10, 1, 30));
     expect(confirmJst('2026-01-01T05:00')).toBe(Date.UTC(2025, 11, 31, 20, 0));
     expect(confirmJst('2026-02-30T10:00')).toBeUndefined();
@@ -317,11 +323,11 @@ describe('タイムゾーンの確認（E9・AC-8）', () => {
   });
 
   it.each(['Asia/Tokyo', 'UTC', 'America/New_York', 'Europe/London'])(
-    '端末の時間帯 %s でも、[日本時間で合っている] の後に保存される時刻は日本時間の 10:30',
+    '端末の時間帯 %s でも、日本時間（そのまま）を選んだ後に保存される時刻は日本時間の 10:30',
     (tz) => {
       proc.env.TZ = tz;
       const f = fillFromRow(OPENED, ROW_E9, NONE);
-      const c = confirmTimeZone(f.draft, f.marks, ROW_E9);
+      const c = confirmTimeZone(f.draft, f.marks);
       expect(c.marks.exitTime).toBe('read');
       expect(needsTzCheck(c.marks)).toBe(false);
       const read = readDraft(
@@ -332,7 +338,7 @@ describe('タイムゾーンの確認（E9・AC-8）', () => {
     },
   );
 
-  it('性質: 端末の時間帯によらず confirmJst は同じ epoch（種つき乱数 300 件 × 3 つの時間帯）', () => {
+  it('性質: 端末の時間帯によらず日本時間（そのまま）は同じ epoch（種つき乱数 300 件 × 3 つの時間帯）', () => {
     const r = rng(9);
     const p = (n: number) => String(n).padStart(2, '0');
     for (let i = 0; i < 300; i++) {
@@ -353,12 +359,11 @@ describe('タイムゾーンの確認（E9・AC-8）', () => {
     }
   });
 
-  it('利用者が直した時刻（印「直した」）は確かめのボタンで書き換えない', () => {
+  it('利用者が直した時刻（印「直した」）はタイムゾーンを選んでも書き換えない（KEEP-6）', () => {
     const f = fillFromRow(OPENED, ROW_E9, NONE);
     const c = confirmTimeZone(
       { ...f.draft, exitTime: '2026-11-10T11:00' },
       markEdited(f.marks, 'exitTime'),
-      ROW_E9,
     );
     expect(c.draft.exitTime).toBe('2026-11-10T11:00');
     expect(c.marks.exitTime).toBe('edited');

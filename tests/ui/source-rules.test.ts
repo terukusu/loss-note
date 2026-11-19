@@ -128,6 +128,16 @@ describe('記録の画面のソース（Issue #13 AC-11）', () => {
     expect(DEVICE_STORAGE.test(src ?? '')).toBe(false);
   });
 
+  it('明細の時刻の時間帯（#58 KEEP-7）: 端末に触れるのは zone-memory.ts だけで、書く鍵は statement-tz.ts の 1 つだけ', () => {
+    const zm = sources['../../ui/src/lib/zone-memory.ts'] ?? '';
+    const tz = sources['../../ui/src/lib/statement-tz.ts'] ?? '';
+    expect(zm).toContain('window.localStorage');
+    expect(zm).not.toMatch(/\bsetItem\b/);
+    expect(DEVICE_STORAGE.test(tz)).toBe(false);
+    expect(tz.match(/\.setItem\(/g)).toEqual(['.setItem(']);
+    expect(tz).toContain('storage.setItem(ZONE_KEY, id)');
+  });
+
   it('検査の自己テスト: 端末の保存先の語を見つける', () => {
     expect(DEVICE_STORAGE.test('localStorage.setItem(k, v)')).toBe(true);
     expect(DEVICE_STORAGE.test('indexedDB.open("x")')).toBe(true);

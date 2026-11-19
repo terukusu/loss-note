@@ -2,6 +2,7 @@
 // 理由を 5.3 の表の順にすべて集め、判定はその最も重いもの。理由は構造（種類 + 値）で返し、文言は画面で作る
 
 import { signOf, TOL } from './numeric';
+import { positionNetYen, positionPnlPriceCurrency } from './option';
 import { allLcs, priceMove } from './pnl';
 import { isLongerTimeframe, type Timeframe, type TradeInput } from './trade';
 
@@ -14,7 +15,10 @@ export type Reason =
       readonly from?: Timeframe;
       readonly to?: Timeframe;
     }
-  | { readonly kind: 'heldPastLc'; readonly r: number }
+  /**
+   * 持ち続けた。先物などは r（決済の R）、レッグを持つ取引は underlying（決済したときの原資産。R は出れば r。C48）
+   */
+  | { readonly kind: 'heldPastLc'; readonly r?: number; readonly underlying?: number }
   | { readonly kind: 'overRisk'; readonly riskPct: number }
   | { readonly kind: 'amountBasedLc' }
   | { readonly kind: 'averagingDown'; readonly entryIndex: number }
@@ -76,9 +80,18 @@ export interface Judgment {
   readonly reasons: readonly Reason[];
 }
 
-/** 勝ち負けの境（C29）: R があれば R ≥ 0 が勝ち、無ければ損益（円）≥ 0、それも無ければ価格の動き ≥ 0 */
+/**
+ * 勝ち負けの境（C29）: R があれば R ≥ 0 が勝ち、無ければ損益（円）≥ 0、それも無ければ価格の動き ≥ 0。
+ * レッグを持つ取引は手数料を除いた損益（損益 + 手数料）の符号、損益が出なければレッグの価格の通貨の損益の合計の符号（C48）。
+ * どちらも 0 は勝ちの側（誤差 1e-9 を許す）
+ */
 export function outcomeOf(t: TradeInput, nums: JudgeNumbers): Outcome | undefined {
   if (t.exit === undefined) return undefined;
+  if (t.option !== undefined) {
+    const value = positionNetYen(t) ?? positionPnlPriceCurrency(t);
+    if (value === undefined) return undefined;
+    return value >= -TOL ? 'win' : 'loss';
+  }
   if (nums.r !== undefined) return nums.r >= -TOL ? 'win' : 'loss';
   if (nums.pnlYen !== undefined) return nums.pnlYen >= 0 ? 'win' : 'loss';
   const move = priceMove(t);
@@ -104,6 +117,18 @@ function heldPast(t: TradeInput, r: number | undefined, ignoreGap: boolean): boo
   if (!worse || t.exit.orderType === 'stop') return false;
   if (!ignoreGap && (t.exit.reason === 'gapSlip' || t.gapSlipAnswer === true)) return false;
   return r < -1 - TOL;
+}
+
+/**
+ * レッグを持つ取引の「持ち続けた」（C48）: 決済したときの原資産が比較先（C30）を不利な側に越えた（誤差 1e-9）、かつ
+ * 逆指値でない（満期（SQ）は逆指値とみなさない。C54）・窓・滑りでもない（ignoreGap なら見ない）。1R・損益の符号は見ない
+ */
+function heldPastOption(t: TradeInput, ignoreGap: boolean): boolean {
+  const ref = heldReference(t);
+  if (t.exit === undefined || ref === undefined) return false;
+  const beyond = signOf(t.side) * (t.exit.price - ref) < -TOL;
+  if (!beyond || t.exit.orderType === 'stop') return false;
+  return ignoreGap || !(t.exit.reason === 'gapSlip' || t.gapSlipAnswer === true);
 }
 
 /** 2 つ目以降のエントリーで、それまでの数量の重み付き平均のインより不利に足したもの（ナンピン） */
@@ -156,7 +181,16 @@ function weightedReasons(t: TradeInput, nums: JudgeNumbers, outcome: Outcome): R
   }
   const tf = timeframeReason(t);
   if (tf) reasons.push(tf);
-  if (outcome === 'loss' && nums.r !== undefined && heldPast(t, nums.r, false)) {
+  if (t.option !== undefined) {
+    // 勝ちでも理由に入る（勝ちなら危ない勝ち「持ち続けた」。C48）
+    if (t.exit !== undefined && heldPastOption(t, false)) {
+      reasons.push({
+        kind: 'heldPastLc',
+        underlying: t.exit.price,
+        ...(nums.r === undefined ? {} : { r: nums.r }),
+      });
+    }
+  } else if (outcome === 'loss' && nums.r !== undefined && heldPast(t, nums.r, false)) {
     reasons.push({ kind: 'heldPastLc', r: nums.r });
   }
   if (nums.riskPct !== undefined && nums.overRisk === true) {
@@ -187,7 +221,11 @@ export function collectReasons(t: TradeInput, nums: JudgeNumbers): Reason[] {
   if (grade === 'A') {
     reasons.push(t.exit.orderType === 'stop' ? { kind: 'stopFilled' } : { kind: 'asPlannedLc' });
     // 決済が比較先より不利で、窓・滑り（理由または答え）で救った
-    if (heldPast(t, nums.r, true) && !heldPast(t, nums.r, false)) reasons.push({ kind: 'gapSlip' });
+    const rescued =
+      t.option !== undefined
+        ? heldPastOption(t, true) && !heldPastOption(t, false)
+        : heldPast(t, nums.r, true) && !heldPast(t, nums.r, false);
+    if (rescued) reasons.push({ kind: 'gapSlip' });
   }
   if (t.exit.reason === 'fearEarly') reasons.push({ kind: 'earlyExit' });
   if (t.capitalYen === undefined) reasons.push({ kind: 'riskNotChecked', cause: 'noCapital' });

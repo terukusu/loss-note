@@ -1,10 +1,13 @@
-// 入力の検査（設計書 4.2・C11・Issue #2 の仮定 11）。問題が 1 つでもあれば計算しない
+// 入力の検査（設計書 4.2・4.7・C11・Issue #2 の仮定 11）。問題が 1 つでもあれば計算しない
+import { MAX_LEGS } from './option';
 import type { TradeInput } from './trade';
 
 export type Issue =
   | { readonly kind: 'lcDirection'; readonly entryIndex: number }
   | { readonly kind: 'lcMoveDirection' }
-  | { readonly kind: 'invalidNumber'; readonly field: string };
+  | { readonly kind: 'invalidNumber'; readonly field: string }
+  /** レッグを持つ取引の形（4.7）: 本数が 1〜10 でない・ID が重なる・エントリーが 1 つでない */
+  | { readonly kind: 'legs'; readonly problem: 'count' | 'duplicateId' | 'entries' };
 
 function finite(v: number | undefined): boolean {
   return v === undefined || Number.isFinite(v);
@@ -12,6 +15,34 @@ function finite(v: number | undefined): boolean {
 
 function positive(v: number | undefined): boolean {
   return v === undefined || (Number.isFinite(v) && v > 0);
+}
+
+function nonNegative(v: number): boolean {
+  return Number.isFinite(v) && v >= 0;
+}
+
+/** レッグを持つ取引の検査（4.7。レッグの時刻がポジションの範囲に入るかは API が見る） */
+function legIssues(t: TradeInput): Issue[] {
+  const o = t.option;
+  if (o === undefined) return [];
+  const issues: Issue[] = [];
+  const bad = (field: string) => issues.push({ kind: 'invalidNumber', field });
+  if (o.legs.length < 1 || o.legs.length > MAX_LEGS)
+    issues.push({ kind: 'legs', problem: 'count' });
+  if (new Set(o.legs.map((l) => l.id)).size !== o.legs.length) {
+    issues.push({ kind: 'legs', problem: 'duplicateId' });
+  }
+  if (t.entries.length !== 1) issues.push({ kind: 'legs', problem: 'entries' });
+  if (!positive(o.lcLossPlanYen)) bad('option.lcLossPlanYen');
+  o.legs.forEach((l, i) => {
+    if (!(Number.isFinite(l.strike) && l.strike > 0)) bad(`legs[${i}].strike`);
+    if (!(Number.isFinite(l.quantity) && l.quantity > 0)) bad(`legs[${i}].quantity`);
+    if (!nonNegative(l.entry.price)) bad(`legs[${i}].entry.price`);
+    if (!finite(l.entry.time)) bad(`legs[${i}].entry.time`);
+    if (!nonNegative(l.exit.price)) bad(`legs[${i}].exit.price`);
+    if (!finite(l.exit.time)) bad(`legs[${i}].exit.time`);
+  });
+  return issues;
 }
 
 export function validateTrade(t: TradeInput): Issue[] {
@@ -55,5 +86,6 @@ export function validateTrade(t: TradeInput): Issue[] {
       if (!ok) issues.push({ kind: 'lcMoveDirection' });
     }
   }
+  issues.push(...legIssues(t));
   return issues;
 }

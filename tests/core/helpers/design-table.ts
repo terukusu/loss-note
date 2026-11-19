@@ -69,3 +69,50 @@ export function splitExpectation(expectation: string): ExpectationPart[] {
 export function parenthesized(text: string): string {
   return [...text.matchAll(/（([^（）]*)）/g)].map((m) => m[1] ?? '').join(' ');
 }
+
+/**
+ * 節（`### <section>`）の中で、最初の列が「#」の最初の表を読む（5.7 のように例の表の前に別の表がある節のため）。
+ * 5.6 の `parseDesignTable` は変えない（5.6 の表のテストの読み方を保つ）
+ */
+export function parseHashTable(markdown: string, section: string): DesignTableRow[] {
+  const lines = markdown.split(/\r?\n/);
+  const escaped = section.replace(/\./g, '\\.');
+  const start = lines.findIndex((l) => new RegExp(`^###\\s+${escaped}\\s`).test(l));
+  if (start < 0) throw new Error(`設計書に「### ${section}」の見出しがありません`);
+
+  const rows: DesignTableRow[] = [];
+  let inTable = false;
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i] ?? '';
+    if (/^#{1,3}\s/.test(line)) break;
+    const isRow = line.trim().startsWith('|');
+    if (!inTable) {
+      if (isRow && cells(line)[0] === '#') inTable = true;
+      continue;
+    }
+    if (!isRow) break;
+    const c = cells(line);
+    if (c.every((x) => /^:?-+:?$/.test(x))) continue; // 区切りの行
+    rows.push({ id: c[0] ?? '', expectation: c[c.length - 1] ?? '' });
+  }
+  if (rows.length === 0) throw new Error(`${section} に「#」で始まる表がありません`);
+  return rows;
+}
+
+/** 否定の言い方（「持ち続けたにしない」「過剰リスクではない」「過剰リスクは見ていない」「逆指値とみなさない」） */
+const NEGATION = /^(?:は)?(?:にしない|ではない|見ていない|とみなさない)/;
+
+/** 文の中に word が否定でない形で現れるか / 否定の形で現れるか */
+export function wordUse(text: string, word: string): { positive: boolean; negated: boolean } {
+  let positive = false;
+  let negated = false;
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf(word, from);
+    if (at < 0) break;
+    if (NEGATION.test(text.slice(at + word.length))) negated = true;
+    else positive = true;
+    from = at + word.length;
+  }
+  return { positive, negated };
+}

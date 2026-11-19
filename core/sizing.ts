@@ -61,7 +61,8 @@ export function reviewSizing(t: TradeInput): SizingReview | undefined {
   if (!(oneR > 0 && capital > 0 && tol > 0)) return undefined;
   const allowance = (capital * tol) / 100;
   const ratio = oneR / allowance;
-  if (t.entries.length !== 1) return { ratio, allowance };
+  // エントリーが 2 つ以上・レッグを持つ取引（レッグの枚数の組を 1 つの数に縮められない。C42・5.7）は比だけ
+  if (t.entries.length !== 1 || t.option !== undefined) return { ratio, allowance };
   const quantity = t.entries[0].quantity;
   const step = t.instrument.quantityStep;
   if (!(Number.isFinite(quantity) && quantity > 0 && Number.isFinite(step) && step > 0)) {

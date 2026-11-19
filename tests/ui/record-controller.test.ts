@@ -182,7 +182,7 @@ describe('E1 を入れて保存し、読み直しても同じ（AC-1。EPIC #10 
     expect(before.canSave).toBe(true);
     expect(before.preview.judgment?.grade).toBe('B');
     const beforeTexts = (before.preview.judgment?.reasons ?? []).map((r) => reasonText(r, 'L'));
-    expect(beforeTexts).toContain('LC を下げた（99.5 → 99.2）');
+    expect(beforeTexts).toContain('LC を広げた（99.5 → 99.2）');
     expect(formatR(before.preview.r)).toBe(`${MINUS}1.6R`);
 
     await c.save();

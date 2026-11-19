@@ -207,7 +207,7 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
   it('E1（資金なし・例 12）: 理由の一覧は崩れだけ。「見ていない」は脇の 1 行、資金の説明は枠の中に 1 回、リスクの場所は「—」', () => {
     const tree = view(stateFor(E1, NO_CAPITAL));
     const reasons = all(tree, hasClass('reasons__item')).map(text);
-    expect(reasons).toEqual(['LC を下げた（99.5 → 99.2）']);
+    expect(reasons).toEqual(['LC を広げた（99.5 → 99.2）']);
     const lists = all(tree, (e) => e.type === 'ul' && hasClass('reasons')(e));
     expect(lists).toHaveLength(1);
     expect(text(lists)).not.toContain('過剰リスクは見ていない');
@@ -255,13 +255,13 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
     }
   });
 
-  it('E5（S）: 理由と LC を動かしたかの選択肢は「上げた」', () => {
+  it('#56 AC-1・AC-2・AC-4（E2・E4・E8）: S でも理由と LC を動かしたかの選択肢は L と同じ「広げた」', () => {
     const tree = view(stateFor(E5, NO_CAPITAL));
-    expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を上げた（150.5 → 151）');
+    expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を広げた（150.5 → 151）');
     const labels = all(tree, hasClass('seg__item')).map(text);
-    expect(labels).toContain('上げた');
-    expect(labels).not.toContain('下げた');
-    expect(text(tree)).toContain('上げた後の LC（任意）');
+    expect(labels).toEqual(expect.arrayContaining(['そのまま', '狭めた', '広げた']));
+    for (const w of ['上げた', '下げた', '詰めた']) expect(labels).not.toContain(w);
+    expect(text(tree)).toContain('広げた後の LC（任意）');
   });
 });
 
@@ -359,12 +359,171 @@ describe('入力の誤り（AC-7）', () => {
 });
 
 describe('入力の誤り（AC-7・E9）', () => {
-  it('E9: 下げた後の LC の欄に文言。判定なし', () => {
+  it('E9: 広げた後の LC の欄に文言。判定なし', () => {
     const tree = view(stateFor(E9, NO_CAPITAL));
     const err = all(tree, (e) => e.props.id === 'record-lc-after-error')[0] as El;
-    expect(text(err)).toBe('下げた後の LC は、入る前の LC より下にしてください');
+    expect(text(err)).toBe('広げた後の LC は、入る前の LC より下にしてください');
     expect(cls(badge(tree))).toBe('badge badge--neutral badge--lg');
     expect(submit(tree).props.disabled).toBe(true);
+  });
+});
+
+describe('#58 エントリーの時刻は「取引」の枠で決済の時刻と並ぶ', () => {
+  /** 「取引」の枠（section）と「ほかの欄」（details） */
+  const tradeSection = (tree: Node[]) =>
+    all(
+      tree,
+      (e) => e.type === 'section' && e.props['aria-labelledby'] === 'record-trade-title',
+    )[0] as El;
+  const moreOf = (tree: Node[]) =>
+    all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
+  const inputIds = (n: El) => all([n], (e) => e.type === 'input').map((e) => String(e.props.id));
+
+  it('AC-1（例 T1）: 開いた直後、「取引」の枠に「エントリーの時刻（任意）」が決済の時刻より前にあり、「ほかの欄」に無い', () => {
+    const tree = view(stateFor(draft({}), NO_CAPITAL));
+    const ids = inputIds(tradeSection(tree));
+    expect(ids).toContain('record-entry-time');
+    expect(ids.indexOf('record-entry-time')).toBeLessThan(ids.indexOf('record-exit-time'));
+    // イン / 決済の後に エントリー / 決済の時刻（同じ並び。左 = エントリー側・右 = 決済の側）
+    expect(ids.indexOf('record-exit')).toBeLessThan(ids.indexOf('record-entry-time'));
+    expect(inputIds(moreOf(tree))).not.toContain('record-entry-time');
+    const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-entry-time');
+    expect(text(label)).toBe('エントリーの時刻（任意）');
+  });
+
+  it('KEEP-1 の作り: 円の口座・円建てでは銘柄と数量が 1 段（360px でも 2 列）、エントリーの時刻と決済の時刻が 1 段', () => {
+    const tree = view(stateFor(draft({}), NO_CAPITAL));
+    const pairs = all([tradeSection(tree)], hasClass('record__pair'));
+    expect(pairs.map((n) => inputIds(n))).toEqual([
+      ['record-instrument', 'record-quantity'],
+      ['record-entry', 'record-exit'],
+      ['record-entry-time', 'record-exit-time'],
+    ]);
+    expect(hasClass('record__pair--prices')(pairs[0] as El)).toBe(true);
+  });
+
+  it('エントリーの時刻の誤りでは「ほかの欄」を開かない（「取引」の枠の欄なので）', () => {
+    const tree = view(
+      stateFor(draft({ entryTime: '2026-03-04T11:00', exitTime: '2026-03-04T10:00' }), NO_CAPITAL),
+    );
+    const err = all(tree, (e) => e.props.id === 'record-entry-time-error')[0] as El;
+    expect(text(err)).toBe('エントリーの時刻は決済の時刻より前にしてください');
+    expect(moreOf(tree).props.open).toBeUndefined();
+  });
+});
+
+describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 狭めた / 広げた」）', () => {
+  /** 架空の値。L: イン 100.00・LC 99.50、S: イン 150.00・LC 150.50 */
+  const L = { side: 'L', entryPrice: '100.00', lc: '99.50', lcDecided: true } as const;
+  const S = { side: 'S', entryPrice: '150.00', lc: '150.50', lcDecided: true } as const;
+  const moveLabels = (tree: Node[]) => {
+    const group = all(
+      tree,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+    );
+    expect(group).toHaveLength(1);
+    return all(group, hasClass('seg__item')).map(text);
+  };
+  const lcAfterLabel = (tree: Node[]) =>
+    text(all(tree, (e) => e.type === 'label' && e.props.for === 'record-lc-after'));
+
+  it.each([
+    ['E1（L）', L],
+    ['E2（S）', S],
+  ] as const)(
+    'AC-1 %s: 選択肢は「そのまま」「狭めた」「広げた」の順で、上げた・下げた・詰めたが無い',
+    (_id, base) => {
+      const labels = moveLabels(view(stateFor(draft({ ...base, lcMove: 'none' }), NO_CAPITAL)));
+      expect(labels).toEqual(['そのまま', '狭めた', '広げた']);
+      for (const w of ['上げた', '下げた', '詰めた']) expect(labels.join()).not.toContain(w);
+    },
+  );
+
+  it.each([
+    ['E3（L）', L],
+    ['E4（S）', S],
+  ] as const)('AC-2 %s: 広げたを選ぶと「広げた後の LC（任意）」の欄', (_id, base) => {
+    const tree = view(stateFor(draft({ ...base, lcMove: 'widened' }), NO_CAPITAL));
+    expect(lcAfterLabel(tree)).toBe('広げた後の LC（任意）');
+  });
+
+  it.each([
+    ['E5（L）', { ...L, exitPrice: '99.80', lcMove: 'widened', lcAfter: '99.80' }, '下'],
+    ['E6（S）', { ...S, exitPrice: '150.20', lcMove: 'widened', lcAfter: '150.20' }, '上'],
+  ] as const)(
+    'AC-3・AC-7 %s: 向きの逆の誤りの知らせと、判定の枠の案内の欄の名前',
+    (_id, d, dir) => {
+      const tree = view(stateFor(draft({ ...d, timeframeChange: 'none' }), NO_CAPITAL));
+      const err = all(tree, (e) => e.props.id === 'record-lc-after-error')[0] as El;
+      expect(text(err)).toBe(`広げた後の LC は、入る前の LC より${dir}にしてください`);
+      const hint = text(hintOf(tree));
+      expect(hint).toContain('誤りのある欄（広げた後の LC）');
+      expect(hint).not.toContain('下げた後');
+      expect(hint).not.toContain('上げた後');
+    },
+  );
+
+  it('デザインレビュー 4: 3 択の下にどちらに当たるかの 1 行（L / S で同じ）があり、3 択の読み上げの説明に結ぶ', () => {
+    for (const base of [L, S]) {
+      const tree = view(stateFor(draft({ ...base, lcMove: 'none' }), NO_CAPITAL));
+      const hint = all(tree, (e) => e.props.id === 'record-lc-move-hint');
+      expect(text(hint)).toBe('狭めた = インに近づけた、広げた = 遠ざけた');
+      const group = all(
+        tree,
+        (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+      )[0] as El;
+      expect(String(group.props['aria-describedby'])).toContain('record-lc-move-hint');
+    }
+  });
+
+  it('デザインレビュー 3: 「（任意）」は薄く小さい文字に分け、空の日時の欄は薄い文字（値が入ると外れる）', () => {
+    const tree = view(stateFor(draft({ ...L, lcMove: 'widened' }), NO_CAPITAL));
+    const label = all(
+      tree,
+      (e) => e.type === 'label' && e.props.for === 'record-entry-time',
+    )[0] as El;
+    expect(text(label)).toBe('エントリーの時刻（任意）');
+    expect(text(all([label], hasClass('field__optional')))).toBe('（任意）');
+    const after = all(
+      tree,
+      (e) => e.type === 'label' && e.props.for === 'record-lc-after',
+    )[0] as El;
+    expect(text(all([after], hasClass('field__optional')))).toBe('（任意）');
+    const input = (t: Node[], id: string) =>
+      all(t, (e) => e.type === 'input' && e.props.id === id)[0] as El;
+    expect(cls(input(tree, 'record-entry-time'))).toContain('textfield__input--empty');
+    expect(cls(input(tree, 'record-exit-time'))).not.toContain('textfield__input--empty');
+    const filled = view(stateFor(draft({ ...L, entryTime: '2026-03-04T09:00' }), NO_CAPITAL));
+    expect(cls(input(filled, 'record-entry-time'))).not.toContain('textfield__input--empty');
+  });
+
+  it('KEEP-4: 「LC なし」なら LC を動かしたかの段が出ず、注記は今のまま', () => {
+    const tree = view(
+      stateFor(
+        draft({ side: 'L', entryPrice: '100.00', lcNone: true, exitPrice: '100.75' }),
+        NO_CAPITAL,
+      ),
+    );
+    expect(
+      all(
+        tree,
+        (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+      ),
+    ).toEqual([]);
+    expect(text(tree)).toContain('LC が無いため、「決めていない」「そのまま」として記録します。');
+  });
+
+  it('KEEP-5: 時間足を変えたかの選択肢は今のまま（そのまま / 長い足へ / 短い足へ。#74 で「変えず」→「そのまま」）', () => {
+    const tree = view(stateFor(draft({ ...L, lcMove: 'none' }), NO_CAPITAL));
+    const group = all(
+      tree,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '時間足を変えたか',
+    );
+    expect(all(group, hasClass('seg__item')).map(text)).toEqual([
+      'そのまま',
+      '長い足へ',
+      '短い足へ',
+    ]);
   });
 });
 
@@ -479,7 +638,7 @@ describe('保存の後', () => {
     expect(cls(v)).toContain('verdict--break');
     expect(text(all(tree, (e) => e.props.role === 'status'))).toBe('記録しました');
     expect(text(badge(tree))).toBe('B 悪い損失');
-    expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を下げた（99.5 → 99.2）');
+    expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を広げた（99.5 → 99.2）');
     expect(text(all(tree, hasClass('num--xl')))).toBe('−1.6R');
     expect(text(tree)).toContain('US30 · L ロング · イン 100 → 決済 99.2 · 数量 10000');
     expect(all(tree, (e) => e.type === 'input')).toEqual([]);
@@ -672,7 +831,7 @@ describe('読み取り中（AC-3）', () => {
 });
 
 describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
-  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る。「ほかの欄」は開いて損益・手数料・エントリーの時刻が見える', () => {
+  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る。「ほかの欄」は開いて損益・手数料が見える（エントリーの時刻は「取引」の枠。#58）', () => {
     const { draft, marks } = filledE1();
     const tree = view(withStatement(draft, { marks }));
     const texts = all(tree, hasClass('field__mark')).map(text);
@@ -1591,7 +1750,7 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
   const fxInput = (tree: Node[]) =>
     all(tree, (e) => e.type === 'input' && e.props.id === 'record-fx');
 
-  it('F1: JPY の口座 × USD 建て → 銘柄の下に「USD 建て」、「数量 | 為替」の 2 列（単位 円）と下の 1 行', () => {
+  it('F1: JPY の口座 × USD 建て → 銘柄の下に「USD 建て」、「為替 | 1 行」の 2 列（単位 円）。銘柄 | 数量の段は円のときと同じ（#58 デザインレビュー 1）', () => {
     const tree = view(stateFor(pDraft({}), CTX_A));
     expect(fxInput(tree)).toHaveLength(1);
     expect(text(byId(tree, 'record-instrument-hint'))).toBe('USD 建て');
@@ -1601,9 +1760,12 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
     const pair = all(tree, hasClass('record__pair--prices')).find(
       (e) => all([e], (x) => x.props.id === 'record-fx').length === 1,
     ) as El;
-    expect(all([pair], (e) => e.type === 'input').map((e) => e.props.id)).toEqual([
+    expect(all([pair], (e) => e.type === 'input').map((e) => e.props.id)).toEqual(['record-fx']);
+    expect(all([pair], (e) => e.props.id === 'record-fx-line')).toHaveLength(1);
+    const first = all(tree, hasClass('record__pair--prices'))[0] as El;
+    expect(all([first], (e) => e.type === 'input').map((e) => e.props.id)).toEqual([
+      'record-instrument',
       'record-quantity',
-      'record-fx',
     ]);
     const unit = all([pair], hasClass('numfield__unit'));
     expect(text(unit)).toBe('円');

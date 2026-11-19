@@ -1,5 +1,6 @@
 // 取引の欄（記録する画面 #13 と直す画面 #9 が共有する。Issue #9 で Record.tsx から出した。id・クラス・文言・順は同じ）。
 // TradeMainFields = 「取引」「LC」「3 つのタップ」の 3 つの枠、TradeMoreFields = 畳んだ「ほかの欄（任意）」。
+// 「取引」の並び（#58）: 銘柄 | 数量（通貨が違うときは銘柄だけ・数量は為替と並ぶ）/ L / S / イン | 決済 / エントリーの時刻（任意）| 決済の時刻
 // hook を持たない（テストは関数を呼んで木にする）。値はテキストのノードだけ（HTML の文字列を DOM に入れない）
 // 口座（#47）: 「取引」の先頭（銘柄の上）に口座の欄（口座が 2 つ以上のとき）。記録する画面は見出しの行の右端に
 // [＋ 口座を足す]（accountAction）と、開いたときの 2 欄（accountAdd。開いている間は口座の欄を隠す）を渡す
@@ -13,6 +14,7 @@ import {
   type DraftAction,
   type DraftField,
   type DraftReading,
+  FIELD_LABEL,
   type LcMoveKind,
   lcMoveLabel,
 } from '../lib/record-form';
@@ -76,6 +78,15 @@ export const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
   { value: 'other', label: 'その他' },
 ];
 
+/** LC を動かしたかの 3 択の下の 1 行（どちらに当たるかの手がかり。L / S で同じ。#56 デザインレビュー 4） */
+export const LC_MOVE_HINT = '狭めた = インに近づけた、広げた = 遠ざけた';
+export const LC_MOVE_HINT_ID = 'record-lc-move-hint';
+
+/** LC を動かしたかの選択肢（L / S で同じ言葉。#56） */
+const MOVE_OPTIONS: readonly { value: LcMoveKind; label: string }[] = (
+  ['none', 'tightened', 'widened'] as const
+).map((k) => ({ value: k, label: lcMoveLabel(k) }));
+
 const TIMEFRAME_OPTIONS: readonly { value: TimeframeChange; label: string }[] = [
   { value: 'none', label: 'そのまま' },
   { value: 'longer', label: '長い足へ' },
@@ -98,11 +109,6 @@ function fieldHelpers(p: TradeFieldsProps) {
 /** 「取引」「LC」「決済までの行動」（3 つの質問）の枠 */
 export function TradeMainFields(p: TradeFieldsProps) {
   const { d, e, set, mark, onUpdate } = fieldHelpers(p);
-  const side = d.side;
-  const moveOptions: readonly { value: LcMoveKind; label: string }[] = (
-    ['none', 'tightened', 'widened'] as const
-  ).map((k) => ({ value: k, label: lcMoveLabel(k, side) }));
-  const widenWord = side === 'S' ? '上げた' : '下げた';
   const fx = p.currency?.fx;
   const quantity = (
     <NumberField
@@ -114,16 +120,41 @@ export function TradeMainFields(p: TradeFieldsProps) {
       {...(e.quantity ? { error: e.quantity } : {})}
     />
   );
-  const exitTime = (
+  const instrument = (
     <TextField
-      id="record-exit-time"
-      label="決済の時刻"
-      type="datetime-local"
-      value={d.exitTime}
-      onInput={set('exitTime')}
-      {...mark('exitTime')}
-      {...(e.exitTime ? { error: e.exitTime } : {})}
+      id="record-instrument"
+      label="銘柄"
+      value={d.instrumentName}
+      onInput={set('instrumentName')}
+      list={INSTRUMENT_LIST_ID}
+      placeholder="例: 架空指数A"
+      {...(p.currency?.instrumentHint ? { hint: p.currency.instrumentHint } : {})}
+      {...mark('instrumentName')}
+      {...(e.instrumentName ? { error: e.instrumentName } : {})}
     />
+  );
+  // エントリーの時刻（任意）と決済の時刻を並べる（エントリー → 決済の順。左右はイン / 決済の列とそろう。#58）
+  const times = (
+    <div class="record__pair">
+      <TextField
+        id="record-entry-time"
+        label={`${FIELD_LABEL.entryTime}（任意）`}
+        type="datetime-local"
+        value={d.entryTime}
+        onInput={set('entryTime')}
+        {...mark('entryTime')}
+        {...(e.entryTime ? { error: e.entryTime } : {})}
+      />
+      <TextField
+        id="record-exit-time"
+        label={FIELD_LABEL.exitTime}
+        type="datetime-local"
+        value={d.exitTime}
+        onInput={set('exitTime')}
+        {...mark('exitTime')}
+        {...(e.exitTime ? { error: e.exitTime } : {})}
+      />
+    </div>
   );
   return (
     <>
@@ -151,17 +182,12 @@ export function TradeMainFields(p: TradeFieldsProps) {
             {...mark('accountId')}
           />
         ) : null}
-        <TextField
-          id="record-instrument"
-          label="銘柄"
-          value={d.instrumentName}
-          onInput={set('instrumentName')}
-          list={INSTRUMENT_LIST_ID}
-          placeholder="例: 架空指数A"
-          {...(p.currency?.instrumentHint ? { hint: p.currency.instrumentHint } : {})}
-          {...mark('instrumentName')}
-          {...(e.instrumentName ? { error: e.instrumentName } : {})}
-        />
+        {/* 銘柄と数量は前の取引から入る既定の値の対なので、幅 360px でも 2 列に並べて画面の全長を詰める（#58。R12）。
+            通貨が違っても同じ段に置き、欄の位置を変えない（為替は価格の下に段を足す。#58 デザインレビュー 1） */}
+        <div class="record__pair record__pair--prices">
+          {instrument}
+          {quantity}
+        </div>
         <datalist id={INSTRUMENT_LIST_ID}>
           {p.instruments.map((i) => (
             <option key={i.id} value={i.name} />
@@ -201,31 +227,23 @@ export function TradeMainFields(p: TradeFieldsProps) {
           />
         </div>
         {fx ? (
-          <>
-            {/* 通貨が違うときだけ「数量 | 為替」の 2 列（どの幅でも 2 列）、その下に通しの 1 行、決済の時刻は 1 列 */}
-            <div class="record__pair record__pair--prices">
-              {quantity}
-              <NumberField
-                id="record-fx"
-                label="為替"
-                value={d.fxRate}
-                onInput={set('fxRate')}
-                unit={fx.unit}
-                describedBy={FX_LINE_ID}
-                {...(e.fxRate ? { error: e.fxRate } : {})}
-              />
-            </div>
-            <p id={FX_LINE_ID} class="field__hint record__pairnote">
+          // 通貨が違うときだけ「為替 | 1 USD = ? 円」の段を足す（どの幅でも 2 列。右の 1 行は為替の欄の読み上げの説明）
+          <div class="record__pair record__pair--prices">
+            <NumberField
+              id="record-fx"
+              label="為替"
+              value={d.fxRate}
+              onInput={set('fxRate')}
+              unit={fx.unit}
+              describedBy={FX_LINE_ID}
+              {...(e.fxRate ? { error: e.fxRate } : {})}
+            />
+            <p id={FX_LINE_ID} class="field__hint record__fxline">
               {fx.line}
             </p>
-            {exitTime}
-          </>
-        ) : (
-          <div class="record__pair">
-            {quantity}
-            {exitTime}
           </div>
-        )}
+        ) : null}
+        {times}
       </section>
 
       <section class="card section" aria-labelledby="record-lc-title">
@@ -290,12 +308,16 @@ export function TradeMainFields(p: TradeFieldsProps) {
               info={<InfoTip term="lcMove" prefer="above" />}
               value={d.lcMove}
               onChange={set('lcMove')}
-              options={moveOptions}
+              options={MOVE_OPTIONS}
+              describedBy={LC_MOVE_HINT_ID}
             />
+            <p id={LC_MOVE_HINT_ID} class="field__hint record__movehint">
+              {LC_MOVE_HINT}
+            </p>
             {d.lcMove === 'widened' ? (
               <NumberField
                 id="record-lc-after"
-                label={`${widenWord}後の LC（任意）`}
+                label={`${FIELD_LABEL.lcAfter}（任意）`}
                 value={d.lcAfter}
                 onInput={set('lcAfter')}
                 {...(e.lcAfter ? { error: e.lcAfter } : {})}
@@ -353,15 +375,6 @@ export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }
             {note}
           </p>
         ) : null}
-        <TextField
-          id="record-entry-time"
-          label="エントリーの時刻"
-          type="datetime-local"
-          value={d.entryTime}
-          onInput={set('entryTime')}
-          {...mark('entryTime')}
-          {...(e.entryTime ? { error: e.entryTime } : {})}
-        />
         <Segment
           label="LC の根拠"
           value={d.lcBasis}

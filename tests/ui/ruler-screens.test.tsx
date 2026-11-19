@@ -195,7 +195,7 @@ function savedFrom(d: Draft): RecordState {
 }
 
 const E2_LIST = [
-  '動かした後の LC 99.2（−1.6R）',
+  '広げた後の LC 99.2（−1.6R）',
   '決済 99.2（−1.6R）',
   '決めた LC 99.5（−1.0R）',
   'イン 100',
@@ -388,14 +388,20 @@ describe('AC-7: 詳細の 決済までの行動の答え（判定の枠の中、
     return all([ul], (e) => e.type === 'li');
   }
 
-  it('E2: 3 項目、札の名前は問いの名前、「下げた」だけに印・読み上げの「計画から外れた」（「外れ」の字は出さない）', () => {
+  it('E2: 3 項目、札の名前は問いの名前、「広げた」だけに印・読み上げの「計画から外れた」（「外れ」の字は出さない）', () => {
     const li = taps(must('E2'));
     expect(li.map(text)).toEqual([
       'LC を入る前に決めていたか: 決めていた',
-      'LC を動かしたか: 下げた（99.2）計画から外れた',
+      'LC を動かしたか: 広げた（99.2）計画から外れた',
       '時間足を変えたか: そのまま',
     ]);
     expect(li.map((e) => hasClass('taps__item--off')(e))).toEqual([false, true, false]);
+    // 答えは語の途中で折らない塊（#58 デザインレビュー 2）
+    expect(li.map((e) => text(all([e], hasClass('taps__a'))))).toEqual([
+      '決めていた',
+      '広げた（99.2）',
+      'そのまま',
+    ]);
     const off = li[1] as El;
     expect(all([off], hasClass('icon'))[0]?.props['aria-hidden']).toBe('true');
     // 「外れ」の字は出さない（記号と枠の太さで示す。#74 デザインレビュー）
@@ -406,8 +412,8 @@ describe('AC-7: 詳細の 決済までの行動の答え（判定の枠の中、
     expect([...shapes(li[0] as El), ...shapes(li[2] as El)]).toEqual([]);
   });
 
-  it('E3（S）: 「上げた（150.8）」', () => {
-    expect(taps(must('E3')).map(text)[1]).toBe('LC を動かしたか: 上げた（150.8）計画から外れた');
+  it('E3（S）: L と同じ「広げた（150.8）」（#56）', () => {
+    expect(taps(must('E3')).map(text)[1]).toBe('LC を動かしたか: 広げた（150.8）計画から外れた');
   });
 
   it('N1（LC なし）: 時間足の答えだけ', () => {
@@ -471,8 +477,8 @@ describe('LC を入る前に決めていない取引の物差し（Phase 4b の�
   });
 });
 
-describe('動かした後の LC は線の上側・広げた区間は破線の太線（Phase 4b の指摘 1・2）', () => {
-  it('E2: ▽ は線より上（y が負の側だけ）で、決めた LC〜動かした後の LC に ruler__widen', () => {
+describe('広げた後の LC は線の上側・広げた区間は破線の太線（Phase 4b の指摘 1・2）', () => {
+  it('E2: ▽ は線より上（y が負の側だけ）で、決めた LC〜広げた後の LC に ruler__widen', () => {
     const plot = one(detailTree(must('E2')), hasClass('ruler__plot'));
     const tri = one([plot], hasClass('ruler__mark--triangleDown')).children[0] as El;
     const ys = [...String(tri.props.d).matchAll(/-?\d+(?:\.\d+)?/g)].map((m) => Number(m[0]));

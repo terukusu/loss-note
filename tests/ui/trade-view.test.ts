@@ -33,6 +33,7 @@ import {
   SNAP_1M,
   stored,
   T_1110,
+  T_1112,
 } from './helpers/trade-examples';
 
 /** 種つきの乱数（mulberry32） */
@@ -121,6 +122,51 @@ describe('AC-1: 一覧の行（例 L1〜L4）', () => {
     expect(shortLabel(L2, 'US30')).toMatch(/^US30 S 11\/1[23]$/);
     expect(detailHeading(D1, 'US30').title).toBe('US30 · L ロング');
     expect(detailHeading(D1, 'US30').sub).toBe(`決済 ${formatDateTime(T_1110)}`);
+  });
+
+  it('#58 AC-5: 見出しの下の行に、エントリーの時刻と決済の時刻の両方があるときだけ保有時間（例 H1・H7）', () => {
+    // H1: エントリー 11/10 09:00・決済 11/12 13:00（日本時間。架空）→ 2 日 4 時間
+    const exitMs = T_1112 + 4 * 3_600_000;
+    const h1 = stored('h1', {
+      entries: [{ price: 100, quantity: 10_000, time: T_1110 }],
+      exit: { ...L1.record.exit, time: exitMs },
+    });
+    expect(detailHeading(h1, 'US30').sub).toBe(`決済 ${formatDateTime(exitMs)} · 保有 2 日 4 時間`);
+    // 口座が 2 つ以上なら口座はその後ろ
+    const accounts = [
+      account('default', '口座 1', 1_000_000),
+      account('accB', '口座 B', 1_000_000),
+    ];
+    expect(detailHeading(h1, 'US30', accounts).sub).toBe(
+      `決済 ${formatDateTime(exitMs)} · 保有 2 日 4 時間 · 口座 1`,
+    );
+    // 広い幅だけ添え書きの頭に出すエントリーの時刻（デザインレビュー 5）。保有時間を出さない取引には無い
+    expect(detailHeading(h1, 'US30').entry).toBe(`エントリー ${formatDateTime(T_1110)}`);
+    // H7: エントリーの時刻の無い取引（言葉を変える前の記録を含む）は「保有」を出さない（「—」も出さない）
+    const h7 = stored('h7', { exit: { ...L1.record.exit, time: exitMs } });
+    expect(h7.record.entries[0].time).toBeUndefined();
+    expect(detailHeading(h7, 'US30').sub).toBe(`決済 ${formatDateTime(exitMs)}`);
+    expect(detailHeading(h7, 'US30').sub).not.toContain('保有');
+    expect(detailHeading(h7, 'US30').sub).not.toContain('—');
+    expect(detailHeading(h7, 'US30').entry).toBeUndefined();
+  });
+
+  it('#58: 保有時間の起点は時刻のあるエントリーのうち最も早いもの。決済より後のエントリーの時刻（誤りの記録）は出さない', () => {
+    const exitMs = T_1110 + 3 * 3_600_000;
+    const two = stored('two', {
+      entries: [
+        { price: 100, quantity: 5_000, time: T_1110 + 3_600_000 },
+        { price: 100.2, quantity: 5_000 },
+        { price: 99.8, quantity: 5_000, time: T_1110 },
+      ],
+      exit: { ...L1.record.exit, time: exitMs },
+    });
+    expect(detailHeading(two, 'US30').sub).toContain('· 保有 3 時間');
+    const late = stored('late', {
+      entries: [{ price: 100, quantity: 10_000, time: exitMs + 60_000 }],
+      exit: { ...L1.record.exit, time: exitMs },
+    });
+    expect(detailHeading(late, 'US30').sub).toBe(`決済 ${formatDateTime(exitMs)}`);
   });
 
   it('今の設定・銘柄を引かない: 写した資金だけで計算する（銘柄の一覧の値が違っても同じ）', () => {
@@ -228,7 +274,7 @@ describe('chartSlots（AC-3 の枠）', () => {
 });
 
 describe('recordFields（詳細の記録した欄）', () => {
-  it('D1: 主な欄と、下げた後の LC・明細の損益', () => {
+  it('D1: 主な欄と、広げた後の LC・明細の損益（#56 E9）', () => {
     const f = Object.fromEntries(recordFields(D1, 'US30').map((r) => [r.label, r.value]));
     expect(f.銘柄).toBe('US30');
     expect(f['L / S']).toBe('L ロング');
@@ -236,7 +282,7 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(f.決済).toBe('99.2');
     expect(f.数量).toBe('10000');
     expect(f.LC).toBe('99.5');
-    expect(f['LC を動かしたか']).toBe('下げた（99.2）');
+    expect(f['LC を動かしたか']).toBe('広げた（99.2）');
     expect(f['損益（明細の値）']).toBe('−8,000円');
     expect(f.エントリーの時刻).toBeUndefined();
   });
@@ -250,7 +296,7 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(labels).not.toContain('LC を動かしたか');
   });
 
-  it('S で LC を上げた取引は「上げた」', () => {
+  it('#56 AC-1・E9: S で LC を広げた取引も L と同じ「広げた」（「上げた」と言わない）', () => {
     const t = stored('s1', {
       side: 'S',
       lc: 100.5,
@@ -258,7 +304,7 @@ describe('recordFields（詳細の記録した欄）', () => {
       exit: { ...L1.record.exit, price: 101 },
     });
     const f = Object.fromEntries(recordFields(t, 'X').map((r) => [r.label, r.value]));
-    expect(f['LC を動かしたか']).toBe('上げた（101）');
+    expect(f['LC を動かしたか']).toBe('広げた（101）');
   });
 
   it('#47 U18: 口座・記録したときの資金と許容リスクを口座の数によらず出す（付いていない取引は既定の口座の名前）', () => {
@@ -309,7 +355,7 @@ describe('時間足を変えたかの表示（あなたの答えとチャート�
 });
 
 describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7）', () => {
-  it('D1: 決めていた / 下げた（99.2）（外れ）/ 時間足はチャートから判定に効いたので外れ', () => {
+  it('D1: 決めていた / 広げた（99.2）（外れ）/ 時間足はチャートから判定に効いたので外れ（#56 E9）', () => {
     expect(tapAnswers(D1, summarize(D1).judgment)).toEqual([
       {
         label: 'LC を入る前に決めていたか',
@@ -317,7 +363,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
         offPlan: false,
         term: 'lcDecided',
       },
-      { label: 'LC を動かしたか', value: '下げた（99.2）', offPlan: true, term: 'lcMove' },
+      { label: 'LC を動かしたか', value: '広げた（99.2）', offPlan: true, term: 'lcMove' },
       {
         label: '時間足を変えたか',
         value: '4 時間足 → 日足',
@@ -335,7 +381,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
     ]);
   });
 
-  it('決めていない・長い足へは外れ、詰めた・短い足へは外れない', () => {
+  it('決めていない・長い足へは外れ、狭めた・短い足へは外れない（#56 E10）', () => {
     const t = stored('tap', {
       lcDecidedBeforeEntry: false,
       lcMove: { kind: 'tightened' },
@@ -348,7 +394,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
         offPlan: true,
         term: 'lcDecided',
       },
-      { label: 'LC を動かしたか', value: '詰めた', offPlan: false, term: 'lcMove' },
+      { label: 'LC を動かしたか', value: '狭めた', offPlan: false, term: 'lcMove' },
       { label: '時間足を変えたか', value: '長い足へ', offPlan: true, term: 'timeframeChange' },
     ]);
     const u = stored('tap2', { timeframeChange: 'shorter' });
@@ -360,7 +406,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
     });
   });
 
-  it('S で上げた・後の値なしは「上げた」（括弧なし）', () => {
+  it('S で広げた・後の値なしは「広げた」（括弧なし。L と同じ言葉）', () => {
     const t = stored('tap3', {
       side: 'S',
       lc: 150.5,
@@ -370,7 +416,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
     });
     expect(tapAnswers(t)[1]).toEqual({
       label: 'LC を動かしたか',
-      value: '上げた',
+      value: '広げた',
       offPlan: true,
       term: 'lcMove',
     });

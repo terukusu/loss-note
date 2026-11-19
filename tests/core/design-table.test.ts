@@ -22,7 +22,7 @@ const GRADE_WORDS: Record<Grade, string> = {
 const REASON_WORDS: ReadonlyArray<{ word: string; kind: ReasonKind; inParen?: boolean }> = [
   { word: 'LC を決めずに', kind: 'noLc' },
   { word: '持ち続けた', kind: 'heldPastLc' },
-  { word: 'LC を下げた', kind: 'lcWidened' },
+  { word: 'LC を広げた', kind: 'lcWidened' },
   { word: '時間足を変えた', kind: 'timeframeLonger' },
   { word: '過剰リスク', kind: 'overRisk' },
   { word: '金額ありき', kind: 'amountBasedLc' },

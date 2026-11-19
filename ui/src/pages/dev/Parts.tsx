@@ -118,7 +118,7 @@ export function Parts() {
             <YenNum value={12345} size="lg" />
           </div>
         </div>
-        <p class="hero__reason">LC を下げた後に戻った勝ち。勝っても、規律は崩れています。</p>
+        <p class="hero__reason">LC を広げた後に戻った勝ち。勝っても、規律は崩れています。</p>
       </section>
 
       <Section
@@ -179,8 +179,8 @@ export function Parts() {
             onChange={setLcMoved}
             options={[
               { value: 'kept', label: 'そのまま' },
-              { value: 'widened', label: '下げた' },
-              { value: 'tightened', label: '詰めた' },
+              { value: 'tightened', label: '狭めた' },
+              { value: 'widened', label: '広げた' },
             ]}
           />
           <Segment

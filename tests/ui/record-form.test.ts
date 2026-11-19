@@ -12,8 +12,11 @@ import {
   type DraftContext,
   type DraftReading,
   EMPTY_DRAFT,
+  FIELD_LABEL,
+  lcMoveLabel,
   MISSING_LABEL,
   MSG,
+  OPTIONAL_FIELDS,
   parseNum,
   RISK_NOTE,
   readDraft,
@@ -72,13 +75,13 @@ function expectSameAsCore(r: DraftReading, t: TradeInput) {
 }
 
 describe('例の表（AC-1・AC-3）', () => {
-  it('E1: B・「LC を下げた（99.5 → 99.2）」・−1.6R・資金が未設定', () => {
+  it('E1: B・「LC を広げた（99.5 → 99.2）」・−1.6R・資金が未設定', () => {
     const r = readDraft(E1, NO_CAPITAL);
     expect(r.canSave).toBe(true);
     expect(r.missing).toEqual([]);
     expect(r.preview.judgment?.grade).toBe('B');
     expect(texts(r)).toEqual([
-      'LC を下げた（99.5 → 99.2）',
+      'LC を広げた（99.5 → 99.2）',
       '資金が未設定のため、過剰リスクは判定していません',
     ]);
     expect(formatR(r.preview.r)).toBe(`${MINUS}1.6R`);
@@ -114,10 +117,10 @@ describe('例の表（AC-1・AC-3）', () => {
     expectSameAsCore(r, { ...direct({}, 100.5, CAPITAL_1M), statementPnlYen: 25000 });
   });
 
-  it('E5: S で B（LC を上げた（150.5 → 151））・−2.0R', () => {
+  it('E5: S で B（LC を広げた（150.5 → 151））・−2.0R', () => {
     const r = readDraft(E5, NO_CAPITAL);
     expect(r.preview.judgment?.grade).toBe('B');
-    expect(texts(r)).toContain('LC を上げた（150.5 → 151）');
+    expect(texts(r)).toContain('LC を広げた（150.5 → 151）');
     expect(formatR(r.preview.r)).toBe(`${MINUS}2.0R`);
     expectSameAsCore(
       r,
@@ -344,7 +347,7 @@ describe('入力の誤り（AC-7・E8・E9）', () => {
     ['E8 LC > イン', { lc: '100.50' }, 'lc', MSG.lcDirection('L')],
     ['S の LC < イン', { side: 'S', lc: '99.50' }, 'lc', MSG.lcDirection('S')],
     [
-      'E9 下げた後の LC が入る前の LC より上',
+      'E9 広げた後の LC が入る前の LC より上',
       { lcMove: 'widened', lcAfter: '99.60' },
       'lcAfter',
       MSG.lcAfterDirection('L'),
@@ -355,7 +358,7 @@ describe('入力の誤り（AC-7・E8・E9）', () => {
     ['LC が数でない', { lc: '99..5' }, 'lc', MSG.notNumber],
     ['損益が数でない', { pnlYen: '1,23' }, 'pnlYen', MSG.notNumber],
     ['手数料が数でない', { feeYen: 'x' }, 'feeYen', MSG.notNumber],
-    ['下げた後の LC が数でない', { lcMove: 'widened', lcAfter: '?' }, 'lcAfter', MSG.notNumber],
+    ['広げた後の LC が数でない', { lcMove: 'widened', lcAfter: '?' }, 'lcAfter', MSG.notNumber],
     ['数量 0', { quantity: '0' }, 'quantity', MSG.notPositive],
     ['数量が負', { quantity: '-1' }, 'quantity', MSG.notPositive],
     ['イン が 0', { entryPrice: '0' }, 'entryPrice', MSG.notPositive],
@@ -449,7 +452,7 @@ describe('下書きの更新 applyDraft', () => {
     expect(d.lc).toBe('99.5');
   });
 
-  it('「なし」を選ぶと LC・下げた後の LC は空になる', () => {
+  it('「なし」を選ぶと LC・広げた後の LC は空になる', () => {
     const d = applyDraft(E1, { type: 'set', field: 'lcNone', value: true });
     expect(d.lc).toBe('');
     expect(d.lcAfter).toBe('');
@@ -612,5 +615,75 @@ describe('チャートの時間足（Issue #12）', () => {
   it('時間足は必須の欄にも誤りにも数えない（手で打つ欄・選ぶ欄の数は変わらない）', () => {
     const empty = readDraft(EMPTY_DRAFT, ctx(true, true));
     expect(empty.missing).toEqual(readDraft(EMPTY_DRAFT, NO_CAPITAL).missing);
+  });
+});
+
+describe('#56 LC を動かしたかの言葉（L / S で同じ）', () => {
+  it('AC-1: 選択肢の文言は「そのまま」「狭めた」「広げた」（向きに依らない）', () => {
+    expect((['none', 'tightened', 'widened'] as const).map((k) => lcMoveLabel(k))).toEqual([
+      'そのまま',
+      '狭めた',
+      '広げた',
+    ]);
+  });
+
+  it('AC-3（E5・E6）・AC-7: 向きの逆の広げた後の LC の誤りの文と、欄の名前', () => {
+    // E5: L・イン 100.00・LC 99.50・広げた後 99.80（入る前の LC より上 = 狭めた側）
+    const l = readDraft(
+      draft({
+        side: 'L',
+        entryPrice: '100.00',
+        lc: '99.50',
+        exitPrice: '99.80',
+        lcDecided: true,
+        lcMove: 'widened',
+        lcAfter: '99.80',
+        timeframeChange: 'none',
+      }),
+      NO_CAPITAL,
+    );
+    expect(l.errors.lcAfter).toBe('広げた後の LC は、入る前の LC より下にしてください');
+    // E6: S・イン 150.00・LC 150.50・広げた後 150.20（入る前の LC より下 = 狭めた側）
+    const sh = readDraft(
+      draft({
+        side: 'S',
+        entryPrice: '150.00',
+        lc: '150.50',
+        exitPrice: '150.20',
+        lcDecided: true,
+        lcMove: 'widened',
+        lcAfter: '150.20',
+        timeframeChange: 'none',
+      }),
+      NO_CAPITAL,
+    );
+    expect(sh.errors.lcAfter).toBe('広げた後の LC は、入る前の LC より上にしてください');
+    expect(FIELD_LABEL.lcAfter).toBe('広げた後の LC');
+  });
+});
+
+describe('#58 エントリーの時刻は任意の「取引」の欄', () => {
+  it('AC-3（例 T2）: エントリーの時刻が空でも記録でき、足りない欄に数えない', () => {
+    const r = readDraft(E2, CAPITAL_1M);
+    expect(E2.entryTime).toBe('');
+    expect(r.canSave).toBe(true);
+    expect(r.missing).toEqual([]);
+    expect(r.missing).not.toContain(FIELD_LABEL.entryTime);
+    expect(r.body?.entries[0].time).toBeUndefined();
+    expect(r.body).toBeDefined();
+  });
+
+  it('「ほかの欄」に畳んだ欄からエントリーの時刻を外した（誤りで「ほかの欄」を開かない）', () => {
+    expect(OPTIONAL_FIELDS).not.toContain('entryTime');
+    expect(OPTIONAL_FIELDS).toEqual(['pnlYen', 'feeYen', 'lcBasis', 'exitReason']);
+  });
+
+  it('T3: エントリーの時刻が決済の時刻より後なら誤り（今の検査のまま）', () => {
+    const r = readDraft(
+      { ...E2, entryTime: '2026-11-12T14:00', exitTime: '2026-11-12T13:00' },
+      CAPITAL_1M,
+    );
+    expect(r.errors.entryTime).toBe('エントリーの時刻は決済の時刻より前にしてください');
+    expect(r.canSave).toBe(false);
   });
 });

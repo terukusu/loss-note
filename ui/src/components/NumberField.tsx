@@ -2,6 +2,8 @@
 // 文字 16px 以上（iOS の自動拡大を避ける）・高さ 44px 以上。誤りは枠の色だけでなく文言で示す。
 // size="lg" は記録する画面の主の数字（イン・決済・LC）。inputMode="text" は符号つきの数（損益）に使う
 // （iOS の小数のキーボードには − が無い）
+import { FieldLabelText } from './FieldLabelText';
+
 export interface NumberFieldProps {
   readonly id: string;
   readonly label: string;
@@ -34,7 +36,7 @@ export function NumberField(p: NumberFieldProps) {
     .join(' ');
   const label = (
     <label class="field__label" for={p.id}>
-      {p.label}
+      <FieldLabelText text={p.label} />
     </label>
   );
   return (

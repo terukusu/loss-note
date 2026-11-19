@@ -86,7 +86,7 @@ export function outcomeOf(t: TradeInput, nums: JudgeNumbers): Outcome | undefine
   return move >= 0 ? 'win' : 'loss';
 }
 
-/** 「持ち続けた」の比較先（C30）: 下げたなら下げた後の値（無ければ無し）、買い増しは最後のエントリーの LC、ほかは LC */
+/** 「持ち続けた」の比較先（C30）: 広げたなら広げた後の値（無ければ無し）、買い増しは最後のエントリーの LC、ほかは LC */
 function heldReference(t: TradeInput): number | undefined {
   if (t.lcMove.kind === 'widened') return t.lcMove.after;
   if (t.entries.length > 1) {

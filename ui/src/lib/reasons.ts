@@ -1,6 +1,7 @@
 // 判定の理由の文言（Issue #13 AC-4・契約 R-2。設計書 5.3 の「理由の表示」）。
 // core/ は理由を構造（種類 + 値）で返し、文言はここで作る。種類ごとの関数を Record<ReasonKind, …> に置き、
-// core に種類が増えたら型検査で落ちる（網羅の強制）。S の取引では LC を不利な側へ動かしたことを「上げた」と言う
+// core に種類が増えたら型検査で落ちる（網羅の強制）。LC を不利な側へ動かしたことは L / S で同じ「広げた」と言う
+// （価格の向きは広げた後の LC の入力の誤りの知らせだけ。#56）
 import type { Reason, ReasonKind } from '../../../core/judge';
 import type { Side, Timeframe } from '../../../core/trade';
 import { formatPct, formatPrice, formatR } from './format';
@@ -18,21 +19,14 @@ export const TIMEFRAME_NAME: Readonly<Record<Timeframe, string>> = {
   '1M': '月足',
 };
 
-/** LC を不利な側へ動かした、の動詞（L = 下げた / S = 上げた） */
-export function widenVerb(side: Side): string {
-  return side === 'L' ? '下げた' : '上げた';
-}
-
 type Of<K extends ReasonKind> = Extract<Reason, { readonly kind: K }>;
 
 const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
   noLc: () => 'LC を決めずに入った',
-  lcWidened: (r, side) => {
-    const verb = `LC を${widenVerb(side)}`;
-    return r.from !== undefined && r.to !== undefined
-      ? `${verb}（${formatPrice(r.from)} → ${formatPrice(r.to)}）`
-      : verb;
-  },
+  lcWidened: (r) =>
+    r.from !== undefined && r.to !== undefined
+      ? `LC を広げた（${formatPrice(r.from)} → ${formatPrice(r.to)}）`
+      : 'LC を広げた',
   // チャートの時間足の比較から出た理由は「・チャートから」を添え、3 つのタップの申告と見分ける（Issue #12 AC-4）
   timeframeLonger: (r) =>
     r.from !== undefined && r.to !== undefined
@@ -52,6 +46,7 @@ const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
       : '1R が出ないため、過剰リスクは判定していません',
 };
 
+/** 理由の文言。side は文言の関数へ渡す向き（今はどの理由も向きで言葉を変えない。L / S で同じ言葉。#56） */
 export function reasonText(reason: Reason, side: Side): string {
   const fn = TEXT[reason.kind] as (r: Reason, s: Side) => string;
   return fn(reason, side);

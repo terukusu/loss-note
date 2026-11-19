@@ -52,7 +52,7 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
   ],
   '5': [
     {
-      // (99.20 − 100.00) ÷ 0.50 = −1.6R。下げた後の LC で切れたので持ち続けたは出ない
+      // (99.20 − 100.00) ÷ 0.50 = −1.6R。広げた後の LC で切れたので持ち続けたは出ない
       input: closedAt(trade({ lcMove: { kind: 'widened', after: 99.2 } }), 99.2),
       grade: 'B',
       reasons: ['lcWidened'],
@@ -67,7 +67,7 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
       reasons: ['timeframeLonger', 'heldPastLc'],
     },
     {
-      label: 'LC も 99.20 へ下げていた、−3.0R',
+      label: 'LC も 99.20 へ広げていた、−3.0R',
       input: closedAtR(-3.0, {
         timeframe: '4h',
         timeframeChange: 'longer',

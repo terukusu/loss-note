@@ -103,7 +103,7 @@ describe('詳細の controller（AC-2・AC-3）', () => {
     expect(s.summary.r).toBeCloseTo(-1.6, 9);
     expect(s.summary.riskPct).toBeCloseTo(0.5, 9);
     expect(s.summary.judgment?.reasons.map((r) => reasonText(r, 'L'))).toEqual([
-      'LC を下げた（99.5 → 99.2）',
+      'LC を広げた（99.5 → 99.2）',
       '時間足を変えた（4 時間足 → 日足・チャートから）',
     ]);
     expect(s.instrumentName).toBe('US30');

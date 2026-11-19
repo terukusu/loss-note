@@ -79,8 +79,9 @@ function Taps({ items, note }: NonNullable<VerdictProps['taps']>) {
                   <Icon name="offPlan" />
                 </>
               ) : null}
-              <span>
-                {a.label}: {a.value}
+              {/* 問いと答えを分け、答えは語の途中で折らない（360 で「決めてい / た」と割れない。#58 デザインレビュー 2） */}
+              <span class="taps__text">
+                <span class="taps__q">{a.label}:</span> <span class="taps__a">{a.value}</span>
               </span>
               {a.offPlan ? <span class="sr-only">{OFF_PLAN_TEXT}</span> : null}
             </span>
@@ -200,13 +201,13 @@ export function Verdict(v: VerdictProps) {
           ) : null}
         </dl>
       )}
-      {/* 数量と提案の数量（#67。数の段のすぐ下・口座の 1 行の前に無色で 1 行。区切りの中では折らず、「·」は前の区切りの末尾に付ける） */}
+      {/* 数量と提案の数量（#67。数の段のすぐ下・口座の 1 行の前に無色で 1 行。区切りの中では折らず、「·」は後ろの区切りの頭に付けて行末に残さない。#58 デザインレビュー 6） */}
       {sizing !== null ? (
         <p class="verdict__aside verdict__sizing">
           {sizing.map((seg, i) => (
             <Fragment key={seg}>
               {i > 0 ? ' ' : null}
-              <span class="verdict__seg">{i < sizing.length - 1 ? `${seg} ·` : seg}</span>
+              <span class="verdict__seg">{i > 0 ? `· ${seg}` : seg}</span>
             </Fragment>
           ))}
         </p>

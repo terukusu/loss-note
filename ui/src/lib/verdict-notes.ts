@@ -5,7 +5,7 @@
 // 「過剰リスクは見ていない」（riskNotChecked）は理由の一覧から分けて脇の 1 行に出す（文言・判定は変えない）
 import type { Reason } from '../../../core/judge';
 import { badgeModel } from './badge';
-import { formatPlain, formatR } from './format';
+import { formatQuantity, formatR } from './format';
 import {
   type DraftAction,
   type DraftField,
@@ -151,12 +151,12 @@ export function isTapAction(action: DraftAction): boolean {
 
 /**
  * 判定の枠の数量の 1 行の区切り（#67）。実際の数量と提案の数量を並べ、比は括弧に下げる（リスク（%）と同じ数を主役に
- * 重ねない）。数量は数量の欄と同じ書き方（区切りなし）。
- * - エントリー 1 つ: [「数量 10000」, 「提案の数量 4000（2.5 倍）」]（2.5 倍 = 数量が提案の数量の何倍か ≒ 1R ÷ 許容額）
+ * 重ねない）。数量は 3 桁区切り（formatQuantity。#40）。
+ * - エントリー 1 つ: [「数量 10,000」, 「提案の数量 4,000（2.5 倍）」]（2.5 倍 = 数量が提案の数量の何倍か ≒ 1R ÷ 許容額）
  * - 提案の数量が 0: [「数量 1（許容リスクの 4.0 倍）」, 「最小の数量でも許容リスクを超えます」]
- * - エントリー 2 つ以上: [「数量 10000（許容リスクの 0.4 倍）」]（数量は合計。提案の数量は出さない）
+ * - エントリー 2 つ以上: [「数量 10,000（許容リスクの 0.4 倍）」]（数量は合計。提案の数量は出さない）
  * 比が出ない・判定を待つ間・LC なしのときは null。色・「大きすぎ」の言葉は付けない（判定の定義を増やさない）。
- * 区切りの中では折り返さず、幅が足りないときは区切りの間で折る（`Verdict.tsx`）
+ * 区切りの中では折り返さず、幅が足りないときは区切りの間で折る（`Verdict.tsx`。1 つの区切りが枠より長いときだけ中で折る。#40）
  */
 export function sizingLine(
   summary: Summary | Preview,
@@ -164,11 +164,11 @@ export function sizingLine(
 ): readonly string[] | null {
   const s = summary.sizing;
   if (opts.pending || s === undefined || summary.noLc) return null;
-  const quantity = `数量 ${formatPlain(s.quantity)}`;
+  const quantity = `数量 ${formatQuantity(s.quantity)}`;
   const q = s.suggestedQuantity;
   if (q === undefined) return [`${quantity}（許容リスクの ${timesText(s.ratio)}）`];
   if (q === 0) return [`${quantity}（許容リスクの ${timesText(s.ratio)}）`, SIZING_OVER_STEP];
-  return [quantity, `適正の数量 ${formatPlain(q)}（実際は ${timesText(s.ratio)}）`];
+  return [quantity, `適正の数量 ${formatQuantity(q)}（実際は ${timesText(s.ratio)}）`];
 }
 
 /** 判定の枠の数量の 1 行の文字（区切りを「 · 」でつなぐ。読み上げ・テストと同じ文） */

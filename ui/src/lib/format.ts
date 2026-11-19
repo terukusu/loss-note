@@ -97,7 +97,7 @@ function ceil1(x: number): string {
 }
 
 /**
- * 数量の比の数の部分（「提案の数量 4000（2.5 倍）」の 2.5。#67 R3）。リスク（%）と同じ小数 1 桁への切り上げ（許容をわずかに超えた取引が
+ * 数量の比の数の部分（「提案の数量 4,000（2.5 倍）」の 2.5。#67 R3）。リスク（%）と同じ小数 1 桁への切り上げ（許容をわずかに超えた取引が
  * 「1.0 倍」に見えないように。比 × 許容リスク = リスク（%）なので、許容 1% の口座ではリスク（%）の表示と同じ数になる）。
  * 有限でないときは「比なし」
  */
@@ -127,9 +127,32 @@ export function formatPlain(n: number): string {
     : `${sign}${digits.slice(0, exp + 1)}.${digits.slice(exp + 1)}`;
 }
 
-/** 価格の表示（理由の「99.5 → 99.2」など）。保存した数のまま（桁をそろえるのは後の Issue） */
+/**
+ * 数の文字（`formatPlain` の形・`formatFxDerived` の形）の整数部だけを 3 桁ごとにカンマで区切り、負の符号を − (U+2212) にする
+ * （#40）。小数部はそのまま（丸めない・区切らない）。数の形でない文字（Infinity・空）はそのまま返す
+ */
+export function groupDigits(text: string): string {
+  const m = /^(-?)(\d+)(\.\d*)?$/.exec(text);
+  if (!m) return text;
+  return `${m[1] === '-' ? MINUS : ''}${group(m[2] ?? '')}${m[3] ?? ''}`;
+}
+
+/**
+ * 表示の数（価格・数量・乗数・レートなど。#40）。保存した数のまま（丸めない。FX の 1.08345 は 1.08345）で、
+ * 整数部だけ 3 桁区切り（38250 → 38,250）・負の符号は U+2212・指数表記にしない。入力の欄の値には使わない（`formatPlain`）
+ */
+export function formatNumber(n: number): string {
+  return groupDigits(formatPlain(n));
+}
+
+/** 価格の表示（理由の「99.5 → 99.2」・詳細のイン・決済・LC など）。`formatNumber` と同じ（38,250・1.08345） */
 export function formatPrice(n: number): string {
-  return formatPlain(n);
+  return formatNumber(n);
+}
+
+/** 数量の表示（詳細・判定の枠の数量の 1 行など）。`formatNumber` と同じ（10,000・0.01） */
+export function formatQuantity(n: number): string {
+  return formatNumber(n);
 }
 
 /**

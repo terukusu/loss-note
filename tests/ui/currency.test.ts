@@ -60,8 +60,8 @@ describe('為替の欄の下の 1 行（U24・AC-14）', () => {
     expect(formatFxDerived(150)).toBe('150.00');
     expect(formatFxDerived(1.1)).toBe('1.1000');
     expect(formatFxDerived(0.0067)).toBe('0.0067000');
-    expect(formatFxDerived(12345.6)).toBe('12346');
-    expect(formatFxDerived(1234567)).toBe('1234567');
+    expect(formatFxDerived(12345.6)).toBe('12,346');
+    expect(formatFxDerived(1234567)).toBe('1,234,567');
     expect(formatFxDerived(0)).toBe('');
     expect(formatFxDerived(Number.NaN)).toBe('');
   });
@@ -74,7 +74,7 @@ describe('為替の欄の下の 1 行（U24・AC-14）', () => {
       (x) => {
         const s = formatFxDerived(x);
         if (/e/i.test(s)) throw new Error(`指数表記 ${s}`);
-        const back = Number(s);
+        const back = Number(s.replace(/,/g, ''));
         const tol = x >= 1e5 ? 0.5 : x * 1e-4;
         if (!(Math.abs(back - x) <= tol)) throw new Error(`${x} → ${s}`);
       },

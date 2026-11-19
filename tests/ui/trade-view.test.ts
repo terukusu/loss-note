@@ -280,7 +280,7 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(f['L / S']).toBe('L ロング');
     expect(f.イン).toBe('100');
     expect(f.決済).toBe('99.2');
-    expect(f.数量).toBe('10000');
+    expect(f.数量).toBe('10,000');
     expect(f.LC).toBe('99.5');
     expect(f['LC を動かしたか']).toBe('広げた（99.2）');
     expect(f['損益（明細の値）']).toBe('−8,000円');

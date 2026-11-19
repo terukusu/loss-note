@@ -19,6 +19,7 @@ import {
   LOAD_FAILED,
   NETWORK_FAILED,
   READ_BLOCKED,
+  READ_PREPARE_TIMEOUT_MS,
   READ_TIMEOUT_MS,
   type RecordController,
   ROWS_DONE,
@@ -941,6 +942,11 @@ describe('失敗（AC-10・E11）', () => {
 
   it('読み取りの待ちは API の締め切り（20 秒）+ 後始末（約 5 秒）より長い', () => {
     expect(READ_TIMEOUT_MS).toBeGreaterThanOrEqual(25_000);
+  });
+
+  it('準備の要求の待ちは API の準備の上限（立ち上がり 20 秒 + 静まり 5 秒。#99）より長く、60 秒より短い', () => {
+    expect(READ_PREPARE_TIMEOUT_MS).toBeGreaterThan(25_000);
+    expect(READ_PREPARE_TIMEOUT_MS).toBeLessThan(60_000);
   });
 });
 

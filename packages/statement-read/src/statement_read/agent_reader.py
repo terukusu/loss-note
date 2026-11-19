@@ -17,7 +17,10 @@
 - SDK は読むときにだけ import する（確認コマンドと CI は SDK を入れない。資格情報が無いときは import しない）
 - ツールは SDK MCP の 1 本（読み取りの種類 task.ReadTask が決める。明細は report_statement、チャートの時間足は
   report_chart_timeframe。#27）。PreToolUse のフックが deny + continue_=False を返し、関数は実行せずに
-  入力だけを受け取る。組み込みのツールなし・設定ファイルを読まない・turn 1
+  入力だけを受け取る。組み込みのツールなし・設定ファイルを読まない・turn 1・会話を保存しない（SESSION_ARGS =
+  --no-session-persistence。一時ディレクトリの中にも画像の写し・会話の記録を書かせない。#99）
+- ReadOutcome.stages は段ごとの時間（Stages。wait_ms・first_ms・result_ms・turn_ms・close_ms のうち進んだ段。#99）。
+  一時ディレクトリを消した後に締める
 - 子の CLAUDE_CONFIG_DIR・CLAUDE_CODE_TMPDIR・cwd は実行ごとの一時ディレクトリ（道具の実物のときは data/local/ の下、
   API はシステムの一時ディレクトリ）。成功・失敗・締め切り超えのどれでも終わったら消す。CLI の標準エラー・例外の本文は
   出さない（型名だけ）。読み取りの値は保存しない
@@ -36,12 +39,13 @@
 import asyncio
 import base64
 import contextlib
+import math
 import os
 import shutil
 import tempfile
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import anyio
 
@@ -162,6 +166,10 @@ def cli_tool_name(task: ReadTask) -> str:
     """CLI から見たツールの名前（SDK MCP のサーバー名を前に付けたもの）"""
     return f"mcp__{SERVER}__{task.tool_name}"
 DENY_REASON = "Recorded. Do not call any tool again; the turn is over."
+# 子の CLI に会話を保存させない（#99）。CLI は画像を受けると、一時ディレクトリの中に画像の写し（images/）と、画像の
+# base64 を含む会話の記録（projects/*.jsonl）を書く。この指定でどちらも書かなくなる（読み取りの結果は同じ。同梱の
+# CLI 2.1.316 で確かめた。SDK は extra_args を --no-session-persistence にする）
+SESSION_ARGS: dict[str, str | None] = {"no-session-persistence": None}
 MAX_BUFFER_BYTES = 8 * 1024 * 1024
 # CLI の最大出力（トークン）の変数。CLI はモデルの最大出力を上限にこの値を要求の max_tokens にする（#44）
 MAX_OUTPUT_ENV = "CLAUDE_CODE_MAX_OUTPUT_TOKENS"
@@ -257,6 +265,7 @@ def option_kwargs(model: str, effort: str, credential: str, secret, base_dir: st
                 **isolated_env(base_dir)},
         "stderr": lambda line: None,  # CLI の標準エラーは本文を含みうるので捨てる
         "max_buffer_size": MAX_BUFFER_BYTES,
+        "extra_args": dict(SESSION_ARGS),
     }
 
 
@@ -305,6 +314,8 @@ class ReadOutcome:
     sdk_cost_usd: float | None = None
     error: str | None = None
     tool_calls: int = 0
+    # 送り口の段ごとの時間（ミリ秒。Stages.ms。ログの *_ms。#99）
+    stages: dict[str, float] = field(default_factory=dict)
 
 
 def _usage(d) -> Usage | None:
@@ -321,6 +332,62 @@ def _usage(d) -> Usage | None:
         cache_creation_input_tokens=n("cache_creation_input_tokens"),
         cache_read_input_tokens=n("cache_read_input_tokens"),
     )
+
+
+def _ms(seconds: float) -> float:
+    return round(max(0.0, seconds) * 1000, 1)
+
+
+class Stages:
+    """送り口の段ごとの時刻（clock の値）。ログの時間の内訳（#99。値・中身は持たない）:
+
+    - wait_ms = 仕事を受けてから CLI が画像を受け取れる状態（SDK の initialize の後に prompt が読まれた）になるまで
+    - first_ms = 画像を CLI に渡してから、CLI の最初の message（ターンの始まり）を受けるまで
+    - result_ms = 画像を渡してから結果（ResultMessage）を受けるまで
+    - turn_ms = CLI が報告するターンの時間（ResultMessage の duration_ms）
+    - close_ms = 結果を受けてから CLI が終わり、一時ディレクトリを消すまで
+
+    進まなかった段は出さない（0 で埋めない）"""
+
+    def __init__(self, clock: Callable[[], float], taken: float):
+        self._clock = clock
+        self.taken = taken
+        self.sent: float | None = None
+        self.first: float | None = None
+        self.result: float | None = None
+        self.turn_ms: float | None = None
+
+    def mark_sent(self) -> None:
+        if self.sent is None:
+            self.sent = self._clock()
+
+    def feed(self, m) -> None:
+        """画像を渡した後に受けた message（最初の 1 つと、最初の ResultMessage の時刻だけを見る）"""
+        if self.sent is None:
+            return
+        now = self._clock()
+        if self.first is None:
+            self.first = now
+        if type(m).__name__ == "ResultMessage" and self.result is None:
+            self.result = now
+            d = getattr(m, "duration_ms", None)
+            if isinstance(d, (int, float)) and not isinstance(d, bool) and math.isfinite(d) and d >= 0:
+                self.turn_ms = round(float(d), 1)
+
+    def ms(self, end: float) -> dict[str, float]:
+        """段の時間（ミリ秒）。end は CLI が終わって一時ディレクトリを消した時刻"""
+        out: dict[str, float] = {}
+        if self.sent is None:
+            return out
+        out["wait_ms"] = _ms(self.sent - self.taken)
+        if self.first is not None:
+            out["first_ms"] = _ms(self.first - self.sent)
+        if self.result is not None:
+            out["result_ms"] = _ms(self.result - self.sent)
+            out["close_ms"] = _ms(end - self.result)
+        if self.turn_ms is not None:
+            out["turn_ms"] = self.turn_ms
+        return out
 
 
 class Reader:
@@ -361,7 +428,11 @@ class Reader:
     def __repr__(self) -> str:  # 資格情報の値を repr に出さない
         return f"Reader(model={self.model!r}, effort={self.effort!r}, credential={self._credential!r})"
 
-    def read(self, data: bytes, media_type: str) -> ReadOutcome:
+    def read(self, data: bytes, media_type: str, taken_at: float | None = None) -> ReadOutcome:
+        """taken_at は段の時間の起点（time.monotonic の値。#99）。先立てが送る前に失敗してその場で立て直すとき、
+        呼ぶ側が先立てを取った時刻を渡し、先立てで待った時間も wait_ms に入れる（read_ms ≈ 段の和を保つ）"""
+        # 段の時間の時計は time.monotonic（clock は seconds 用でテストが差し替えるので、その値の並びを変えない）
+        stages = Stages(time.monotonic, time.monotonic() if taken_at is None else taken_at)
         if self._tmp_parent is not None:
             os.makedirs(self._tmp_parent, mode=0o700, exist_ok=True)
         base = tempfile.mkdtemp(prefix="statement-read-", dir=self._tmp_parent)
@@ -370,18 +441,22 @@ class Reader:
                 os.mkdir(f"{base}/{sub}", 0o700)
             values = self._values(base)
             if values is None:
-                return ReadOutcome(result=None, seconds=None, error="identity_token")
-            return asyncio.run(self._read(data, media_type, base, values))
+                out = ReadOutcome(result=None, seconds=None, error="identity_token")
+            else:
+                out = asyncio.run(self._read(data, media_type, base, values, stages))
         except TimeoutError:
-            return ReadOutcome(result=None, seconds=None, error="timeout")
+            out = ReadOutcome(result=None, seconds=None, error="timeout")
         except SdkMissing:
-            return ReadOutcome(result=None, seconds=None, error="sdk_missing")
+            out = ReadOutcome(result=None, seconds=None, error="sdk_missing")
         except CredentialEnvPresent:
-            return ReadOutcome(result=None, seconds=None, error="credential_env")
+            out = ReadOutcome(result=None, seconds=None, error="credential_env")
         except Exception as e:  # noqa: BLE001 - 型の名前だけを返す
-            return ReadOutcome(result=None, seconds=None, error=type(e).__name__)
+            out = ReadOutcome(result=None, seconds=None, error=type(e).__name__)
         finally:
             shutil.rmtree(base, ignore_errors=True)
+        # 段の時間は一時ディレクトリを消した後に締める（close_ms に後始末を含める。#99）
+        out.stages = stages.ms(time.monotonic())
+        return out
 
     def _values(self, base: str) -> dict[str, str] | None:
         """子に渡す方式の変数。federation は ID トークンを base の中のファイル（0600）に書き、その場所を足す
@@ -398,7 +473,8 @@ class Reader:
             f.write(self._identity_token)
         return {**values, IDENTITY_TOKEN_FILE_ENV: path}
 
-    async def _read(self, data: bytes, media_type: str, base: str, values: dict[str, str]) -> ReadOutcome:
+    async def _read(self, data: bytes, media_type: str, base: str, values: dict[str, str],
+                    stages: Stages) -> ReadOutcome:
         captured: list = []
         task = self.task
         kwargs = option_kwargs(self.model, self.effort, self._credential, values, base,
@@ -408,7 +484,9 @@ class Reader:
         message = user_message(data, media_type, task)
 
         async def prompt_stream():
+            # SDK は initialize の後に prompt を読み始める（ここまでが CLI の起動 = wait_ms）。
             # 結果を受け取るまで入力を閉じない（閉じると CLI の制御要求 = SDK MCP・フックに答えられない）
+            stages.mark_sent()
             yield message
             await done.wait()
 
@@ -419,6 +497,7 @@ class Reader:
             with anyio.fail_after(self.timeout):
                 async with contextlib.aclosing(query_fn(prompt=prompt_stream(), options=opts)) as stream:
                     async for m in stream:
+                        stages.feed(m)
                         if collector.feed(m):
                             done.set()
         finally:

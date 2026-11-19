@@ -22,6 +22,9 @@ prompt を読む前に例外（送る前の失敗）。``calls[*]["token_at_send
 中身（federation）。終わり（取り消し・正常の終わり・例外）は ``closed`` に数える。
 
 ResultMessage の使用量・合計額は ``result_usage``・``result_cost``（既定は入力 1,500・出力 300・0.01 USD。#44 の精算）。
+ターンの時間 ``duration_ms`` は 1,300。message を受けたら最初に SystemMessage を返す（本物の CLI のターンの始まり）。
+段の時間（#99）の試験: ``first_delay``・``result_delay``・``close_delay`` 秒（最初の message まで・結果まで・結果から
+終わるまで）。
 
 ``write_tmp`` が真なら、CLI の振る舞い（画像を CLAUDE_CODE_TMPDIR・CLAUDE_CONFIG_DIR・HOME・TMPDIR・XDG の置き場所に
 書く）を真似る。
@@ -86,11 +89,19 @@ DEFAULT_USAGE = {"input_tokens": 1500, "output_tokens": 300}
 DEFAULT_COST = 0.01
 
 
+class SystemMessage:
+    """CLI のターンの始まりの message（本物は subtype = init）"""
+
+    def __init__(self):
+        self.subtype = "init"
+
+
 class ResultMessage:
-    def __init__(self, is_error=False, usage=DEFAULT_USAGE, cost=DEFAULT_COST):
+    def __init__(self, is_error=False, usage=DEFAULT_USAGE, cost=DEFAULT_COST, duration_ms=1300):
         self.is_error = is_error
         self.usage = usage
         self.duration_api_ms = 1200
+        self.duration_ms = duration_ms
         self.total_cost_usd = cost
 
 
@@ -111,6 +122,11 @@ class FakeSdk(types.ModuleType):
         self.startup_fail = False
         self.closed = 0
         self.prompt_errors: list[str] = []
+        # 段の時間の試験（#99）: 画像を受けてから最初の message（SystemMessage）まで・そこから結果まで・結果から
+        # 終わるまでの秒数（CLI の中の時間・CLI が終わるまでの時間の真似）
+        self.first_delay = 0.0
+        self.result_delay = 0.0
+        self.close_delay = 0.0
         self._lock = threading.Lock()
         # ResultMessage の使用量と合計額（#44 の精算の試験。None = 返さない）
         self.result_usage: dict | None = dict(DEFAULT_USAGE)
@@ -152,6 +168,9 @@ class FakeSdk(types.ModuleType):
             self.prompt_errors.append(type(e).__name__)
         if call["message"] is None:  # 何も送られなかった: 入力が閉じて CLI が止まる（結果なし）
             return
+        if self.first_delay:
+            await anyio.sleep(self.first_delay)
+        yield SystemMessage()
         if self.write_tmp:
             self._write_like_cli(options, call["message"])
         if self.script == "raise":
@@ -179,9 +198,13 @@ class FakeSdk(types.ModuleType):
         hook = options.hooks["PreToolUse"][0].hooks[0]
         # tool_input が関数なら、受けた message から結果を作る（同時の要求の取り違えを見分ける。#65）
         tool_input = self.tool_input(call["message"]) if callable(self.tool_input) else self.tool_input
+        if self.result_delay:
+            await anyio.sleep(self.result_delay)
         await hook({"tool_name": cli_name, "tool_input": tool_input}, "toolu_1", None)
         yield AssistantMessage([ToolUseBlock(cli_name, tool_input)])
         yield self._result()
+        if self.close_delay:  # 結果の後、CLI が終わるまで（入力が閉じてから会話を書き出して終わる真似）
+            await anyio.sleep(self.close_delay)
 
     @staticmethod
     def _write_like_cli(options, message):

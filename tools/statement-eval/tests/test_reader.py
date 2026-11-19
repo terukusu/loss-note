@@ -108,6 +108,8 @@ def test_option_kwargs_fixed_values():
     assert kw["tools"] == [] and kw["setting_sources"] == [] and kw["strict_mcp_config"] is True
     assert kw["max_turns"] == 1 and kw["model"] == "claude-sonnet-5-5" and kw["effort"] == "low"
     assert kw["system_prompt"] == prompt.READ_SYSTEM and kw["cwd"] == "/b/cwd"
+    # 道具も API と同じく会話を保存しない（#99。読み取りの結果は変わらない）
+    assert kw["extra_args"] == {"no-session-persistence": None}
 
 
 def test_prompt_explains_both_side_forms():

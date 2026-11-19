@@ -141,8 +141,8 @@ export const READ_TIMEOUT_MS = 30_000;
 export const READ_PATH = '/api/statement-reads';
 /** 読み取りの準備（#65）: 開いたときに 1 回送り、API が明細の読み取りの CLI を先に立てる。応答は使わない */
 export const READ_PREPARE_PATH = '/api/statement-reads/prepare';
-/** 準備の要求の時間の上限（API が待つ上限 20 秒 + 余裕） */
-export const READ_PREPARE_TIMEOUT_MS = 25_000;
+/** 準備の要求の時間の上限（API が待つ上限 = 立ち上がり 20 秒 + 静まり 5 秒（#99）より長く、Cloud Run・gunicorn の 60 秒より短い） */
+export const READ_PREPARE_TIMEOUT_MS = 30_000;
 export const ROWS_DONE = '明細のすべての行を確認しました';
 export const rowSaved = (index: number, total: number) =>
   `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;

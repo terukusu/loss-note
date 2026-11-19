@@ -31,6 +31,13 @@
   最後の 1 つを覚える。読み取りが先立てを使えなかったときは、その理由と時間を ``attempt`` に入れる（``miss``・
   ``origin``・``age_ms`` = 作ってから今まで・``ready_ms`` = 作ってから立ち上がるまで・``end_ms`` = 作ってから
   終わるまで）。時間は ``time.monotonic``（CPU が絞られている間も進む）で数える
+- CPU の無い間に過ぎた起動の上限（ADR-0013 の追記「起動の段の先立ての期限切れを見分ける」）: 起動の段の先立ては、
+  要求が来ないと CPU が絞られて立ち上がりきらず、起動の上限は時計だけで過ぎる。loop は次に CPU が割り当てられた
+  ときに遅れて締め切りを処理するので、締め切りを処理した遅れが ``IDLE_LATE_SECONDS`` 以上なら ``startup_idle``
+  （CPU の無い間に過ぎた）、それより小さければ ``startup_timeout``（CPU があっても上限までに立ち上がらなかった）と
+  分ける。Python の側（準備・読み取り）も、立ち上がっていない slot の起動の上限を時計で確かめ、過ぎていれば
+  捨てる（loop が遅れた締め切りを処理する前に、準備がその slot を待って not_ready で返す・読み取りが取って送る前に
+  失敗するのを避ける。準備は新しい slot を立てる）
 """
 
 import asyncio
@@ -51,6 +58,9 @@ from . import agent_reader as ar
 
 # 取ってから結果を待つ上限に足す余裕（SDK の後始末は最大約 15 秒。ADR-0005 の決定 6）
 CLOSE_MARGIN_SECONDS = 20.0
+# 起動の上限の締め切りの処理がこれ以上遅れたら、CPU の無い間に過ぎたとみなす（startup_idle）。CPU がある間の
+# loop の遅れ（ミリ秒の単位）より十分大きく、要求の無い間（秒〜分の単位）より小さくとる
+IDLE_LATE_SECONDS = 2.0
 # 立ち上がった後の静まり（#99）: SETTLE_STEP 秒ごとに CLI の CPU 時間を測り、SETTLE_WINDOW 秒前との差が
 # SETTLE_QUIET_MS 以下になったら静まったとする（CPU 時間の刻みは 10 ms）。同梱の CLI 2.1.316 は立ち上がった後、
 # 約 0.3・0.6・1.0・1.5 秒の時点で小さな仕事を流し（1.0 秒の時点は止めていた起動の仕事 5 つ。CLI の startupWorkGate の
@@ -103,6 +113,9 @@ class _Job:
 
 # 読み取りに取られずに終わった slot の終わり方（#99 の続き）
 END_STARTUP_TIMEOUT = "startup_timeout"  # 立ち上がる前に起動の上限（作ってから startup 秒）を過ぎた
+# 立ち上がる前に起動の上限を過ぎ、その締め切りを IDLE_LATE_SECONDS 以上遅れて処理した（= 過ぎた時刻に CPU が
+# 割り当てられていなかった。要求の来ない起動の段の先立ての形。ADR-0013 の追記）
+END_STARTUP_IDLE = "startup_idle"
 END_START_FAILED = "start_failed"  # 立ち上がる前に失敗した（例外・CLI が終わった）
 END_EXPIRED = "expired"  # 立ち上がった後、作ってから ttl を過ぎた（loop の締め切り・取るときの時計）
 END_ENDED = "ended"  # 立ち上がった後、取られる前に CLI が自分で終わった
@@ -115,12 +128,15 @@ MISS_CLOSED = "closed"
 
 
 class WarmEnd(NamedTuple):
-    """読み取りに取られずに終わった slot（#99 の続き）。時間はミリ秒。ready_ms は立ち上がらなかったら None"""
+    """読み取りに取られずに終わった slot（#99 の続き）。時間はミリ秒。ready_ms は立ち上がらなかったら None。
+    late_ms は起動の上限を過ぎてから、それを処理するまでの遅れ（loop が締め切りを処理した遅れ、または Python の側が
+    時計で見つけたときの過ぎてからの長さ。起動の上限を過ぎていなければ None。startup_idle の境界を本番で確かめる数）"""
 
     kind: str
     origin: str
     end_ms: float
     ready_ms: float | None
+    late_ms: float | None = None
 
 
 class Prepared(NamedTuple):
@@ -135,8 +151,10 @@ class Prepared(NamedTuple):
 class _Slot:
     """先立て 1 つ。Python の側（lock の下）と loop の側で分けて触る"""
 
-    def __init__(self, expires_at: float, origin: str):
+    def __init__(self, expires_at: float, startup_at: float, origin: str):
         self.expires_at = expires_at  # 時計（clock）の値
+        self.startup_at = startup_at  # 起動の上限（時計の値。立ち上がる前だけ意味を持つ）
+        self.startup_late: float | None = None  # loop が起動の上限の締め切りを処理した遅れ（秒）
         self.origin = origin  # startup / prepare（#99 の続き）
         self.created_mono = time.monotonic()
         self.ready_mono: float | None = None
@@ -295,9 +313,11 @@ class WarmPool:
                 info["miss"] = slot.discard_kind or END_START_FAILED
                 self._describe(slot, info)
                 return None
-            if self._clock() >= slot.expires_at:
-                self._discard_locked(slot, END_EXPIRED)
-                info["miss"] = END_EXPIRED
+            stale = self._stale_start_locked(slot)
+            if stale is not None or self._clock() >= slot.expires_at:
+                kind = stale or END_EXPIRED
+                self._discard_locked(slot, kind)
+                info["miss"] = kind
                 self._describe(slot, info)
                 return None
             if slot.ready.is_set() and not slot.ok:
@@ -392,23 +412,43 @@ class WarmPool:
             if slot is not None:
                 usable = not (slot.taken or slot.cancelled or slot.finished.is_set()) and not (
                     slot.ready.is_set() and not slot.ok)
-                if usable and self._clock() < slot.expires_at:
+                stale = self._stale_start_locked(slot) if usable else None
+                if usable and stale is None and self._clock() < slot.expires_at:
                     return slot
-                self._discard_locked(slot, END_EXPIRED)
+                self._discard_locked(slot, stale or END_EXPIRED)
             if self._loop is None:
                 self._loop = asyncio.new_event_loop()
                 self._thread = threading.Thread(target=self._loop.run_forever, name="statement-read-warm",
                                                 daemon=True)
                 self._thread.start()
                 atexit.register(self.close)
-            slot = _Slot(self._clock() + self.ttl, origin)
+            now = self._clock()
+            slot = _Slot(now + self.ttl, now + self.startup, origin)
             self._slot = slot
             self._active.add(slot)
             asyncio.run_coroutine_threadsafe(self._run(slot), self._loop)
             return slot
 
+    def _stale_start_locked(self, slot: _Slot) -> str | None:
+        """立ち上がっていない slot の起動の上限が過ぎていれば、その終わり方。過ぎていなければ None（lock の下で呼ぶ）。
+        loop が締め切りを処理済み（``startup_late`` がある）なら、その遅れで決める（時間どおりに処理して CLI の後始末の
+        途中なら、CPU があって間に合わなかった ``startup_timeout`` のまま。後から来た要求が ``startup_idle`` に
+        上書きしない）。loop がまだ処理していなければ、時計で過ぎてからの長さで決め（IDLE_LATE_SECONDS 以上 = loop が
+        締め切りを処理できなかった = CPU の無い間に過ぎた ``startup_idle``、それより短ければ ``startup_timeout``）、
+        その長さを ``startup_late`` に入れる（ログの ``late_ms``）"""
+        if slot.ok or slot.ready.is_set():
+            return None
+        late = slot.startup_late
+        if late is None:
+            late = self._clock() - slot.startup_at
+            if late < 0:
+                return None
+            slot.startup_late = late
+        return END_STARTUP_IDLE if late >= IDLE_LATE_SECONDS else END_STARTUP_TIMEOUT
+
     def _discard_locked(self, slot: _Slot, kind: str) -> None:
-        """slot を捨てる（lock の下で呼ぶ）。取り消しは loop の側で。kind は終わり方（expired / closed）"""
+        """slot を捨てる（lock の下で呼ぶ）。取り消しは loop の側で。kind は終わり方（expired / closed /
+        startup_timeout / startup_idle）"""
         if slot.discard_kind is None:
             slot.discard_kind = kind
         slot.cancelled = True
@@ -424,15 +464,19 @@ class WarmPool:
             kind = slot.discard_kind
         elif slot.ok:
             kind = END_EXPIRED if deadline_hit else END_ENDED
+        elif deadline_hit:
+            late = slot.startup_late
+            kind = END_STARTUP_IDLE if late is not None and late >= IDLE_LATE_SECONDS else END_STARTUP_TIMEOUT
         else:
-            kind = END_STARTUP_TIMEOUT if deadline_hit else END_START_FAILED
+            kind = END_START_FAILED
         return WarmPool._end_with(slot, kind)
 
     @staticmethod
     def _end_with(slot: "_Slot", kind: str) -> WarmEnd:
         ready_ms = (None if slot.ready_mono is None
                     else round((slot.ready_mono - slot.created_mono) * 1000, 1))
-        return WarmEnd(kind, slot.origin, round((time.monotonic() - slot.created_mono) * 1000, 1), ready_ms)
+        late_ms = None if slot.startup_late is None else round(slot.startup_late * 1000, 1)
+        return WarmEnd(kind, slot.origin, round((time.monotonic() - slot.created_mono) * 1000, 1), ready_ms, late_ms)
 
     # ── loop の側 ──
 
@@ -480,8 +524,17 @@ class WarmPool:
         collector: ar.Collector | None = None
         outcome: ar.ReadOutcome | None = None
         deadline_hit = False  # 締め切り（起動の上限・ttl）で取り消した（#99 の続き）
+        startup_due = created + self.startup
+
+        def mark_startup_due():
+            # 起動の上限の締め切りと同じ時刻に置く印。loop が実際に処理した時刻との差 = 締め切りの処理の遅れ
+            # （CPU が絞られていると、次に CPU が割り当てられるまで遅れる。ADR-0013 の追記）
+            if not slot.ok and slot.startup_late is None:  # Python の側が先に捨てたときは、その印のまま
+                slot.startup_late = loop.time() - startup_due
+
+        due_handle = loop.call_at(startup_due, mark_startup_due)
         try:
-            with anyio.CancelScope(deadline=created + self.startup) as scope:
+            with anyio.CancelScope(deadline=startup_due) as scope:
                 slot.scope = scope
                 if slot.cancelled and slot.job is None:
                     scope.cancel()
@@ -556,6 +609,7 @@ class WarmPool:
         except Exception as e:  # noqa: BLE001 - 型の名前だけを返す。送る前の失敗は None（その場で立て直す）
             outcome = ar.ReadOutcome(result=None, seconds=None, error=type(e).__name__) if slot.sent else None
         finally:
+            due_handle.cancel()
             if slot.base is not None:
                 shutil.rmtree(slot.base, ignore_errors=True)
             end: WarmEnd | None = None

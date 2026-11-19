@@ -643,6 +643,108 @@ def test_startup_timeout_is_marked(make_pool):
     assert "ready_ms" not in attempt and "taken" not in attempt
 
 
+def test_startup_deadline_handled_late_is_idle(make_pool, monkeypatch):
+    # 起動の段の先立てが、CPU の無い間に起動の上限を過ぎた形（ADR-0013 の追記）: loop が止まっている間に締め切りが
+    # 過ぎ、遅れて処理される → startup_idle（CPU があって上限までに立ち上がらなかった startup_timeout と分ける）
+    monkeypatch.setattr(warm, "IDLE_LATE_SECONDS", 0.3)
+    ends = Ends()
+    pool = make_pool(FakeCli(startup=5.0), startup=0.2, on_end=ends)
+    assert pool.start() is True
+    slot = pool._slot
+    wait_for(lambda: slot.base is not None)  # task が始まり、起動の上限の締め切りを置いた
+    pool._loop.call_soon_threadsafe(time.sleep, 1.0)  # loop を 1 秒止める（CPU が絞られた真似）
+    wait_for(lambda: len(ends.got) == 1)
+    end = ends.got[0]
+    assert end.kind == warm.END_STARTUP_IDLE and end.origin == "startup" and end.ready_ms is None
+    assert end.end_ms >= 1000 and end.late_ms >= 300  # loop が締め切りを処理した遅れ（ログの warm_late_ms）
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_STARTUP_IDLE and attempt["origin"] == "startup"
+
+
+@pytest.mark.parametrize(("past", "kind"), [(25.0, warm.END_STARTUP_IDLE), (20.5, warm.END_STARTUP_TIMEOUT)])
+def test_prepare_replaces_slot_past_startup_by_clock(make_pool, past, kind):
+    # loop が遅れた締め切りを処理する前に準備が来ても、起動の上限を時計で過ぎた立ち上げ中の slot は待たずに捨て、
+    # 新しい slot を立てる（古い slot を待って not_ready で返さない）。捨てた slot の終わり方は過ぎてからの長さで分ける
+    clock = Clock()
+    ends = Ends()
+    cli = FakeCli(startup=0.5)
+    pool = make_pool(cli, clock=clock, startup=20.0, on_end=ends)
+    assert pool.start() is True
+    clock.t += past
+    assert pool.prepare(5) is True
+    assert len(cli.spawned) == 2
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == kind and ends.got[0].origin == "startup"
+    assert ends.got[0].late_ms == pytest.approx((past - 20.0) * 1000)  # 時計で見つけたときの過ぎてからの長さ
+
+
+def test_read_does_not_take_slot_past_startup_by_clock(make_pool):
+    # 読み取りも、起動の上限を時計で過ぎた立ち上げ中の slot を取らない（取っても loop が取り消して cold_retry になる）
+    clock = Clock()
+    ends = Ends()
+    cli = FakeCli(startup=5.0)
+    pool = make_pool(cli, clock=clock, startup=20.0, on_end=ends)
+    assert pool.start() is True
+    clock.t += 60
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_STARTUP_IDLE and attempt["origin"] == "startup" and "taken" not in attempt
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == warm.END_STARTUP_IDLE
+    assert all(r["message"] is None for r in cli.spawned)
+
+
+def test_read_past_startup_by_clock_shortly_is_timeout(make_pool):
+    # 読み取りの道でも、上限を過ぎて IDLE_LATE_SECONDS 未満なら startup_timeout（CPU があって間に合わなかった）
+    clock = Clock()
+    ends = Ends()
+    cli = FakeCli(startup=5.0)
+    pool = make_pool(cli, clock=clock, startup=20.0, on_end=ends)
+    assert pool.start() is True
+    clock.t += 21.0
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_STARTUP_TIMEOUT and "taken" not in attempt
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == warm.END_STARTUP_TIMEOUT and ends.got[0].late_ms == pytest.approx(1000)
+
+
+@pytest.mark.parametrize("path", ["prepare", "read"])
+def test_loop_handled_deadline_on_time_keeps_timeout(make_pool, path):
+    # レビューの指摘 1: loop が起動の上限を時間どおりに処理した（CPU があって間に合わなかった）slot は、CLI の後始末の
+    # 途中に上限から 2 秒以上たって要求が来ても startup_idle に上書きしない
+    clock = Clock()
+    ends = Ends()
+    cli = FakeCli(startup=5.0)
+    pool = make_pool(cli, clock=clock, startup=20.0, on_end=ends)
+    assert pool.start() is True
+    slot = pool._slot
+    slot.startup_late = 0.004  # loop が時間どおりに処理した印（後始末の途中で、まだ cancelled・finished でない）
+    clock.t += 25.0
+    if path == "prepare":
+        cli.startup = 0.0
+        assert pool.prepare(5) is True and len(cli.spawned) == 2
+    else:
+        attempt: dict = {}
+        assert pool.read(PNG, "image/png", attempt=attempt) is None
+        assert attempt["miss"] == warm.END_STARTUP_TIMEOUT
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == warm.END_STARTUP_TIMEOUT and ends.got[0].late_ms == pytest.approx(4.0)
+
+
+def test_slot_ready_before_startup_limit_is_not_stale(make_pool):
+    # 立ち上がった slot は起動の上限を過ぎても捨てない（期限は ttl）
+    clock = Clock()
+    cli = FakeCli()
+    pool = make_pool(cli, clock=clock, startup=20.0, ttl=600)
+    assert pool.prepare(5) is True
+    clock.t += 60
+    assert pool.prepare(5) is True and len(cli.spawned) == 1
+    o = pool.read(PNG, "image/png")
+    assert o is not None and o.error is None
+
+
 def test_ttl_in_loop_is_expired_with_ready_ms(make_pool):
     ends = Ends()
     pool = make_pool(FakeCli(), ttl=0.3, on_end=ends)

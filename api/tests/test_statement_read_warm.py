@@ -290,9 +290,11 @@ def test_taken_slot_failing_before_send_falls_back(make, sdk, capfd):
     capfd.readouterr()
     res = w.read()
     assert res.status_code == 200
-    # #99: 先立てを取ったが送る前に失敗した回は cold_retry。wait_ms は先立てを取った時刻から（先立ての 0.3 秒を含む）
+    # #99: 先立てを取ったが送る前に失敗した回は cold_retry。wait_ms は先立てを取った時刻から（先立ての 0.3 秒のうち、
+    # 取った後の残りを含む）
     (log,) = read_logs(capfd)
-    assert log["cli"] == "cold_retry" and log["wait_ms"] >= 300
+    # 偽の先立ての 0.3 秒は取るより前に数え始めるので、取るまでの要求の処理の分だけ短く見える（負荷で揺れない幅をとる）
+    assert log["cli"] == "cold_retry" and log["wait_ms"] >= 250
     assert log["read_ms"] >= log["wait_ms"] + log["result_ms"] + log["close_ms"] - 1
     assert len(sdk.calls) == calls_before + 1
     assert sum(1 for c in sdk.calls if c["message"] is not None) == 1
@@ -555,9 +557,76 @@ def test_unused_startup_slot_logs_end_and_read_reason(make, sdk, capfd, monkeypa
     (end,) = read_logs(capfd, event="statement_read_warm_end")
     assert end["warm"] == "startup_timeout" and end["warm_from"] == "startup"
     assert end["warm_end_ms"] >= 200 and "warm_ready_ms" not in end
-    assert set(end) == {"event", "warm", "warm_from", "warm_end_ms"}
+    assert set(end) == {"event", "warm", "warm_from", "warm_end_ms", "warm_late_ms"}
+    # CPU がある間に過ぎた締め切りは、loop が時間どおりに処理する（遅れは IDLE_LATE_SECONDS より小さい）
+    assert 0 <= end["warm_late_ms"] < 2000
     sdk.startup_delay = 0.0
     assert w.read().status_code == 200
     (log,) = read_logs(capfd)
     assert log["cli"] == "cold" and log["warm"] == "startup_timeout" and log["warm_from"] == "startup"
     assert log["warm_age_ms"] >= log["warm_end_ms"] >= 200
+
+
+def test_startup_slot_past_limit_without_cpu_logs_idle(make, sdk, capfd, monkeypatch):
+    # 起動の段の先立てが、要求の来ない間（CPU が絞られた間）に起動の上限を過ぎた形（ADR-0013 の追記）。loop が締め切りを
+    # 処理する前に読み取りが来ても取らずにその場で立て、印は startup_idle（CPU があって間に合わなかった
+    # startup_timeout と分ける）
+    import time
+
+    sdk.startup_delay = 5.0
+    w = make()
+    assert w.pool.start()  # 起動の段と同じ（待たない）
+    real = w.pool._clock
+    # 時計だけが 60 秒進んだ（loop はまだ締め切りを処理していない）
+    monkeypatch.setattr(w.pool, "_clock", lambda: real() + 60)
+    deadline = time.monotonic() + 5
+    while not sdk.calls and time.monotonic() < deadline:  # 先立ての CLI が起動の途中（5 秒眠っている）
+        time.sleep(0.01)
+    time.sleep(0.05)
+    sdk.startup_delay = 0.0  # その場で立てる CLI はすぐ立ち上がる
+    capfd.readouterr()
+    assert w.read().status_code == 200
+    while w.pool._active and time.monotonic() < deadline:  # 捨てた先立ての後始末（終わりの印）を待つ
+        time.sleep(0.02)
+    _out, err = capfd.readouterr()
+    lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
+    (log,) = [ln for ln in lines if ln.get("event") == "statement_read"]
+    assert log["cli"] == "cold" and log["warm"] == "startup_idle" and log["warm_from"] == "startup"
+    (end,) = [ln for ln in lines if ln.get("event") == "statement_read_warm_end"]
+    assert end["warm"] == "startup_idle" and end["warm_from"] == "startup" and "warm_ready_ms" not in end
+    assert end["warm_late_ms"] >= 40_000  # 起動の上限（20 秒）を過ぎてから見つけるまで（時計が 60 秒進んだ）
+    assert set(end) == {"event", "warm", "warm_from", "warm_end_ms", "warm_late_ms"}
+    assert sum(1 for c in sdk.calls if c["message"] is not None) == 1
+
+
+def test_prepare_replaces_startup_slot_past_limit(make, sdk, capfd, monkeypatch):
+    # ADR-0013 の追記の結果 2: 起動の上限を過ぎた起動の段の先立てがあっても、準備は待たずに新しい先立てを立てて
+    # ready = true（not_ready にならない）
+    import time
+
+    sdk.startup_delay = 5.0
+    w = make()
+    assert w.pool.start()  # 起動の段と同じ（待たない）
+    deadline = time.monotonic() + 5
+    while not sdk.calls and time.monotonic() < deadline:
+        time.sleep(0.01)
+    time.sleep(0.05)
+    real = w.pool._clock
+    monkeypatch.setattr(w.pool, "_clock", lambda: real() + 60)
+    sdk.startup_delay = 0.0
+    capfd.readouterr()
+    assert w.prepare().get_json() == {"ready": True}
+    assert len(sdk.calls) == 2 and all(c["message"] is None for c in sdk.calls)
+    deadline = time.monotonic() + 5
+    while len(w.pool._active) > 1 and time.monotonic() < deadline:  # 捨てた先立ての後始末（終わりの印）を待つ
+        time.sleep(0.02)
+    _out, err = capfd.readouterr()
+    lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
+    (prep,) = [ln for ln in lines if ln.get("event") == "statement_read_prepare"]
+    assert prep["reason"] == "ok"
+    (end,) = [ln for ln in lines if ln.get("event") == "statement_read_warm_end"]
+    assert end["warm"] == "startup_idle" and end["warm_from"] == "startup"
+    # 新しい先立て（準備）を読み取りが使う
+    assert w.read().status_code == 200
+    (log,) = read_logs(capfd)
+    assert log["cli"] == "warm" and log["warm_from"] == "prepare"

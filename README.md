@@ -2,7 +2,7 @@
 
 トレードの **損失ノート** です。売買を記録し、エントリーの時点で決めたこと（根拠・LC・TP・数量）と実際の決済を比べて、「同じ負け方を繰り返さない」ための振り返りを助けます。
 
-画面に出るアプリの名前は「損失ノート」です（リポジトリ・コード・URL の名前は loss-note）。アイコンは `ui/public/` にあり、元の `favicon.svg` を直したら `node scripts/make-icons.mjs` で `favicon.ico` と `apple-touch-icon.png` を作り直します（手元の Playwright の Chromium を使います）。
+画面に出るアプリの名前は「損失ノート」です（リポジトリ・コード・URL の名前は loss-note）。アイコンは `ui/public/` にあり、元の `favicon.svg` を直したら `node scripts/make-icons.mjs` で `favicon.ico`・`apple-touch-icon.png` と、ホーム画面に追加したときのアイコン（`icon-192.png`・`icon-512.png`・`icon-maskable-192.png`・`icon-maskable-512.png`）を作り直します（手元の Playwright の Chromium を使います）。スマホのブラウザの [ホーム画面に追加]（Android の Chrome は [アプリをインストール]）で、アドレスバーの無い窓で開けます（`ui/public/manifest.webmanifest`。オフラインでは使えません）。その窓でログインできない・ログインの画面から戻ってこないときは、窓を一度閉じ、Safari（Android は Chrome）のタブで開けば今までどおり使えます。
 
 いまは開発の土台（画面のデザインの土台と各画面の骨組み、ログイン、記録の API（取引・銘柄・設定）、確認コマンド、手元で動かす手順）と、記録する画面（決済明細のスクショを貼るか手で入れて、LC・3 つのタップを入れると、判定・理由・R がその場で出て保存されます）があります。設計は [`docs/design.md`](docs/design.md) にあります。
 

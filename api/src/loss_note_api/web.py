@@ -10,6 +10,9 @@
 - ヘッダ（R3）: CSP の土台と ``nosniff``・``no-referrer`` をすべての応答に付ける。CSP は指示 → 値の辞書
   （``BASE_CSP``）と純関数 ``build_csp`` で組み立てる。ログインに要る許可（#43）は ``build_csp`` の
   ``extra`` で足す（ここには値を持たない）
+- ホーム画面に追加（#77・ADR-0018）: manifest と manifest のアイコンを直下の決まった名前（``ROOT_FILES``）で配り、
+  CSP に ``manifest-src 'self'`` を持つ。サービスワーカーは置かないので ``worker-src`` は足さない
+  （``default-src 'none'`` のまま止める）
 - ログインの許可（#43・ADR-0003「縦切り 2 で決めたこと」）: Google ログインのポップアップが使う 4 つだけを
   ``login_csp_extra`` で足す（gapi の script・authDomain の iframe・Identity Toolkit と Secure Token の API）。
   authDomain は環境変数 ``FIREBASE_AUTH_DOMAIN`` から受け、ホスト名の形だけを通す（``valid_auth_domain``）
@@ -26,13 +29,15 @@ from loss_note_api.runtime import StartupRefused
 STATIC_DIR_VAR = "STATIC_DIR"
 AUTH_DOMAIN_VAR = "FIREBASE_AUTH_DOMAIN"
 
-# R3 の 8 つの指示（順は固定。default-src を先頭に）。画面は同じオリジンの同梱ファイルと /api だけを使う
+# R3 の 8 つの指示と manifest-src（#77）。順は固定（default-src を先頭に）。
+# 画面は同じオリジンの同梱ファイルと /api だけを使う
 BASE_CSP: Mapping[str, tuple[str, ...]] = {
     "default-src": ("'none'",),
     "script-src": ("'self'",),
     "style-src": ("'self'",),
     "img-src": ("'self'",),
     "connect-src": ("'self'",),
+    "manifest-src": ("'self'",),
     "base-uri": ("'none'",),
     "form-action": ("'none'",),
     "frame-ancestors": ("'none'",),
@@ -50,10 +55,22 @@ _AUTH_DOMAIN = re.compile(rf"^{_LABEL}(?:\.{_LABEL})+$")
 INDEX_CACHE = "no-cache"
 ASSET_CACHE = "public, max-age=31536000, immutable"
 
-# 置き場の直下で配るアイコン（ui/public/ から dist の直下に入る。名前にハッシュが無いので 1 日だけ持たせる。#52）。
-# ブラウザ・iOS は link が無くても /favicon.ico・/apple-touch-icon.png を取りに来るので、index.html に戻さない
-ROOT_FILES = ("favicon.ico", "favicon.svg", "apple-touch-icon.png")
+# 置き場の直下で配るアイコンと manifest（ui/public/ から dist の直下に入る。名前にハッシュが無いので
+# 1 日だけ持たせる。#52・#77）。ブラウザ・iOS は link が無くても /favicon.ico・/apple-touch-icon.png を
+# 取りに来るので、index.html に戻さない
+ROOT_FILES = (
+    "favicon.ico",
+    "favicon.svg",
+    "apple-touch-icon.png",
+    "manifest.webmanifest",
+    "icon-192.png",
+    "icon-512.png",
+    "icon-maskable-192.png",
+    "icon-maskable-512.png",
+)
 ROOT_FILE_CACHE = "public, max-age=86400"
+# 拡張子から決まらない（Python の mimetypes が知らない）ものだけ Content-Type を決める
+ROOT_FILE_TYPES: Mapping[str, str] = {"manifest.webmanifest": "application/manifest+json"}
 
 # ヘッダの区切り（; ,）・改行・空白を値に入れない（指示を足す・壊すことを防ぐ）
 _FORBIDDEN_IN_VALUE = (";", ",", "\n", "\r", " ", "\t")
@@ -138,7 +155,7 @@ def register_static(app: Flask, static_dir: str) -> StaticSite:
 
     def root_file(name: str):
         # 名前は ROOT_FILES の決まった値だけ。置き場に無ければ NotFound（→ 404 の JSON。index.html に戻さない）
-        res = send_from_directory(root, name)
+        res = send_from_directory(root, name, mimetype=ROOT_FILE_TYPES.get(name))
         res.headers["Cache-Control"] = ROOT_FILE_CACHE
         return res
 

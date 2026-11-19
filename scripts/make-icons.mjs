@@ -4,7 +4,10 @@
 //   favicon.ico          … 16・32・48px の PNG を入れた ICO（古いブラウザ向け。本番は /favicon.ico で配る。
 //                          16px だけは線を太く・折れ線を単純にした版から描く）
 //   apple-touch-icon.png … 180×180（iPhone のホーム画面。iOS が角を丸めるので、角丸を外した不透明な四角）
-// SVG を直したら流し直して、3 つのファイルを一緒にコミットする
+//   icon-192.png・icon-512.png … manifest の通常の形（purpose any。SVG のまま角丸・角は透過。PC のアプリの一覧など。#77）
+//   icon-maskable-192.png・icon-maskable-512.png … manifest のマスクできる形（purpose maskable。角丸を外した不透明な四角。
+//                          端末が丸・角丸に切り抜くので、印の線は中心から幅の 40% の円の中に収める = tests/ui/pwa.test.ts が見る）
+// SVG を直したら流し直して、7 つのファイルを一緒にコミットする
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,7 +71,13 @@ try {
     icons.push({ size, png: await render(page, size === 16 ? small : svg, size, true) });
   writeFileSync(join(pub, 'favicon.ico'), buildIco(icons));
   writeFileSync(join(pub, 'apple-touch-icon.png'), await render(page, square, 180, false));
-  console.log('ui/public/favicon.ico・apple-touch-icon.png を書き出しました');
+  for (const size of [192, 512]) {
+    writeFileSync(join(pub, `icon-${size}.png`), await render(page, svg, size, true));
+    writeFileSync(join(pub, `icon-maskable-${size}.png`), await render(page, square, size, false));
+  }
+  console.log(
+    'ui/public/favicon.ico・apple-touch-icon.png・icon-{192,512}.png・icon-maskable-{192,512}.png を書き出しました',
+  );
 } finally {
   await browser.close();
 }

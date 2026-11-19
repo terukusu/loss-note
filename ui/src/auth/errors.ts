@@ -17,8 +17,9 @@ export const SIGN_OUT_FAILED = 'ログアウトできませんでした。もう
 export function loginErrorMessage(code: string | undefined): string | null {
   if (code && UNREACHABLE.has(code)) return 'ログインのサービスと通信できませんでした';
   if (code && CANCELLED.has(code)) return null;
+  // ホーム画面から開いた窓（standalone）では許可の設定が無いことがあるので、ブラウザで開く逃げ道も案内する（#77・ADR-0018）
   if (code === 'auth/popup-blocked')
-    return 'ポップアップがブロックされました。ブラウザでポップアップを許可して、もう一度押してください';
+    return 'ポップアップがブロックされました。ブラウザでポップアップを許可して、もう一度押してください。ホーム画面から開いたときは、Safari・Chrome などのブラウザでこのページを開いてログインしてください';
   if (code === 'app/unavailable') return UNAVAILABLE;
   return 'ログインできませんでした';
 }

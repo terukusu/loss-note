@@ -257,10 +257,10 @@ U=$(gcloud run services describe loss-note --region=$L --project="$P" --format='
 for p in / /trades/abc123 /api/health; do curl -s -o /dev/null -w '%{http_code}\n' "$U$p"; done       # 200 200 200
 curl -s -o /dev/null -w '%{http_code}\n' "$U/api/trades"                                             # 401（トークンなし）
 curl -s -o /dev/null -w '%{http_code}\n' "$U/api/nope"                                               # 404
-# CSP の指示（9）: 土台の 6 つと、Google ログインの許可を足した script-src・connect-src・frame-src（#43。authDomain は伏せる）
+# CSP の指示（10）: 土台の 7 つ（manifest-src は #77）と、Google ログインの許可を足した script-src・connect-src・frame-src（#43。authDomain は伏せる）
 AD=$(mise exec -- terraform -chdir=infra/bootstrap output -json firebase_web_config | jq -r .auth_domain)   # 表示しない
 curl -sI "$U/" | tr -d '\r' | grep -i '^content-security-policy:' | sed 's/^[^:]*: *//' | sed "s/$AD/<AUTH_DOMAIN>/g" | tr ';' '\n' | sed 's/^ *//' \
-  | grep -cxE "default-src 'none'|script-src 'self' https://apis.google.com|style-src 'self'|img-src 'self'|connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com|base-uri 'none'|form-action 'none'|frame-ancestors 'none'|frame-src https://<AUTH_DOMAIN>"
+  | grep -cxE "default-src 'none'|script-src 'self' https://apis.google.com|style-src 'self'|img-src 'self'|connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com|manifest-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'|frame-src https://<AUTH_DOMAIN>"
 curl -sI "$U/" | tr -d '\r' | grep -ciE '^(x-content-type-options: nosniff|referrer-policy: no-referrer)$'
 # 100% を受けるリビジョンのイメージの digest の先頭 12 文字（run の Summary と同じ）
 gcloud run services describe loss-note --region=$L --project="$P" --format='value(spec.template.spec.containers[0].image)' | sed -E 's/.*@sha256:(.{12}).*/\1/'

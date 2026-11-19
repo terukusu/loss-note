@@ -642,11 +642,11 @@ Cloud Run（1 つのサービス）
 | CI / CD | GitHub Actions、Workload Identity Federation、Environment `prod` の承認 | |
 | Cloud Run のインスタンス | 最小 0・最大 2（変数で 1〜10）。実行用 SA（`sa-loss-note`。データのロールは `roles/datastore.user` だけ）で動き、イメージは digest で指す。未認証の呼び出しを受ける（ログイン前の画面は公開。記録の API はトークン必須） | 費用優先。利用者はオーナー 1 人で、公開の URL への想定外の要求でも費用の上限が効く |
 | コールドスタート | 起動時の CPU ブーストを有効にし、API は起動の段（要求を受ける前）で準備を済ませる: Firestore のクライアントを作って存在しない決まった文書 `warmup/ping` を 1 件読む（書かない）・ID トークンの検証器を作って公開鍵を 1 回取る・読み取りの SDK を読み込む。失敗しても起動は止めず、最初の要求で作り直す。準備の結果と時間はログの `warmup` の行に出す（#60）。明細の読み取りの CLI は、起動の段と記録する画面を開いたときの準備の要求で 1 つ先に立て、準備の要求は立ち上がった後の CLI の残りの起動の仕事が静まるまで（最大 5 秒）待ってから返す。読み取りのログには段ごとの時間を出す（#65・#99・ADR-0013）。最小 1 台・CPU の常時割り当ては、本番で測り直して足りないときに費用と一緒に決める | 最小 0 台では開くたびにほぼ毎回起動に当たり、最初の要求がそろって初期化を待っていた（#60 の実測で約 1.5 秒）。費用を変えずに、その時間を CPU ブーストの効く起動の段に移す |
-| 配信 | 画面のビルド成果物と API を 1 つのイメージ・1 つの Cloud Run で配る（同じオリジン）。`/api`・`/api/…` は API だけ（無い入口は API の 404 の JSON）、`/assets/…` はビルド成果物だけ（無ければ 404・`immutable`）、直下のアイコン（`/favicon.ico`・`/favicon.svg`・`/apple-touch-icon.png`）は置き場のファイルだけ（1 日のキャッシュ。無ければ 404 の JSON。#52）、それ以外の GET / HEAD は `index.html`（`no-cache`）。戻しは 404 の扱いの中で行う（ADR-0009） | 1 つの URL で画面も API も動き、どの画面の URL を直接開いても同じ画面に着く |
-| 配信のヘッダ | すべての応答に CSP の土台（`default-src 'none'`・`script-src`・`style-src`・`img-src`・`connect-src` は `'self'`・`base-uri`・`form-action`・`frame-ancestors` は `'none'`）と `nosniff`・`no-referrer`。署名を検証する起動で authDomain（`FIREBASE_AUTH_DOMAIN`）があれば、Google ログインのポップアップの 4 つ（`script-src https://apis.google.com`・`connect-src` の Identity Toolkit と Secure Token・`frame-src https://<authDomain>`）を足す（C40） | XSS の被害を抑える層を本番に出す時点で持つ |
+| 配信 | 画面のビルド成果物と API を 1 つのイメージ・1 つの Cloud Run で配る（同じオリジン）。`/api`・`/api/…` は API だけ（無い入口は API の 404 の JSON）、`/assets/…` はビルド成果物だけ（無ければ 404・`immutable`）、直下のアイコン（`/favicon.ico`・`/favicon.svg`・`/apple-touch-icon.png`）と、ホーム画面に追加する manifest（`/manifest.webmanifest`）とそのアイコン 4 つ（`/icon-192.png`・`/icon-512.png`・`/icon-maskable-192.png`・`/icon-maskable-512.png`）は置き場のファイルだけ（1 日のキャッシュ。無ければ 404 の JSON。#52・#77）、それ以外の GET / HEAD は `index.html`（`no-cache`）。戻しは 404 の扱いの中で行う（ADR-0009）。サービスワーカーは置かない（ADR-0018） | 1 つの URL で画面も API も動き、どの画面の URL を直接開いても同じ画面に着く |
+| 配信のヘッダ | すべての応答に CSP の土台（`default-src 'none'`・`script-src`・`style-src`・`img-src`・`connect-src`・`manifest-src`（#77）は `'self'`・`base-uri`・`form-action`・`frame-ancestors` は `'none'`）と `nosniff`・`no-referrer`。署名を検証する起動で authDomain（`FIREBASE_AUTH_DOMAIN`）があれば、Google ログインのポップアップの 4 つ（`script-src https://apis.google.com`・`connect-src` の Identity Toolkit と Secure Token・`frame-src https://<authDomain>`）を足す（C40） | XSS の被害を抑える層を本番に出す時点で持つ |
 | デプロイ | main へのマージ → CI の check の成功 → plan → 差分があるときだけ Environment `prod` の承認 → イメージのビルド・検査・push → digest で apply（`.github/workflows/deploy.yml`）。apply は 1 度に 1 つ | 承認者が赤いビルドを承認しても本番に出ない。変えた物だけを出す |
 | 切り戻し | 前のリビジョンへトラフィックを 100% 戻す。GitHub から Environment `prod` の承認つき（`.github/workflows/rollback.yml`）か手元の gcloud。データには触れない。次の deploy で最新に戻る（`infra/README.md`「切り戻し」） | オーナーはスマホから使うので、手元の gcloud が無い場面でも戻せる |
-| 画面の URL | History API（`/trades/<id>` の形）。本番の静的配信は `/api`・`/assets` の配下と直下のアイコン以外の知らないパスに `index.html` を返す | どの画面にも URL があり、戻る・再読み込み・直接開くで迷わない（ADR-0002・C35） |
+| 画面の URL | History API（`/trades/<id>` の形）。本番の静的配信は `/api`・`/assets` の配下と直下のアイコン・manifest 以外の知らないパスに `index.html` を返す | どの画面にも URL があり、戻る・再読み込み・直接開くで迷わない（ADR-0002・C35） |
 
 ### 10.1 セキュリティとプライバシー
 
@@ -730,6 +730,7 @@ Cloud Run（1 つのサービス）
 
 ## 変更履歴
 
+- 2026-11-19: #77（ホーム画面に追加して開ける）で、10 章「配信」に manifest とアイコン 4 つ、「配信のヘッダ」に `manifest-src 'self'` を足した。サービスワーカーは置かない（ADR-0018）
 - 2026-11-19: #80（個人の値がリポジトリに無いことを CI で検査する）で、10.1 に検査の行を足した
 - 2026-11-19: #88（ホームで期間を選んで規律と成績を図で見る）で、6.1 の計画どおり率の分母を判定の出た取引に直し（5 件未満の判断も同じ件数・100% / 0% の出し方）、C44（集計は画面の判定の計算・API は決済の時刻の範囲で絞るだけ・期間の数え方と URL・取り込みの既定）を足し（範囲の応答の件数の上限 2,000 件・ADR-0016 との関係を含む）、6.2 に置き換えるのは −1.0R より小さい B・C だけ・R が出ない取引は曲線に入れない・計画どおりの累積は実際を下回らない（差の面の向き）・曲線の横軸・一言の順（主役は「崩れで −◯◯R」、2 行目に守っていれば · 実際。曲線の外の取引がある差 0 の期間は「R で測れる崩れ」）を書き足し、9.2 のホームの行を規律の振り返りに直した
 - 2026-11-19: #74（画面の言葉を一般的なアプリの言葉と相場の用語にそろえる）で、9.1 に「画面の言葉は ui-guidelines 8 章の用語集が正・設計書は内部の呼び名」を足した

@@ -19,11 +19,15 @@ logger = logging.getLogger("loss_note_api")
 # fromSettings・history = 既定の口座を設定から作ったか（真偽）と、写した資金の履歴の件数（#47。値・名前を出さない）
 # profile = 明細の特徴の覚えを読んだ結果（hit / miss / none / unavailable の決まった語だけ。鍵・会社の名前・口座を
 # 出さない。#66）
+# warm = 明細の読み取りが先立てを使えなかった理由と、取られずに終わった先立ての終わり方（statement_read.warm の決まった
+# 語だけ）、warm_from = 先立ての出どころ（startup / prepare）、warm_age_ms・warm_ready_ms・warm_end_ms = 先立てを作って
+# から今・立ち上がるまで・終わるまで（ミリ秒の数だけ。#99 の続き）
 _ALLOWED_KEYS = frozenset(
     {"event", "method", "route", "status", "ms", "exc", "reason", "rows",
      "store_ms", "auth_ms", "sdk_ms", "cli_ms", "limit_ms", "token_ms", "read_ms", "api_ms", "cli",
      "wait_ms", "first_ms", "result_ms", "turn_ms", "close_ms", "settle_ms",
-     "var", "fromSettings", "history", "profile"}
+     "var", "fromSettings", "history", "profile",
+     "warm", "warm_from", "warm_age_ms", "warm_ready_ms", "warm_end_ms"}
 )
 
 

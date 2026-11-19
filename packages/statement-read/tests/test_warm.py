@@ -595,3 +595,154 @@ def test_cli_cpu_ms_reads_own_child(tmp_path):
         q.kill()
         p.wait()
         q.wait()
+
+
+# ── 使われなかった先立ての印（#99 の続き）: 終わり方・出どころ・時間 ──
+
+
+class Ends:
+    """on_end に渡された WarmEnd を集める（例外を投げるときも記録はする）"""
+
+    def __init__(self, raise_=False):
+        self.got: list = []
+        self.raise_ = raise_
+
+    def __call__(self, end):
+        self.got.append(end)
+        if self.raise_:
+            raise RuntimeError("印の失敗")
+
+
+def wait_for(cond, limit=5.0):
+    deadline = time.monotonic() + limit
+    while not cond() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert cond()
+
+
+def test_miss_none_without_slot(make_pool):
+    pool = make_pool(FakeCli())
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt == {"miss": warm.MISS_NONE}
+
+
+def test_startup_timeout_is_marked(make_pool):
+    # 起動の段の先立てが上限（startup）までに立ち上がらない（本番で CPU が絞られた間に過ぎた締め切りの形）
+    ends = Ends()
+    pool = make_pool(FakeCli(startup=2.0), startup=0.2, on_end=ends)
+    assert pool.start() is True
+    wait_for(lambda: len(ends.got) == 1)
+    end = ends.got[0]
+    assert end.kind == warm.END_STARTUP_TIMEOUT and end.origin == "startup" and end.ready_ms is None
+    assert 200 <= end.end_ms < 5_000
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_STARTUP_TIMEOUT and attempt["origin"] == "startup"
+    assert attempt["end_ms"] == end.end_ms and attempt["age_ms"] >= end.end_ms
+    assert "ready_ms" not in attempt and "taken" not in attempt
+
+
+def test_ttl_in_loop_is_expired_with_ready_ms(make_pool):
+    ends = Ends()
+    pool = make_pool(FakeCli(), ttl=0.3, on_end=ends)
+    assert pool.prepare(5)
+    wait_for(lambda: len(ends.got) == 1)
+    end = ends.got[0]
+    assert end.kind == warm.END_EXPIRED and end.origin == "prepare"
+    assert end.ready_ms is not None and end.ready_ms <= end.end_ms
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_EXPIRED and attempt["ready_ms"] == end.ready_ms
+
+
+def test_expired_by_clock_is_marked(make_pool):
+    clock = Clock()
+    ends = Ends()
+    pool = make_pool(FakeCli(), clock=clock, ttl=600, on_end=ends)
+    assert pool.prepare(5)
+    clock.t += 600
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_EXPIRED and attempt["origin"] == "prepare" and "ready_ms" in attempt
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == warm.END_EXPIRED
+
+
+def test_start_failed_is_marked(make_pool):
+    ends = Ends()
+    pool = make_pool(FakeCli(script="fail_startup"), on_end=ends)
+    assert pool.prepare(5) is False
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == warm.END_START_FAILED and ends.got[0].ready_ms is None
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt["miss"] == warm.END_START_FAILED
+
+
+def test_cli_ending_by_itself_is_ended(make_pool):
+    class SelfEnding(FakeCli):
+        async def __call__(self, *, prompt, options):
+            self.spawned.append({"options": options})
+
+            async def first_only():
+                async for m in prompt:
+                    yield m
+
+            stream = first_only()
+            task = asyncio.ensure_future(stream.__anext__())
+            await anyio.sleep(0.2)  # 立ち上がった後に自分で終わる
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
+            await stream.aclose()
+            return
+            yield  # pragma: no cover
+
+    ends = Ends()
+    pool = make_pool(SelfEnding(), on_end=ends)
+    assert pool.prepare(5)
+    wait_for(lambda: len(ends.got) == 1)
+    assert ends.got[0].kind == warm.END_ENDED and ends.got[0].ready_ms is not None
+
+
+def test_taken_slot_reports_origin_then_next_read_is_used(make_pool):
+    ends = Ends()
+    pool = make_pool(FakeCli(startup=0.1), on_end=ends)
+    assert pool.start()
+    attempt: dict = {}
+    o = pool.read(PNG, "image/png", attempt=attempt)
+    assert o is not None and o.error is None
+    assert attempt["taken"] is True and attempt["origin"] == "startup" and "miss" not in attempt
+    assert attempt["age_ms"] >= 0
+    pool.wait_idle(5)
+    assert ends.got == []  # 読み取りに使った先立ては「取られずに終わった」に数えない
+    # 次の読み取り: 先立ては前の読み取りが使った（1 回で捨てる）
+    again: dict = {}
+    assert pool.read(PNG, "image/png", attempt=again) is None
+    assert again["miss"] == warm.MISS_USED and again["origin"] == "startup" and "end_ms" not in again
+
+
+def test_close_marks_closed_and_on_end_failure_is_ignored(make_pool, tmp_path):
+    ends = Ends(raise_=True)
+    pool = make_pool(FakeCli(), on_end=ends)
+    assert pool.prepare(5)
+    pool.close()
+    assert [e.kind for e in ends.got] == [warm.END_CLOSED]
+    assert tmp_dirs(tmp_path) == []
+    attempt: dict = {}
+    assert pool.read(PNG, "image/png", attempt=attempt) is None
+    assert attempt == {"miss": warm.MISS_CLOSED}
+
+
+def test_taken_slot_failing_before_send_then_next_read_is_retried(make_pool):
+    # 取ったが送る前に失敗した回（呼ぶ側は cold_retry）の後の読み取りは used でなく retried（#99 の続き。レビュー 6）
+    ends = Ends()
+    pool = make_pool(FakeCli(startup=0.2, script="fail_startup"), on_end=ends)
+    pool.start()
+    first: dict = {}
+    assert pool.read(PNG, "image/png", attempt=first) is None and first["taken"] is True
+    again: dict = {}
+    assert pool.read(PNG, "image/png", attempt=again) is None
+    assert again["miss"] == warm.MISS_RETRIED and again["origin"] == "startup" and "end_ms" in again
+    assert ends.got == []  # 取られた先立ては「取られずに終わった」の行を出さない

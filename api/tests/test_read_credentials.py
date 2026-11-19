@@ -117,7 +117,7 @@ def test_federation_log_has_token_timing(prod, sdk, capfd):
     (read,) = [ln for ln in lines if ln.get("event") == "statement_read"]
     # #99: 送り口の段の時間（wait_ms・first_ms・result_ms・turn_ms・close_ms）も出る
     assert set(read) == {"event", "reason", "rows", "ms", "token_ms", "limit_ms", "read_ms", "api_ms", "cli",
-                         "profile", "wait_ms", "first_ms", "result_ms", "turn_ms", "close_ms"}
+                         "warm", "profile", "wait_ms", "first_ms", "result_ms", "turn_ms", "close_ms"}
     assert all(isinstance(read[k], int | float) for k in ("token_ms", "limit_ms", "read_ms", "api_ms"))
     assert ID_TOKEN not in err and "fdrl_example" not in err and ORG not in err
 

@@ -50,6 +50,7 @@ import {
   createRecordController,
   type RecordController,
   type RecordState,
+  watchVisible,
 } from '../lib/record-controller';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import { accountHintOf, learnedText, pnlFillOf } from '../lib/statement-account';
@@ -106,9 +107,16 @@ export function RecordScreen() {
       if (slot) void controller.setChart(slot, file);
       else void controller.readImage(file);
     };
+    // 画面に戻ったら読み取りの準備を送り直す（前のタブで開いたままの間に先立てが捨てられていることがある。#99 の続き）
+    const unwatch = watchVisible(
+      document,
+      () => document.visibilityState === 'visible',
+      () => controller.refreshWarm(),
+    );
     document.addEventListener('paste', onPaste);
     return () => {
       document.removeEventListener('paste', onPaste);
+      unwatch();
       controller.dispose();
     };
   }, [controller]);

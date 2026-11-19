@@ -116,7 +116,7 @@ const PAGES = [
   { path: '/trades/no-such-trade', h1: '取引の詳細' },
   { path: '/trades/x-d1', h1: 'US30 · L', wait: 'canvas.chartview__canvas >> nth=1' },
   { path: '/trades/x-e1/edit', h1: '取引を編集', wait: '#edit-submit' },
-  // Issue #34: 物差しの場面（危ない勝ちで LC を下げていた・TP を入れた・ショート）
+  // Issue #34: 物差しの場面（危ない勝ちで LC を広げていた・TP を入れた・ショート）
   { path: '/trades/x-r1', h1: 'US30 · L', wait: '.ruler__plot' },
   { path: '/trades/x-r2', h1: 'US30 · L', wait: '.ruler__plot' },
   { path: '/trades/x-r3', h1: 'US30 · S', wait: '.ruler__plot' },
@@ -403,7 +403,7 @@ const TX_E2 = exampleTrade('x-e2', 1700000000007, {
   entryChartTimeframe: '4h',
   exitChartTimeframe: '1d',
 });
-/** Issue #34 の撮影の場面（物差し）: 危ない勝ちで LC を下げていた（L）・TP を入れた（L）・ショートで LC を上げた。架空の値。
+/** Issue #34 の撮影の場面（物差し）: 危ない勝ちで LC を広げていた（L）・TP を入れた（L）・ショートで LC を広げた。架空の値。
  * 決済の時刻は一覧・ホームの並びの後ろ（既存の手順の件数・並びを変えない） */
 const rulerExit = (days, price, reason = 'other') => ({
   time: T_1110 - days * DAY_MS,
@@ -425,7 +425,8 @@ const TX_R2 = exampleTrade('x-r2', 1700000000012, {
 const TX_R3 = exampleTrade('x-r3', 1700000000013, {
   side: 'S',
   lc: 150.5,
-  entries: [{ price: 150, quantity: 10000 }],
+  // エントリーの時刻は決済の 2 日 4 時間前（詳細の見出しの下の行に保有時間。#58）
+  entries: [{ price: 150, quantity: 10000, time: T_1110 - 22 * DAY_MS - 2 * DAY_MS - 4 * 3600000 }],
   lcMove: { kind: 'widened', after: 150.8 },
   exit: rulerExit(22, 150.8),
   statementPnlYen: -8000,
@@ -433,7 +434,7 @@ const TX_R3 = exampleTrade('x-r3', 1700000000013, {
 const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2, TX_R1, TX_R2, TX_R3];
 /**
  * Issue #88 の例の表 S1 の 7 件（架空の値）。決済は端末の今日から 6 日前〜今日の 10:00（7 日・3 か月に入り、1 日は今日の 1 件）。
- * 1 A −1.0R・2 計画どおりの勝ち +2.0R・3 B LC を下げた −1.6R・4 危ない勝ち +0.5R・5 C LC なし・6 A −0.8R・7 計画どおりの勝ち +1.2R
+ * 1 A −1.0R・2 計画どおりの勝ち +2.0R・3 B LC を広げた −1.6R・4 危ない勝ち +0.5R・5 C LC なし・6 A −0.8R・7 計画どおりの勝ち +1.2R
  */
 function reviewExit(daysAgo) {
   const t = new Date();
@@ -478,12 +479,12 @@ const REVIEW_OLD = REVIEW_S1.map((t) => ({
   ...t,
   record: { ...t.record, exit: { ...t.record.exit, time: reviewExit(120) } },
 }));
-/** 大きな負け（LC を下げて −8.0R の B）が 1 件ある期間 */
+/** 大きな負け（LC を広げて −8.0R の B）が 1 件ある期間 */
 const REVIEW_BIG = [
   ...REVIEW_S1,
   reviewTrade(6, 'rv-big', 96, { lcMove: { kind: 'widened', after: 95.5 } }),
 ];
-/** 取引の多い期間（合成 120 件。決済は今日から 0〜84 日前。10 件に 1 件が LC を下げた −1.5R の B） */
+/** 取引の多い期間（合成 120 件。決済は今日から 0〜84 日前。10 件に 1 件が LC を広げた −1.5R の B） */
 const REVIEW_MANY = Array.from({ length: 120 }, (_, i) => {
   const daysAgo = Math.floor((119 - i) * 0.7);
   const price = i % 10 === 0 ? 99.25 : i % 3 === 0 ? 99.5 : 100.4;
@@ -1220,7 +1221,7 @@ const EX_E1 = {
   exit: '99.20',
   lc: '99.50',
   decided: true,
-  move: '下げた',
+  move: '広げた',
   after: '99.20',
 };
 const EX_E3 = {
@@ -1241,14 +1242,14 @@ const EX_SAFE = {
   decided: true,
   move: 'そのまま',
 };
-/** Issue #33 例 8: S ショートで LC を上げた（上げた後の LC の欄が出る）。値は架空 */
+/** Issue #33 例 8: S ショートで LC を広げた（広げた後の LC の欄が出る）。値は架空 */
 const EX_S8 = {
   side: 'S',
   entry: '150.00',
   exit: '151.00',
   lc: '150.50',
   decided: true,
-  move: '上げた',
+  move: '広げた',
   after: '151.00',
 };
 
@@ -1885,6 +1886,44 @@ const RECORD_STATES = [
     },
   },
   {
+    // #56: ショートで「広げた」を選び、広げた後の LC を向きの逆（入る前の LC より下）に入れた誤り。架空の値
+    slug: 'record-28-widen-s-error',
+    name: '広げた後の LC の誤り（S）',
+    anchor: 'section[aria-labelledby="record-taps-title"]',
+    fn: async (p) => {
+      await p.locator('#record-instrument').fill('US30');
+      await seg(p, 'L / S', 'S ショート').click();
+      await p.locator('#record-entry').fill('150.00');
+      await p.locator('#record-exit').fill('150.20');
+      await p.locator('#record-quantity').fill('10000');
+      await p.locator('#record-lc').fill('150.50');
+      await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
+      await seg(p, 'LC を動かしたか', '広げた').click();
+      await p.locator('#record-lc-after').fill('150.20');
+      await seg(p, '時間足を変えたか', 'そのまま').click();
+      await p
+        .locator('#record-lc-after-error', {
+          hasText: '広げた後の LC は、入る前の LC より上にしてください',
+        })
+        .waitFor();
+      const label = (await p.locator('label[for="record-lc-after"]').textContent()) ?? '';
+      mustEq(label, '広げた後の LC（任意）', '欄の名前');
+    },
+  },
+  {
+    // #58 コードレビュー 5: 円以外の口座で価格の通貨が未設定の銘柄（為替の欄は出ず、半幅の銘柄の下に「価格の通貨 未設定」）
+    slug: 'record-29-usd-unset',
+    name: 'USD の口座・価格の通貨 未設定',
+    anchor: 'section[aria-labelledby="record-trade-title"]',
+    prep: (api) => setAccounts(api, [{ ...ACC_USD, id: 'default' }]),
+    fn: async (p) => {
+      await p.locator('#record-instrument').fill('US30');
+      await p.locator('#record-quantity').fill('10000');
+      await p.locator('#record-instrument-hint', { hasText: '価格の通貨 未設定' }).waitFor();
+      mustEq(await p.locator('#record-fx').count(), 0, '為替の欄の数');
+    },
+  },
+  {
     slug: 'record-25-fx-none',
     name: '為替も損益も無い',
     // 資金のある口座で（資金が未設定だと注記は「資金を設定すると…」になる）
@@ -2097,6 +2136,18 @@ const RECORD_STATES = [
   },
   // 言葉の説明の「i」を 1 つ開いた状態（Issue #57 AC-10）。吹き出しが窓の見える範囲の左右・上下に収まることも見る（H3）。
   // 撮るときは見出しの位置へスクロールしてから開き直す（窓が基準の位置はスクロールで閉じる）
+  {
+    // #56 デザインレビュー: 「LC を動かしたか」の説明（狭めた / 広げた の文）
+    slug: 'record-11b-info-lcmove',
+    name: '説明（LC を動かしたか）',
+    reopen: '「LC を動かしたか」の説明',
+    anchor: 'section[aria-labelledby="record-taps-title"]',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await openInfo(p, '「LC を動かしたか」の説明');
+      await p.getByText('広げた（リスクが増える向き）', { exact: false }).first().waitFor();
+    },
+  },
   {
     slug: 'record-11-info-tap',
     name: '説明（時間足）',
@@ -3091,6 +3142,8 @@ async function main() {
           ['/trades', '取引の一覧', ACCOUNT_ROW, 'trades-accounts'],
           ['/', 'ホーム', ACCOUNT_ROW, 'home-accounts'],
           ['/trades/x-d1', 'US30 · L', '.verdict__account', 'trade-x-d1-accounts'],
+          // 保有時間と口座が並ぶ見出しの下の行（#58 デザインレビュー: 360 で 1 行に収まるか）
+          ['/trades/x-r3', 'US30 · S', '.verdict__account', 'trade-x-r3-accounts'],
           [
             '/trades/x-d1/edit',
             '取引を編集',
@@ -4385,7 +4438,7 @@ async function runFlows(browser, base, signedIn) {
       await fillRecord(p, EX_E1);
       await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor({ timeout: 5000 });
       const reasons = await p.locator('.reasons__item').allInnerTexts();
-      if (!reasons.includes('LC を下げた（99.5 → 99.2）'))
+      if (!reasons.includes('LC を広げた（99.5 → 99.2）'))
         throw new Error(`理由 ${reasons.join(' / ')}`);
       // 資金が未設定の説明は、理由の一覧から分けた注記の 1 行（Issue #33 AC-8）
       await p
@@ -4396,7 +4449,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return 'E1 → B・「LC を下げた（99.5 → 99.2）」・−1.6R・注記「資金が未設定のため、過剰リスクは判定していません」';
+    return 'E1 → B・「LC を広げた（99.5 → 99.2）」・−1.6R・注記「資金が未設定のため、過剰リスクは判定していません」';
   });
 
   await check('R3', async () => {
@@ -4941,7 +4994,7 @@ async function runFlows(browser, base, signedIn) {
       ['場面 B', EX_E1, 'B 悪い損失', true],
       ['場面 危', EX_E3, '危ない勝ち', true],
       ['場面 C', EX_E16, 'C 極悪な損失', false],
-      ['例 8（S・上げた）', EX_S8, 'B 悪い損失', true],
+      ['例 8（S・広げた）', EX_S8, 'B 悪い損失', true],
     ];
     const runs = [
       [360, 780, 'dark'],
@@ -6739,7 +6792,7 @@ async function runFlows(browser, base, signedIn) {
       if (!v.text.includes('−1.6R') || !v.text.includes('0.5%'))
         throw new Error(`判定の枠: ${v.text}`);
       for (const want of [
-        'LC を下げた（99.5 → 99.2）',
+        'LC を広げた（99.5 → 99.2）',
         '時間足を変えた（4 時間足 → 日足・チャートから）',
       ]) {
         if (!v.reasons.includes(want)) throw new Error(`理由に「${want}」が無い`);
@@ -6760,6 +6813,67 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return 'B・−1.6R・0.5%・2 つの理由、2 枚のチャート（API のバイト列を canvas に描く）と時間足';
+  });
+
+  // Issue #58: 詳細の見出しの下の行に保有時間（エントリーの時刻のある取引だけ）と、記録する画面の「取引」の枠の
+  // エントリーの時刻（決済の時刻と並ぶ・「ほかの欄」に無い）。幅 360 で見出しの下の行がはみ出さない
+  await check('H58', async () => {
+    const { c, p, errors } = await recordContext();
+    const out = [];
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/trades/x-r3`);
+      await waitReady(p, 'US30 · S');
+      const when = (await p.locator('.detail__when').textContent()) ?? '';
+      if (!when.includes('· 保有 2 日 4 時間')) throw new Error(`x-r3 の見出しの下: ${when}`);
+      const over = await p.evaluate(() => {
+        const e = document.querySelector('.detail__when');
+        const r = e?.getBoundingClientRect();
+        return r ? r.right - document.documentElement.clientWidth : 0;
+      });
+      if (over > 0.5) throw new Error(`見出しの下の行が ${over}px はみ出す`);
+      // 360 はエントリーの時刻を頭に出さない・1440 は出す（デザインレビュー 5）
+      if (await p.locator('.detail__entry').isVisible())
+        throw new Error('360 でエントリーの時刻が見える');
+      await p.setViewportSize({ width: 1440, height: 900 });
+      const wide = (await p.locator('.detail__entry').textContent()) ?? '';
+      if (!(await p.locator('.detail__entry').isVisible()) || !wide.startsWith('エントリー 2026/'))
+        throw new Error(`1440 のエントリーの時刻: ${wide}`);
+      await p.setViewportSize({ width: 360, height: 780 });
+      out.push(`x-r3「${when}」（1440 は頭に「${wide.trim()}」）`);
+      await p.goto(`${base}/trades/x-r1`);
+      await waitReady(p, 'US30 · L');
+      const none = (await p.locator('.detail__when').textContent()) ?? '';
+      if (none.includes('保有')) throw new Error(`エントリーの時刻の無い x-r1 に保有: ${none}`);
+      out.push(`x-r1「${none}」（保有なし）`);
+      await openRecord(p, base);
+      const m = await p.evaluate(() => {
+        const sec = document.querySelector('section[aria-labelledby="record-trade-title"]');
+        const ids = [...(sec?.querySelectorAll('input') ?? [])].map((i) => i.id);
+        const more = document.querySelector('details.more');
+        const label = document.querySelector('label[for="record-entry-time"]')?.textContent ?? '';
+        const entry = document.querySelector('#record-entry-time')?.getBoundingClientRect();
+        const exit = document.querySelector('#record-exit-time')?.getBoundingClientRect();
+        return {
+          ids,
+          inMore: !!more?.querySelector('#record-entry-time'),
+          label,
+          below: entry && exit ? exit.top - entry.top : null,
+        };
+      });
+      const iEntry = m.ids.indexOf('record-entry-time');
+      if (iEntry < 0 || iEntry > m.ids.indexOf('record-exit-time'))
+        throw new Error(`「取引」の欄の並び: ${m.ids.join(' ')}`);
+      if (m.inMore) throw new Error('「ほかの欄」にエントリーの時刻がある');
+      if (!m.label.includes('エントリーの時刻（任意）')) throw new Error(`欄の名前: ${m.label}`);
+      out.push(
+        `記録する画面の「取引」: ${m.ids.join(' ')}（360 でエントリー → 決済の縦の差 ${m.below}px）`,
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return out.join(' / ');
   });
 
   await check('T-D2', async () => {
@@ -6783,7 +6897,7 @@ async function runFlows(browser, base, signedIn) {
   });
 
   // Issue #34: LC の物差し（AC-4）・決済までの行動の答え（AC-7）・「すべての欄」の畳み（AC-8）。x-d1 は例の表 E2 と同じ形
-  // （下げた後 99.2・決済 99.2）で、チャートからの時間足（4 時間足 → 日足）が判定に効く
+  // （広げた後 99.2・決済 99.2）で、チャートからの時間足（4 時間足 → 日足）が判定に効く
   await check('T-D3', async () => {
     const { c, p, errors } = await recordContext();
     try {
@@ -6794,7 +6908,7 @@ async function runFlows(browser, base, signedIn) {
       await list.waitFor();
       expectEq(
         (await list.locator('li').allTextContents()).join(' / '),
-        '動かした後の LC 99.2（−1.6R） / 決済 99.2（−1.6R） / 決めた LC 99.5（−1.0R） / イン 100 / LC を 0.6R 超えて決済',
+        '広げた後の LC 99.2（−1.6R） / 決済 99.2（−1.6R） / 決めた LC 99.5（−1.0R） / イン 100 / LC を 0.6R 超えて決済',
         '物差しの一覧',
       );
       expectEq(
@@ -6811,7 +6925,7 @@ async function runFlows(browser, base, signedIn) {
             .filter((c) => /verdict__stats|^ruler$|^reasons$|^taps$/.test(c)),
         );
       expectEq(order.join(' '), 'verdict__stats ruler reasons taps', '判定の枠の中の順');
-      // 動かした後の LC〜決めた LC の破線の太線と、越えた区間の実線の太線。目盛りは −1R・0・+1R
+      // 広げた後の LC〜決めた LC の破線の太線と、越えた区間の実線の太線。目盛りは −1R・0・+1R
       expectEq(await p.locator('.verdict .ruler__widen').count(), 1, '広げた区間');
       expectEq(await p.locator('.verdict .ruler__over').count(), 1, '越えた区間');
       expectEq(
@@ -6832,7 +6946,7 @@ async function runFlows(browser, base, signedIn) {
       const off = await p.locator('.verdict ul.taps li.taps__item--off').allTextContents();
       expectEq(
         off.join(' / '),
-        'LC を動かしたか: 下げた（99.2）計画から外れた / 時間足を変えたか: 4 時間足 → 日足計画から外れた',
+        'LC を動かしたか: 広げた（99.2）計画から外れた / 時間足を変えたか: 4 時間足 → 日足計画から外れた',
         '外れた答え',
       );
       const note = await p.locator('.verdict').textContent();

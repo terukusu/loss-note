@@ -5,7 +5,7 @@
 // 見出しは取引が読めたら「銘柄 · L / S」と決済の日時（読めるまで・見つからないときは「取引の詳細」。h1 の要素は同じなので
 // 画面の移りで当てたフォーカスは外れない）。[直す]・[消す] は見出しの行に置く。
 // TradeDetail は hook を持たない（App・経路のテストが 1 段だけ呼ぶ）。「見つかりません」の面は TradeDetail が作って渡す
-import type { JSX } from 'preact';
+import { Fragment, type JSX } from 'preact';
 import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
 import { accountCurrencyOf } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
@@ -158,7 +158,17 @@ export function TradeDetailView(p: TradeDetailViewProps) {
             <Link href="/trades" class="detail__back">
               ‹ 一覧
             </Link>
-            <span class="detail__when">{h.sub}</span>
+            <span class="detail__when">
+              {/* 幅 480px 以上だけ「エントリー … → 」を頭に（360 は見出しの下の行を 1 行に保つ。#58 デザインレビュー 5） */}
+              {h.entry ? <span class="detail__entry">{h.entry} → </span> : null}
+              {/* 区切り（決済の日時・保有・口座）の中では折らず、「·」は後ろの区切りの頭に付ける（判定の枠の数量の行と同じ） */}
+              {h.sub.split(' · ').map((seg, i) => (
+                <Fragment key={seg}>
+                  {i > 0 ? ' ' : null}
+                  <span class="detail__seg">{i > 0 ? `· ${seg}` : seg}</span>
+                </Fragment>
+              ))}
+            </span>
           </>
         }
         actions={

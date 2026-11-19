@@ -44,7 +44,6 @@ import type {
 import { fxFieldVisible } from './currency';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
-import { widenVerb } from './reasons';
 
 export type LcMoveKind = LcMove['kind'];
 
@@ -125,7 +124,7 @@ export type DraftAction =
   | { readonly type: 'reset'; readonly values?: Partial<Draft> };
 
 /**
- * 下書きの更新。LC の価格を打つと「なし」は外れ、「なし」を選ぶと LC・下げた後の LC は空になる
+ * 下書きの更新。LC の価格を打つと「なし」は外れ、「なし」を選ぶと LC・広げた後の LC は空になる
  * （価格と「なし」が両方ある下書きを作らない）
  */
 export function applyDraft(draft: Draft, action: DraftAction): Draft {
@@ -272,7 +271,7 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   feeYen: '手数料',
   lc: 'LC',
   lcNone: 'LC',
-  lcAfter: '下げた後の LC',
+  lcAfter: '広げた後の LC',
   brokenCondition: '根拠が崩れる条件',
   lcDecided: 'LC を入る前に決めていたか',
   lcMove: 'LC を動かしたか',
@@ -288,14 +287,8 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   accountId: '口座',
 };
 
-/** 「ほかの欄（任意）」に畳んだ欄 */
-export const OPTIONAL_FIELDS: readonly DraftField[] = [
-  'pnlYen',
-  'feeYen',
-  'entryTime',
-  'lcBasis',
-  'exitReason',
-];
+/** 「ほかの欄（任意）」に畳んだ欄（エントリーの時刻は「取引」の枠の任意の欄。#58） */
+export const OPTIONAL_FIELDS: readonly DraftField[] = ['pnlYen', 'feeYen', 'lcBasis', 'exitReason'];
 
 export const MSG = {
   notNumber: '数値を入力してください（例: 100.5）',
@@ -312,8 +305,8 @@ export const MSG = {
       : 'ショートの LC はインより上にしてください',
   lcAfterDirection: (side: Side) =>
     side === 'L'
-      ? '下げた後の LC は、入る前の LC より下にしてください'
-      : '上げた後の LC は、入る前の LC より上にしてください',
+      ? '広げた後の LC は、入る前の LC より下にしてください'
+      : '広げた後の LC は、入る前の LC より上にしてください',
 } as const;
 
 export const RISK_NOTE = {
@@ -540,7 +533,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   }
   if (draft.timeframeChange === null) missing.push(MISSING_LABEL.timeframeChange);
 
-  // 下げた後の LC（任意。「下げた」のときだけ）
+  // 広げた後の LC（任意。「広げた」のときだけ）
   let lcAfter: number | undefined;
   if (!lcNone && draft.lcMove === 'widened') {
     lcAfter = num('lcAfter', draft.lcAfter, 'positive');
@@ -767,9 +760,9 @@ export function fxVisibleOf(
   return fxFieldVisible(snapshot.instrument.priceCurrency, accountCurrencyOf(snapshot));
 }
 
-/** LC を動かしたかの選択肢の文言（S は「上げた」） */
-export function lcMoveLabel(kind: LcMoveKind, side: Side | null): string {
+/** LC を動かしたかの選択肢の文言（L / S で同じ。#56） */
+export function lcMoveLabel(kind: LcMoveKind): string {
   if (kind === 'none') return 'そのまま';
-  if (kind === 'tightened') return '詰めた';
-  return widenVerb(side ?? 'L');
+  if (kind === 'tightened') return '狭めた';
+  return '広げた';
 }

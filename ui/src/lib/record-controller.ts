@@ -574,7 +574,7 @@ export function createRecordController(deps: {
     return r.draft;
   };
 
-  /** 行 index の下書き（読み取りの欄 = 行、LC・一言・3 つのタップ・下げた後の LC は空） */
+  /** 行 index の下書き（読み取りの欄 = 行、LC・一言・3 つのタップ・広げた後の LC は空） */
   const showRow = (st: StatementState, index: number, notice: string | null) => {
     const row = st.rows[index];
     if (!row) return;

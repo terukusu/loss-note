@@ -104,7 +104,7 @@ export const E17 = draft({
 export const E18 = applyDraft(E1, { type: 'set', field: 'lc', value: '' });
 /** E8: L で LC = イン（誤り） */
 export const E8 = draft({ ...L100, lc: '100.00', exitPrice: '99.20', ...PLANNED });
-/** E9: 下げた後の LC が入る前の LC より上（誤り） */
+/** E9: 広げた後の LC が入る前の LC より上（誤り） */
 export const E9 = draft({
   ...L100,
   exitPrice: '99.20',

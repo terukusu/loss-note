@@ -24,7 +24,7 @@ import {
   extraName,
 } from './charts';
 import { formatFxDerived, fxFieldVisible, withUnit } from './currency';
-import { formatDate, formatDateTime } from './datetime';
+import { formatDate, formatDateTime, formatHolding } from './datetime';
 import {
   formatAmount,
   formatMoney,
@@ -34,8 +34,8 @@ import {
   formatR,
   formatTimes,
 } from './format';
-import { TIMEFRAME_NAME, widenVerb } from './reasons';
-import { RISK_NOTE, type Summary, summarize } from './record-form';
+import { TIMEFRAME_NAME } from './reasons';
+import { lcMoveLabel, RISK_NOTE, type Summary, summarize } from './record-form';
 
 /** 銘柄が一覧に無いときの名前 */
 export const UNKNOWN_INSTRUMENT = '銘柄が見つかりません';
@@ -214,21 +214,18 @@ const EXIT_REASON_TEXT = {
 const LC_BASIS_TEXT = { chart: 'チャート', amount: '金額' } as const;
 const GAP_SLIP_TEXT = { yes: 'はい', no: 'いいえ', unanswered: '' } as const;
 
-/** LC を動かしたかの答え（そのまま / 詰めた / 下げた（99.2）。S は上げた） */
+/** LC を動かしたかの答え（そのまま / 狭めた / 広げた（99.2）。L / S で同じ言葉。#56） */
 function lcMoveText(t: StoredTrade): string {
-  const r = t.record;
-  const m = r.lcMove;
-  return m.kind === 'none'
-    ? 'そのまま'
-    : m.kind === 'tightened'
-      ? '詰めた'
-      : `${widenVerb(r.side)}${m.after === undefined ? '' : `（${formatPrice(m.after)}）`}`;
+  const m = t.record.lcMove;
+  return m.kind === 'widened'
+    ? `${lcMoveLabel(m.kind)}${m.after === undefined ? '' : `（${formatPrice(m.after)}）`}`
+    : lcMoveLabel(m.kind);
 }
 
 export interface TapAnswer {
   readonly label: string;
   readonly value: string;
-  /** 計画から外れた答え（決めていない・下げた / 上げた・長い足へ。時間足はチャートから判定に効いたときも） */
+  /** 計画から外れた答え（決めていない・広げた・長い足へ。時間足はチャートから判定に効いたときも） */
   readonly offPlan: boolean;
   /** 問いの説明の「i」（用語集の項目。#57 デザインレビュー 8） */
   readonly term: 'lcDecided' | 'lcMove' | 'timeframeChange';
@@ -456,15 +453,26 @@ export function shortLabel(t: StoredTrade, instrumentName: string): string {
   return `${instrumentName} ${SIDE_SHORT[t.record.side]} ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
 }
 
-/** 詳細の見出し（銘柄 · L ロング）と添え書き（決済の日時。口座が 2 つ以上なら「· 口座 A」も。U17） */
+/** エントリーの時刻（時刻のあるエントリーのうち最も早いもの。事後の記録は entries[0] だけ。無ければ undefined。#58） */
+function firstEntryTime(t: StoredTrade): number | undefined {
+  const times = t.record.entries.flatMap((e) => (e.time === undefined ? [] : [e.time]));
+  return times.length > 0 ? Math.min(...times) : undefined;
+}
+
+/** 詳細の見出し（銘柄 · L ロング）と添え書き（決済の日時。エントリーの時刻があれば「· 保有 2 日 4 時間」（#58）、口座が 2 つ以上なら「· 口座 A」も。U17） */
 export function detailHeading(
   t: StoredTrade,
   instrumentName: string,
   accounts: readonly AccountRecord[] = [],
-): { readonly title: string; readonly sub: string } {
+): { readonly title: string; readonly sub: string; readonly entry?: string } {
   const account = hasManyAccounts(accounts) ? ` · ${tradeAccountName(t, accounts)}` : '';
+  // 保有時間はエントリーの時刻があるときだけ（無ければ「—」も出さない。#58 ルール 3）
+  const entryMs = firstEntryTime(t);
+  const holding = entryMs === undefined ? null : formatHolding(entryMs, t.record.exit.time);
   return {
     title: `${instrumentName} · ${SIDE_TEXT[t.record.side]}`,
-    sub: `決済 ${formatDateTime(t.record.exit.time)}${account}`,
+    sub: `決済 ${formatDateTime(t.record.exit.time)}${holding ? ` · ${holding}` : ''}${account}`,
+    // 広い幅だけ添え書きの頭に出すエントリーの時刻（保有時間を出す取引だけ。#58 デザインレビュー 5）
+    ...(holding && entryMs !== undefined ? { entry: `エントリー ${formatDateTime(entryMs)}` } : {}),
   };
 }

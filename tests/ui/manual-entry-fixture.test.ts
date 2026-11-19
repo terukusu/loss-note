@@ -97,7 +97,7 @@ function build(): { trades: Item[] } {
         }),
         1_000_000,
       ),
-      // LC を詰めた・時間足を長い足へ・TP
+      // LC を狭めた・時間足を長い足へ・TP
       item(
         'tightened',
         applyDraft(E7, {
@@ -106,7 +106,7 @@ function build(): { trades: Item[] } {
         }),
         null,
       ),
-      // 下げた後の LC を入れない「下げた」
+      // 広げた後の LC を入れない「広げた」
       item('widenedNoAfter', applyDraft(E1, { type: 'set', field: 'lcAfter', value: '' }), null),
     ],
   };

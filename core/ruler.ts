@@ -1,4 +1,4 @@
-// LC の物差し（Issue #34 契約 P-1。設計書 5.1・C30）。イン・決めた LC・動かした LC・決済・TP を R の軸に置く。
+// LC の物差し（Issue #34 契約 P-1。設計書 5.1・C30）。イン・決めた LC・広げた後の LC・決済・TP を R の軸に置く。
 // R = s ×（価格 − イン）÷ |イン − LC|（LC は R の分母の LC = 入る前に決めた LC。エントリーの LC があればそれ。pnl.ts と同じ）。
 // 線は L / S によらず左 = 損の側。範囲は下端 max(−3, min(−1, 最小の R))〜上端 min(3, max(1, 最大の R))、外の点は端に置く。
 // 決済の R は rMultiple（判定の枠の R と同じ値）。丸めない（表示の丸めは画面）。I/O・時刻・乱数なし
@@ -25,7 +25,7 @@ export interface Ruler {
   readonly lo: number;
   /** 表示の範囲の上端（R。1〜3） */
   readonly hi: number;
-  /** 点（R の小さい順。同じ R は 決めた LC → 動かした LC → イン → TP → 決済） */
+  /** 点（R の小さい順。同じ R は 決めた LC → 広げた後の LC → イン → TP → 決済） */
   readonly points: readonly RulerPoint[];
   /** 決済が決めた LC を越えた幅（R。−1 − 決済の R）。越えていなければ無し */
   readonly overshootR?: number;
@@ -49,7 +49,7 @@ const RANGE_MAX = 3;
 
 /**
  * LC の物差し。エントリーが 1 つ・決済あり・R の分母の LC があり幅 > 0 のときだけ返す（ほかは無し。ルール 3）。
- * 決済・動かした LC の R が有限でなければ無し、TP の R が有限でない・利の側でなければ TP の点を出さない
+ * 決済・広げた後の LC の R が有限でなければ無し、TP の R が有限でない・利の側でなければ TP の点を出さない
  */
 export function rulerOf(t: TradeInput, tp?: number): Ruler | undefined {
   if (t.entries.length !== 1 || t.exit === undefined) return undefined;

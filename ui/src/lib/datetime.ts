@@ -47,3 +47,22 @@ export function formatDate(ms: number): string {
   const d = new Date(ms);
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
 }
+
+const MINUTE_MS = 60_000;
+
+/**
+ * 保有時間の文（決済の時刻 − エントリーの時刻。記録した時刻の差なので時間帯・夏時間に依らない。Issue #58 契約 P-58a）。
+ * 分に切り捨てて、1 日以上「保有 D 日 H 時間」（0 時間は省く・分は出さない）、1 時間以上「保有 H 時間 M 分」（0 分は省く）、
+ * 1 分以上「保有 M 分」、1 分未満「保有 1 分未満」。有限でない・決済がエントリーより前なら null（出さない）
+ */
+export function formatHolding(entryMs: number, exitMs: number): string | null {
+  if (!Number.isFinite(entryMs) || !Number.isFinite(exitMs) || exitMs < entryMs) return null;
+  const minutes = Math.floor((exitMs - entryMs) / MINUTE_MS);
+  const days = Math.floor(minutes / (24 * 60));
+  const hours = Math.floor((minutes % (24 * 60)) / 60);
+  const mins = minutes % 60;
+  if (days > 0) return `保有 ${days} 日${hours > 0 ? ` ${hours} 時間` : ''}`;
+  if (hours > 0) return `保有 ${hours} 時間${mins > 0 ? ` ${mins} 分` : ''}`;
+  if (mins > 0) return `保有 ${mins} 分`;
+  return '保有 1 分未満';
+}

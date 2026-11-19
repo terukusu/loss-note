@@ -5,7 +5,9 @@
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import guide from '../../docs/ui-guidelines.md?raw';
+import { LC_MOVE_HINT } from '../../ui/src/components/TradeFields';
 import { CHART_SLOT_TEXT } from '../../ui/src/lib/charts';
+import { formatHolding } from '../../ui/src/lib/datetime';
 import { TOAST_TEXT } from '../../ui/src/lib/deletions';
 import { EDIT_SAVE_FAILED } from '../../ui/src/lib/edit-controller';
 import {
@@ -120,6 +122,11 @@ function resolve(id: string): string | undefined {
       return GLOSSARY.find((g) => g.id === key)?.term;
     case 'GLOSSARY_GROUPS':
       return GLOSSARY_GROUPS.find((g) => g.id === key)?.name;
+    case 'formatHolding':
+      // 表の例（2 日 4 時間）の文
+      return formatHolding(0, (2 * 24 + 4) * 3_600_000) ?? undefined;
+    case 'LC_MOVE_HINT':
+      return LC_MOVE_HINT;
     case 'TAPS_LABEL':
       return TAPS_LABEL;
     case 'RULER_LABEL':

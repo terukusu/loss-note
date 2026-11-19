@@ -36,7 +36,7 @@ function trade(
 
 /**
  * S1 の 7 件（決済の古い順）:
- * 1 A −1.0R（決済 99.5）・2 計画どおりの勝ち +2.0R（101.0）・3 B LC を下げた −1.6R（99.2）・
+ * 1 A −1.0R（決済 99.5）・2 計画どおりの勝ち +2.0R（101.0）・3 B LC を広げた −1.6R（99.2）・
  * 4 危ない勝ち +0.5R（100.25。時間足を長い足へ）・5 C LC なしで負け（R なし。99.0）・6 A −0.8R（99.6）・
  * 7 計画どおりの勝ち +1.2R（100.6）
  */
@@ -50,7 +50,7 @@ export const S1: readonly StoredTrade[] = [
   trade(6, 's1-7', 100.6),
 ];
 
-/** S4 の取り込んだ取引 2 件（A −1.0R・B LC を下げた −1.3R） */
+/** S4 の取り込んだ取引 2 件（A −1.0R・B LC を広げた −1.3R） */
 export const S4_IMPORTS: readonly StoredTrade[] = [
   trade(1, 'imp-1', 99.5, {}, 'import'),
   trade(2, 'imp-2', 99.35, { lcMove: { kind: 'widened', after: 99.3 } }, 'import'),

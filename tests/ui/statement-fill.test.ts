@@ -190,7 +190,7 @@ describe('fillFromRow', () => {
     expect(read.body?.statementPnlYen).toBe(-2000);
   });
 
-  it('LC・一言・3 つのタップ・下げた後の LC・LC の根拠には触れない', () => {
+  it('LC・一言・3 つのタップ・広げた後の LC・LC の根拠には触れない', () => {
     const typed = applyDraft(OPENED, {
       type: 'fill',
       values: {

@@ -42,7 +42,7 @@ describe('受け付けない入力', () => {
     expect(validateTrade(t)).toContainEqual({ kind: 'lcDirection', entryIndex: 1 });
   });
 
-  it('下げた後の LC が入る前の LC より不利でなければ受け付けない', () => {
+  it('広げた後の LC が入る前の LC より不利でなければ受け付けない', () => {
     expect(validateTrade(trade({ lcMove: { kind: 'widened', after: 99.6 } }))).toContainEqual({
       kind: 'lcMoveDirection',
     });

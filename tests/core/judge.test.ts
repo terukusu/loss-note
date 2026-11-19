@@ -104,7 +104,7 @@ describe('判定の補い J6〜J12', () => {
     expect(kinds(win)).toContain('noLc');
   });
 
-  it('J8 下げた後 99.20 で成行決済・−1.6R は B で、理由は「LC を下げた」だけ', () => {
+  it('J8 広げた後 99.20 で成行決済・−1.6R は B で、理由は「LC を広げた」だけ', () => {
     // (99.20 − 100.00) ÷ 0.50 = −1.6
     const ev = evaluated(
       closedAt(trade({ lcMove: { kind: 'widened', after: 99.2 } }), 99.2, { orderType: 'market' }),
@@ -114,7 +114,7 @@ describe('判定の補い J6〜J12', () => {
     expect(ev.judgment?.reasons).toEqual([{ kind: 'lcWidened', from: 99.5, to: 99.2 }]);
   });
 
-  it('J9 J8 と同じで 98.90（成行・窓・滑り = いいえ）・−2.2R は B で「LC を下げた」「持ち続けた」', () => {
+  it('J9 J8 と同じで 98.90（成行・窓・滑り = いいえ）・−2.2R は B で「LC を広げた」「持ち続けた」', () => {
     // (98.90 − 100.00) ÷ 0.50 = −2.2
     const ev = evaluated(
       closedAt(trade({ lcMove: { kind: 'widened', after: 99.2 }, gapSlipAnswer: false }), 98.9, {
@@ -128,7 +128,7 @@ describe('判定の補い J6〜J12', () => {
     expect(held && 'r' in held ? held.r : undefined).toBeCloseTo(-2.2, 3);
   });
 
-  it('J10 下げた後の値が無い・−1.6R は B で、理由は「LC を下げた」だけ', () => {
+  it('J10 広げた後の値が無い・−1.6R は B で、理由は「LC を広げた」だけ', () => {
     const ev = evaluated(closedAtR(-1.6, { lcMove: { kind: 'widened' } }));
     expect(ev.judgment?.grade).toBe('B');
     expect(ev.judgment?.reasons).toEqual([{ kind: 'lcWidened', from: 99.5 }]);

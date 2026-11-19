@@ -178,6 +178,13 @@
   color: var(--ink-2);
 }
 
+/* 欄の名前の「（任意）」は薄く小さく（任意の欄が一目で分かる。#58 デザインレビュー 3） */
+.field__optional {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--ink-3);
+}
+
 .field__hint {
   font-size: var(--fs-sm);
   color: var(--ink-3);
@@ -294,6 +301,12 @@
   font-family: var(--font);
   font-size: var(--fs-md);
   font-variant-numeric: tabular-nums;
+}
+
+/* 空の欄は文字を薄く（日時の欄の既定の書式「yyyy/mm/dd --:--」が入れた値に見えないように。#58 デザインレビュー 3） */
+.textfield__input--empty,
+.textfield__input--empty::-webkit-datetime-edit {
+  color: var(--ink-3);
 }
 
 .textfield__input::-webkit-calendar-picker-indicator {
@@ -671,6 +684,22 @@
 /* イン・決済は幅 360px でも 2 列（対で読む値。画面の全長を詰める。Issue #33 AC-4） */
 .record__pair--prices {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* LC を動かしたかの 3 択の下の手がかりの 1 行（#56 デザインレビュー 4）。3 択に寄せて詰める */
+.record__movehint {
+  margin-top: calc(var(--sp-2) - var(--sp-4));
+  line-height: var(--lh-tight);
+}
+
+/* 為替の欄の右の列の 1 行（「1 USD = 150円」。#58 デザインレビュー 1）。欄の入力の段にそろえる（当たりの高さで縦の中央） */
+.record__fxline {
+  align-self: end;
+  display: flex;
+  align-items: center;
+  min-height: var(--tap);
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 /* 2 列の下に通しで出す 1 行（為替の「1 USD = ? 円」・損益と手数料の注記。#47 PR-2）。列の欄に寄せる */
@@ -1102,7 +1131,7 @@
   padding-inline: var(--sp-4);
 }
 
-/* 線の上側に動かした LC の ▽、線の下に目盛りの文字（Ruler.tsx の LINE_Y・TICK_Y と合わせる） */
+/* 線の上側に広げた後の LC の ▽、線の下に目盛りの文字（Ruler.tsx の LINE_Y・TICK_Y と合わせる） */
 .ruler__plot {
   display: block;
   width: 100%;
@@ -1115,7 +1144,7 @@
   stroke-width: 2;
 }
 
-/* 決めた LC〜動かした LC（LC を広げた分。破線の太線） */
+/* 決めた LC〜広げた後の LC（LC を広げた分。破線の太線） */
 .ruler__widen {
   stroke: var(--ink-2);
   stroke-width: 4;
@@ -1141,7 +1170,7 @@
   stroke: var(--ink);
 }
 
-/* 動かした LC はいちばん大事な事実なので本文の色 */
+/* 広げた後の LC はいちばん大事な事実なので本文の色 */
 .ruler__mark--triangleDown {
   stroke: var(--ink);
 }
@@ -1243,6 +1272,18 @@
   padding: var(--sp-1) var(--sp-2);
   border: 1px solid var(--line-2);
   border-radius: var(--radius-pill);
+}
+
+/* 答えは語の途中で折らない（折れるときは問いと答えの間で折る）。#58 デザインレビュー 2 */
+.taps__a {
+  white-space: nowrap;
+}
+
+/* 狭い幅で 2 行になると全丸の札が楕円に崩れるので、角の丸みを欄と同じにする */
+@media (max-width: 479px) {
+  .taps__chip {
+    border-radius: var(--radius-md);
+  }
 }
 
 .taps__item--off .taps__chip {
@@ -2639,6 +2680,21 @@ summary.settings__subtitle {
   font-variant-numeric: tabular-nums;
 }
 
+.detail__seg {
+  white-space: nowrap;
+}
+
+/* 添え書きの頭のエントリーの時刻は幅 480px 以上だけ（#58 デザインレビュー 5） */
+.detail__entry {
+  display: none;
+}
+
+@media (min-width: 480px) {
+  .detail__entry {
+    display: inline;
+  }
+}
+
 /* 直す画面: 直す前の判定（判定の枠の中）と、保存の帯の変化の 1 行 */
 .verdict__before {
   display: flex;
@@ -2952,7 +3008,7 @@ summary.settings__subtitle {
   gap: 0 var(--sp-1);
 }
 
-/* 物差しの右上の小さな見出しと「i」。図の線（上から 20px）より上の右端（TP・利益の側。動かした LC の ▽ は損の側の左に出る）に
+/* 物差しの右上の小さな見出しと「i」。図の線（上から 20px）より上の右端（TP・利益の側。広げた後の LC の ▽ は損の側の左に出る）に
    重ねて置き、物差しの段の高さを変えない（#34 の T-D3: 360 で 120px 以下）。重ねるのは grid の同じ升（位置を持たない =
    fit の吹き出しの包むブロックは判定の枠のまま。#57 レビュー N4） */
 .ruler {

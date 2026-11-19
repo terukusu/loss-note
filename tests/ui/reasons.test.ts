@@ -8,7 +8,7 @@ const MINUS = '−';
 /** 理由の種類ごとの例（種類が増えたら、この表に足さないと下のテストが落ちる） */
 const TABLE: ReadonlyArray<readonly [ReasonKind, Reason, 'L' | 'S', string]> = [
   ['noLc', { kind: 'noLc' }, 'L', 'LC を決めずに入った'],
-  ['lcWidened', { kind: 'lcWidened', from: 99.5, to: 99.2 }, 'L', 'LC を下げた（99.5 → 99.2）'],
+  ['lcWidened', { kind: 'lcWidened', from: 99.5, to: 99.2 }, 'L', 'LC を広げた（99.5 → 99.2）'],
   ['timeframeLonger', { kind: 'timeframeLonger', source: 'tap' }, 'L', '時間足を変えた'],
   ['heldPastLc', { kind: 'heldPastLc', r: -1.2 }, 'L', `LC で切らずに持ち続けた（${MINUS}1.2R）`],
   ['overRisk', { kind: 'overRisk', riskPct: 2.5 }, 'L', '過剰リスク（2.5%）'],
@@ -35,16 +35,19 @@ describe('reasonText（AC-4）', () => {
     expect(reasonText(reason, side)).toBe(want);
   });
 
-  it('S の取引では LC を不利な側へ動かしたことを「上げた」と言う', () => {
+  it('#56 AC-4（E7・E8）: L / S で同じ「LC を広げた」（S でも「上げた」と言わない）', () => {
+    expect(reasonText({ kind: 'lcWidened', from: 99.5, to: 99.2 }, 'L')).toBe(
+      'LC を広げた（99.5 → 99.2）',
+    );
     expect(reasonText({ kind: 'lcWidened', from: 150.5, to: 151 }, 'S')).toBe(
-      'LC を上げた（150.5 → 151）',
+      'LC を広げた（150.5 → 151）',
     );
   });
 
-  it('下げた後の値が無ければ括弧を付けない（L / S）', () => {
-    expect(reasonText({ kind: 'lcWidened', from: 99.5 }, 'L')).toBe('LC を下げた');
-    expect(reasonText({ kind: 'lcWidened', from: 150.5 }, 'S')).toBe('LC を上げた');
-    expect(reasonText({ kind: 'lcWidened' }, 'L')).toBe('LC を下げた');
+  it('広げた後の値が無ければ括弧を付けない（L / S）', () => {
+    expect(reasonText({ kind: 'lcWidened', from: 99.5 }, 'L')).toBe('LC を広げた');
+    expect(reasonText({ kind: 'lcWidened', from: 150.5 }, 'S')).toBe('LC を広げた');
+    expect(reasonText({ kind: 'lcWidened' }, 'L')).toBe('LC を広げた');
   });
 
   it('1R が出ないときの注記', () => {

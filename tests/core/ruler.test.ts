@@ -33,7 +33,7 @@ const ROWS: readonly Row[] = [
     hi: 1,
     pos: { plannedLc: 0, exit: 0, entry: 0.5 },
   },
-  // E2: 下げた後 99.2 → R (99.2−100)/0.5 = −1.6。範囲 −1.6〜+1（幅 2.6）。LC (−1+1.6)/2.6 = 0.2308・イン 1.6/2.6 = 0.6154
+  // E2: 広げた後 99.2 → R (99.2−100)/0.5 = −1.6。範囲 −1.6〜+1（幅 2.6）。LC (−1+1.6)/2.6 = 0.2308・イン 1.6/2.6 = 0.6154
   {
     id: 'E2',
     t: closedAt(trade({ lcMove: widened(99.2) }), 99.2),
@@ -42,7 +42,7 @@ const ROWS: readonly Row[] = [
     pos: { movedLc: 0, exit: 0, plannedLc: 0.2308, entry: 0.6154 },
     overshoot: 0.6,
   },
-  // E3: S、イン 150・LC 150.5（幅 0.5）、上げた後 150.8 → R −1 × (150.8−150)/0.5 = −1.6。E2 と同じ位置
+  // E3: S、イン 150・LC 150.5（幅 0.5）、広げた後 150.8 → R −1 × (150.8−150)/0.5 = −1.6。E2 と同じ位置
   {
     id: 'E3',
     t: closedAt(
@@ -96,7 +96,7 @@ const ROWS: readonly Row[] = [
     out: ['exit'],
     overshoot: 4,
   },
-  // E8: 詰めた・決済 99.7 → R −0.6。(−0.6+1)/2 = 0.2。動かした LC の点は無い
+  // E8: 狭めた・決済 99.7 → R −0.6。(−0.6+1)/2 = 0.2。広げた後の LC の点は無い
   {
     id: 'E8',
     t: closedAt(trade({ lcMove: { kind: 'tightened' } }), 99.7),
@@ -104,7 +104,7 @@ const ROWS: readonly Row[] = [
     hi: 1,
     pos: { plannedLc: 0, exit: 0.2, entry: 0.5 },
   },
-  // E9: 下げた・後の値なし・決済 99.2 → E6 と同じ位置（動かした LC の点は無い）
+  // E9: 広げた・後の値なし・決済 99.2 → E6 と同じ位置（広げた後の LC の点は無い）
   {
     id: 'E9',
     t: closedAt(trade({ lcMove: widened() }), 99.2),
@@ -113,7 +113,7 @@ const ROWS: readonly Row[] = [
     pos: { exit: 0, plannedLc: 0.2308, entry: 0.6154 },
     overshoot: 0.6,
   },
-  // E10: 下げた後 99.2・決済 100.25 → R 0.5。(0.5+1.6)/2.6 = 0.8077
+  // E10: 広げた後 99.2・決済 100.25 → R 0.5。(0.5+1.6)/2.6 = 0.8077
   {
     id: 'E10',
     t: closedAt(trade({ lcMove: widened(99.2) }), 100.25),
@@ -173,7 +173,7 @@ describe('rulerOf: 例の表 E1〜E13（AC-1）', () => {
     else expect(round4(r.overshootR ?? Number.NaN)).toBe(row.overshoot);
   });
 
-  it('E2 の並びは R の小さい順で、同じ R は計画の点（動かした LC）を先・決済を後', () => {
+  it('E2 の並びは R の小さい順で、同じ R は計画の点（広げた後の LC）を先・決済を後', () => {
     const r = mustRuler(ROWS[1]?.t as TradeInput);
     expect(r.points.map((p) => p.kind)).toEqual(['movedLc', 'exit', 'plannedLc', 'entry']);
     expect(r.points.map((p) => p.price)).toEqual([99.2, 99.2, 99.5, 100]);
@@ -322,7 +322,7 @@ describe('rulerOf の性質', () => {
         const x = r.points.find((p) => p.kind === 'exit');
         expect(x?.r).toBe(rMultiple(t));
         expect(r.points.filter((p) => p.kind === 'entry')).toHaveLength(1);
-        // 詰めた・値の無い下げたは動かした LC の点が無い
+        // 狭めた・値の無い広げたは広げた後の LC の点が無い
         expect(r.points.some((p) => p.kind === 'movedLc')).toBe(g.moved === 'widened');
         // TP は利の側にあるときだけ
         const tpPoint = r.points.find((p) => p.kind === 'tp');
@@ -440,7 +440,7 @@ describe('rulerOf の性質', () => {
     }
   });
 
-  it('動かした LC の値が有限でなければ物差しを出さない', () => {
+  it('広げた後の LC の値が有限でなければ物差しを出さない', () => {
     expect(rulerOf(closedAt(trade({ lcMove: widened(Number.NaN) }), 99.2))).toBeUndefined();
   });
 });

@@ -11,7 +11,7 @@ export const RULER_LABEL = 'LC の物差し';
 export const POINT_NAME: Readonly<Record<RulerPointKind, string>> = {
   entry: 'イン',
   plannedLc: '決めた LC',
-  movedLc: '動かした後の LC',
+  movedLc: '広げた後の LC',
   exit: '決済',
   tp: 'TP',
 };
@@ -89,7 +89,7 @@ export function overArc(ruler: Ruler): Arc | null {
   return arcBetween(ruler, 'exit', 'plannedLc');
 }
 
-/** LC を広げた区間（決めた LC〜動かした LC。左から右）。動かした LC の点が無ければ null */
+/** LC を広げた区間（決めた LC〜広げた後の LC。左から右）。広げた後の LC の点が無ければ null */
 export function widenArc(ruler: Ruler): Arc | null {
   return arcBetween(ruler, 'movedLc', 'plannedLc');
 }

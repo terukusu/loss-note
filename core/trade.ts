@@ -56,7 +56,7 @@ export interface Exit {
   readonly fxRate?: number;
 }
 
-/** LC を動かしたか。after = 下げた後の値（C30） */
+/** LC を動かしたか。after = 広げた後の値（C30） */
 export type LcMove =
   | { readonly kind: 'none' }
   | { readonly kind: 'tightened' }

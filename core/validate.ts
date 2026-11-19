@@ -47,7 +47,7 @@ export function validateTrade(t: TradeInput): Issue[] {
     if (!ok) issues.push({ kind: 'lcDirection', entryIndex: i });
   });
 
-  // 下げた後の LC は入る前の LC より不利な側（L は下、S は上）
+  // 広げた後の LC は入る前の LC より不利な側（L は下、S は上）
   if (t.lcMove.kind === 'widened' && t.lcMove.after !== undefined && t.lc !== undefined) {
     const { after } = t.lcMove;
     if (Number.isFinite(after) && Number.isFinite(t.lc)) {

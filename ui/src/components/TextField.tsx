@@ -1,5 +1,8 @@
 // 文字・日時の入力欄（Issue #13 契約 R-4）。NumberField と同じ見た目・誤りの出し方（文言 + aria-invalid + aria-describedby）。
-// 打った文字列をそのまま親へ返す（解釈・検査は純関数）。文字 16px 以上・高さ 44px 以上
+// 打った文字列をそのまま親へ返す（解釈・検査は純関数）。文字 16px 以上・高さ 44px 以上。
+// 空の欄は文字を薄くする（日時の欄の「yyyy/mm/dd --:--」が入れた値に見えないように。#58 デザインレビュー 3）
+import { FieldLabelText } from './FieldLabelText';
+
 export interface TextFieldProps {
   readonly id: string;
   readonly label: string;
@@ -26,7 +29,7 @@ export function TextField(p: TextFieldProps) {
     .join(' ');
   const label = (
     <label class="field__label" for={p.id}>
-      {p.label}
+      <FieldLabelText text={p.label} />
     </label>
   );
   return (
@@ -44,7 +47,11 @@ export function TextField(p: TextFieldProps) {
       <div class="numfield textfield">
         <input
           id={p.id}
-          class="numfield__input textfield__input"
+          class={
+            p.value === ''
+              ? 'numfield__input textfield__input textfield__input--empty'
+              : 'numfield__input textfield__input'
+          }
           type={p.type ?? 'text'}
           autoComplete="off"
           spellcheck={false}

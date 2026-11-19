@@ -28,9 +28,9 @@ const IN = 'イン 100';
 
 const EXPECTED: Readonly<Record<string, readonly string[]>> = {
   E1: [LC, '決済 99.5（−1.0R）', IN],
-  E2: ['動かした後の LC 99.2（−1.6R）', '決済 99.2（−1.6R）', LC, IN],
+  E2: ['広げた後の LC 99.2（−1.6R）', '決済 99.2（−1.6R）', LC, IN],
   E3: [
-    '動かした後の LC 150.8（−1.6R）',
+    '広げた後の LC 150.8（−1.6R）',
     '決済 150.8（−1.6R）',
     '決めた LC 150.5（−1.0R）',
     'イン 150',
@@ -41,7 +41,7 @@ const EXPECTED: Readonly<Record<string, readonly string[]>> = {
   E7: ['決済 97.5（−5.0R）', LC, IN],
   E8: [LC, '決済 99.7（−0.6R）', IN],
   E9: ['決済 99.2（−1.6R）', LC, IN],
-  E10: ['動かした後の LC 99.2（−1.6R）', LC, IN, '決済 100.25（+0.5R）'],
+  E10: ['広げた後の LC 99.2（−1.6R）', LC, IN, '決済 100.25（+0.5R）'],
   E11: [LC, IN, '決済 100（±0.0R）'],
   E12: [LC, '決済 99.5（−1.0R）', IN],
   E13: [LC, IN, '決済 101（+2.0R）', 'TP 103（+6.0R）'],
@@ -135,7 +135,7 @@ describe('xOf・overArc', () => {
 });
 
 describe('widenArc・rulerTicks・入る前に決めていない LC（Phase 4b の指摘 2・3・4）', () => {
-  it('広げた区間は動かした後の LC〜決めた LC（E2・E10）、動かした後の LC の点が無ければ null（E1・E9）', () => {
+  it('広げた区間は広げた後の LC〜決めた LC（E2・E10）、広げた後の LC の点が無ければ null（E1・E9）', () => {
     expect(widenArc(rulerOfStored('E2'))).toEqual({ from: '0.00%', to: '23.08%' });
     expect(widenArc(rulerOfStored('E10'))).toEqual({ from: '0.00%', to: '23.08%' });
     expect(widenArc(rulerOfStored('E1'))).toBeNull();

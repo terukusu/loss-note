@@ -314,7 +314,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     expect(text(verdict)).toContain('0.5%');
     expect(text(verdict)).toContain('−8,000円');
     const reasons = all(tree, hasClass('reasons__item')).map(text);
-    expect(reasons).toContain('LC を下げた（99.5 → 99.2）');
+    expect(reasons).toContain('LC を広げた（99.5 → 99.2）');
     expect(reasons).toContain('時間足を変えた（4 時間足 → 日足・チャートから）');
   });
 
@@ -421,6 +421,30 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     );
   }
   const verdictText = (tree: Node[]) => text(all(tree, hasClass('verdict'))[0] as El);
+
+  it('#58 AC-2・KEEP-4: 直す画面でも「取引」の枠にエントリーの時刻（任意）が決済の時刻の前にあり、「ほかの欄」に無い。時刻の無い取引は空の欄', async () => {
+    const tree = await editTree(E1);
+    const inputs = (n: El) => all([n], (e) => e.type === 'input').map((e) => String(e.props.id));
+    const section = all(
+      tree,
+      (e) => e.type === 'section' && e.props['aria-labelledby'] === 'record-trade-title',
+    )[0] as El;
+    const ids = inputs(section);
+    expect(ids.indexOf('record-entry-time')).toBeGreaterThanOrEqual(0);
+    expect(ids.indexOf('record-entry-time')).toBeLessThan(ids.indexOf('record-exit-time'));
+    const more = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
+    expect(inputs(more)).not.toContain('record-entry-time');
+    expect(text(all(tree, (e) => e.type === 'label' && e.props.for === 'record-entry-time'))).toBe(
+      'エントリーの時刻（任意）',
+    );
+    // E1 はエントリーの時刻の無い保存済みの取引（空の欄で開ける）
+    expect(E1.record.entries[0].time).toBeUndefined();
+    const entry = all(
+      tree,
+      (e) => e.type === 'input' && e.props.id === 'record-entry-time',
+    )[0] as El;
+    expect(entry.props.value).toBe('');
+  });
 
   it('#57 AC-1・AC-2: 直す画面の 3 つのタップと判定の枠（判定・R・LC の物差し）に「i」', async () => {
     const tree = await editTree(E1);
@@ -829,10 +853,10 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
     const rows = all(tree, hasClass('fields__row')).map(text);
     expect(rows).toContain('適正の数量20000');
     expect(rows).toContain('許容リスクに対する数量0.5 倍');
-    // 区切りの中は折らない（「数量 10000 ·」「適正の数量 20000（0.5 倍）」の 2 つ）
+    // 区切りの中は折らない（「数量 10000」「· 適正の数量 20000（0.5 倍）」の 2 つ。「·」は行末に残さない。#58 デザインレビュー 6）
     expect(all(tree, hasClass('verdict__seg')).map(text)).toEqual([
-      '数量 10000 ·',
-      '適正の数量 20000（実際は 0.5 倍）',
+      '数量 10000',
+      '· 適正の数量 20000（実際は 0.5 倍）',
     ]);
   });
 

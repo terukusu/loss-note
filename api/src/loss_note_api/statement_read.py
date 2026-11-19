@@ -31,12 +31,16 @@ multipart は大きな本文をディスクに一時保存しうる。生のバ�
 
 先立ての印（#99 の続き）: ``warm`` = 先立てを使えなかった理由（``none`` = 立てていない・``used`` = 最後の
 先立ては前の読み取りが取って画像を送った・``retried`` = 前の読み取りが取ったが画像を送る前に失敗した（その回は
-``cli=cold_retry``）・``expired``・``startup_timeout`` = 立ち上がる前に起動の上限を過ぎた・``start_failed``・
+``cli=cold_retry``）・``expired``・``startup_timeout`` = 立ち上がる前に起動の上限を過ぎた（CPU があっても
+間に合わなかった）・``startup_idle`` = 立ち上がる前に、CPU の無い間（要求の来ない間）に起動の上限を過ぎた（締め切りの
+処理が遅れた・時計で過ぎていた。起動の段の先立ての形。ADR-0013 の追記）・``start_failed``・
 ``ended`` = 立ち上がった後に CLI が自分で終わった・``closed``）、``warm_from`` = 先立ての出どころ（``startup`` /
 ``prepare``）、``warm_age_ms`` = 先立てを作ってからこの読み取りまで、``warm_ready_ms`` = 作ってから立ち上がるまで、
 ``warm_end_ms`` = 作ってから終わるまで。取られずに終わった先立ては、終わったときに ``event=statement_read_warm_end``
-（``warm``・``warm_from``・``warm_end_ms``・``warm_ready_ms``）を 1 行出す（CPU が絞られている間に過ぎた締め切りは、
-次に CPU が割り当てられたときに取り消されるので、ログの時刻と ``warm_end_ms`` で見分けられる）。
+（``warm``・``warm_from``・``warm_end_ms``・``warm_ready_ms``・``warm_late_ms``）を 1 行出す（CPU が絞られている間に
+過ぎた締め切りは、次に CPU が割り当てられたときに取り消され、``startup_idle`` になる）。``warm_late_ms`` = 起動の上限を
+過ぎてから、それを処理するまでの遅れ（立ち上がる前に起動の上限を過ぎたときだけ。``startup_idle`` と
+``startup_timeout`` を分ける 2 秒の境界を本番で確かめる数）。
 
 明細の特徴（Issue #66・ADR-0017）: 検査を通った結果の会社の名前（``issuer``）を ``statement_profile.profile_key`` で
 利用者ごとの鍵に変え、名前はすぐ捨てる（応答・ログ・保存先に出さない）。鍵があれば覚え
@@ -142,6 +146,8 @@ def log_warm_end(end: WarmEnd) -> None:
     """読み取りに取られずに終わった先立ての印（#99 の続き）。終わり方・出どころ・作ってから終わるまで・立ち上がるまで
     （立ち上がらなかったら出さない）だけ。ログの時刻が終わった時刻"""
     extra: dict[str, float] = {} if end.ready_ms is None else {"warm_ready_ms": end.ready_ms}
+    if end.late_ms is not None:  # 起動の上限を過ぎてから処理するまでの遅れ（startup_idle の境界を確かめる数）
+        extra["warm_late_ms"] = end.late_ms
     log_event(event="statement_read_warm_end", warm=end.kind, warm_from=end.origin, warm_end_ms=end.end_ms,
               **extra)
 

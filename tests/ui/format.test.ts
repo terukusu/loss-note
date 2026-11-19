@@ -4,14 +4,18 @@ import {
   formatAmount,
   formatAmountYen,
   formatMoney,
+  formatNumber,
   formatPct,
   formatPlain,
   formatPrice,
+  formatQuantity,
   formatR,
   formatRate,
   formatTimes,
   formatYen,
+  groupDigits,
 } from '../../ui/src/lib/format';
+import { parseNum } from '../../ui/src/lib/record-form';
 import { forAll } from '../core/helpers/prng';
 
 const MINUS = '−';
@@ -146,15 +150,80 @@ describe('formatPct（Issue #13 E12・契約 R-2）: 小数 1 桁へ切り上げ
   });
 });
 
-describe('formatPrice（契約 R-2）: 保存した数のまま', () => {
+describe('formatPrice（契約 R-2・#40）: 保存した数のまま、整数部だけ 3 桁区切り', () => {
   it.each([
     [99.5, '99.5'],
     [99.2, '99.2'],
     [151, '151'],
+    [999, '999'],
+    [1000, '1,000'],
     [0.00012, '0.00012'],
-    [38250, '38250'],
+    [38250, '38,250'],
+    [38250.25, '38,250.25'],
+    [1.08345, '1.08345'],
+    [151.234, '151.234'],
+    [15_000_000.5, '15,000,000.5'],
+    [1234.56789, '1,234.56789'],
+    [0, '0'],
   ] as const)('%s → %s', (n, want) => {
     expect(formatPrice(n)).toBe(want);
+    expect(formatQuantity(n)).toBe(want);
+    expect(formatNumber(n)).toBe(want);
+  });
+
+  it('負の数は U+2212・指数表記にしない・有限でない数はそのまま', () => {
+    expect(formatNumber(-1234.5)).toBe(`${MINUS}1,234.5`);
+    expect(formatNumber(-0.5)).toBe(`${MINUS}0.5`);
+    expect(formatNumber(1e21)).toBe('1,000,000,000,000,000,000,000');
+    expect(formatNumber(1e-7)).toBe('0.0000001');
+    expect(formatNumber(1.5e-10)).toBe('0.00000000015');
+    expect(formatNumber(Number.POSITIVE_INFINITY)).toBe('Infinity');
+    expect(formatNumber(Number.NaN)).toBe('NaN');
+  });
+
+  it('groupDigits: 数の形の文字だけ区切る（小数部は区切らない）', () => {
+    expect(groupDigits('1234567.1234567')).toBe('1,234,567.1234567');
+    expect(groupDigits('-1000')).toBe(`${MINUS}1,000`);
+    expect(groupDigits('100.')).toBe('100.');
+    expect(groupDigits('')).toBe('');
+    expect(groupDigits('abc')).toBe('abc');
+  });
+
+  it('性質: 区切りを外すと formatPlain と同じ文字で、parseNum で元の値に戻る（丸めない。指数表記を桁に直す範囲も。種つき乱数）', () => {
+    // 10^-28〜10^26 の桁（String(n) が指数表記になる 1e21 以上・1e-7 未満を含む）
+    let expWide = 0;
+    forAll(
+      4040,
+      3000,
+      (r) => (r.int(0, 1) === 0 ? 1 : -1) * r.int(1, 999_999_999) * 10 ** r.int(-28, 17),
+      (x) => {
+        if (/e/i.test(String(x))) expWide++;
+        const s = formatNumber(x);
+        expect(s).not.toMatch(/e/i);
+        expect(s.replace(/,/g, '').replace(MINUS, '-')).toBe(formatPlain(x));
+        const back = parseNum(s);
+        expect(back.ok && back.value).toBe(x);
+        // 小数部に区切りが無く、整数部は 3 桁ごと
+        expect(s).toMatch(/^−?\d{1,3}(,\d{3})*(\.\d+)?$/);
+      },
+    );
+    // 指数表記の範囲を乱数が実際に通ったこと（大きい側・小さい側を合わせて 1 割以上）
+    expect(expWide).toBeGreaterThan(300);
+  });
+});
+
+describe('入力の欄の数の読み方（#40 AC5）: 区切りつき・全角の貼り付けを受け、形の崩れた区切りは誤り', () => {
+  it.each([
+    ['38,250', 38250],
+    ['1,234,567.89', 1234567.89],
+    ['１，２３４．５', 1234.5],
+    [`${MINUS}1,000`, -1000],
+    [' 38250 ', 38250],
+  ] as const)('%s → %s', (raw, want) => {
+    expect(parseNum(raw)).toEqual({ ok: true, value: want });
+  });
+  it.each(['1,23', '12,34,567', '1,234.5,6', ',123'])('%s は誤り', (raw) => {
+    expect(parseNum(raw)).toEqual({ ok: false });
   });
 });
 
@@ -165,9 +234,8 @@ describe('formatPlain（レビュー指摘 5）: 指数表記にしない', () =
     [0.00012, '0.00012'],
     [10000, '10000'],
     [0.3, '0.3'],
-  ] as const)('%s → %s', (n, want) => {
+  ] as const)('%s → %s（入力の欄の値なので区切りを入れない。#40）', (n, want) => {
     expect(formatPlain(n)).toBe(want);
-    expect(formatPrice(n)).toBe(want);
   });
 
   it('性質: 指数表記を含まず、数として読み直すと元の値（種つき乱数）', () => {

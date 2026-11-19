@@ -54,7 +54,7 @@ import {
 } from '../lib/draft-status';
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
-import { formatPrice } from '../lib/format';
+import { formatPrice, formatQuantity } from '../lib/format';
 import {
   createRecordController,
   enterRecordScreen,
@@ -477,7 +477,7 @@ function SavedPanel(p: RecordViewProps) {
         summary={saved.summary}
         side={r.side}
         status={savedText(saved.accountCount, saved.accountName)}
-        caption={`${saved.instrumentName} · ${r.side === 'L' ? 'L ロング' : 'S ショート'} · イン ${formatPrice(entry.price)} → 決済 ${formatPrice(r.exit.price)} · 数量 ${formatPrice(entry.quantity)}`}
+        caption={`${saved.instrumentName} · ${r.side === 'L' ? 'L ロング' : 'S ショート'} · イン ${formatPrice(entry.price)} → 決済 ${formatPrice(r.exit.price)} · 数量 ${formatQuantity(entry.quantity)}`}
         {...(() => {
           // 保存の後の 1 行: チャートの枚数と、明細の口座を覚えたこと（#66 デザイン 5）
           const notes = [

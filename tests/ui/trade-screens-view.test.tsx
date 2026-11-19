@@ -902,7 +902,7 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
     const TWO = [defaultAccount(1_000_000), account('accB', '口座 B', 200_000)];
     const tree = detailTree(L1, { state: detailWith(L1, TWO) });
     expect(all(tree, hasClass('verdict__sizing')).map(text)).toEqual([
-      '数量 10000 · 適正の数量 20000（実際は 0.5 倍）',
+      '数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）',
     ]);
     const verdict = all(tree, hasClass('verdict'))[0] as El;
     const order = verdict.children
@@ -910,12 +910,12 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
       .map((c) => cls(c).split(' ').at(-1));
     expect(order.indexOf('verdict__account')).toBe(order.indexOf('verdict__sizing') + 1);
     const rows = all(tree, hasClass('fields__row')).map(text);
-    expect(rows).toContain('適正の数量20000');
+    expect(rows).toContain('適正の数量20,000');
     expect(rows).toContain('許容リスクに対する数量0.5 倍');
-    // 区切りの中は折らない（「数量 10000」「· 適正の数量 20000（0.5 倍）」の 2 つ。「·」は行末に残さない。#58 デザインレビュー 6）
+    // 区切りの中は折らない（「数量 10,000」「· 適正の数量 20,000（0.5 倍）」の 2 つ。「·」は行末に残さない。#58 デザインレビュー 6）
     expect(all(tree, hasClass('verdict__seg')).map(text)).toEqual([
-      '数量 10000',
-      '· 適正の数量 20000（実際は 0.5 倍）',
+      '数量 10,000',
+      '· 適正の数量 20,000（実際は 0.5 倍）',
     ]);
   });
 

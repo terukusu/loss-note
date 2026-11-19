@@ -1860,7 +1860,7 @@ const RECORD_STATES = [
     fn: async (p) => {
       await fillFx(p);
       await p.locator('#record-fx').fill('1234567');
-      await p.locator('#record-fx-line', { hasText: '1 USD = 1234567円' }).waitFor();
+      await p.locator('#record-fx-line', { hasText: '1 USD = 1,234,567円' }).waitFor();
     },
   },
   {
@@ -6504,8 +6504,8 @@ async function runFlows(browser, base, signedIn) {
     return 'その場で足す: 開くと名前の欄へ・Esc で閉じて [＋ 口座を追加] へ・Enter で足す（記録しない）→ 口座 C が選ばれた Segment が出てフォーカス、本文は名前と資金だけ、入れていた欄はそのまま';
   });
 
-  // SZ1（#67 AC-8）: 判定の枠の数量と提案の数量の行が、記録する画面・取引の詳細・編集の画面に出て、区切り（「数量 10000 ·」
-  // 「適正の数量 4000（2.5 倍）」）の中で折れず、幅 360 でも区切りの間でだけ折れ、色が注記と同じ --ink-3（判定の色を使わない）、
+  // SZ1（#67 AC-8）: 判定の枠の数量と提案の数量の行が、記録する画面・取引の詳細・編集の画面に出て、区切り（「数量 10,000 ·」
+  // 「適正の数量 4,000（2.5 倍）」）の中で折れず、幅 360 でも区切りの間でだけ折れ、色が注記と同じ --ink-3（判定の色を使わない）、
   // 数の段の直後、横スクロール 0。場面: 0.5 倍・Z2（2.5 倍）・ちょうど 1.0 倍・Z9（最小の数量でも許容リスクを超える）・2 桁と 3 桁の
   // 比・提案の数量が小数 / 7 桁・1R が出ない（行なし）・エントリー 2 つ（詳細）・編集の画面で口座を付け替え。--shots なら各場面の
   // 判定の枠を 360 ダーク・360 ライト・1440 ダークで撮る。値はすべて架空
@@ -6595,22 +6595,47 @@ async function runFlows(browser, base, signedIn) {
       // 円建て・乗数 1。口座 1（1,000,000・1%）: 1R 0.50 × 10,000 = 5,000 → 0.5 倍、提案 20,000
       await fresh({ priceCurrency: 'JPY' });
       await fillRecord(p, EX_E1);
-      await expectLine('数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '口座 1', 'record-05');
+      await expectLine('数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）', '口座 1', 'record-05');
       // Z2: 口座 B（200,000・1%）→ 2.5 倍、10,000 × 2,000 ÷ 5,000 = 4,000
       await seg(p, '口座', '口座 B').click();
-      await expectLine('数量 10000 · 適正の数量 4000（実際は 2.5 倍）', 'Z2', 'record-z2');
+      await expectLine('数量 10,000 · 適正の数量 4,000（実際は 2.5 倍）', 'Z2', 'record-z2');
       // ちょうど 1.0 倍: 数量 20,000 → 1R 10,000 ÷ 10,000
       await fresh({ priceCurrency: 'JPY' });
       await fillAt(EX_E1, '20000');
-      await expectLine('数量 20000 · 適正の数量 20000（実際は 1.0 倍）', '1.0 倍', 'record-z4');
+      await expectLine('数量 20,000 · 適正の数量 20,000（実際は 1.0 倍）', '1.0 倍', 'record-z4');
       // 7 桁: 数量 1,234,567・LC 99.99 → 1R 12,345.67 → 1.23… → 1.3 倍、提案 1,234,567 × 10,000 ÷ 12,345.67 = 1,000,000
       await fresh({ priceCurrency: 'JPY' });
       await fillAt(AT('100.00', '99.99'), '1234567');
       await expectLine(
-        '数量 1234567 · 適正の数量 1000000（実際は 1.3 倍）',
+        '数量 1,234,567 · 適正の数量 1,000,000（実際は 1.3 倍）',
         '7 桁',
         'record-7digits',
       );
+      // 12 桁（#40 レビュー 4）: 数量 123,456,789,012・イン 100,000・LC 50,000 → 提案 0。1 つの区切りが幅 360 の枠より長いので、
+      // 区切りの中で折れてよいが、枠からはみ出さない（横スクロール 0・区切りの右端が行の右端の内側）
+      await fresh({ priceCurrency: 'JPY' });
+      await fillAt(AT('100000', '50000'), '123456789012');
+      {
+        const want =
+          '数量 123,456,789,012（許容リスクの 617283945060.0 倍） · 最小の数量でも許容リスクを超えます';
+        await p.locator('.verdict__sizing', { hasText: want }).waitFor();
+        const l = await lineOf();
+        expectEq(l.text, want, '12 桁 の文字');
+        expectEq(l.h, 0, '12 桁 の横スクロール');
+        const over = await p.locator('.verdict__sizing').evaluate((e) => {
+          const right = e.getBoundingClientRect().right;
+          return [...e.querySelectorAll('.verdict__seg')].map((s) =>
+            Math.round(s.getBoundingClientRect().right - right),
+          );
+        });
+        expectEq(
+          over.every((d) => d <= 0),
+          true,
+          `12 桁 の区切りが行からはみ出さない ${over}`,
+        );
+        seen.push(`12 桁 ${l.lines} 行（はみ出し 0）`);
+        await shoot('record-12digits');
+      }
       // 小数: 乗数 100,000・刻み 0.01・イン 150.00・LC 149.50・数量 0.37 → 1R 18,500 → 1.85 → 1.9 倍、提案 0.2
       await fresh({ priceCurrency: 'JPY', multiplier: 100000, quantityStep: 0.01 });
       await fillAt(AT('150.00', '149.50'), '0.37');
@@ -6646,14 +6671,14 @@ async function runFlows(browser, base, signedIn) {
       // 詳細（x-d1: 1R = 8,000 × 0.50 ÷ 0.80 = 5,000、資金 1,000,000・1%）と「すべての欄」の 2 行
       await p.goto(`${base}/trades/x-d1`);
       await waitReady(p, 'US30 · L');
-      await expectLine('数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '詳細', 'detail');
+      await expectLine('数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）', '詳細', 'detail');
       await p.locator('details.more > summary').click();
       const rows = await p.locator('.fields__row').allTextContents();
       expectEq(
         rows
           .filter((r) => r.startsWith('適正の数量') || r.startsWith('許容リスクに対する数量'))
           .join(' / '),
-        '適正の数量20000 / 許容リスクに対する数量0.5 倍',
+        '適正の数量20,000 / 許容リスクに対する数量0.5 倍',
         'すべての欄の 2 行',
       );
       if (opts.shots) {
@@ -6664,14 +6689,14 @@ async function runFlows(browser, base, signedIn) {
       // エントリー 2 つ（詳細）: 数量は合計・比だけ
       await p.goto(`${base}/trades/x-z14`);
       await waitReady(p, 'US30 · L');
-      await expectLine('数量 10000（許容リスクの 0.4 倍）', 'エントリー 2 つ', 'detail-z14');
+      await expectLine('数量 10,000（許容リスクの 0.4 倍）', 'エントリー 2 つ', 'detail-z14');
       // 編集の画面: 口座 B に付け替える → 2.5 倍・適正の数量 4,000
       await p.goto(`${base}/trades/x-d1/edit`);
       await waitReady(p, '取引を編集');
-      await expectLine('数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '編集の画面', 'edit-a');
+      await expectLine('数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）', '編集の画面', 'edit-a');
       await seg(p, '口座', '口座 B').click();
       await expectLine(
-        '数量 10000 · 適正の数量 4000（実際は 2.5 倍）',
+        '数量 10,000 · 適正の数量 4,000（実際は 2.5 倍）',
         '編集の画面の口座 B',
         'edit-b',
       );

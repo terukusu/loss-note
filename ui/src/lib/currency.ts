@@ -9,7 +9,7 @@ import {
   DEFAULT_CURRENCY,
   type StoredTrade,
 } from '../../../core/record';
-import { formatPlain } from './format';
+import { formatNumber, groupDigits } from './format';
 
 /** 欄の単位・文の中の通貨の書き方（JPY = 円、ほか = 3 文字） */
 export function unitOf(currency: string): string {
@@ -42,13 +42,13 @@ export function currencyHint(
   return undefined;
 }
 
-/** 逆算の為替の表示（有効 5 桁。150 → 150.00、1.1 → 1.1000。指数表記にしない） */
+/** 逆算の為替の表示（有効 5 桁。150 → 150.00、1.1 → 1.1000、12345.6 → 12,346。整数部は 3 桁区切り（#40）。指数表記にしない） */
 export function formatFxDerived(x: number): string {
   if (!Number.isFinite(x) || x <= 0) return '';
-  if (x >= 1e5) return String(Math.round(x));
+  if (x >= 1e5) return groupDigits(String(Math.round(x)));
   // toPrecision は丸めた後の桁で 5 桁にする（99.9996 → 100.00）。指数表記になる極端な値だけ小数の桁で書く
   const p = x.toPrecision(5);
-  if (!/e/i.test(p)) return p;
+  if (!/e/i.test(p)) return groupDigits(p);
   const digits = Math.max(0, 4 - Math.floor(Math.log10(x)));
   // 1e-5 未満のような極端な値は 10 桁までで止める（toFixed の上限より十分小さく）
   return x.toFixed(Math.min(digits, 10));
@@ -68,7 +68,7 @@ export function fxLine(args: {
   if (args.derived !== undefined)
     return `明細から 1 ${args.price} = ${withUnit(formatFxDerived(args.derived), a)}`;
   if (args.entered !== undefined)
-    return `1 ${args.price} = ${withUnit(formatPlain(args.entered), a)}`;
+    return `1 ${args.price} = ${withUnit(formatNumber(args.entered), a)}`;
   return `1 ${args.price} = ${withUnit('?', a)}（空でも記録できます）`;
 }
 

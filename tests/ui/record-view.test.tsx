@@ -699,7 +699,7 @@ describe('保存の後', () => {
     expect(text(badge(tree))).toBe('B 悪い損失');
     expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を広げた（99.5 → 99.2）');
     expect(text(all(tree, hasClass('num--xl')))).toBe('−1.6R');
-    expect(text(tree)).toContain('US30 · L ロング · イン 100 → 決済 99.2 · 数量 10000');
+    expect(text(tree)).toContain('US30 · L ロング · イン 100 → 決済 99.2 · 数量 10,000');
     expect(all(tree, (e) => e.type === 'input')).toEqual([]);
     // 「i」（説明のボタン。#57）を除いた最初のボタン
     const btn = all(tree, (e) => e.type === 'button' && !hasClass('info')(e))[0] as El;
@@ -708,6 +708,27 @@ describe('保存の後', () => {
     expect(all(tree, hasClass('record__submit'))).toEqual([]);
     (btn.props.onClick as () => void)();
     expect(next).toBe(1);
+  });
+
+  it('説明の 1 行の 4 桁以上の価格・数量は 3 桁区切り、小数は丸めない（#40 AC4。架空の値）', () => {
+    const base = savedState();
+    const saved = base.saved as NonNullable<RecordState['saved']>;
+    const r = saved.trade.record;
+    const trade: StoredTrade = {
+      ...saved.trade,
+      record: {
+        ...r,
+        lc: 38_100.5,
+        entries: [
+          { ...(r.entries[0] as (typeof r.entries)[number]), price: 38_250.25, quantity: 1_500 },
+        ],
+        exit: { ...r.exit, price: 1_234_567.125 },
+      },
+    };
+    const tree = view({ ...base, saved: { ...saved, trade, summary: summarize(trade) } });
+    expect(text(tree)).toContain(
+      'US30 · L ロング · イン 38,250.25 → 決済 1,234,567.125 · 数量 1,500',
+    );
   });
 });
 
@@ -1773,11 +1794,11 @@ describe('判定の枠の数量の 1 行（#67）', () => {
       .children.filter((c): c is El => typeof c !== 'string')
       .map((c) => cls(c).split(' ').at(-1));
 
-  it('Z2: 口座の資金 200,000・1% で E2（1R 5,000）→「数量 10000 · 適正の数量 4000（2.5 倍）」が数の段の直後に 1 行・無色', () => {
+  it('Z2: 口座の資金 200,000・1% で E2（1R 5,000）→「数量 10,000 · 適正の数量 4,000（2.5 倍）」が数の段の直後に 1 行・無色', () => {
     const ctx = { ...CAPITAL_1M, accounts: [defaultAccount(200_000)] };
     const tree = view(stateFor(E2, ctx));
     const line = all(tree, hasClass('verdict__sizing'));
-    expect(line.map(text)).toEqual(['数量 10000 · 適正の数量 4000（実際は 2.5 倍）']);
+    expect(line.map(text)).toEqual(['数量 10,000 · 適正の数量 4,000（実際は 2.5 倍）']);
     expect(cls(line[0] as El)).toBe('verdict__aside verdict__sizing');
     const o = order(tree);
     expect(o[o.indexOf('verdict__stats') + 1]).toBe('verdict__sizing');

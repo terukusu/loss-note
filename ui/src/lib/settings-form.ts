@@ -10,7 +10,7 @@ import type {
   ProductForm,
   UnderlyingKind,
 } from '../../../core/record';
-import { formatAmount, formatPlain } from './format';
+import { formatAmount, formatNumber, formatPlain } from './format';
 import { nameKey } from './instrument-name';
 import {
   DEFAULT_INSTRUMENT,
@@ -322,8 +322,8 @@ export function instrumentSummary(rec: InstrumentRecord): string {
     PRODUCT_FORM_LABEL[rec.productForm],
     // 記録する画面の 1 行と同じ言葉（口座の「通貨」と取り違えない。#47 PR-2 デザイン 5）
     rec.priceCurrency === null ? '価格の通貨 未設定' : `${rec.priceCurrency} 建て`,
-    `乗数 ${formatPlain(rec.multiplier)}`,
-    `刻み ${formatPlain(rec.quantityStep)}`,
+    `乗数 ${formatNumber(rec.multiplier)}`,
+    `刻み ${formatNumber(rec.quantityStep)}`,
     ...(rec.underlying ? [`原資産 ${rec.underlying}`] : []),
   ].join(' · ');
 }

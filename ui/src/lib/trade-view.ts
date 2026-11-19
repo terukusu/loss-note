@@ -28,9 +28,11 @@ import { formatDate, formatDateTime, formatHolding } from './datetime';
 import {
   formatAmount,
   formatMoney,
+  formatNumber,
   formatPct,
   formatPlain,
   formatPrice,
+  formatQuantity,
   formatR,
   formatTimes,
 } from './format';
@@ -347,7 +349,7 @@ export function recordFields(
     { label: 'L / S', value: SIDE_TEXT[r.side] },
     { label: 'イン', value: formatPrice(e.price) },
     { label: '決済', value: formatPrice(x.price) },
-    { label: '数量', value: formatPlain(e.quantity) },
+    { label: '数量', value: formatQuantity(e.quantity) },
   );
   // 提案の数量と数量の比（#67。記録したときの資金・許容リスクで。数量どうしを隣に並べる。出ないときは行ごと出さない）
   const sizing = sum.sizing;
@@ -356,7 +358,7 @@ export function recordFields(
       const q = sizing.suggestedQuantity;
       rows.push({
         label: SIZING_LABEL.suggested,
-        value: q === 0 ? `0（${SIZING_OVER_STEP}）` : formatPlain(q),
+        value: q === 0 ? `0（${SIZING_OVER_STEP}）` : formatQuantity(q),
       });
     }
     rows.push({ label: SIZING_LABEL.ratio, value: timesText(sizing.ratio) });
@@ -367,7 +369,7 @@ export function recordFields(
     if (x.fxRate !== undefined) {
       rows.push({
         label: '為替',
-        value: `1 ${price} = ${withUnit(formatPlain(x.fxRate), currency)}`,
+        value: `1 ${price} = ${withUnit(formatNumber(x.fxRate), currency)}`,
       });
     } else if (sum.derivedFx !== undefined) {
       rows.push({
@@ -396,10 +398,10 @@ export function recordFields(
   }
   if (r.fees.length > 0) {
     const total = r.fees.reduce((acc, f) => acc + f.amountYen, 0);
-    // 手数料は今の表記（丸めない。円の口座は「200.5円」のまま）。外貨の口座は通貨の 3 文字を後ろに
+    // 手数料は丸めない（円の口座は「200.5円」のまま）。整数部は 3 桁区切り（1,234.5円。#40）。外貨の口座は通貨の 3 文字を後ろに
     rows.push({
       label: '手数料',
-      value: currency === 'JPY' ? `${formatPlain(total)}円` : `${formatPlain(total)} ${currency}`,
+      value: currency === 'JPY' ? `${formatNumber(total)}円` : `${formatNumber(total)} ${currency}`,
     });
   }
   rows.push({ label: 'LC の根拠', value: LC_BASIS_TEXT[r.lcBasis] });

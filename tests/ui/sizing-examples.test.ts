@@ -123,15 +123,15 @@ describe('AC-1: 例 Z1〜Z10 の比・表示の文字・提案の数量（保存
   // [例, 比, 判定の枠の 1 行, すべての欄の比, すべての欄の提案]
   const cases = [
     // 1R 5,000 ÷ 許容額 10,000 = 0.5、提案 10,000 × 10,000 ÷ 5,000 = 20,000
-    ['Z1', 0.5, '数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '0.5 倍', '20000'],
+    ['Z1', 0.5, '数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）', '0.5 倍', '20,000'],
     // 5,000 ÷ 2,000 = 2.5、10,000 × 2,000 ÷ 5,000 = 4,000
-    ['Z2', 2.5, '数量 10000 · 適正の数量 4000（実際は 2.5 倍）', '2.5 倍', '4000'],
+    ['Z2', 2.5, '数量 10,000 · 適正の数量 4,000（実際は 2.5 倍）', '2.5 倍', '4,000'],
     // 15,000 ÷ 5,000 = 3.0、30,000 × 5,000 ÷ 15,000 = 10,000
-    ['Z3', 3, '数量 30000 · 適正の数量 10000（実際は 3.0 倍）', '3.0 倍', '10000'],
+    ['Z3', 3, '数量 30,000 · 適正の数量 10,000（実際は 3.0 倍）', '3.0 倍', '10,000'],
     // 10,000 ÷ 10,000 = 1.0、20,000 × 10,000 ÷ 10,000 = 20,000
-    ['Z4', 1, '数量 20000 · 適正の数量 20000（実際は 1.0 倍）', '1.0 倍', '20000'],
+    ['Z4', 1, '数量 20,000 · 適正の数量 20,000（実際は 1.0 倍）', '1.0 倍', '20,000'],
     // 5,200 ÷ 10,000 = 0.52 → 表示 0.6、10,400 × 10,000 ÷ 5,200 = 20,000
-    ['Z5', 0.52, '数量 10400 · 適正の数量 20000（実際は 0.6 倍）', '0.6 倍', '20000'],
+    ['Z5', 0.52, '数量 10,400 · 適正の数量 20,000（実際は 0.6 倍）', '0.6 倍', '20,000'],
     // 1R = 9,000 × 0.50 ÷ 0.60 = 7,500 → 0.75 → 0.8、100 × 10,000 ÷ 7,500 = 133.3 → 133
     ['Z6', 0.75, '数量 100 · 適正の数量 133（実際は 0.8 倍）', '0.8 倍', '133'],
     // 刻み 10 → 130
@@ -147,7 +147,7 @@ describe('AC-1: 例 Z1〜Z10 の比・表示の文字・提案の数量（保存
       '0（最小の数量でも許容リスクを超えます）',
     ],
     // S で Z1 と同じ
-    ['Z10', 0.5, '数量 10000 · 適正の数量 20000（実際は 0.5 倍）', '0.5 倍', '20000'],
+    ['Z10', 0.5, '数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）', '0.5 倍', '20,000'],
   ] as const;
 
   it.each(cases)('%s', (name, ratio, want, fieldRatio, fieldSuggested) => {
@@ -184,7 +184,7 @@ describe('AC-2: Z11〜Z13 は比も提案の数量も出ない・AC-3: Z14 は�
     expect(s.sizing?.ratio).toBeCloseTo(0.4, 12);
     expect(s.sizing).not.toHaveProperty('suggestedQuantity');
     // 数量は 2 つのエントリーの合計
-    expect(line(s)).toBe('数量 10000（許容リスクの 0.4 倍）');
+    expect(line(s)).toBe('数量 10,000（許容リスクの 0.4 倍）');
     const f = fieldsOf(Z.Z14 as StoredTrade);
     expect(f[SIZING_LABEL.ratio]).toBe('0.4 倍');
     expect(f).not.toHaveProperty(SIZING_LABEL.suggested);
@@ -240,15 +240,19 @@ describe('AC-6: 例 Z15（記録する画面で数量と口座を変えると、
   it('Z1 → 数量 30,000 で 1.5 倍・提案 20,000 → 口座 B で 7.5 倍・提案 4,000', async () => {
     const c = await opened(fake());
     fillP(c, '10000', A.id);
-    expect(line(c.getState().read.preview)).toBe('数量 10000 · 適正の数量 20000（実際は 0.5 倍）');
+    expect(line(c.getState().read.preview)).toBe(
+      '数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）',
+    );
     // 1R = 0.50 × 30,000 = 15,000 ÷ 10,000 = 1.5、30,000 × 10,000 ÷ 15,000 = 20,000
     c.update({ type: 'set', field: 'quantity', value: '30000' });
     expect(c.getState().read.preview.sizing?.ratio).toBeCloseTo(1.5, 12);
-    expect(line(c.getState().read.preview)).toBe('数量 30000 · 適正の数量 20000（実際は 1.5 倍）');
+    expect(line(c.getState().read.preview)).toBe(
+      '数量 30,000 · 適正の数量 20,000（実際は 1.5 倍）',
+    );
     // B の許容額 2,000 → 15,000 ÷ 2,000 = 7.5、30,000 × 2,000 ÷ 15,000 = 4,000
     c.update({ type: 'set', field: 'accountId', value: B.id });
     expect(c.getState().read.preview.sizing?.ratio).toBeCloseTo(7.5, 12);
-    expect(line(c.getState().read.preview)).toBe('数量 30000 · 適正の数量 4000（実際は 7.5 倍）');
+    expect(line(c.getState().read.preview)).toBe('数量 30,000 · 適正の数量 4,000（実際は 7.5 倍）');
     // 判定は今と同じ（B の 7.5% で過剰リスク）
     expect(c.getState().read.preview.judgment?.grade).toBe('B');
   });
@@ -277,7 +281,7 @@ describe('AC-7: 例 Z16（記録した後に口座の資金を直しても詳細
     await dc.load();
     const s = dc.getState();
     if (s.phase !== 'ready') throw new Error(s.phase);
-    expect(line(s.summary)).toBe('数量 10000 · 適正の数量 20000（実際は 0.5 倍）');
+    expect(line(s.summary)).toBe('数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）');
     expect(fieldsOf(s.trade)[SIZING_LABEL.ratio]).toBe('0.5 倍');
   });
 
@@ -286,15 +290,15 @@ describe('AC-7: 例 Z16（記録した後に口座の資金を直しても詳細
     const t = await recordZ1(f);
     const ec = createEditController({ api: f.api, id: t.id });
     await ec.load();
-    expect(line(ec.getState().preview)).toBe('数量 10000 · 適正の数量 20000（実際は 0.5 倍）');
+    expect(line(ec.getState().preview)).toBe('数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）');
     ec.update({ type: 'set', field: 'accountId', value: B.id });
-    expect(line(ec.getState().preview)).toBe('数量 10000 · 適正の数量 4000（実際は 2.5 倍）');
+    expect(line(ec.getState().preview)).toBe('数量 10,000 · 適正の数量 4,000（実際は 2.5 倍）');
     await ec.save();
     const saved = ec.getState().trade as StoredTrade;
     expect(saved.snapshot.capitalYen).toBe(200_000);
-    expect(line(summarize(saved))).toBe('数量 10000 · 適正の数量 4000（実際は 2.5 倍）');
+    expect(line(summarize(saved))).toBe('数量 10,000 · 適正の数量 4,000（実際は 2.5 倍）');
     const ff = fieldsOf(saved);
     expect(ff[SIZING_LABEL.ratio]).toBe('2.5 倍');
-    expect(ff[SIZING_LABEL.suggested]).toBe('4000');
+    expect(ff[SIZING_LABEL.suggested]).toBe('4,000');
   });
 });

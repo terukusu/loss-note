@@ -17,7 +17,7 @@ import {
 } from '../../../core/record';
 import { badgeModel } from './badge';
 import { editSnapshot } from './edit-form';
-import { formatAmount, formatPct, formatPlain, formatR } from './format';
+import { formatAmount, formatNumber, formatPct, formatPlain, formatR } from './format';
 import type { Draft, DraftContext, DraftReading, Summary } from './record-form';
 import { fxStale, summarize } from './record-form';
 import { PRODUCT_FORM_LABEL, UNDERLYING_KIND_LABEL } from './settings-form';
@@ -57,8 +57,8 @@ type InstrumentRow = {
 }[keyof InstrumentSnapshot];
 
 const INSTRUMENT_ROWS: readonly InstrumentRow[] = [
-  { key: 'multiplier', label: '乗数', text: formatPlain },
-  { key: 'quantityStep', label: '数量の刻み', text: formatPlain },
+  { key: 'multiplier', label: '乗数', text: formatNumber },
+  { key: 'quantityStep', label: '数量の刻み', text: formatNumber },
   { key: 'priceCurrency', label: '価格の通貨', text: currencyText },
   { key: 'underlyingKind', label: '原資産の種類', text: (v) => UNDERLYING_KIND_LABEL[v] },
   { key: 'productForm', label: '取引の形態', text: (v) => PRODUCT_FORM_LABEL[v] },

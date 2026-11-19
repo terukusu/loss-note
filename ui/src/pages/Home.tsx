@@ -4,6 +4,8 @@
 // Home は hook を持たない（App のテストが 1 段だけ呼ぶ）。空の状態は Home が作って渡す
 // 規律の振り返り（Issue #88）: [記録する] の下・直近の判定の上に、期間を選んで計画どおり率・規律コスト・判定の内訳・
 // 規律コストの曲線。期間は URL の検索部分（置き換え。履歴を積まない）。直近の判定とは別に読む（失敗を巻き込まない。KEEP-4）
+// 直近の流れ（Issue #35）: [記録する] の直下に、読んだ 10 件の判定の段の点の並びと「計画どおりが N 件続いています」。
+// 新しく読まない（直近の判定と同じ読み込み）
 import type { JSX } from 'preact';
 import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { InstrumentRecord } from '../../../core/record';
@@ -12,11 +14,13 @@ import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { ReviewSection, type ReviewSlot } from '../components/ReviewSummary';
+import { StreakSection } from '../components/StreakStrip';
 import { TradeList } from '../components/TradeRow';
 import { homeHref, parsePeriod, periodActions, periodRange } from '../lib/period';
 import { createReviewController, type ReviewState } from '../lib/review-controller';
 import { type ReviewModel, reviewModelFor } from '../lib/review-view';
 import { type Navigator, NavigatorContext } from '../lib/router';
+import { streakModel } from '../lib/streak';
 import { HOME_LIMIT } from '../lib/trade-pages';
 import { missingNotes, RECENT_COUNT, recentRows, visibleTrades } from '../lib/trade-view';
 import type { TradesState } from '../lib/trades-controller';
@@ -137,13 +141,14 @@ export interface HomeViewProps {
   readonly review?: ReviewSlot;
 }
 
-/** [記録する]・規律の振り返り・直近 5 件（hook を持たない） */
+/** [記録する]・直近の流れ・規律の振り返り・直近 5 件（hook を持たない） */
 export function HomeView(p: HomeViewProps) {
   const { state } = p;
   if (state.phase !== 'ready') return <LoadState {...p} />;
   const visible = visibleTrades(state.trades, p.hidden);
   if (visible.length === 0) return p.empty;
   const rows = recentRows(visible, state.instruments, RECENT_COUNT, state.accounts);
+  const streak = streakModel(state.trades, p.hidden);
   return (
     <>
       <div class="home__record">
@@ -151,6 +156,7 @@ export function HomeView(p: HomeViewProps) {
           記録する
         </Button>
       </div>
+      {streak ? <StreakSection model={streak} id="home-streak" /> : null}
       {p.review ? <ReviewSection {...p.review} /> : null}
       <section class="card section" aria-labelledby="home-recent-title">
         <h2 class="section__title" id="home-recent-title">

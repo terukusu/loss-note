@@ -133,3 +133,33 @@ export function reviewPeriod(
     noR,
   };
 }
+
+/** 直近の並びの種類（Issue #35）: 計画どおり = A・計画どおりの勝ち / 崩れ = B・危ない勝ち・C / 判定なし */
+export type RunKind = 'plan' | 'off' | 'none';
+
+export function runKindOf(grade: Grade | null): RunKind {
+  if (grade === null) return 'none';
+  return grade === 'A' || grade === 'safeWin' ? 'plan' : 'off';
+}
+
+/** 直近の連続: 最新の取引の種類と、新しい方から同じ種類が続く件数（1 以上） */
+export interface RecentRun {
+  readonly kind: RunKind;
+  readonly count: number;
+}
+
+/**
+ * 新しい順の判定の並び → 最新の種類と連続の件数（Issue #35）。空なら null。並びの外（もっと古い取引）は見ない
+ * （件数は並びの長さが上限）
+ */
+export function recentRun(newestFirst: readonly (Grade | null)[]): RecentRun | null {
+  const first = newestFirst[0];
+  if (first === undefined) return null;
+  const kind = runKindOf(first);
+  let count = 0;
+  for (const g of newestFirst) {
+    if (runKindOf(g) !== kind) break;
+    count += 1;
+  }
+  return { kind, count };
+}

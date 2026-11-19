@@ -5,15 +5,18 @@
 // 読み込み済みの分と位置を殻の入れ物（trades-cache.ts）から戻し、裏で読み直す。
 // 3 層: 純関数（lib/trade-view.ts）→ 通信と状態（lib/trades-controller.ts）→ この画面。Trades は hook を持たない
 // （App のテストが 1 段だけ呼ぶ）。空の状態は Trades が作って渡す。消した印（[元に戻す] を待つ取引）は隠す
+// 直近の流れ（Issue #35）: 一覧のカードの上に、読み込み済みの分の新しい 10 件の判定の段の点の並び（ホームと同じ）
 import type { JSX } from 'preact';
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, signOutActive } from '../auth/session';
 import { Button, buttonClass } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
+import { StreakSection } from '../components/StreakStrip';
 import { TradeList, TradeNotes } from '../components/TradeRow';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import { NavigatorContext } from '../lib/router';
+import { streakModelOfSorted } from '../lib/streak';
 import { countText, endText, LIST_PAGE, notesWhileLoading } from '../lib/trade-pages';
 import { missingNotes, sortTrades, tradeRow, visibleTrades } from '../lib/trade-view';
 import { TradesCacheContext } from '../lib/trades-cache';
@@ -186,7 +189,7 @@ export interface TradesViewProps {
 /** [続きを読み込む] の ID（読み込み中・失敗の後も同じボタンを残し、フォーカスを保つ） */
 export const TRADES_MORE_ID = 'trades-more';
 
-/** 読み込み中・読めない・空・行の並び・続きの段（hook を持たない） */
+/** 読み込み中・読めない・空・直近の流れ・行の並び・続きの段（hook を持たない） */
 export function TradesView(p: TradesViewProps) {
   const { state } = p;
   if (state.phase !== 'ready') return <LoadState {...p} />;
@@ -205,24 +208,29 @@ export function TradesView(p: TradesViewProps) {
         : done
           ? endText(rows.length)
           : countText(rows.length, false);
+  // 並べ済みの trades を渡す（全件を 2 回並べない）
+  const streak = streakModelOfSorted(trades);
   return (
-    <section class="card tradelist-card" aria-labelledby="trades-count">
-      <p class="tradelist-card__count" id="trades-count">
-        {countText(rows.length, done)}
-      </p>
-      <TradeList rows={rows} label="取引" notes={[]} />
-      <MoreState {...p} />
-      {end !== null ? (
-        <p class="tradelist-end" tabIndex={-1}>
-          {end}
+    <>
+      {streak ? <StreakSection model={streak} id="trades-streak" /> : null}
+      <section class="card tradelist-card" aria-labelledby="trades-count">
+        <p class="tradelist-card__count" id="trades-count">
+          {countText(rows.length, done)}
         </p>
-      ) : null}
-      <TradeNotes notes={notes} />
-      {/* 読み込みの始まりと終わり・件数を伝える（常に置いておき、中身だけを入れ替える） */}
-      <p class="sr-only" role="status">
-        {status}
-      </p>
-    </section>
+        <TradeList rows={rows} label="取引" notes={[]} />
+        <MoreState {...p} />
+        {end !== null ? (
+          <p class="tradelist-end" tabIndex={-1}>
+            {end}
+          </p>
+        ) : null}
+        <TradeNotes notes={notes} />
+        {/* 読み込みの始まりと終わり・件数を伝える（常に置いておき、中身だけを入れ替える） */}
+        <p class="sr-only" role="status">
+          {status}
+        </p>
+      </section>
+    </>
   );
 }
 

@@ -3482,6 +3482,61 @@ async function main() {
               recApi.trades = saved;
             }
           }
+          // ST1（幅 360・ダークで 1 回。Issue #35）: ホームと一覧の直近の流れは点 10 個が 1 行に並び（同じ高さ・カードの中）、
+          // 並びの名前が「直近 10 件の判定（古い順）」、見出しの文が出る。ホームは [記録する] の後・振り返りの前
+          if (w === 360 && theme === 'dark') {
+            const tp = pageFor.get(false);
+            try {
+              for (const [at, h1] of [
+                ['/', 'ホーム'],
+                ['/trades', '取引の一覧'],
+              ]) {
+                await tp.goto(base + at);
+                await waitReady(tp, h1);
+                await tp.locator('.streak__item').first().waitFor({ timeout: 15000 });
+                const r = await tp.evaluate(() => {
+                  const card = document.querySelector('.streak');
+                  const items = [...document.querySelectorAll('.streak__item')];
+                  const cb = card?.getBoundingClientRect();
+                  const tops = new Set(
+                    items.map((li) => Math.round(li.getBoundingClientRect().top)),
+                  );
+                  const outside = items.filter((li) => {
+                    const b = li.getBoundingClientRect();
+                    return !cb || b.left < cb.left || b.right > cb.right;
+                  }).length;
+                  const order = [
+                    ...document.querySelectorAll('.home__record, .streak, .review'),
+                  ].map((e) =>
+                    e.className.split(' ').find((c) => !['card', 'section'].includes(c)),
+                  );
+                  return {
+                    n: items.length,
+                    rows: tops.size,
+                    outside,
+                    label: document.querySelector('.streak__dots')?.getAttribute('aria-label'),
+                    headline: document.querySelector('.streak__headline')?.textContent ?? '',
+                    order,
+                  };
+                });
+                const where = `ST1 ${at}`;
+                if (r.n !== 10) throw new Error(`${where}: 点の数 ${r.n}（期待 10）`);
+                if (r.rows !== 1) throw new Error(`${where}: 点の行 ${r.rows}（期待 1）`);
+                if (r.outside !== 0) throw new Error(`${where}: カードの外の点 ${r.outside}`);
+                if (r.label !== '直近 10 件の判定（古い順）')
+                  throw new Error(`${where}: 並びの名前 ${r.label}`);
+                if (!/続いています|直近の取引は/.test(r.headline))
+                  throw new Error(`${where}: 見出しの文 ${r.headline}`);
+                if (at === '/' && r.order.join(',') !== 'home__record,streak,review')
+                  throw new Error(`${where}: 並び ${r.order.join(',')}`);
+              }
+              console.log('ST1 直近の流れ（点 10 個が 1 行・名前・見出し・ホームの並び） ok');
+            } catch (e) {
+              const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
+              console.log(`ST1 NG ${msg}`);
+              problems.push(`ST1: ${msg}`);
+            }
+          }
         }
         // 詳細と編集（外貨建て。#47 PR-2 U32・U33・U34）: 外貨の取引を一時だけ足して測る
         for (const fx of [

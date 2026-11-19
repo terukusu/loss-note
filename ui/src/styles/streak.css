@@ -1,0 +1,122 @@
+/* ホームと一覧の「直近の流れ」の段（Issue #35。components/StreakStrip.tsx が読み込む）。
+   色は判定の段のトークン（点の地・線・記号、見出しの記号）と文字・線のトークンだけ（P2）。
+   点は段の色に段の記号を重ね、色だけに頼らない（P5）。点 10 個は幅 360px のカードに 1 行で入る（P7） */
+
+.streak {
+  gap: var(--sp-3);
+}
+
+.streak__headline {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+.streak__headmark.icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.6;
+}
+
+.streak__headline--plan .streak__headmark {
+  color: var(--tier-plan-ink);
+}
+
+.streak__headline--break .streak__headmark {
+  color: var(--tier-break-ink);
+}
+
+.streak__headline--worst .streak__headmark {
+  color: var(--tier-worst-ink);
+}
+
+.streak__headline--neutral .streak__headmark {
+  color: var(--tier-neutral-ink);
+}
+
+/* 点の並びと目盛りは点の幅だけ（目盛りの「新しい」を最後の点の下にそろえる） */
+.streak__strip {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  align-self: flex-start;
+  min-width: 8em;
+  max-width: 100%;
+}
+
+/* 点の間は li の左右の余白で空け、連続の線（li の下の線）が点の間で切れないようにする */
+.streak__dots {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.streak__item {
+  display: flex;
+  padding: 0 3px var(--sp-1);
+  border-bottom: 2px solid transparent;
+}
+
+.streak__item--run {
+  border-bottom: 2px solid var(--ink-2);
+}
+
+.streak__dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+}
+
+.streak__mark.icon {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.6;
+}
+
+.streak__dot--plan {
+  color: var(--tier-plan-ink);
+  background: var(--tier-plan-bg);
+  border-color: var(--tier-plan-line);
+}
+
+.streak__dot--break {
+  color: var(--tier-break-ink);
+  background: var(--tier-break-bg);
+  border-color: var(--tier-break-line);
+}
+
+.streak__dot--worst {
+  color: var(--tier-worst-ink);
+  background: var(--tier-worst-bg);
+  border-color: var(--tier-worst-line);
+}
+
+.streak__dot--neutral {
+  color: var(--tier-neutral-ink);
+  background: var(--tier-neutral-bg);
+  border-color: var(--tier-neutral-line);
+}
+
+.streak__axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 3px;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+.streak__sub {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}

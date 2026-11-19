@@ -590,6 +590,42 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(bad).toEqual([]);
   });
 
+  it('直近の流れの CSS は判定の段・文字・線のトークンだけ。点の段のクラスは同じ段のトークン（Issue #35 AC-7）', () => {
+    const allowed =
+      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|bg|line))\)|currentColor|none|transparent)$/;
+    const css = stripComments(files['../../ui/src/styles/streak.css'] ?? '');
+    expect(css).not.toBe('');
+    expect(
+      /--accent|--danger|--s[0-9]|--bg\b|color-mix|#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(css),
+    ).toBe(false);
+    let seen = 0;
+    const bad: string[] = [];
+    for (const b of blocks(css)) {
+      // 段のクラス（streak__dot--plan など）は自分の段のトークンだけ
+      const tier = /--(plan|break|worst|neutral)\b/.exec(b.selector)?.[1];
+      for (const [name, value] of decls(b.body)) {
+        if (
+          !['color', 'fill', 'stroke', 'background', 'background-color', 'border-color'].includes(
+            name,
+          ) &&
+          !/^border(-(top|bottom|left|right))?$/.test(name)
+        ) {
+          continue;
+        }
+        seen++;
+        const color = /^border/.test(name)
+          ? (value.match(/var\([^)]*\)/)?.[0] ?? 'transparent')
+          : value;
+        if (!allowed.test(color)) bad.push(`${b.selector} { ${name}: ${value} }`);
+        if (tier && /--tier-/.test(color) && !color.includes(`--tier-${tier}-`)) {
+          bad.push(`${b.selector} { ${name}: ${value} }`);
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(10);
+    expect(bad).toEqual([]);
+  });
+
   it('CSS は外のものを読まない（url() も @import も書かない）', () => {
     for (const [path, raw] of Object.entries(files)) {
       const css = stripComments(raw);

@@ -3,7 +3,8 @@
 // - 応答の形は画面の側でも確かめる（parseReadResponse。行は 13 の鍵だけを写し、型違い・範囲の外の欄は null）
 // - 読み取りの欄 9 つに値を入れ「読み取り」の印。null は空にして「読み取れませんでした」（開いたときの既定を残さない）
 // - 貼った後に利用者が触った欄は上書きしない。LC・一言・3 つのタップ（逆指値の既定を除く）・LC の根拠には触れない
-// - 時間帯が明細に無い時刻は、書かれた時刻を入れて「時間帯が明細にありません」。確かめるまで保存しない
+// - 時間帯が明細に無い時刻は、書かれた時刻を入れて「時間帯が明細にありません」。時間帯を選ぶ（statement-tz.ts）か
+//   欄を直すまで保存しない
 // - 損益・手数料は、読んだ通貨が口座の通貨と同じとき（口座が JPY なら通貨が読めなかったときも）だけ入れる（#66・R6。
 //   statement-account.ts の pnlFillOf。#47 PR-2 の R7「外貨の口座では入れない」を置き換えた）
 import { DEFAULT_CURRENCY } from '../../../core/record';
@@ -165,7 +166,7 @@ export const MARK_LABEL: Readonly<Record<FieldMark, string>> = {
   read: '読み取り',
   unread: '読み取れませんでした',
   edited: '修正済み',
-  tz: 'タイムゾーンが明細にありません',
+  tz: 'タイムゾーンが書かれていません',
   statement: '明細から',
   auto: '自動で選択',
 };
@@ -321,44 +322,6 @@ export function markEdited(marks: Marks, field: DraftField): Marks {
   if (m === undefined || m === 'edited') return marks;
   const { [field]: _old, ...rest } = marks;
   return m === 'statement' || m === 'auto' ? rest : { ...rest, [field]: 'edited' };
-}
-
-/**
- * 明細に書かれた時刻（YYYY-MM-DDTHH:MM）を日本時間として epoch（ms・UTC）に直す。端末の時間帯に依らない。
- * 暦にない日時・範囲の外は undefined
- */
-export function confirmJst(written: string): number | undefined {
-  const m = WRITTEN.exec(written);
-  if (!m) return undefined;
-  const [y, mo, d, h, mi] = m.slice(1).map(Number) as [number, number, number, number, number];
-  const utc = Date.UTC(y, mo - 1, d, h, mi);
-  const back = new Date(utc);
-  if (
-    back.getUTCFullYear() !== y ||
-    back.getUTCMonth() !== mo - 1 ||
-    back.getUTCDate() !== d ||
-    back.getUTCHours() !== h ||
-    back.getUTCMinutes() !== mi
-  ) {
-    return undefined;
-  }
-  const t = utc - 9 * 3600 * 1000;
-  return t >= 0 && t < MAX_TIME_MS ? t : undefined;
-}
-
-/** [日本時間で合っている]: 「時間帯が明細にありません」の欄を日本時間として端末の時刻の欄に写し直し、印を「読み取り」に */
-export function confirmTimeZone(draft: Draft, marks: Marks, row: ReadRow): Filled {
-  let d = draft;
-  let mk = marks;
-  for (const f of ['exitTime', 'entryTime'] as const) {
-    const t = row[f];
-    if (mk[f] !== 'tz' || t === null) continue;
-    const ms = confirmJst(t.written);
-    if (ms === undefined) continue;
-    d = { ...d, [f]: toLocalInput(ms) };
-    mk = { ...mk, [f]: 'read' };
-  }
-  return { draft: d, marks: mk };
 }
 
 /** 時間帯を確かめていない欄があるか */

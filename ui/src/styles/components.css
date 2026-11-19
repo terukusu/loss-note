@@ -1404,12 +1404,62 @@
 }
 
 .statement__status,
-.statement__rows,
-.statement__tz {
+.statement__rows {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2) var(--sp-4);
+}
+
+/* 明細の時刻のタイムゾーン（#58）。fieldset に枠を付けない（カード → 選択肢の 2 段）。選択肢は縦に全幅の行 */
+.statement__tz {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.statement__tzlegend {
+  padding: 0;
+  margin-bottom: var(--sp-1);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.statement__tzwritten {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.tzopts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+/* セグメントの項目の見た目のまま、縦の行に（チェックと名前は左、欄に入る日本時間は右。狭ければ折り返す） */
+.seg__item.tzopt {
+  flex: none;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-3);
+  min-width: 0;
+  padding: var(--sp-2) var(--sp-3);
+  white-space: normal;
+  text-align: left;
+}
+
+.tzopt__name {
+  margin-right: auto;
+}
+
+.tzopt__result {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
 }
 
 .statement__reading {
@@ -1470,6 +1520,11 @@
   font-size: var(--fs-sm);
   color: var(--ink-2);
   text-wrap: pretty;
+}
+
+/* 横並びの枠のための伸び（flex-basis 16rem）は縦の並びでは高さになるので外す */
+.statement__tz .statement__text {
+  flex: none;
 }
 
 /* ── 根拠の足のチャートの枠（#12）。720px 未満は縦に、以上は横に 2 つ。枠を選ぶ（フォーカス）と輪と「ここに貼れます」 ── */

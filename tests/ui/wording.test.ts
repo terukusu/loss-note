@@ -22,6 +22,7 @@ import { LATE_LC_NAME, POINT_NAME, RULER_LABEL } from '../../ui/src/lib/ruler-vi
 import { ADD_FAILED, instrumentAdded } from '../../ui/src/lib/settings-controller';
 import { INSTRUMENT_FIELD_LABEL, PROVISIONAL_MARK } from '../../ui/src/lib/settings-form';
 import { MARK_LABEL } from '../../ui/src/lib/statement-fill';
+import { TZ_TEXT } from '../../ui/src/lib/statement-tz';
 import { SIDE_TEXT, TAPS_LABEL } from '../../ui/src/lib/trade-view';
 
 const sources = import.meta.glob('../../ui/src/**/*.{ts,tsx}', {
@@ -137,6 +138,8 @@ function resolve(id: string): string | undefined {
       return LATE_LC_NAME;
     case 'MARK_LABEL':
       return pick(MARK_LABEL) as string | undefined;
+    case 'TZ_TEXT':
+      return pick(TZ_TEXT) as string | undefined;
     case 'PROVISIONAL_MARK':
       return PROVISIONAL_MARK;
     case 'INSTRUMENT_FIELD_LABEL':
@@ -295,7 +298,7 @@ describe('例の表の新しい文言（#74 AC-6）', () => {
       '再読み込み',
       'もう一度ログイン',
       'この行をスキップ',
-      '明細の時刻にタイムゾーンがありません。日本時間ならこのボタンを、違うときは時刻の欄を直してください。',
+      '明細の時刻にタイムゾーンが書かれていません。選んだタイムゾーンから日本時間に直して欄に入力します。',
       '決済したら、その場で 30 秒。決済明細とチャートのスクショを貼り付けて、LC と 3 つの質問に答えると判定が表示されます。',
       '決済までの行動',
     ])

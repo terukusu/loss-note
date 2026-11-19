@@ -60,18 +60,35 @@ import {
   enterRecordScreen,
   type RecordController,
   type RecordState,
+  type TzState,
   watchVisible,
 } from '../lib/record-controller';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import { accountHintOf, learnedText, pnlFillOf } from '../lib/statement-account';
 import {
   imageFileFromClipboard,
-  needsTzCheck,
+  type Marks,
   type PasteTarget,
+  type ReadRow,
   rowLabel,
 } from '../lib/statement-fill';
 import { browserCodec, prepareImage } from '../lib/statement-image';
+import {
+  gapText,
+  isOtherZone,
+  MAIN_ZONES,
+  OTHER_ZONES,
+  otherResultLine,
+  rememberedGapText,
+  rememberedText,
+  resultText,
+  TZ_TEXT,
+  type TzId,
+  wallToEpoch,
+  writtenLine,
+} from '../lib/statement-tz';
 import { blockReason, isTapAction, submitStatus } from '../lib/verdict-notes';
+import { deviceZoneMemory } from '../lib/zone-memory';
 
 export function Record() {
   return (
@@ -118,6 +135,8 @@ function createScreenController(): RecordController {
     now: () => Date.now(),
     prepare: (file) => prepareImage(file, browserCodec),
     warmRead: true,
+    // 明細の時刻の時間帯を端末に覚える（時間帯の ID だけ。#58）
+    zoneMemory: deviceZoneMemory(),
   });
 }
 
@@ -307,10 +326,9 @@ export function RecordScreen() {
         controller.cancelRead();
         focusSoon(FIRST_FIELD_ID);
       }}
-      onConfirmTz={() => {
-        controller.confirmTimeZone();
-        focusSoon('record-exit-time');
-      }}
+      onChooseTz={controller.chooseTimeZone}
+      // フォーカスは radio に残す（矢印キーで行き来できる。一覧は次の Tab）
+      onOpenOtherZones={controller.openOtherZones}
       onPickChart={(slot, file) => {
         void controller.setChart(slot, file);
       }}
@@ -373,8 +391,10 @@ export interface RecordViewProps {
   readonly onPickFile?: (file: File) => void;
   /** [やめて手で入れる] */
   readonly onCancelRead?: () => void;
-  /** [日本時間で合っている] */
-  readonly onConfirmTz?: () => void;
+  /** 明細の時刻の時間帯を選んだ（#58） */
+  readonly onChooseTz?: (id: TzId) => void;
+  /** [ほかのタイムゾーン…] */
+  readonly onOpenOtherZones?: () => void;
   /** [この行を飛ばす] */
   readonly onSkipRow?: () => void;
   /** チャートを枠に選んだ（#12） */
@@ -403,6 +423,8 @@ const STATEMENT_NOTICE_ID = 'record-statement-notice';
 const VERDICT_HINT_ID = 'record-verdict-hint';
 const STATEMENT_TITLE_ID = 'record-statement-title';
 const STATEMENT_ROW_ID = 'record-statement-row';
+const TZ_NAME = 'record-tz';
+const TZ_OTHER_ID = 'record-tz-other';
 const chartBoxId = (slot: AnySlot) => boxId('record', slot);
 
 /**
@@ -697,7 +719,8 @@ function StatementPanel(p: RecordViewProps) {
   const st = p.state.statement;
   const busy = st?.phase === 'preparing' || st?.phase === 'reading';
   const rows = st?.phase === 'ready' ? st.rows.length : 0;
-  const tz = st?.phase === 'ready' && needsTzCheck(st.marks);
+  const row = st?.phase === 'ready' ? st.rows[st.index] : undefined;
+  const tz = st?.phase === 'ready' && st.tz && row && tzVisible(st.tz, st.marks) ? st.tz : null;
   const preview = st?.preview ?? null;
   return (
     <section class="card section statement" aria-labelledby={STATEMENT_TITLE_ID}>
@@ -772,16 +795,7 @@ function StatementPanel(p: RecordViewProps) {
           </Button>
         </div>
       ) : null}
-      {tz ? (
-        <div class="statement__tz">
-          <p class="statement__text">
-            明細の時刻にタイムゾーンがありません。日本時間ならこのボタンを、違うときは時刻の欄を直してください。
-          </p>
-          <Button variant="secondary" onClick={() => p.onConfirmTz?.()}>
-            日本時間で合っている
-          </Button>
-        </div>
-      ) : null}
+      {tz && row ? <TzChoices tz={tz} row={row} {...p} /> : null}
       {st?.phase === 'failed' && st.message ? (
         <p class="notice notice--error" role="alert">
           {st.message}
@@ -793,5 +807,109 @@ function StatementPanel(p: RecordViewProps) {
         </p>
       ) : null}
     </section>
+  );
+}
+
+/** 時間帯の確かめを出すか: 時間帯の無い欄のうち、利用者が欄を直していない（印が tz か選んだ時間帯で入れた read）欄がある */
+function tzVisible(tz: TzState, marks: Marks): boolean {
+  return tz.fields.some((f) => marks[f] === 'tz' || marks[f] === 'read');
+}
+
+/**
+ * 明細の時刻の時間帯を選ぶ（#58 の後半）。押す前に、選択肢ごとに欄に入る日本時間を見せる。選ぶとすぐ当てる
+ * （1 タップ）。選んだ後も残り、ほかを選べば明細の時刻から直し直す
+ */
+function TzChoices(p: RecordViewProps & { readonly tz: TzState; readonly row: ReadRow }) {
+  const { tz, row } = p;
+  // 横に出す日本時間は決済の時刻（無ければエントリーの時刻）。選んだ後は欄に入った値が見える
+  const lines = tz.fields.flatMap((f) => {
+    const t = row[f];
+    return t ? [{ f, written: t.written }] : [];
+  });
+  const shown = lines.find((l) => l.f === 'exitTime') ?? lines[0];
+  const result = (id: TzId) => (shown ? resultText(shown.written, id) : '');
+  const isGap = (id: TzId) => lines.some((l) => wallToEpoch(l.written, id).kind === 'gap');
+  const otherChecked = tz.otherOpen || (tz.choice !== null && isOtherZone(tz.choice));
+  const otherValue = tz.choice !== null && isOtherZone(tz.choice) ? tz.choice : '';
+  const rememberedGap = tz.remembered && tz.choice === null && tz.gap !== null;
+  return (
+    <fieldset class="statement__tz">
+      <legend class="statement__tzlegend">{TZ_TEXT.legend}</legend>
+      {/* 覚えたタイムゾーンでは存在しない時刻: 「直しました」は出さず、ほかを選ぶよう促す 1 行だけ */}
+      <p class="statement__text" {...(rememberedGap ? { role: 'status' } : {})}>
+        {rememberedGap && tz.gap !== null
+          ? rememberedGapText(tz.gap)
+          : tz.remembered && tz.choice !== null
+            ? rememberedText(tz.choice)
+            : TZ_TEXT.lead}
+      </p>
+      {lines.map((l) => (
+        <p key={l.f} class="field__hint statement__tzwritten">
+          {writtenLine(FIELD_LABEL[l.f], l.written)}
+        </p>
+      ))}
+      <div class="tzopts">
+        {MAIN_ZONES.map((z) => {
+          const checked = !otherChecked && tz.choice === z.id;
+          return (
+            <label key={z.id} class="seg__item tzopt">
+              <input
+                class="seg__input"
+                type="radio"
+                name={TZ_NAME}
+                value={z.id}
+                checked={checked}
+                onChange={() => p.onChooseTz?.(z.id)}
+              />
+              {checked ? <Icon name="check" class="seg__check" /> : null}
+              <span class="tzopt__name">{z.name}</span>
+              <span class="tzopt__result">{result(z.id)}</span>
+            </label>
+          );
+        })}
+        <label class="seg__item tzopt">
+          <input
+            class="seg__input"
+            type="radio"
+            name={TZ_NAME}
+            value="other"
+            checked={otherChecked}
+            onChange={() => p.onOpenOtherZones?.()}
+          />
+          {otherChecked ? <Icon name="check" class="seg__check" /> : null}
+          <span class="tzopt__name">{TZ_TEXT.other}</span>
+        </label>
+      </div>
+      {otherChecked ? (
+        <select
+          id={TZ_OTHER_ID}
+          class="select"
+          aria-label={TZ_TEXT.otherSelect}
+          value={otherValue}
+          onChange={(ev) => {
+            const v = OTHER_ZONES.find((z) => z.id === ev.currentTarget.value);
+            if (v) p.onChooseTz?.(v.id);
+          }}
+        >
+          <option value="" disabled>
+            {TZ_TEXT.otherPlaceholder}
+          </option>
+          {OTHER_ZONES.map((z) => (
+            <option key={z.id} value={z.id} disabled={isGap(z.id)}>
+              {`${z.name} → ${result(z.id)}`}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {/* 閉じた一覧は 360px で結果の時刻まで見えないので、選んだほかのタイムゾーンの結果は下に 1 行で出す */}
+      {otherValue !== '' && shown && wallToEpoch(shown.written, otherValue).kind === 'ok' ? (
+        <p class="field__hint statement__tzwritten">{otherResultLine(shown.written, otherValue)}</p>
+      ) : null}
+      {tz.gap !== null && !rememberedGap ? (
+        <p class="statement__text" role="status">
+          {gapText(tz.gap)}
+        </p>
+      ) : null}
+    </fieldset>
   );
 }

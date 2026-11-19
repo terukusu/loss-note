@@ -11,6 +11,7 @@ import {
   type RecordState,
   SAVE_FAILED,
   type StatementState,
+  type TzState,
 } from '../../ui/src/lib/record-controller';
 import {
   applyDraft,
@@ -51,7 +52,7 @@ import {
   E17,
   NO_CAPITAL,
 } from './helpers/record-drafts';
-import { fakePreview, ROW_E1 } from './helpers/statement-rows';
+import { fakePreview, ROW_E1, ROW_E9, unknownTz } from './helpers/statement-rows';
 
 interface El {
   readonly type: string;
@@ -939,7 +940,7 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     expect(details.props.open).toBe(true);
   });
 
-  it('直した欄は「直した」、逆指値の既定は「明細から」、時間帯の無い時刻は「タイムゾーンが明細にありません」', () => {
+  it('直した欄は「直した」、逆指値の既定は「明細から」、時間帯の無い時刻は「タイムゾーンが書かれていません」', () => {
     const tree = view(
       withStatement(E1, {
         marks: {
@@ -956,29 +957,130 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
         '修正済み',
         '明細から',
         '明細から',
-        'タイムゾーンが明細にありません',
+        'タイムゾーンが書かれていません',
       ]),
     );
     const reason = all(tree, (e) => e.type === 'select')[0] as El;
     expect(reason.props['aria-describedby']).toBe('record-exit-reason-mark');
   });
 
-  it('タイムゾーンの確認: [日本時間で合っている] で onConfirmTz。未入力の欄に「決済の時刻（タイムゾーンの確認）」', () => {
-    let confirmed = 0;
-    const tree = view(withStatement(E1, { marks: { exitTime: 'tz' } }), {
-      onConfirmTz: () => {
-        confirmed++;
+  /** Z1 の行（時間帯の無い決済の時刻 2026-11-10 10:30。架空の値） */
+  const Z1_ROW = { ...ROW_E9 };
+  const tzState = (over: Partial<TzState> = {}): TzState => ({
+    fields: ['exitTime'],
+    choice: null,
+    remembered: false,
+    otherOpen: false,
+    gap: null,
+    ...over,
+  });
+  const tzView = (
+    tz: TzState,
+    marks: StatementState['marks'] = { exitTime: 'tz' },
+    over: Partial<RecordViewProps> = {},
+  ) => view(withStatement(E1, { rows: [Z1_ROW], marks, tz }), over);
+  const radios = (tree: Node[]) =>
+    all(
+      tree,
+      (e) => e.type === 'input' && e.props.type === 'radio' && e.props.name === 'record-tz',
+    );
+
+  it('AC-6・AC-11（Z1）: 押す前に明細の時刻と選択肢ごとの日本時間が見え、記録できない。文は選んだタイムゾーンで直すと言う', () => {
+    let chosen: string[] = [];
+    let other = 0;
+    const tree = tzView(tzState(), undefined, {
+      onChooseTz: (id) => {
+        chosen = [...chosen, id];
+      },
+      onOpenOtherZones: () => {
+        other++;
       },
     });
-    const btn = all(
-      tree,
-      (e) => e.type === 'button' && text(e) === '日本時間で合っている',
-    )[0] as El;
-    (btn.props.onClick as () => void)();
-    expect(confirmed).toBe(1);
-    expect(text(statusOf(tree))).toBe('あと 1 欄');
+    const box = all(tree, hasClass('statement__tz'))[0] as El;
+    expect(box.type).toBe('fieldset');
+    const t = text(box);
+    expect(t).toContain('明細の時刻のタイムゾーン');
+    expect(t).toContain('決済の時刻: 明細 2026/11/10 10:30');
+    expect(t).toContain('選んだタイムゾーンから日本時間に直して');
+    expect(t).not.toContain('違えば欄を直します');
+    const opts = all([box], hasClass('tzopt')).map(text);
+    expect(opts).toEqual([
+      '日本時間（そのまま）2026/11/10 10:30',
+      'GMT（+9 時間）2026/11/10 19:30',
+      'ほかのタイムゾーン…',
+    ]);
+    const r = radios(tree);
+    expect(r.map((e) => e.props.checked)).toEqual([false, false, false]);
+    ((r[1] as El).props.onChange as () => void)();
+    ((r[2] as El).props.onChange as () => void)();
+    expect(chosen).toEqual(['gmt']);
+    expect(other).toBe(1);
+    expect(all(tree, (e) => e.type === 'select' && e.props.id === 'record-tz-other')).toEqual([]);
     expect(text(hintOf(tree))).toContain('決済の時刻（タイムゾーンの確認）');
     expect(submit(tree).props.disabled).toBe(true);
+  });
+
+  it('Z3・Z5: ほかのタイムゾーンの一覧に結果の日本時間。その時間帯に無い時刻の項目は選べない', () => {
+    const tree = tzView(tzState({ otherOpen: true }));
+    expect(radios(tree).map((e) => e.props.checked)).toEqual([false, false, true]);
+    const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-tz-other')[0] as El;
+    expect(sel.props['aria-label']).toBe('ほかのタイムゾーン');
+    const opts = all([sel], (e) => e.type === 'option');
+    expect(text(opts[1] as El)).toBe('米国東部（夏時間あり） → 2026/11/11 00:30');
+    expect(text(tree)).not.toContain('→ 日本時間');
+    const chosen = tzView(tzState({ otherOpen: true, choice: 'us-east' }), { exitTime: 'read' });
+    expect(text(chosen)).toContain('米国東部（夏時間あり） → 日本時間 2026/11/11 00:30');
+    const gapTree = view(
+      withStatement(E1, {
+        rows: [{ ...ROW_E9, exitTime: unknownTz('2026-03-08T02:30') }],
+        marks: { exitTime: 'tz' },
+        tz: tzState({ otherOpen: true, gap: 'us-east' }),
+      }),
+    );
+    const gapSel = all(
+      gapTree,
+      (e) => e.type === 'select' && e.props.id === 'record-tz-other',
+    )[0] as El;
+    const east = all([gapSel], (e) => e.type === 'option' && e.props.value === 'us-east')[0] as El;
+    expect(east.props.disabled).toBe(true);
+    expect(text(east)).toContain('この時刻はありません（夏時間の切り替え）');
+    const status = all(gapTree, (e) => e.props.role === 'status').map(text);
+    expect(status).toContain(
+      '明細の時刻は米国東部（夏時間あり）では夏時間の切り替えで存在しません。ほかのタイムゾーンを選んでください。',
+    );
+  });
+
+  it('Z7: 覚えたタイムゾーンで入れたときは何で直したかの 1 行と選択肢（選んだ項目にチェック）', () => {
+    const tree = tzView(tzState({ choice: 'gmt', remembered: true }), { exitTime: 'read' });
+    const box = all(tree, hasClass('statement__tz'))[0] as El;
+    expect(text(box)).toContain(
+      '前に選んだ GMT（+9 時間）で日本時間に直しました。違うときは変更してください。',
+    );
+    expect(radios(tree).map((e) => e.props.checked)).toEqual([false, true, false]);
+  });
+
+  it('覚えたタイムゾーンでは存在しない時刻: 「直しました」を出さず、ほかを選ぶよう促す 1 行だけ', () => {
+    const tree = view(
+      withStatement(E1, {
+        rows: [{ ...ROW_E9, exitTime: unknownTz('2026-03-08T02:30') }],
+        marks: { exitTime: 'tz' },
+        tz: tzState({ remembered: true, gap: 'us-east' }),
+      }),
+    );
+    const t = text(all(tree, hasClass('statement__tz'))[0] as El);
+    expect(t).toContain(
+      '前に選んだ米国東部（夏時間あり）では、明細の時刻が夏時間の切り替えで存在しません。ほかのタイムゾーンを選んでください。',
+    );
+    expect(t).not.toContain('直しました');
+    expect(t).not.toContain('選んだタイムゾーンから日本時間に直して');
+    expect(t).not.toContain('→ 日本時間');
+    expect(count(t, '存在しません')).toBe(1);
+    expect(radios(tree).map((e) => e.props.checked)).toEqual([false, false, false]);
+  });
+
+  it('欄を直した（修正済み）ら選択肢を出さない（KEEP-6）。時間帯の書かれた明細でも出ない（KEEP-5）', () => {
+    expect(all(tzView(tzState(), { exitTime: 'edited' }), hasClass('statement__tz'))).toEqual([]);
+    expect(all(view(withStatement(E1, {})), hasClass('statement__tz'))).toEqual([]);
   });
 
   it('プレビューは canvas（width・height の属性、style なし、読み上げの名前）', () => {

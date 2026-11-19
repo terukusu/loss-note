@@ -28,6 +28,7 @@ import {
   sentToAi,
   WARM_REFRESH_MS,
   watchVisible,
+  type ZoneMemory,
 } from '../../ui/src/lib/record-controller';
 import { applyDraft, type Draft, EMPTY_DRAFT, summarize } from '../../ui/src/lib/record-form';
 import {
@@ -38,6 +39,12 @@ import {
   TZ_MISSING,
 } from '../../ui/src/lib/statement-fill';
 import { type PrepareResult, prepareImage } from '../../ui/src/lib/statement-image';
+import {
+  readZoneMemory,
+  type TzId,
+  writeZoneMemory,
+  ZONE_KEY,
+} from '../../ui/src/lib/statement-tz';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeApi, type ReadScript } from './helpers/fake-api';
 import { E1, E2, E6, US30 } from './helpers/record-drafts';
@@ -57,6 +64,7 @@ import {
   ROW_E9,
   ROWS_E10,
   statementBody,
+  unknownTz,
 } from './helpers/statement-rows';
 
 const NOW = new Date(2026, 3, 5, 14, 37, 21, 500).getTime();
@@ -528,7 +536,11 @@ const B = { ...US30, id: 'inst-b', name: '架空指数B' };
 /** 開いたときの既定 = 前回の銘柄「架空指数B」・数量 1（Issue #15 の例の表の前提） */
 async function openedForRead(
   reads: readonly ReadScript[],
-  over: { prepare?: (f: Blob) => Promise<PrepareResult>; readTimeoutMs?: number } = {},
+  over: {
+    prepare?: (f: Blob) => Promise<PrepareResult>;
+    readTimeoutMs?: number;
+    zoneMemory?: ZoneMemory;
+  } = {},
 ) {
   const fake = createFakeApi({
     instruments: [B],
@@ -547,6 +559,7 @@ async function openedForRead(
         return { ok: true, image: preparedImage(p) };
       }),
     ...(over.readTimeoutMs === undefined ? {} : { readTimeoutMs: over.readTimeoutMs }),
+    ...(over.zoneMemory ? { zoneMemory: over.zoneMemory } : {}),
   });
   await c.load();
   return { fake, c, previews };
@@ -777,7 +790,7 @@ describe('E7・E8（AC-7）', () => {
 });
 
 describe('E9（AC-8）', () => {
-  it('時間帯の無い時刻は確かめるまで保存できず、[日本時間で合っている] の後は日本時間の 10:30 で保存', async () => {
+  it('時間帯の無い時刻は選ぶまで保存できず、日本時間（そのまま）を選んだ後は日本時間の 10:30 で保存', async () => {
     const { fake, c } = await openedForRead([ok([ROW_E9])]);
     await c.readImage(img());
     expect(posts(fake, '/api/trades')).toHaveLength(0);
@@ -789,7 +802,7 @@ describe('E9（AC-8）', () => {
     expect(s.read.missing).toEqual([TZ_MISSING.exitTime]);
     await c.save();
     expect(posts(fake, '/api/trades')).toHaveLength(0);
-    c.confirmTimeZone();
+    c.chooseTimeZone('jst');
     s = c.getState();
     expect(s.statement?.marks.exitTime).toBe('read');
     expect(s.read.canSave).toBe(true);
@@ -804,6 +817,231 @@ describe('E9（AC-8）', () => {
     c.update({ type: 'set', field: 'exitTime', value: '2026-11-10T11:00' });
     expect(c.getState().statement?.marks.exitTime).toBe('edited');
     expect(c.getState().read.canSave).toBe(true);
+  });
+});
+
+/** 端末の保存先の偽物（setItem の呼び出しを数える） */
+function fakeStorage(initial: Record<string, string> = {}) {
+  const data = new Map(Object.entries(initial));
+  const sets: [string, string][] = [];
+  const storage = {
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => {
+      sets.push([k, v]);
+      data.set(k, v);
+    },
+  };
+  const zoneMemory: ZoneMemory = {
+    read: () => readZoneMemory(storage),
+    write: (id: TzId) => {
+      writeZoneMemory(storage, id);
+    },
+  };
+  return { data, sets, zoneMemory };
+}
+
+/** 時間帯の無い決済の時刻の行（架空の値） */
+const tzRow = (written: string): ReadRow => ({
+  ...ROW_E9,
+  exitTime: unknownTz(written),
+});
+
+describe('タイムゾーンを選ぶ（#58 の後半・Z1〜Z10）', () => {
+  it('Z1: 覚えたタイムゾーンが無ければ選ぶまで記録できず、選択肢の状態が出る', async () => {
+    const st = fakeStorage();
+    const { c } = await openedForRead([ok([tzRow('2026-11-10T10:30')])], {
+      zoneMemory: st.zoneMemory,
+    });
+    await c.readImage(img());
+    typeFive(c);
+    const s = c.getState();
+    expect(s.statement?.tz).toEqual({
+      fields: ['exitTime'],
+      choice: null,
+      remembered: false,
+      otherOpen: false,
+      gap: null,
+    });
+    expect(s.read.canSave).toBe(false);
+    expect(s.read.missing).toEqual([TZ_MISSING.exitTime]);
+    expect(st.sets).toEqual([]);
+  });
+
+  it('Z2: GMT を選ぶと欄が 19:30（日本時間）になり記録できる。覚えるのは鍵 1 つと ID だけ（KEEP-7）', async () => {
+    const st = fakeStorage();
+    const { fake, c } = await openedForRead([ok([tzRow('2026-11-10T10:30')])], {
+      zoneMemory: st.zoneMemory,
+    });
+    await c.readImage(img());
+    typeFive(c);
+    c.chooseTimeZone('gmt');
+    const s = c.getState();
+    expect(s.draft.exitTime).toBe(toLocalInput(Date.UTC(2026, 10, 10, 10, 30)));
+    expect(s.statement?.marks.exitTime).toBe('read');
+    expect(s.statement?.tz?.choice).toBe('gmt');
+    expect(s.read.canSave).toBe(true);
+    expect(st.sets).toEqual([[ZONE_KEY, 'gmt']]);
+    await c.save();
+    expect(added(fake)[0]?.record.exit.time).toBe(Date.UTC(2026, 10, 10, 10, 30));
+  });
+
+  it('Z3・Z4: ほかのタイムゾーン（米国東部）は日付から夏時間を決める', async () => {
+    for (const [w, want] of [
+      ['2026-11-10T10:30', Date.UTC(2026, 10, 10, 15, 30)],
+      ['2026-07-10T10:30', Date.UTC(2026, 6, 10, 14, 30)],
+    ] as const) {
+      const { c } = await openedForRead([ok([tzRow(w)])]);
+      await c.readImage(img());
+      c.openOtherZones();
+      expect(c.getState().statement?.tz?.otherOpen).toBe(true);
+      c.chooseTimeZone('us-east');
+      expect(c.getState().draft.exitTime).toBe(toLocalInput(want));
+      expect(c.getState().statement?.tz).toMatchObject({ choice: 'us-east', otherOpen: true });
+    }
+  });
+
+  it('Z5: その時間帯に無い時刻は欄を変えず理由を出し、覚えない', async () => {
+    const st = fakeStorage();
+    const { c } = await openedForRead([ok([tzRow('2026-03-08T02:30')])], {
+      zoneMemory: st.zoneMemory,
+    });
+    await c.readImage(img());
+    typeFive(c);
+    c.openOtherZones();
+    c.chooseTimeZone('us-east');
+    const s = c.getState();
+    expect(s.draft.exitTime).toBe('2026-03-08T02:30');
+    expect(s.statement?.marks.exitTime).toBe('tz');
+    expect(s.statement?.tz?.gap).toBe('us-east');
+    expect(s.read.canSave).toBe(false);
+    expect(st.sets).toEqual([]);
+  });
+
+  it('Z6: 2 回ある時刻は早い方（14:30 日本時間）', async () => {
+    const { c } = await openedForRead([ok([tzRow('2026-11-01T01:30')])]);
+    await c.readImage(img());
+    c.openOtherZones();
+    c.chooseTimeZone('us-east');
+    expect(c.getState().draft.exitTime).toBe(toLocalInput(Date.UTC(2026, 10, 1, 5, 30)));
+  });
+
+  it('[ほかのタイムゾーン…] を開くと、前に選んだタイムゾーンで入れた欄は明細の時刻に戻り、選ぶまで記録できない', async () => {
+    const { c } = await openedForRead([ok([tzRow('2026-11-10T10:30')])]);
+    await c.readImage(img());
+    typeFive(c);
+    c.chooseTimeZone('gmt');
+    expect(c.getState().read.canSave).toBe(true);
+    c.openOtherZones();
+    const s = c.getState();
+    expect(s.draft.exitTime).toBe('2026-11-10T10:30');
+    expect(s.statement?.marks.exitTime).toBe('tz');
+    expect(s.statement?.tz).toMatchObject({ choice: null, otherOpen: true });
+    expect(s.read.canSave).toBe(false);
+  });
+
+  it('Z7: 覚えた GMT で最初から直して入れ、記録できる（何で直したかは remembered）', async () => {
+    const st = fakeStorage({ [ZONE_KEY]: 'gmt' });
+    const { fake, c } = await openedForRead([ok([tzRow('2026-11-20T08:00')])], {
+      zoneMemory: st.zoneMemory,
+    });
+    await c.readImage(img());
+    typeFive(c);
+    const s = c.getState();
+    expect(s.draft.exitTime).toBe(toLocalInput(Date.UTC(2026, 10, 20, 8, 0)));
+    expect(s.statement?.tz).toMatchObject({ choice: 'gmt', remembered: true });
+    expect(s.read.canSave).toBe(true);
+    await c.save();
+    expect(added(fake)[0]?.record.exit.time).toBe(Date.UTC(2026, 10, 20, 8, 0));
+  });
+
+  it('覚えたタイムゾーンでは存在しない時刻: どの欄も直さず remembered + gap、選ぶまで記録できない（片方の欄だけ gap でも同じ）', async () => {
+    const st = fakeStorage({ [ZONE_KEY]: 'us-east' });
+    const row: ReadRow = {
+      ...ROW_E9,
+      entryTime: unknownTz('2026-03-08T01:30'),
+      exitTime: unknownTz('2026-03-08T02:30'),
+    };
+    const { c } = await openedForRead([ok([row])], { zoneMemory: st.zoneMemory });
+    await c.readImage(img());
+    typeFive(c);
+    const s = c.getState();
+    expect(s.draft.entryTime).toBe('2026-03-08T01:30');
+    expect(s.draft.exitTime).toBe('2026-03-08T02:30');
+    expect(s.statement?.marks).toMatchObject({ entryTime: 'tz', exitTime: 'tz' });
+    expect(s.statement?.tz).toEqual({
+      fields: ['entryTime', 'exitTime'],
+      choice: null,
+      remembered: true,
+      otherOpen: false,
+      gap: 'us-east',
+    });
+    expect(s.read.canSave).toBe(false);
+    c.chooseTimeZone('gmt');
+    expect(c.getState().read.canSave).toBe(true);
+    expect(c.getState().statement?.tz).toMatchObject({
+      choice: 'gmt',
+      remembered: false,
+      gap: null,
+    });
+  });
+
+  it('Z8: 1 行目で GMT を選ぶと、2 行目の時間帯の無い時刻も GMT で直して入る', async () => {
+    const { c } = await openedForRead([
+      ok([tzRow('2026-11-10T10:30'), { ...tzRow('2026-11-11T06:00'), symbol: '架空指数C' }]),
+    ]);
+    await c.readImage(img());
+    c.chooseTimeZone('gmt');
+    c.skipRow();
+    const s = c.getState();
+    expect(s.statement?.index).toBe(1);
+    expect(s.draft.exitTime).toBe(toLocalInput(Date.UTC(2026, 10, 11, 6, 0)));
+    expect(s.statement?.tz).toMatchObject({ choice: 'gmt', remembered: true });
+    expect(s.statement?.marks.exitTime).toBe('read');
+  });
+
+  it('Z9: 選ばずに欄を直すと「修正済み」で記録できる（KEEP-6）', async () => {
+    const { c } = await openedForRead([ok([tzRow('2026-11-10T10:30')])]);
+    await c.readImage(img());
+    typeFive(c);
+    c.update({ type: 'set', field: 'exitTime', value: '2026-11-10T11:00' });
+    expect(c.getState().statement?.marks.exitTime).toBe('edited');
+    expect(c.getState().read.canSave).toBe(true);
+    // 直した欄はタイムゾーンを選んでも書き換えない
+    c.chooseTimeZone('gmt');
+    expect(c.getState().draft.exitTime).toBe('2026-11-10T11:00');
+  });
+
+  it('Z10: 覚えた値が知らない名前・読むと例外なら、覚えなしとして Z1 と同じ', async () => {
+    for (const zoneMemory of [
+      fakeStorage({ [ZONE_KEY]: 'Mars/Base' }).zoneMemory,
+      {
+        read: () => {
+          throw new Error('blocked');
+        },
+        write: () => {
+          throw new Error('blocked');
+        },
+      } satisfies ZoneMemory,
+    ]) {
+      const { c } = await openedForRead([ok([tzRow('2026-11-10T10:30')])], { zoneMemory });
+      await c.readImage(img());
+      typeFive(c);
+      expect(c.getState().statement?.tz).toMatchObject({ choice: null, remembered: false });
+      expect(c.getState().read.canSave).toBe(false);
+      // 覚えられなくても、その場では当てる
+      c.chooseTimeZone('gmt');
+      expect(c.getState().read.canSave).toBe(true);
+    }
+  });
+
+  it('T4・KEEP-5: 時間帯の書かれた明細では確かめが出ず、覚えた値も使わない', async () => {
+    const st = fakeStorage({ [ZONE_KEY]: 'gmt' });
+    const { c } = await openedForRead([ok([ROW_E1])], { zoneMemory: st.zoneMemory });
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.statement?.tz).toBeUndefined();
+    expect(s.draft.exitTime).toBe(toLocalInput(E1_EXIT_MS));
+    expect(st.sets).toEqual([]);
   });
 });
 

@@ -83,6 +83,8 @@ describe('parseRoute / hrefOf', () => {
     ['/trades', { name: 'trades' }],
     ['/review', { name: 'review' }],
     ['/trades/abc_DEF-123', { name: 'trade', id: 'abc_DEF-123' }],
+    ['/trades/a/fields', { name: 'tradeFields', id: 'a' }],
+    ['/trades/a/comment', { name: 'tradeComment', id: 'a' }],
     ['/settings', { name: 'settings' }],
     // 設定の次の画面（#133 の AC-2）
     ['/settings/accounts', { name: 'settingsAccounts' }],
@@ -97,6 +99,8 @@ describe('parseRoute / hrefOf', () => {
   it.each([
     '/nope',
     '/trades/a/b',
+    '/trades/a/fieldsx',
+    '/trades/a.b/fields',
     '/trades/a.b',
     `/trades/${'x'.repeat(65)}`,
     '//evil.example',
@@ -122,6 +126,9 @@ describe('parseRoute / hrefOf', () => {
       { name: 'trades' },
       { name: 'review' },
       { name: 'trade', id: 't-1' },
+      { name: 'tradeEdit', id: 't-1' },
+      { name: 'tradeFields', id: 't-1' },
+      { name: 'tradeComment', id: 't-1' },
       { name: 'settings' },
       { name: 'settingsAccounts' },
       { name: 'settingsInstruments' },
@@ -405,6 +412,8 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
       [{ name: 'trades' }, 'trades'],
       [{ name: 'trade', id: 'a' }, 'trades'],
       [{ name: 'tradeEdit', id: 'a' }, 'trades'],
+      [{ name: 'tradeFields', id: 'a' }, 'trades'],
+      [{ name: 'tradeComment', id: 'a' }, 'trades'],
       [{ name: 'review' }, 'review'],
       [{ name: 'settings' }, 'settings'],
       [{ name: 'glossary' }, 'settings'],
@@ -429,6 +438,9 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
     expect(screenKindOf({ name: 'settingsInstruments' })).toBe('push');
     expect(screenKindOf({ name: 'settingsAiUsage' })).toBe('push');
     expect(isSheetRoute({ name: 'settingsAccounts' })).toBe(false);
+    // 詳細の次の画面（#131）
+    expect(screenKindOf({ name: 'tradeFields', id: 'a' })).toBe('push');
+    expect(screenKindOf({ name: 'tradeComment', id: 'a' })).toBe('push');
     expect(screenKindOf({ name: 'record' })).toBe('sheet');
     expect(screenKindOf({ name: 'login' })).toBe('bare');
   });
@@ -438,6 +450,8 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
     expect(screenLabel('/', PROD)).toBe('ホーム');
     expect(screenLabel('/?period=30d', PROD)).toBe('ホーム');
     expect(screenLabel('/trades/a', PROD)).toBe('取引の詳細');
+    expect(screenLabel('/trades/a/fields', PROD)).toBe('すべての欄');
+    expect(screenLabel('/trades/a/comment', PROD)).toBe('総評');
     expect(screenLabel('/review?period=7d', PROD)).toBe('振り返り');
     expect(screenLabel('/settings', PROD)).toBe('設定');
     expect(screenLabel('/settings/accounts', PROD)).toBe('口座');
@@ -453,6 +467,12 @@ describe('印の無い最初の起動の組み直し（9.7 の 5。純関数）'
     ['/trades', ['/', '/trades']],
     ['/trades/a', ['/', '/trades', '/trades/a']],
     ['/trades/a/edit', ['/', '/trades', '/trades/a', '/trades/a/edit']],
+    [
+      '/trades/a/edit?values=current',
+      ['/', '/trades', '/trades/a', '/trades/a/edit?values=current'],
+    ],
+    ['/trades/a/fields', ['/', '/trades', '/trades/a', '/trades/a/fields']],
+    ['/trades/a/comment', ['/', '/trades', '/trades/a', '/trades/a/comment']],
     ['/record', ['/', '/record']],
     ['/review?period=7d', ['/', '/review?period=7d']],
     ['/settings', ['/', '/settings']],

@@ -762,10 +762,11 @@
   letter-spacing: -0.02em;
 }
 
-/* 判定の枠の R は U4（#130）・U6（#131）で枠を組み直すまで 36px（主役の数字 44px の 9 / 11。文字の拡大ではトークンと一緒に
-   大きくなる。#128） */
-.verdict .num--xl {
-  font-size: calc(var(--fs-num-xl) * 9 / 11);
+/* 判定の枠の R は主役の数字（44px）。リスク・損益は帯の題の段（17px）の太字で同じ行に並べる（#131。#130 のデザインレビュー b6・
+   #127 の b1。等倍の 360 で R・リスク・損益が 1 行に入る） */
+.verdict__stat .num--lg,
+.verdict__stat .num-money .num--lg {
+  font-size: var(--fs-nav);
 }
 
 /* 外貨の金額（#47 PR-2・U29）: 数は .num、通貨の 3 文字は .num の外で小さく */
@@ -1174,7 +1175,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: var(--sp-3) var(--sp-6);
+  gap: var(--sp-3) var(--sp-5);
 }
 
 .verdict__stat {
@@ -2507,26 +2508,6 @@
   font-weight: var(--fw-bold);
 }
 
-@media (min-width: 720px) {
-  .edit__submit {
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-  }
-
-  .edit__submit .edit__change,
-  .edit__submit .record__missing,
-  .edit__submit .notice {
-    flex: 1 1 100%;
-  }
-
-  .edit__submit .btn--block {
-    width: auto;
-    min-width: 10rem;
-  }
-}
-
 /* ── 下のシート（#129。components/Sheet.tsx。ui-guidelines 9.3・9.6・9.8） ─────────────── */
 /* <dialog> の showModal()。縦の形は下から中身の高さ分だけ出る（最大 86dvh・中がスクロール。#110）。上につまみ、後ろは暗く。
    見せ方は <html data-form> で替える（横 = 右のパネル、広い = 説明は押した所の吹き出し・入力は中央のダイアログ）。要素は同じで、
@@ -2962,30 +2943,21 @@
   gap: 0 var(--sp-1);
 }
 
-/* 物差しの右上の小さな見出しと「i」。図の線（上から 20px）より上の右端（TP・利益の側。広げた後の LC の ▽ は損の側の左に出る）に
-   重ねて置き、物差しの段の高さを変えない（#34 の T-D3: 360 で 120px 以下）。重ねるのは grid の同じ升（位置を持たない =
-   fit の吹き出しの包むブロックは判定の枠のまま。#57 レビュー N4） */
+/* 物差しの小さな見出しと「i」。図の上の 1 行（右寄せ）に流れの中で置く（#110: 図に重ねると、文字の拡大 200% で見出しが
+   目盛り・印に重なる。#131 で重ねるのをやめた）。「i」の当たり 44px は負の余白で行の高さを変えない */
 .ruler {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  row-gap: var(--sp-1);
-}
-
-.ruler__track {
-  grid-row: 1;
-  grid-column: 1;
-}
-
-.ruler__head {
-  z-index: 1;
   display: flex;
-  grid-row: 1;
-  grid-column: 1;
+  flex-direction: column;
+  row-gap: 0;
+}
+
+/* 下へ 4px だけ図に食い込ませる（図の上端から 5px までは印も目盛りも描かない。物差しの段の高さを 120px 以下に保つ = T-D3） */
+.ruler__head {
+  display: flex;
   align-items: center;
-  align-self: start;
-  justify-self: end;
+  align-self: flex-end;
   gap: 0 var(--sp-1);
-  margin-block-start: -5px;
+  margin-block-end: -4px;
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   /* 16px（文字の 4/3）。文字を大きくしても行が重ならないよう、文字の大きさから決める（#79） */
@@ -3086,17 +3058,6 @@
 
 .glossary__related-label {
   font-weight: var(--fw-bold);
-}
-
-/* 編集の画面の帯のボタン: [保存]（キャンセルは上の帯の左上の ✕。#127） */
-.edit__actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-}
-
-.edit__actions > :last-child {
-  flex: 1 1 auto;
 }
 
 /* 書きかけ（#75） */

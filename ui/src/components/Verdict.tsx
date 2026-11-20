@@ -65,7 +65,11 @@ export interface VerdictProps {
   readonly asideAction?: ComponentChildren;
 }
 
-/** 3 つのタップの答えの札（外れた札は形の印・「外れ」の文字・読み上げの「計画から外れた」） */
+/**
+ * 3 つのタップの答えの札（外れた札は形の印と読み上げの「計画から外れた」）。見せる問いは短く（「LC: 決めていた」）、読み上げは
+ * 問いの全文（「LC を入る前に決めていたか: 決めていた」）。札は折り返す流し込みで並べ、札ごとの「i」は置かない（問いの説明は
+ * 入力の場所（記録する・編集）の「i」と用語集。#131 のデザインレビュー a1 で #57 のデザインレビュー 8 を取り下げた）
+ */
 function Taps({ items, note }: NonNullable<VerdictProps['taps']>) {
   return (
     <>
@@ -73,20 +77,17 @@ function Taps({ items, note }: NonNullable<VerdictProps['taps']>) {
         {items.map((a) => (
           <li key={a.label} class={a.offPlan ? 'taps__item taps__item--off' : 'taps__item'}>
             <span class="taps__chip">
-              {a.offPlan ? (
-                <>
-                  {/* 「外れ」の字は出さない（何が外れたか読めない。#74 デザインレビュー）。記号と色で示し、読み上げは「計画から外れた」 */}
-                  <Icon name="offPlan" />
-                </>
-              ) : null}
+              {/* 「外れ」の字は出さない（何が外れたか読めない。#74 デザインレビュー）。記号と色で示し、読み上げは「計画から外れた」 */}
+              {a.offPlan ? <Icon name="offPlan" /> : null}
               {/* 問いと答えを分け、答えは語の途中で折らない（360 で「決めてい / た」と割れない。#58 デザインレビュー 2） */}
-              <span class="taps__text">
-                <span class="taps__q">{a.label}:</span> <span class="taps__a">{a.value}</span>
+              <span class="taps__text" aria-hidden="true">
+                <span class="taps__q">{a.short}:</span> <span class="taps__a">{a.value}</span>
+              </span>
+              <span class="sr-only">
+                {a.label}: {a.value}
               </span>
               {a.offPlan ? <span class="sr-only">{OFF_PLAN_TEXT}</span> : null}
             </span>
-            {/* 問いの説明（記録する画面と同じ「i」。札の枠の外に置く = 枠の入れ子を増やさない。#57 デザインレビュー 8） */}
-            <InfoTip term={a.term} size="sm" id={`info-tap-${a.term}`} />
           </li>
         ))}
       </ul>

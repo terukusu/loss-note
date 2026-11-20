@@ -148,6 +148,9 @@
   --shadow-card: none;
   /* 上の安全域の面に重ねる色（ダークは透明 = 下の画面の背景がそのまま続く。ライトは暗い面。9.6・#127 デザイン a3） */
   --statusbar-bg: #0a0c1000;
+  /* チャートを全画面で見る層（黒い面・白い文字。テーマによらない。#131・ui-guidelines 9.3） */
+  --viewer-bg: #000000;
+  --viewer-ink: #ffffff;
 }
 
 :root[data-theme="light"] {
@@ -207,4 +210,6 @@
   /* ライトは薄い影 1 つ */
   --shadow-card: 0 1px 3px #0f121814;
   --statusbar-bg: #11141a;
+  --viewer-bg: #000000;
+  --viewer-ink: #ffffff;
 }

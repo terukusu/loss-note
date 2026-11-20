@@ -1,5 +1,6 @@
 // 取引の欄（記録する画面 #13 と直す画面 #9 が共有する。Issue #9 で Record.tsx から出した。id・クラス・文言・順は同じ）。
-// TradeMainFields = 「取引」「LC」「3 つのタップ」の 3 つの枠、TradeMoreFields = 畳んだ「ほかの欄（任意）」。
+// TradeCoreFields = 「取引」の欄（取引の欄のシートの中）、LcFields = LC と一言、TapFields = 3 つのタップ、TradeMoreBody = ほかの欄（任意。
+// 取引の欄のシートの次の段）。記録する・編集の画面は 1 画面の形に並べる（#130・#131）。
 // 「取引」の並び（#58）: 銘柄 | 数量（通貨が違うときは銘柄だけ・数量は為替と並ぶ）/ L / S / イン | 決済 / エントリーの時刻（任意）| 決済の時刻
 // hook を持たない（テストは関数を呼んで木にする）。値はテキストのノードだけ（HTML の文字列を DOM に入れない）
 // 口座（#47）: 「取引」の先頭（銘柄の上）に口座の欄（口座が 2 つ以上のとき）。記録する画面は見出しの行の右端に
@@ -334,53 +335,6 @@ export function TapFields(p: TradeFieldsProps) {
       />
       {p.timeframeHint ? <p class="field__hint">{p.timeframeHint}</p> : null}
     </>
-  );
-}
-
-/** 「取引」「LC」「決済までの行動」（3 つの質問）の枠（直す画面。記録する画面は 1 画面の形で同じ部品を並べる。#130） */
-export function TradeMainFields(p: TradeFieldsProps) {
-  return (
-    <>
-      <section class="card section" aria-labelledby="record-trade-title">
-        {p.accountAction ? (
-          <div class="section__head">
-            <h2 class="section__title" id="record-trade-title">
-              取引
-            </h2>
-            {p.accountAction}
-          </div>
-        ) : (
-          <h2 class="section__title" id="record-trade-title">
-            取引
-          </h2>
-        )}
-        <TradeCoreFields {...p} />
-      </section>
-
-      <section class="card section" aria-labelledby="record-lc-title">
-        <h2 class="section__title" id="record-lc-title">
-          LC
-        </h2>
-        <LcFields {...p} />
-      </section>
-
-      <section class="card section" aria-labelledby="record-taps-title">
-        <h2 class="section__title" id="record-taps-title">
-          決済までの行動
-        </h2>
-        <TapFields {...p} />
-      </section>
-    </>
-  );
-}
-
-/** 畳んだ「ほかの欄（任意）」（open = 開いて見せる: 誤りがある・読み取りの値がある） */
-export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }) {
-  return (
-    <details class="card more" {...(p.open ? { open: true } : {})}>
-      <summary class="more__summary">ほかの欄（任意）</summary>
-      <TradeMoreBody {...p} />
-    </details>
   );
 }
 

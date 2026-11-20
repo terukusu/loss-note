@@ -1,25 +1,42 @@
-// 取引を編集（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5）: 記録する画面と同じ欄（TradeFields）と判定の枠（Verdict）を、
-// 保存した値が入った状態で出す。直している間も判定・理由・R・リスク（%）はその場で出直し、資金・許容リスクは取引に写した値で
-// 計算する（今の設定を使わない）。明細の枠は出さない。チャート（#89）は記録する画面と同じ枠（ChartPanel）で
-// 追加・差し替え・削除・付属の枠ができ、[保存する] で取引と一緒に 1 要求で保存する（[キャンセル] で捨てる。変更があれば
-// トーストの [元に戻す] で戻せる。画面を移っても変更は書きかけの置き場に残る。#75）。
-// チャートの無い枠に記録された時間足は保存で外し、その旨を判定の枠の上に出す。保存できたら詳細へ置き換える。
-// TradeEdit は hook を持たない。「見つかりません」の面は詳細と同じ
+// 取引を編集（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5・9.2。#131 で記録する画面と同じ全画面のシートの形にした）:
+// 上の帯は左上の ✕（キャンセル）と題「取引を編集」。中身は記録する画面（#130）と同じ部品（components/RecordParts.tsx）で、
+// 要約 + ［編集］（取引の欄のシート。段 2 = ほかの欄）・チャートの小さな 2 枠（チャートのシート）・LC・一言・3 つのタップ、
+// 下の帯に判定の 1 行（押すと判定のシート）と ［保存］。記録したときの値と今の値（#31）は 1 行「今の値と比べる」→ 比較のシート
+// （2 択「計算に使う値」）。詳細の比較のシートの ［編集で今の値にする］ から来たとき（?values=current）は、読み込んだ後に
+// 「今の値」を選ぶ（保存までは写し直さない）。
+// 直している間も判定・理由・R・リスク（%）はその場で出直し、資金・許容リスクは取引に写した値で計算する（今の設定を使わない）。
+// 明細の場所は出さない。チャート（#89）は記録する画面と同じ枠（ChartPanel）で追加・差し替え・削除・付属の枠ができ、[保存] で
+// 取引と一緒に 1 要求で保存する（✕ で捨てる。変更があればトーストの [元に戻す] で戻せる。画面を移っても変更は書きかけの置き場に
+// 残る。#75）。チャートの無い枠に記録された時間足は保存で外し、その旨を出す。保存できたら前の画面（詳細）へ戻る。
+// TradeEdit は hook を持たない。「見つかりません」の面は詳細と同じ。TradeEditView も hook を持たない（開いているシートは
+// TradeEditScreen が持つ）
+import '../styles/record.css';
+import '../styles/detail.css';
 import type { JSX } from 'preact';
-import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { accountIdOf, DEFAULT_ACCOUNT_ID } from '../../../core/record';
 import type { Timeframe } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
+import { ACCOUNT_FIELD_ID, AccountField } from '../components/AccountField';
 import { SheetBar } from '../components/AppBar';
-import { Button } from '../components/Button';
+import { Button, RowLink } from '../components/Button';
 import { addExtraId, ChartPanel, chartBoxId, restoreId } from '../components/ChartPanel';
-import { ResnapshotPanel } from '../components/Resnapshot';
+import { Icon } from '../components/Icon';
+import { MiniCharts, partIds, SummaryCard, VerdictLineButton } from '../components/RecordParts';
+import { ResnapshotBody } from '../components/Resnapshot';
 import { Segment } from '../components/Segment';
-import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
+import { Sheet } from '../components/Sheet';
+import {
+  LcFields,
+  TapFields,
+  TradeCoreFields,
+  type TradeFieldsProps,
+  TradeMoreBody,
+} from '../components/TradeFields';
 import { Verdict } from '../components/Verdict';
-import { findAccount, selectedAccountId, switchHint } from '../lib/accounts';
+import { accountChoiceKind, findAccount, selectedAccountId, switchHint } from '../lib/accounts';
+import { backLayers } from '../lib/back-layers';
 import { chartChangeCount, keptReadingSlots, keptReadingText } from '../lib/chart-slots';
-
 import {
   type AnySlot,
   CHART_SLOT_TEXT,
@@ -35,12 +52,24 @@ import { editKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
 import { createEditController, type EditController, type EditState } from '../lib/edit-controller';
 import { bandText, changeText } from '../lib/edit-form';
+import { EDIT_SHEET_ID, type EditSheet, editValuesNote, editVerdictLine } from '../lib/edit-screen';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
-import { BAR_PREFIX, CHOICE_NAME, RESNAPSHOT_LABEL } from '../lib/resnapshot';
+import { FIELD_INPUT_ID, tradeSummary } from '../lib/record-screen';
+import {
+  BAR_PREFIX,
+  CHOICE_NAME,
+  COMPARE_ROW_LABEL,
+  COMPARE_SHEET_TITLE,
+  compareRowMeta,
+  RESNAPSHOT_LABEL,
+  wantsCurrentValues,
+} from '../lib/resnapshot';
 import { NavigatorContext } from '../lib/router';
+import { sheetDismiss } from '../lib/sheet';
 import { imageFileFromClipboard, type PasteTarget } from '../lib/statement-fill';
 import { browserCodec, prepareImage } from '../lib/statement-image';
+import { submitStatus } from '../lib/verdict-notes';
 import { notFoundState } from './TradeDetail';
 import { LoadState } from './Trades';
 
@@ -49,6 +78,12 @@ export function TradeEdit({ id }: { readonly id: string }) {
 }
 
 const SUBMIT_ID = 'edit-submit';
+const IDS = partIds('edit');
+/** 「今の値と比べる」の行（比較のシートを閉じたらここへフォーカスが戻る） */
+export const COMPARE_ROW_ID = 'edit-compare';
+const MORE_ROW_ID = 'edit-more';
+/** 取引の欄のシートの段 2（ほかの欄）の戻るの層 */
+const MORE_LAYER = `${EDIT_SHEET_ID.fields}~more`;
 
 function TradeEditScreen({
   id,
@@ -85,6 +120,8 @@ function TradeEditScreen({
     });
   }, [id, store]);
   const [state, setState] = useState<EditState>(controller.getState());
+  // 開いているシート（取引の欄・チャート・判定・比較。#131。書きかけには残さない）
+  const [sheet, setSheet] = useState<EditSheet | null>(null);
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
   const prev = useRef(state.phase);
@@ -97,6 +134,15 @@ function TradeEditScreen({
       else controller.dispose();
     };
   }, [controller, restored, store, id]);
+  // 詳細の比較のシートの ［編集で今の値にする］ から来た（?values=current）: 読み込めたら 1 回だけ「今の値」を選ぶ
+  // （借り直した書きかけは、もう読めているのですぐ。違いが無くなっていれば何もしない。保存までは写し直さない = #31 の P4）
+  const wantCurrent = wantsCurrentValues(nav?.current.search ?? '');
+  const appliedCurrent = useRef(false);
+  useEffect(() => {
+    if (!wantCurrent || appliedCurrent.current || state.phase !== 'editing') return;
+    appliedCurrent.current = true;
+    if (state.offer !== null && !state.refresh) controller.setRefresh(true);
+  }, [wantCurrent, state.phase, state.offer, state.refresh, controller]);
   // 枠そのもの（輪と「ここに貼れます」が出ている状態）にフォーカスがあるときだけ、貼った画像をその枠へ（記録する画面と
   // 同じ行き先。#89）。ほかの貼り付けは横取りしない（編集には明細の枠が無い）
   useEffect(() => {
@@ -115,29 +161,77 @@ function TradeEditScreen({
     const before = prev.current;
     prev.current = state.phase;
     if (state.phase === 'saved') {
+      setSheet(null);
       // 保存できたら前の画面（詳細）へ戻る（今の積み重ねの 1 つ下。戻るで編集の画面に戻らない。9.7 の 6・ADR-0019 の追記）
       nav?.back(`/trades/${id}`);
     } else if (before === 'saving' && state.phase === 'editing' && state.error) {
-      // 保存に失敗して戻った: 押した [保存する] へフォーカスを戻す（失敗の文言は role="alert"）
+      // 保存に失敗して戻った: 押した [保存] へフォーカスを戻す（失敗の文言は role="alert"）
       document.getElementById(SUBMIT_ID)?.focus();
     }
   }, [state.phase, state.error, id, nav]);
+
+  // 取引の欄のシートの段 2（ほかの欄）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。記録する画面と同じ。ui-guidelines 9.3・9.7）
+  const moreLayered = useRef(false);
+  useEffect(
+    () => () => {
+      if (!moreLayered.current) return;
+      moreLayered.current = false;
+      backLayers()?.close(MORE_LAYER);
+    },
+    [],
+  );
+  useLayoutEffect(() => {
+    const layers = backLayers();
+    if (!layers) return;
+    const want = sheet?.kind === 'fields' && sheet.step === 'more';
+    if (want && !moreLayered.current) {
+      layers.open(MORE_LAYER, () => {
+        moreLayered.current = false;
+        setSheet((cur) => (cur?.kind === 'fields' ? { kind: 'fields', step: 'main' } : cur));
+      });
+      moreLayered.current = true;
+    } else if (!want && moreLayered.current) {
+      layers.close(MORE_LAYER);
+      moreLayered.current = false;
+    }
+  });
+
+  /** シートを開く・替える・閉じる。名指した欄から開いたら、開いた後にその欄へフォーカスを移す */
+  const onSheet = (next: EditSheet | null) => {
+    setSheet(next);
+    if (next?.kind === 'fields' && next.focus) {
+      const f = next.focus;
+      setTimeout(() => {
+        const el =
+          f === 'side'
+            ? document.querySelector<HTMLElement>('[role="radiogroup"][aria-label="L / S"] input')
+            : f === 'accountId'
+              ? document.getElementById(ACCOUNT_FIELD_ID)
+              : document.getElementById(FIELD_INPUT_ID[f as keyof typeof FIELD_INPUT_ID] ?? '');
+        el?.focus();
+      }, 0);
+    }
+  };
+
   return (
     <TradeEditView
       id={id}
       state={state}
+      sheet={sheet}
+      onSheet={onSheet}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       onUpdate={controller.update}
       onSetRefresh={controller.setRefresh}
       onRecalcNow={() => {
-        // 判定の枠のそばのボタンは押すと消えるので、行き先の「今の値」へフォーカスを移す（N-3）
+        // 判定のシートのボタンは押すと消えるので、比較のシートを開いて行き先の「今の値」へフォーカスを移す（N-3）
         controller.setRefresh(true);
-        requestAnimationFrame(() => {
+        setSheet({ kind: 'compare' });
+        setTimeout(() => {
           document
             .querySelector<HTMLInputElement>(`input[name="${CHOICE_NAME}"][value="current"]`)
             ?.focus();
-        });
+        }, 0);
       }}
       onSave={() => {
         void controller.save();
@@ -191,13 +285,13 @@ export interface TradeEditViewProps {
   readonly onUpdate: (action: DraftAction) => void;
   /** 計算に使う値（#31）: true = 今の値、false = 記録したとき。省けば何もしない */
   readonly onSetRefresh?: (on: boolean) => void;
-  /** 判定の枠のそばの [今の値で再計算]（#31。押すと「今の値」を選び、そこへフォーカスを移す） */
+  /** 判定のシートの注記のそばの [今の値で再計算]（#31。押すと「今の値」を選び、比較のシートでそこへフォーカスを移す） */
   readonly onRecalcNow?: () => void;
   readonly onSave: () => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
   /**
-   * [キャンセル]（#75）: 変更を捨てて前の画面へ（変更があれば [元に戻す] のトースト）。省けば詳細へのリンク（置き場の無い
+   * ✕（キャンセル。#75）: 変更を捨てて前の画面へ（変更があれば [元に戻す] のトースト）。省けば詳細へのリンク（置き場の無い
    * テストの描画）
    */
   readonly onCancel?: () => void;
@@ -205,6 +299,10 @@ export interface TradeEditViewProps {
   readonly resumedAt?: number | null;
   /** 今の時刻（「N 分前」。省けば Date.now） */
   readonly now?: number;
+  /** 開いているシート（#131。省けばどれも閉じている） */
+  readonly sheet?: EditSheet | null;
+  /** シートを開く・替える・閉じる（null） */
+  readonly onSheet?: (sheet: EditSheet | null) => void;
   /** チャートの枠（#89。省けば何もしない） */
   readonly onPickChart?: (slot: AnySlot, file: File) => void;
   readonly onRemoveChart?: (slot: AnySlot) => void;
@@ -230,8 +328,8 @@ export function orphanNotice(state: Pick<EditState, 'orphans'>): string | null {
 }
 
 /**
- * 編集の全画面のシート（hook を持たない）: 上の帯（左上の ✕ = キャンセル・題「取引を編集」）と、欄・判定の枠・[保存]。
- * ✕ は保存中は押せない（#75 R4）。置き場の無いテストの描画では詳細へのリンク
+ * 編集の全画面のシート（hook を持たない）: 上の帯（左上の ✕ = キャンセル・題「取引を編集」）と、要約・チャート・LC・
+ * 3 つのタップ・下の帯（判定の 1 行・[保存]）。✕ は保存中は押せない（#75 R4）。置き場の無いテストの描画では詳細へのリンク
  */
 export function TradeEditView(p: TradeEditViewProps) {
   const saving = p.state.phase === 'saving' || p.state.phase === 'saved';
@@ -243,16 +341,27 @@ export function TradeEditView(p: TradeEditViewProps) {
           ? { onCancel: p.onCancel, cancelDisabled: saving }
           : { cancelHref: `/trades/${p.id}` })}
       />
-      <p class="pagehead__desc">
-        資金・許容リスクと銘柄の値は、記録したときの値で計算します。チャートの変更は [保存]
-        で一緒に保存します。
-      </p>
       <TradeEditBody {...p} />
     </>
   );
 }
 
-/** 編集の欄・判定の枠・[保存]（hook を持たない） */
+/**
+ * 「ほかの欄（任意）›」の行の右の添え（誤り → 通貨の違う口座へ替えて損益・手数料を空に戻した → 入れた欄の数。無ければ出さない）。
+ * 空に戻したことは口座の欄の下の 1 行でも言う（#47 PR-2・U33。#131 でその場で開かず、添えで示す）
+ */
+function moreMeta(
+  d: EditState['draft'],
+  errors: EditState['read']['errors'],
+  cleared: boolean,
+): string | null {
+  if (OPTIONAL_FIELDS.some((f) => errors[f] !== undefined)) return '誤りあり';
+  if (cleared) return '空に戻しました';
+  const filled = [d.pnlYen, d.feeYen].filter((v) => v.trim() !== '').length;
+  return filled > 0 ? `${filled} 欄` : null;
+}
+
+/** 編集の 1 画面の形（記録する画面と同じ部品。hook を持たない） */
 function TradeEditBody(p: TradeEditViewProps) {
   const { state } = p;
   if (p.hidden.has(p.id) || state.phase === 'notFound') return p.notFound;
@@ -277,7 +386,6 @@ function TradeEditBody(p: TradeEditViewProps) {
   const saving = state.phase === 'saving' || state.phase === 'saved';
   const errorFields = (Object.keys(e) as (keyof typeof e)[]).filter((k) => e[k] !== undefined);
   const errorLabels = [...new Set(errorFields.map((k) => FIELD_LABEL[k]))];
-  const optionalError = errorFields.some((k) => OPTIONAL_FIELDS.includes(k));
   const notice = orphanNotice(state);
   // チャートの変更の数（差し替え・追加・削除。保存の帯に出す。#89）
   const chartChanges = chartChangeCount(state.charts);
@@ -287,18 +395,36 @@ function TradeEditBody(p: TradeEditViewProps) {
   const original = state.trade ? accountIdOf(state.trade.record) : DEFAULT_ACCOUNT_ID;
   const accountId = selectedAccountId(d.accountId, original);
   const switched = switchHint(findAccount(accountId, state.accounts), accountId !== original);
-  // 通貨の違う口座へ替えたら、損益・手数料を空に戻した旨を同じ 1 行に足し、「ほかの欄」を開く（#47 PR-2・U33）
+  // 通貨の違う口座へ替えたら、損益・手数料を空に戻した旨を同じ 1 行に足す（#47 PR-2・U33）
   const accountHint =
     state.currencyCleared && switched !== null
       ? `${switched}。${state.fxCleared ? CURRENCY_FX_CLEARED_NOTE : CURRENCY_CLEARED_NOTE}`
       : switched;
   const currency = read.currency ? currencyView(read.currency, state.preview.derivedFx) : undefined;
-  // 記録したときの値と今の値（#31）: 違うときだけ。資金が空でリスク（%）が出せるなら、判定の枠の注記のそばにも
+  // 記録したときの値と今の値（#31）: 違うときだけ 1 行「今の値と比べる」
   const offer = state.offer;
   const refresh = state.refresh && offer !== null;
+  const sheet = p.sheet ?? null;
+  const openSheet = (s: EditSheet | null) => p.onSheet?.(s);
+  const set =
+    <K extends keyof typeof d>(field: K) =>
+    (value: (typeof d)[K]) =>
+      p.onUpdate({ type: 'set', field, value } as DraftAction);
+  const fields: TradeFieldsProps = {
+    draft: d,
+    errors: e,
+    instruments: state.instruments,
+    marks: {},
+    onUpdate: p.onUpdate,
+    ...(currency ? { currency } : {}),
+  };
+  const choice = accountChoiceKind(state.accounts.length);
+  const account = findAccount(accountId, state.accounts);
+  const line = editVerdictLine(read, state.preview, errorLabels);
+  const status = line.kind === 'status' ? line.text : submitStatus(read, errorLabels);
   return (
     <form
-      class="record"
+      class="record record--one record--edit"
       noValidate
       onSubmit={(ev) => {
         ev.preventDefault();
@@ -310,94 +436,202 @@ function TradeEditBody(p: TradeEditViewProps) {
         {p.resumedAt != null && state.phase === 'editing' ? (
           <p class="draft__resumed">{resumedNote('edit', p.resumedAt, p.now ?? Date.now())}</p>
         ) : null}
-        <TradeMainFields
-          draft={d}
-          errors={e}
-          instruments={state.instruments}
-          marks={{}}
-          onUpdate={p.onUpdate}
-          accounts={state.accounts}
-          accountId={accountId}
-          accountHint={accountHint}
-          {...(currency ? { currency } : {})}
-        />
-        <ChartPanel
-          idPrefix="edit"
-          title="チャート（任意）"
+
+        <section class="rstmt" data-area="summary" aria-labelledby="edit-trade-title">
+          <h2 class="sr-only" id="edit-trade-title">
+            取引
+          </h2>
+          <SummaryCard
+            prefix="edit"
+            summary={tradeSummary(d, e, {})}
+            accountChip={choice === 'select' && account ? account.name : null}
+            onFields={(focus) =>
+              openSheet({ kind: 'fields', step: 'main', ...(focus ? { focus } : {}) })
+            }
+          >
+            {choice === 'segment' ? (
+              <div class="rsum__accounts">
+                <AccountField
+                  accounts={state.accounts}
+                  value={accountId}
+                  onChange={set('accountId')}
+                  hint={accountHint}
+                />
+              </div>
+            ) : choice === 'select' && accountHint ? (
+              <p class="field__hint rsum__hint">{accountHint}</p>
+            ) : null}
+          </SummaryCard>
+        </section>
+
+        <MiniCharts
+          prefix="edit"
           charts={state.charts}
-          extras={state.extras}
-          markChanges
           timeframes={{ entry: d.entryChartTimeframe, exit: d.exitChartTimeframe }}
-          {...(p.onPickChart ? { onPick: p.onPickChart } : {})}
-          {...(p.onRemoveChart ? { onRemove: p.onRemoveChart } : {})}
-          {...(p.onRestoreChart ? { onRestore: p.onRestoreChart } : {})}
-          {...(p.onAcceptChartTimeframe ? { onAccept: p.onAcceptChartTimeframe } : {})}
-          {...(p.onAddExtraChart ? { onAddExtra: p.onAddExtraChart } : {})}
-          {...(p.onExtraNote ? { onNote: p.onExtraNote } : {})}
-          onTimeframe={(slot, value) => {
-            if (isMainSlot(slot))
-              p.onUpdate({ type: 'set', field: CHART_TIMEFRAME_FIELD[slot], value });
-            else p.onExtraTimeframe?.(slot, value);
-          }}
+          markChanges
+          onPick={(slot, f) => p.onPickChart?.(slot, f)}
+          onOpen={() => openSheet({ kind: 'chart' })}
         />
         {notice ? (
           <p class="notice edit__orphans" id="edit-orphans">
             {notice}
           </p>
         ) : null}
+
+        <div class="record__lc">
+          <LcFields {...fields} />
+        </div>
+
+        <div class="record__taps">
+          <TapFields {...fields} moveHintInInfo />
+          {state.preview.showGapSlip ? (
+            <Segment
+              label="窓・滑りでしたか"
+              value={d.gapSlip === 'unanswered' ? null : d.gapSlip}
+              onChange={set('gapSlip')}
+              options={[
+                { value: 'yes', label: 'はい' },
+                { value: 'no', label: 'いいえ' },
+              ]}
+            />
+          ) : null}
+        </div>
+
         {offer ? (
-          <ResnapshotPanel offer={offer} on={refresh} onChoose={(on) => p.onSetRefresh?.(on)} />
+          <div class="dlist edit__compare">
+            <RowLink
+              id={COMPARE_ROW_ID}
+              onClick={() => openSheet({ kind: 'compare' })}
+              meta={compareRowMeta(offer, refresh)}
+            >
+              {COMPARE_ROW_LABEL}
+            </RowLink>
+          </div>
         ) : null}
-        <Verdict
-          summary={state.preview}
-          side={d.side ?? 'L'}
-          gapSlip={
-            state.preview.showGapSlip ? (
-              <Segment
-                label="窓・滑りでしたか"
-                value={d.gapSlip === 'unanswered' ? null : d.gapSlip}
-                onChange={(v) => p.onUpdate({ type: 'set', field: 'gapSlip', value: v })}
-                options={[
-                  { value: 'yes', label: 'はい' },
-                  { value: 'no', label: 'いいえ' },
-                ]}
-              />
+
+        {/* 取引の欄（要約の ［編集］・名指しの欄）。段 2 = ほかの欄（任意） */}
+        <Sheet
+          id={EDIT_SHEET_ID.fields}
+          open={sheet?.kind === 'fields'}
+          kind="form"
+          title={
+            sheet?.kind === 'fields' && sheet.step === 'more' ? 'ほかの欄（任意）' : '取引の欄'
+          }
+          lead={
+            sheet?.kind === 'fields' && sheet.step === 'more' ? (
+              <button
+                type="button"
+                class="info__up"
+                aria-label="取引の欄へ戻る"
+                onClick={() => openSheet({ kind: 'fields', step: 'main' })}
+              >
+                <Icon name="back" />
+                <span>取引の欄</span>
+              </button>
             ) : null
           }
-          pending={state.preview.judgment === undefined}
-          hasErrors={errorFields.length > 0}
-          before={state.before}
-          {...(offer?.nearVerdict && !refresh
-            ? {
-                asideAction: (
-                  <Button variant="secondary" onClick={() => p.onRecalcNow?.()}>
-                    {RESNAPSHOT_LABEL}
-                  </Button>
-                ),
-              }
-            : {})}
-        />
-        <TradeMoreFields
-          draft={d}
-          errors={e}
-          instruments={state.instruments}
-          marks={{}}
-          onUpdate={p.onUpdate}
-          {...(currency ? { currency } : {})}
-          open={optionalError || state.currencyCleared}
-        />
+          focusKey={sheet?.kind === 'fields' ? sheet.step : 'none'}
+          onDismiss={(reason) => {
+            const up =
+              sheet?.kind === 'fields' && sheet.step === 'more'
+                ? sheetDismiss(reason, 1) === 'up'
+                : false;
+            openSheet(up ? { kind: 'fields', step: 'main' } : null);
+          }}
+        >
+          {sheet?.kind === 'fields' && sheet.step === 'more' ? (
+            <div class="record__sheetbody">
+              <TradeMoreBody {...fields} />
+            </div>
+          ) : (
+            <div class="record__sheetbody">
+              <TradeCoreFields
+                {...fields}
+                accounts={choice === 'select' ? state.accounts : []}
+                accountId={accountId}
+                {...(choice === 'select' ? { accountHint } : {})}
+              />
+              <RowLink
+                id={MORE_ROW_ID}
+                onClick={() => openSheet({ kind: 'fields', step: 'more' })}
+                meta={moreMeta(d, e, state.currencyCleared)}
+              >
+                ほかの欄（任意）
+              </RowLink>
+            </div>
+          )}
+        </Sheet>
+
+        <Sheet
+          id={EDIT_SHEET_ID.chart}
+          open={sheet?.kind === 'chart'}
+          kind="form"
+          title="チャート"
+          onDismiss={() => openSheet(null)}
+        >
+          <ChartPanel
+            idPrefix="edit"
+            title="チャート（任意）"
+            charts={state.charts}
+            extras={state.extras}
+            markChanges
+            timeframes={{ entry: d.entryChartTimeframe, exit: d.exitChartTimeframe }}
+            {...(p.onPickChart ? { onPick: p.onPickChart } : {})}
+            {...(p.onRemoveChart ? { onRemove: p.onRemoveChart } : {})}
+            {...(p.onRestoreChart ? { onRestore: p.onRestoreChart } : {})}
+            {...(p.onAcceptChartTimeframe ? { onAccept: p.onAcceptChartTimeframe } : {})}
+            {...(p.onAddExtraChart ? { onAddExtra: p.onAddExtraChart } : {})}
+            {...(p.onExtraNote ? { onNote: p.onExtraNote } : {})}
+            onTimeframe={(slot, value) => {
+              if (isMainSlot(slot))
+                p.onUpdate({ type: 'set', field: CHART_TIMEFRAME_FIELD[slot], value });
+              else p.onExtraTimeframe?.(slot, value);
+            }}
+          />
+        </Sheet>
+
+        <Sheet
+          id={EDIT_SHEET_ID.verdict}
+          open={sheet?.kind === 'verdict'}
+          kind="info"
+          title="判定"
+          onDismiss={() => openSheet(null)}
+        >
+          <Verdict
+            summary={state.preview}
+            side={d.side ?? 'L'}
+            pending={state.preview.judgment === undefined}
+            hasErrors={errorFields.length > 0}
+            before={state.before}
+            note={editValuesNote(refresh)}
+            {...(offer?.nearVerdict && !refresh
+              ? {
+                  asideAction: (
+                    <Button variant="secondary" onClick={() => p.onRecalcNow?.()}>
+                      {RESNAPSHOT_LABEL}
+                    </Button>
+                  ),
+                }
+              : {})}
+          />
+        </Sheet>
+
+        <Sheet
+          id={EDIT_SHEET_ID.compare}
+          open={sheet?.kind === 'compare' && offer !== null}
+          kind="form"
+          title={COMPARE_SHEET_TITLE}
+          onDismiss={() => openSheet(null)}
+        >
+          {offer ? (
+            <div class="record__sheetbody compare__body">
+              <ResnapshotBody offer={offer} on={refresh} onChoose={(on) => p.onSetRefresh?.(on)} />
+            </div>
+          ) : null}
+        </Sheet>
       </fieldset>
 
-      <div class="record__submit edit__submit">
-        <p class="edit__change" id="edit-change" aria-live="polite">
-          {refresh ? BAR_PREFIX : ''}
-          {bandText(changeText(state.before, state.preview), chartChanges)}
-        </p>
-        {keptReading.length > 0 ? (
-          <p class="field__hint edit__kept" role="status">
-            {keptReadingText(keptReading)}
-          </p>
-        ) : null}
+      <div class="record__submit record__submit--bar edit__submit">
         {state.error ? (
           <div class="notice notice--error" role="alert">
             <p>{state.error}</p>
@@ -408,30 +642,26 @@ function TradeEditBody(p: TradeEditViewProps) {
             ) : null}
           </div>
         ) : null}
-        <p class="record__missing" aria-live="polite">
-          {[
-            errorLabels.length > 0 ? `誤りのある欄: ${errorLabels.join('・')}` : '',
-            read.missing.length > 0 ? `未入力の欄: ${read.missing.join('・')}` : '',
-          ]
-            .filter(Boolean)
-            .join(' / ')}
+        <VerdictLineButton
+          id={IDS.verdictLine}
+          line={line}
+          status={status}
+          disabled={saving}
+          onOpen={() => openSheet({ kind: 'verdict' })}
+        />
+        <p class="edit__change" id="edit-change" aria-live="polite">
+          {refresh ? BAR_PREFIX : ''}
+          {bandText(changeText(state.before, state.preview), chartChanges)}
         </p>
+        {keptReading.length > 0 ? (
+          <p class="field__hint edit__kept" role="status">
+            {keptReadingText(keptReading)}
+          </p>
+        ) : null}
         {/* キャンセルは上の帯の左上の ✕（9.3・9.12。#127） */}
-        <div class="edit__actions">
-          <Button
-            type="submit"
-            id={SUBMIT_ID}
-            size="lg"
-            icon="check"
-            disabled={!read.canSave || saving}
-          >
-            {saving
-              ? state.sendingCharts
-                ? 'チャートを送っています…'
-                : '保存しています…'
-              : '保存'}
-          </Button>
-        </div>
+        <Button type="submit" id={SUBMIT_ID} icon="check" block disabled={!read.canSave || saving}>
+          {saving ? (state.sendingCharts ? 'チャートを送っています…' : '保存しています…') : '保存'}
+        </Button>
       </div>
     </form>
   );

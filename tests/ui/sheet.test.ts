@@ -7,6 +7,7 @@ import {
   SHEET_EMPTY,
   type SheetDismiss,
   sheetCancel,
+  sheetCloseEvent,
   sheetDismiss,
   sheetEscapeKey,
   sheetReturnFocus,
@@ -179,5 +180,18 @@ describe('layerPlan（段ごとの層の数合わせ。#129 のレビュー N5�
       layered = want;
       expect([...live].sort()).toEqual(Array.from({ length: want }, (_, i) => i + 1));
     }
+  });
+});
+
+describe('sheetCloseEvent（遅れて届く dialog の close。#131）', () => {
+  it('こちらが呼んだ close がまだ届いていない・もう閉じた（open = false）シートの close は無視し、開いているシートに届いた頼んでいない close だけ native', () => {
+    expect(sheetCloseEvent(1, true)).toBe('ignore');
+    expect(sheetCloseEvent(0, false)).toBe('ignore');
+    expect(sheetCloseEvent(2, false)).toBe('ignore');
+    expect(sheetCloseEvent(0, true)).toBe('native');
+  });
+
+  it('閉じてすぐ開き直した（own 1・open true）: 遅れて届いた前の close で開き直したシートを閉じない（#131 のレビュー N7）', () => {
+    expect(sheetCloseEvent(1, true)).toBe('ignore');
   });
 });

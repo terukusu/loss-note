@@ -228,7 +228,13 @@ function lcMoveText(t: StoredTrade): string {
 }
 
 export interface TapAnswer {
+  /** 問いの全文（読み上げ。「LC を入る前に決めていたか」） */
   readonly label: string;
+  /**
+   * 札に見せる短い問い（「LC」「時間足」。#131 のデザインレビュー a1: 詳細は表示で、問いの全文は入力の場所と用語集にある。
+   * 答えの言葉が重ならないので「LC:」が 2 つ並んでも取り違えない）
+   */
+  readonly short: string;
   readonly value: string;
   /** 計画から外れた答え（決めていない・広げた・長い足へ。時間足はチャートから判定に効いたときも） */
   readonly offPlan: boolean;
@@ -253,12 +259,14 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
   if (r.lc !== undefined) {
     out.push({
       label: 'LC を入る前に決めていたか',
+      short: 'LC',
       value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
       offPlan: !r.lcDecidedBeforeEntry,
       term: 'lcDecided',
     });
     out.push({
       label: 'LC を動かしたか',
+      short: 'LC',
       value: lcMoveText(t),
       offPlan: r.lcMove.kind === 'widened',
       term: 'lcMove',
@@ -274,6 +282,7 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
     b !== undefined;
   out.push({
     label: '時間足を変えたか',
+    short: '時間足',
     value: fromChart
       ? `${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`
       : TIMEFRAME_CHANGE_TEXT[r.timeframeChange],
@@ -284,7 +293,8 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
 }
 
 /**
- * 時間足のあなたの答えと、チャートの時間足が食い違うときの 1 行（例「あなたの答えは「変えず」、チャートは 4 時間足 → 日足」）。
+ * 時間足のあなたの答えと、チャートの時間足が食い違うときの 1 行（例「あなたの答え: そのまま」）。チャートの足はすぐ上の札
+ * 「時間足: 4 時間足 → 日足」が言うので、ここではあなたの答えだけ（#131 のデザインレビュー a2）。
  * エントリー時と決済時のチャートと時間足がそろっていなければ null
  */
 export function timeframeNote(t: StoredTrade): string | null {
@@ -294,7 +304,7 @@ export function timeframeNote(t: StoredTrade): string | null {
   const hasChart = t.charts?.entry !== undefined && t.charts?.exit !== undefined;
   if (!hasChart || a === undefined || b === undefined) return null;
   if ((r.timeframeChange === 'longer') === isLongerTimeframe(a, b)) return null;
-  return `あなたの答え: ${TIMEFRAME_CHANGE_TEXT[r.timeframeChange]} ／ チャート: ${TIMEFRAME_NAME[a]} → ${TIMEFRAME_NAME[b]}`;
+  return `あなたの答え: ${TIMEFRAME_CHANGE_TEXT[r.timeframeChange]}`;
 }
 
 /** 提案の数量が数量の刻み 1 つにも満たないときの言葉（#67 R2） */

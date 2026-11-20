@@ -1,0 +1,302 @@
+/* 取引の詳細・次の画面・編集の全画面のシート（#131。pages/TradeDetail.tsx・TradeNotes.tsx・TradeEdit.tsx が読み込む）。
+   設計書 9.2・ui-guidelines 9.3・9.9・9.12。色はトークンだけ（判定の段の色は判定の枠とバッジだけ。P2） */
+
+/* 上の帯の「…」: 帯の中の操作は面を持たない（左の「‹ 取引」と同じ重さ。当たりは 44px のまま。#127 のデザインレビュー a4） */
+.appbar .appbar__more {
+  background: none;
+}
+
+.appbar .appbar__more:hover:not(:disabled) {
+  background: var(--s2);
+}
+
+/* 1 画面目に判定のカード・チャートの 2 枠・次の画面への行（その場で伸ばさない。9.2） */
+.detail {
+  gap: var(--sp-4);
+}
+
+/* まとめた一覧（押せる行を 1 枚の面に。区切りは文字の左端から。9.9）。詳細・編集の画面の名前（全画面に効かせない。#131 のレビュー N4） */
+.dlist {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+  box-shadow: var(--shadow-card);
+}
+
+.dlist > .rowlink {
+  position: relative;
+  padding-inline: var(--sp-4);
+  border-radius: 0;
+  background: transparent;
+}
+
+.dlist > .rowlink + .rowlink::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+.dlist > .rowlink:hover {
+  background: var(--s2);
+}
+
+/* 添えは › のすぐ左（行の真ん中に浮かせない。#131 のデザインレビュー a3） */
+.dlist > .rowlink:has(.rowlink__meta)::after {
+  margin-inline-start: 0;
+}
+
+/* 操作のシートの中の一覧（シートの面の上に 1 段明るい面） */
+.sheet .dlist {
+  background: var(--s3);
+  box-shadow: none;
+}
+
+.sheet .dlist > .rowlink:hover {
+  background: color-mix(in srgb, var(--ink) 6%, var(--s3));
+}
+
+/* 広い形の操作・比較のシートは「…」に付ける（押した所の吹き出し。#129 の .info と同じ置き方） */
+:root[data-form="wide"]:has(#detail-actions-sheet[open], #detail-compare-sheet[open]) #detail-more {
+  anchor-name: --sheet-anchor;
+}
+
+/* チャートの 2 枠（横に並べる。押すと全画面で見る層）。追加のチャートも同じ形で下に */
+.dcharts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.dcharts__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.dcharts__subtitle {
+  margin-top: var(--sp-2);
+}
+
+.dchart {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  aspect-ratio: 16 / 10;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+  box-shadow: var(--shadow-card);
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+}
+
+.dchart--ready {
+  cursor: zoom-in;
+}
+
+/* サムネイルは枠いっぱい（枠の比 16 : 10 に合わせて切り抜く） */
+.dchart__thumb {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.dchart__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* 名前 · 時間足の札（左上に重ねる。面を持つので canvas の上でも読める） */
+.dchart__cap {
+  position: absolute;
+  top: var(--sp-2);
+  left: var(--sp-2);
+  max-width: calc(100% - 2 * var(--sp-2));
+  padding: 2px var(--sp-2);
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--s1) 86%, transparent);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dchart--none,
+.dchart--failed,
+.dchart--loading {
+  align-items: center;
+  padding: calc(var(--sp-6) + var(--sp-2)) var(--sp-3) var(--sp-3);
+  text-align: center;
+}
+
+.dchart__msg {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.dchart__msg--error {
+  color: var(--danger);
+}
+
+/* 枠の比（16 : 10）は中身より小さいときだけ。文字の拡大では中身の高さまで伸びる（札と文が切れない。#79） */
+.dchart--none .dchart__cap,
+.dchart--failed .dchart__cap,
+.dchart--loading .dchart__cap {
+  position: static;
+  align-self: flex-start;
+}
+
+.dchart--ready:hover {
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px var(--line-2);
+}
+
+.dchart:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* 全画面で見る層（黒い面・✕。どの形でも窓いっぱい。ui-guidelines 9.3） */
+.sheet.sheet--viewer {
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  max-block-size: none;
+  border-radius: 0;
+  background: var(--viewer-bg);
+  color: var(--viewer-ink);
+  translate: none;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    display var(--dur-fast) allow-discrete,
+    overlay var(--dur-fast) allow-discrete;
+}
+
+.sheet.sheet--viewer[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  .sheet.sheet--viewer[open] {
+    opacity: 0;
+  }
+}
+
+.sheet--viewer .sheet__panel {
+  flex: 1 1 auto;
+  max-block-size: none;
+  padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+}
+
+.sheet--viewer .sheet__grip {
+  display: none;
+}
+
+.sheet--viewer .sheet__head {
+  padding-inline: var(--gutter);
+}
+
+.sheet--viewer .sheet__title {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--viewer-ink);
+}
+
+.sheet--viewer .sheet__close {
+  color: var(--viewer-ink);
+  background: color-mix(in srgb, var(--viewer-ink) 16%, transparent);
+}
+
+.sheet--viewer .sheet__body {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0 var(--safe-bottom);
+}
+
+.viewer__stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.viewer__canvas {
+  display: block;
+  max-inline-size: 100%;
+  max-block-size: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 72px);
+  inline-size: auto;
+  block-size: auto;
+}
+
+/* 比較のシート（詳細。見るだけ） */
+.detail__compare {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* 次の画面「すべての欄」「総評」 */
+.notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.notes__sub {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.notes__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 編集の全画面のシート: 「今の値と比べる ›」の行（下の帯は記録する画面と同じ不透明の面。下の欄の文字が透けない。#127 のデザインレビュー b8） */
+.edit__compare {
+  margin-top: var(--sp-1);
+}
+
+.rsum__hint {
+  flex-basis: 100%;
+}
+
+.record--edit .edit__change {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  text-align: center;
+}
+
+/* 比較のシートの中身（違う値・前 → 後。#131 でカードの外に出したので、段の間を中身で持つ） */
+.detail__compare .resnap,
+.compare__body .resnap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.detail__compare .resnap__caption,
+.compare__body .resnap__caption {
+  margin-top: var(--sp-2);
+}

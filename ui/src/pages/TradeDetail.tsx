@@ -1,35 +1,69 @@
-// 取引の詳細（Issue #9 契約 U-2。設計書 7.5・9.2、ADR-0006 決定 4）: 判定・理由のすべて・R・損益（円）・リスク（%）、
-// 判定の枠の中（理由の下）に 3 つのタップの答えの札（#34）、エントリー時と決済時のチャートを並べて各枠の時間足を添え、記録した欄を「すべての欄」に畳んで出す。[直す]・[消す]（確認を挟まない。[元に戻す] は
-// アプリの殻のトースト。ADR-0007）。無い ID・ほかの利用者の取引・消した印の取引は「この取引は見つかりません」と一覧へのリンク。
+// 取引の詳細（Issue #9 契約 U-2。設計書 7.5・9.2、ADR-0006 決定 4。#131 で 1 画面の形に作り直した）:
+// - 取引のタブの次の画面。上の帯に「‹ 前の画面」・題（銘柄 · L / S）・［編集］・「…」（操作のシート: 今の値と比べる・削除）
+// - 1 画面目に判定のカード（バッジ・R・リスク・損益・LC の物差し・理由・3 つのタップの答えの札）とチャート 2 枚を横に並べる
+//   （押すと全画面で見る層）。追加のチャート（#89）は 2 枚の下に同じ形で並べる
+// - 「すべての欄」「総評」は次の画面（押せる行。その場で開かない）
+// - 比較のシートは見るだけ。［編集で今の値にする］ で編集を「今の値」を選んだ状態で開く（写し直すのは編集の保存のとき。#31 の P4）
+// - 消すは確認を挟まない（[元に戻す] はアプリの殻のトースト。ADR-0007）。無い ID・ほかの利用者の取引・消した印の取引は
+//   「この取引は見つかりません」と一覧へのリンク
 // チャートは API から読んだバイト列を canvas に描く（object URL・data URL・img を使わない。CSP を広げない）。
-// 見出しは取引が読めたら「銘柄 · L / S」と決済の日時（読めるまで・見つからないときは「取引の詳細」。h1 の要素は同じなので
-// 画面の移りで当てたフォーカスは外れない）。[直す]・[消す] は見出しの行に置く。
-// TradeDetail は hook を持たない（App・経路のテストが 1 段だけ呼ぶ）。「見つかりません」の面は TradeDetail が作って渡す
+// 見出しは取引が読めたら「銘柄 · L / S」（読めるまで・見つからないときは「取引の詳細」。h1 の要素は同じなので
+// 画面の移りで当てたフォーカスは外れない）。
+// TradeDetail は hook を持たない（App・経路のテストが 1 段だけ呼ぶ）。「見つかりません」の面は TradeDetail が作って渡す。
+// TradeDetailView も hook を持たない（開いているシートは TradeDetailScreen が持って渡す）
+import '../styles/detail.css';
 import { Fragment, type JSX } from 'preact';
 import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
 import { accountCurrencyOf } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { type BackTarget, TopBar } from '../components/AppBar';
-import { Button } from '../components/Button';
+import { Button, IconButton, RowLink } from '../components/Button';
 import { EXTRA_TITLE } from '../components/ChartPanel';
 import { EmptyState } from '../components/EmptyState';
+import { ResnapshotSummary } from '../components/Resnapshot';
+import { Sheet } from '../components/Sheet';
 import { Verdict } from '../components/Verdict';
 import { hasManyAccounts, tradeAccountName, verdictAsideText } from '../lib/accounts';
 import { APP_NAME } from '../lib/app-name';
 import { type AnySlot, isMainSlot } from '../lib/charts';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
+import {
+  ACTIONS_LABEL,
+  chartCaption,
+  commentHref,
+  commentOf,
+  DELETE_LABEL,
+  DELETE_NOTE,
+  DETAIL_SHEET_ID,
+  type DetailSheet,
+  detailActions,
+  fieldsHref,
+} from '../lib/detail-view';
 import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { editBlock } from '../lib/edit-form';
+import {
+  COMPARE_ROW_LABEL,
+  COMPARE_SHEET_TITLE,
+  compareRowMeta,
+  DETAIL_COMPARE_NOTE,
+  detailOffer,
+  EDIT_CURRENT_LABEL,
+  editCurrentHref,
+  type ResnapshotOffer,
+} from '../lib/resnapshot';
 import { type Navigator, NavigatorContext } from '../lib/router';
 import { screenLabel, titleOf } from '../lib/routes';
 import { browserCodec } from '../lib/statement-image';
-import { createTradeDetailController, type DetailState } from '../lib/trade-detail-controller';
+import {
+  type ChartView,
+  createTradeDetailController,
+  type DetailState,
+} from '../lib/trade-detail-controller';
 import {
   type ChartSlotView,
   chartSlots,
   detailHeading,
-  recordFields,
   shortLabel,
   tapAnswers,
   timeframeNote,
@@ -72,6 +106,8 @@ function TradeDetailScreen({
     [id],
   );
   const [state, setState] = useState<DetailState>(controller.getState());
+  // 開いているシート（操作・比較・チャートを見る層。#131。画面を移ると捨てる）
+  const [sheet, setSheet] = useState<DetailSheet | null>(null);
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
   const kept = useContext(DraftsKeptContext);
@@ -97,12 +133,15 @@ function TradeDetailScreen({
       id={id}
       back={backTargetOf(nav, '/trades')}
       state={state}
+      sheet={sheet}
+      onSheet={setSheet}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       editDraft={kept.has(editKey(id))}
       onDelete={() => {
         // 確認を挟まずに消す（取り消しはトーストの [元に戻す]。P4）。前の画面（取引のタブなら一覧）へ戻る（9.7 の 6。
-        // 置き換えると同じ URL の一覧が 2 段並ぶ。消した取引は印で隠れる）
+        // 置き換えると同じ URL の一覧が 2 段並ぶ。消した取引は印で隠れる）。操作のシートの段は back が先に巻き戻す
+        setSheet(null);
         if (state.phase === 'ready') {
           del?.remove(id, shortLabel(state.trade, state.instrumentName));
         }
@@ -146,9 +185,16 @@ export interface TradeDetailViewProps {
   readonly onRelogin: () => void;
   /** この取引の編集の書きかけを残している（[編集] に印の点。#75） */
   readonly editDraft?: boolean;
+  /** 開いているシート（#131。省けばどれも閉じている） */
+  readonly sheet?: DetailSheet | null;
+  /** シートを開く・替える・閉じる（null） */
+  readonly onSheet?: (sheet: DetailSheet | null) => void;
 }
 
-/** 判定の枠（3 つのタップの答えの札を含む）・チャートの枠・すべての欄（畳む）・[直す] / [消す]（hook を持たない） */
+/** 「…」のボタンの id */
+export const DETAIL_MORE_ID = 'detail-more';
+
+/** 上の帯（‹ 前の画面・題・［編集］・「…」）・決済の時刻の行・判定のカード・チャート・次の画面への行・シート（hook を持たない） */
 export function TradeDetailView(p: TradeDetailViewProps) {
   const { state } = p;
   const back: BackTarget = p.back ?? { label: '取引', href: '/trades' };
@@ -172,23 +218,34 @@ export function TradeDetailView(p: TradeDetailViewProps) {
   const t = state.trade;
   const block = editBlock(t);
   const h = detailHeading(t, state.instrumentName, state.accounts);
+  const offer = detailOffer(t, state.instruments, state.accounts);
+  const sheet = p.sheet ?? null;
+  const open = (s: DetailSheet | null) => p.onSheet?.(s);
   return (
     <>
       <TopBar
         back={back}
         title={h.title}
         actions={
-          block === null ? (
-            <Button
-              href={`/trades/${t.id}/edit`}
-              variant="secondary"
-              icon="edit"
-              size="sm"
-              {...(p.editDraft ? { dot: DRAFT_DOT_TEXT } : {})}
-            >
-              編集
-            </Button>
-          ) : null
+          <>
+            {block === null ? (
+              <Button
+                href={`/trades/${t.id}/edit`}
+                variant="secondary"
+                size="sm"
+                {...(p.editDraft ? { dot: DRAFT_DOT_TEXT } : {})}
+              >
+                編集
+              </Button>
+            ) : null}
+            <IconButton
+              icon="more"
+              label={ACTIONS_LABEL}
+              id={DETAIL_MORE_ID}
+              class="appbar__more"
+              onClick={() => open({ kind: 'actions' })}
+            />
+          </>
         }
       />
       <div class="detail__head">
@@ -203,12 +260,9 @@ export function TradeDetailView(p: TradeDetailViewProps) {
             </Fragment>
           ))}
         </p>
-        {/* 削除（確認を挟まない。[元に戻す] はトースト）。上の帯の「…」の操作のシートへ移すのは U6（#131） */}
-        <Button variant="secondary" icon="trash" onClick={p.onDelete}>
-          削除
-        </Button>
       </div>
       <DetailBody {...p} />
+      <DetailSheets {...p} offer={offer} sheet={sheet} open={open} />
     </>
   );
 }
@@ -217,7 +271,6 @@ function DetailBody(p: TradeDetailViewProps) {
   const { state } = p;
   if (state.phase !== 'ready') return null;
   const t = state.trade;
-  const r = t.record;
   const block = editBlock(t);
   // 口座が 2 つ以上のときだけ、どの口座の資金（記録したとき）で割ったかの 1 行（U17）
   const accountLine = hasManyAccounts(state.accounts)
@@ -226,39 +279,29 @@ function DetailBody(p: TradeDetailViewProps) {
         currency: accountCurrencyOf(t.snapshot),
       })
     : undefined;
+  const comment = commentOf(t);
   return (
     <div class="detail">
       <Verdict
         summary={state.summary}
-        side={r.side}
+        side={t.record.side}
         titleId="detail-verdict-title"
         {...(accountLine === undefined ? {} : { account: accountLine })}
         taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
       />
       {block !== null ? <p class="detail__note">{block}</p> : null}
       <ChartsView {...p} />
-      {/* 記録した欄はすべて「すべての欄」に畳む（既定で閉じる。記録する画面の「ほかの欄（任意）」と同じ部品。#34） */}
-      <details class="card more">
-        <summary class="more__summary">すべての欄</summary>
-        <div class="more__body">
-          <dl class="fields">
-            {recordFields(t, state.instrumentName, state.summary.judgment, state.accounts).map(
-              (f) => (
-                <div key={f.label} class="fields__row">
-                  <dt class="fields__label">{f.label}</dt>
-                  <dd class="fields__value">{f.value}</dd>
-                </div>
-              ),
-            )}
-          </dl>
-        </div>
-      </details>
+      {/* 「すべての欄」「総評」は次の画面（その場で開かない。設計書 9.2・9.3） */}
+      <nav class="dlist detail__links" aria-label="この取引の記録">
+        <RowLink href={fieldsHref(t.id)}>すべての欄</RowLink>
+        {comment !== null ? <RowLink href={commentHref(t.id)}>総評</RowLink> : null}
+      </nav>
     </div>
   );
 }
 
 /**
- * エントリー時・決済時のチャートを並べる（ある枠は canvas と時間足、無い枠は「チャートなし」）。その後ろに小見出し
+ * エントリー時・決済時のチャートを横に並べる（ある枠は押すと全画面で見る層。無い枠は「チャートなし」）。その下に小見出し
  * 「追加のチャート（判定には使いません）」で分けて、追加のチャート（#89。追加した順・一言と時間足つき）
  */
 function ChartsView(p: TradeDetailViewProps) {
@@ -267,67 +310,184 @@ function ChartsView(p: TradeDetailViewProps) {
   const all = chartSlots(state.trade);
   const main = all.filter((c) => isMainSlot(c.slot));
   const extras = all.filter((c) => !isMainSlot(c.slot));
-  const figure = (c: ChartSlotView) => {
-    const view = state.charts[c.slot] ?? { phase: 'loading' as const };
-    const tf = c.timeframe ?? '指定なし';
-    const extra = !isMainSlot(c.slot);
-    return (
-      <figure
-        key={c.slot}
-        class={extra ? 'chartview chartview--extra' : 'chartview'}
-        aria-labelledby={`detail-chart-${c.slot}`}
-      >
-        {/* 追加のチャートは一言があれば一言を名前にする（番号は追加した順で、振り返りの手掛かりにならない） */}
-        <figcaption class="chartview__name" id={`detail-chart-${c.slot}`}>
-          {c.note ?? c.name}
-        </figcaption>
-        {!c.has ? (
-          <p class="chartview__none">チャートなし</p>
-        ) : (
-          <>
-            {view.phase === 'ready' ? (
-              <canvas
-                class="chart__preview chartview__canvas"
-                width={view.preview.width}
-                height={view.preview.height}
-                role="img"
-                aria-label={`${c.name}のチャート（${tf}）`}
-                ref={(el: HTMLCanvasElement | null) => {
-                  if (el) view.preview.draw(el);
-                }}
-              />
-            ) : view.phase === 'failed' ? (
-              <div class="chartview__failed">
-                <p class="notice notice--error" role="alert">
-                  チャートを読み込めませんでした
-                </p>
-                <Button variant="secondary" onClick={() => p.onReloadChart(c.slot)}>
-                  再読み込み
-                </Button>
-              </div>
-            ) : (
-              <p class="loading" role="status">
-                チャートを読み込んでいます…
-              </p>
-            )}
-            <p class="chartview__tf">時間足: {tf}</p>
-          </>
-        )}
-      </figure>
-    );
-  };
+  const tile = (c: ChartSlotView) => (
+    <ChartTile
+      key={c.slot}
+      c={c}
+      view={state.charts[c.slot] ?? { phase: 'loading' }}
+      onOpen={() => p.onSheet?.({ kind: 'chart', slot: c.slot })}
+      onReload={() => p.onReloadChart(c.slot)}
+    />
+  );
   return (
-    <section class="card section" aria-labelledby="detail-charts-title">
-      <h2 class="section__title" id="detail-charts-title">
+    <section class="dcharts" aria-labelledby="detail-charts-title">
+      <h2 class="sr-only" id="detail-charts-title">
         チャート
       </h2>
-      <div class="charts__grid">{main.map(figure)}</div>
+      <div class="dcharts__grid">{main.map(tile)}</div>
       {extras.length > 0 ? (
         <>
-          <h3 class="charts__subtitle">{EXTRA_TITLE}</h3>
-          <div class="charts__grid">{extras.map(figure)}</div>
+          <h3 class="charts__subtitle dcharts__subtitle">{EXTRA_TITLE}</h3>
+          <div class="dcharts__grid">{extras.map(tile)}</div>
         </>
       ) : null}
     </section>
+  );
+}
+
+/** チャートの 1 枠（ある = 押せるサムネイル、無い = 「チャートなし」、読めない = 知らせと ［再読み込み］） */
+function ChartTile(p: {
+  readonly c: ChartSlotView;
+  readonly view: ChartView;
+  readonly onOpen: () => void;
+  readonly onReload: () => void;
+}) {
+  const { c, view } = p;
+  const caption = chartCaption(c);
+  const extra = !isMainSlot(c.slot);
+  const cls = `dchart chartview${extra ? ' chartview--extra' : ''}`;
+  const tf = c.timeframe ?? '指定なし';
+  if (!c.has) {
+    return (
+      <div class={`${cls} dchart--none`}>
+        <span class="dchart__cap">{c.name}</span>
+        <p class="chartview__none dchart__msg">チャートなし</p>
+      </div>
+    );
+  }
+  if (view.phase === 'failed') {
+    return (
+      <div class={`${cls} dchart--failed`}>
+        <span class="dchart__cap">{caption}</span>
+        <p class="dchart__msg dchart__msg--error" role="alert">
+          チャートを読み込めませんでした
+        </p>
+        <Button variant="secondary" size="sm" onClick={p.onReload}>
+          再読み込み
+        </Button>
+      </div>
+    );
+  }
+  if (view.phase !== 'ready') {
+    return (
+      <div class={`${cls} dchart--loading`}>
+        <span class="dchart__cap">{caption}</span>
+        <p class="dchart__msg" role="status">
+          チャートを読み込んでいます…
+        </p>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      class={`${cls} dchart--ready`}
+      id={`detail-chart-${c.slot}`}
+      aria-haspopup="dialog"
+      aria-label={`${c.note ?? c.name}のチャート（${tf}）を大きく見る`}
+      onClick={p.onOpen}
+    >
+      <span class="dchart__thumb" aria-hidden="true">
+        <canvas
+          class="chart__preview chartview__canvas dchart__canvas"
+          width={view.preview.width}
+          height={view.preview.height}
+          ref={(el: HTMLCanvasElement | null) => {
+            if (el) view.preview.draw(el);
+          }}
+        />
+      </span>
+      <span class="dchart__cap" aria-hidden="true">
+        {caption}
+      </span>
+    </button>
+  );
+}
+
+/** 操作のシート・比較のシート・チャートを見る層（hook を持たない） */
+function DetailSheets(
+  p: TradeDetailViewProps & {
+    readonly offer: ResnapshotOffer | null;
+    readonly sheet: DetailSheet | null;
+    readonly open: (s: DetailSheet | null) => void;
+  },
+) {
+  const { state, sheet, open } = p;
+  if (state.phase !== 'ready') return null;
+  const t = state.trade;
+  const offer = p.offer;
+  const viewing = sheet?.kind === 'chart' ? sheet.slot : null;
+  const shown = viewing ? chartSlots(t).find((c) => c.slot === viewing) : undefined;
+  const view = viewing ? state.charts[viewing] : undefined;
+  return (
+    <>
+      <Sheet
+        id={DETAIL_SHEET_ID.actions}
+        open={sheet?.kind === 'actions'}
+        kind="info"
+        title={ACTIONS_LABEL}
+        onDismiss={() => open(null)}
+      >
+        <div class="dlist detail__actions">
+          {detailActions(offer !== null).map((a) =>
+            a === 'compare' && offer ? (
+              <RowLink
+                key={a}
+                id="detail-action-compare"
+                onClick={() => open({ kind: 'compare' })}
+                meta={compareRowMeta(offer)}
+              >
+                {COMPARE_ROW_LABEL}
+              </RowLink>
+            ) : (
+              // 確認を挟まずにすぐ消えるので、押す前に戻せることを添えで言う（#131 のデザインレビュー a3。色は無色のまま）
+              <RowLink key={a} id="detail-action-delete" onClick={p.onDelete} meta={DELETE_NOTE}>
+                {DELETE_LABEL}
+              </RowLink>
+            ),
+          )}
+        </div>
+      </Sheet>
+      <Sheet
+        id={DETAIL_SHEET_ID.compare}
+        open={sheet?.kind === 'compare' && offer !== null}
+        kind="info"
+        title={COMPARE_SHEET_TITLE}
+        onDismiss={() => open(null)}
+      >
+        {offer ? (
+          <div class="detail__compare">
+            <ResnapshotSummary offer={offer} prefix="detail" />
+            <p class="resnap__status">{DETAIL_COMPARE_NOTE}</p>
+            {/* シートのただ 1 つの操作なので幅いっぱい（重さは 2 番目のまま。#131 のデザインレビュー a4） */}
+            <Button href={editCurrentHref(t.id)} variant="secondary" block>
+              {EDIT_CURRENT_LABEL}
+            </Button>
+          </div>
+        ) : null}
+      </Sheet>
+      <Sheet
+        id={DETAIL_SHEET_ID.chart}
+        open={viewing !== null && view?.phase === 'ready'}
+        kind="viewer"
+        title={shown ? chartCaption(shown) : 'チャート'}
+        onDismiss={() => open(null)}
+      >
+        {shown && view?.phase === 'ready' ? (
+          <div class="viewer__stage">
+            <canvas
+              class="viewer__canvas"
+              width={view.preview.width}
+              height={view.preview.height}
+              role="img"
+              aria-label={`${shown.note ?? shown.name}のチャート（${shown.timeframe ?? '指定なし'}）`}
+              ref={(el: HTMLCanvasElement | null) => {
+                if (el) view.preview.draw(el);
+              }}
+            />
+          </div>
+        ) : null}
+      </Sheet>
+    </>
   );
 }

@@ -2,24 +2,28 @@
 // - 編集の画面は既定で、取引に保存した記録したときの値（口座・銘柄を付け替えたら付け替え先の今の値）で計算する
 //   （edit-form.ts の editSnapshot）。ここでは取引の口座・銘柄の今の値（currentSnapshot）と比べ、違う値の行（記録したとき → 今）と、
 //   その値で再計算したときの判定・R・リスク（%）の 前 → 後 を作る（resnapshotOffer）。違わなければ null（何も出さない）
-// - 目立つ枠で再計算を勧めるのは、記録したときの資金（または銘柄の値）が空で、今の値が入っているときだけ（prominent）。
-//   ほかは折りたたみの中に置き、開いたときに違いと判定・R・リスクの 前 → 後 を必ず見せる。判定が良い方へ変わるときも
+// - 再計算を勧める文（resnapshotLead）を出すのは、記録したときの資金（または銘柄の値）が空で、今の値が入っているときだけ
+//   （prominent）。#131 で、詳細・編集とも比較は 1 行「今の値と比べる」→ 比較のシートにした（設計書 9.2）。シートでは違いと
+//   判定・R・リスクの 前 → 後 を必ず見せる。判定が良い方へ変わるときも
 //   変わることをはっきり書く（隠さない・勧めない。#31 Phase 4 N-5 の main の決定）
 // - 利用者が「今の値」を選んで保存したときだけ、API が保存の時点の今の値で保存し直す（PUT の ?snapshot=current）
 // - 口座の通貨（#47 PR-2）: 今の値には口座の通貨も入る（無い = JPY と読んで比べる）。資金は各々の口座の通貨で書く。
 //   今の値で為替が意味を失う（口座の通貨が変わる・決まった価格の通貨どうしが違う）なら、打った為替を外して計算し・送る
 //   （withoutStaleFx。価格の通貨が未設定 → 決まった通貨では保つ）
 import {
+  type AccountRecord,
   accountCurrencyOf,
+  type InstrumentRecord,
   type InstrumentSnapshot,
+  type StoredTrade,
   type TradeRecord,
   type TradeSnapshot,
 } from '../../../core/record';
 import { badgeModel } from './badge';
-import { editSnapshot } from './edit-form';
+import { draftFromStored, editBlock, editContext, editSnapshot, mergedOf } from './edit-form';
 import { formatAmount, formatNumber, formatPct, formatPlain, formatR } from './format';
 import type { Draft, DraftContext, DraftReading, Summary } from './record-form';
-import { fxStale, summarize } from './record-form';
+import { fxStale, readDraft, summarize } from './record-form';
 import { PRODUCT_FORM_LABEL, UNDERLYING_KIND_LABEL } from './settings-form';
 
 /** 取引の PUT に付けるクエリ（API の SNAPSHOT_CURRENT と同じ） */
@@ -187,11 +191,11 @@ export function outcomeRows(before: Summary, after: Summary): readonly OutcomeRo
   return [...rows.filter((x) => x.changed), ...rows.filter((x) => !x.changed)];
 }
 
-/** 判定が変わるときの 1 文（良い方へも悪い方へも同じ形ではっきり書く。変わらなければ null） */
+/** 判定が変わるときの 1 文（良い方へも悪い方へも同じ形ではっきり書く。変わらなければ null）。小見出し「今の値で再計算すると」の直後に置くので、同じ書き出しを繰り返さない（#131 のデザインレビュー a4） */
 export function gradeChangeText(before: Summary, after: Summary): string | null {
   const a = gradeText(before);
   const b = gradeText(after);
-  return a === b ? null : `今の値で再計算すると、判定が「${a}」から「${b}」に変わります。`;
+  return a === b ? null : `判定が「${a}」から「${b}」に変わります。`;
 }
 
 /** 判定・R・リスクがどれも変わらないときの 1 行 */
@@ -237,10 +241,62 @@ export function resnapshotStatus(on: boolean): string {
     : '記録したときの値で計算しています。このまま保存しても変わりません（再計算するには「今の値」を選びます）。';
 }
 
-/** 折りたたみの見出しの横の 1 行 */
-export function foldSummary(offer: ResnapshotOffer): string {
-  return `今の値と ${offer.diffs.length} か所違います`;
-}
-
 /** 保存の帯の頭に付ける語（今の値を選んでいるとき） */
 export const BAR_PREFIX = '今の値で再計算 · ';
+
+/**
+ * 詳細の比較のシート（#131。設計書 9.2・#31 の P4）: 開いた編集の画面が出すのと同じ提案を、保存した取引と今の銘柄・口座から
+ * 作る（下書きは開いたときのまま = 何も変えていない編集。チャートの有無は保存した取引の枠）。見るだけで、写し直すのは編集の
+ * 保存のときだけ。直せない取引（editBlock）と、違う値が無い取引は null
+ */
+export function detailOffer(
+  trade: StoredTrade,
+  instruments: readonly InstrumentRecord[],
+  accounts: readonly AccountRecord[],
+): ResnapshotOffer | null {
+  if (editBlock(trade) !== null) return null;
+  // レッグを持つ取引（#116）: 下書き・保存の本文はレッグを写さない（edit-form.ts）ので、比べた 前 → 後 がレッグ抜きの値になり、
+  // 詳細の判定の枠と食い違う。見るだけの詳細では値を出さない（レッグの画面で決め直す。#117・#131 のレビュー N3）
+  if ((trade.record.legs?.length ?? 0) > 0) return null;
+  const draft = draftFromStored(trade, instruments);
+  const ctx = editContext(trade, instruments, accounts);
+  const read = readDraft(draft, ctx);
+  const id = read.instrument.matchedId ?? trade.record.instrumentId;
+  const merged = mergedOf(trade, draft, draft, read, id, ctx);
+  return resnapshotOffer(editSnapshot(read, ctx, draft), currentSnapshot(read, ctx, draft), merged);
+}
+
+/**
+ * 詳細の比較のシートの ［編集で今の値にする］ で開く編集の URL（#131）。検索部分の印で、編集の画面が読み込んだ後に
+ * 「今の値」を選ぶ（保存までは何も写し直さない）
+ */
+export const CURRENT_VALUES_PARAM = 'values';
+export const CURRENT_VALUES_VALUE = 'current';
+export function editCurrentHref(id: string): string {
+  return `/trades/${id}/edit?${CURRENT_VALUES_PARAM}=${CURRENT_VALUES_VALUE}`;
+}
+
+/** 編集の URL の検索部分が「今の値」を選んで開く印か */
+export function wantsCurrentValues(search: string): boolean {
+  try {
+    return new URLSearchParams(search).get(CURRENT_VALUES_PARAM) === CURRENT_VALUES_VALUE;
+  } catch {
+    return false;
+  }
+}
+
+/** 詳細の ［編集で今の値にする］（9.12 の 2 番目の重さ） */
+export const EDIT_CURRENT_LABEL = '編集で今の値にする';
+
+/** 詳細の比較のシートの最後の 1 行（見るだけで、何も変えていないこと） */
+export const DETAIL_COMPARE_NOTE =
+  'この画面では値を変えません。今の値で再計算するには、編集で「今の値」を選んで保存します。';
+
+/** 「今の値と比べる」の行の右の添え（違う値の数。編集で「今の値」を選んでいればそのこと） */
+export function compareRowMeta(offer: ResnapshotOffer, on = false): string {
+  return on ? '今の値で計算中' : `${offer.diffs.length} か所違います`;
+}
+
+/** 「今の値と比べる」の行・比較のシートの題 */
+export const COMPARE_ROW_LABEL = '今の値と比べる';
+export const COMPARE_SHEET_TITLE = '記録したときの値と今の値';

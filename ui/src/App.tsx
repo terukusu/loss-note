@@ -29,6 +29,7 @@ import { SettingsAccounts } from './pages/SettingsAccounts';
 import { SettingsInstruments } from './pages/SettingsInstruments';
 import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
+import { TradeCommentPage, TradeFieldsPage } from './pages/TradeNotes';
 import { Trades } from './pages/Trades';
 
 export { APP_NAME } from './lib/app-name';
@@ -76,6 +77,10 @@ export function Page(p: PageProps) {
       return <TradeDetail id={route.id} />;
     case 'tradeEdit':
       return <TradeEdit id={route.id} />;
+    case 'tradeFields':
+      return <TradeFieldsPage id={route.id} />;
+    case 'tradeComment':
+      return <TradeCommentPage id={route.id} />;
     case 'settings':
       return (
         <Settings

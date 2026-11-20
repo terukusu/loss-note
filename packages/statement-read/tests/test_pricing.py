@@ -50,13 +50,16 @@ def test_reserve_is_upper_bound():
 
 # 予約額の値を固定する唯一の箇所（#66 AC-9。指示とツールの定義が長くなれば値が変わる。ほかのテストは
 # pricing.reserve_micro_usd から取る）。#44 の 278,736 µUSD（Sonnet 5.5）から、会社の名前・損益の通貨の
-# 指示とツールの欄の分だけ上がった
-APP_RESERVE_MICRO_USD = 282_012
+# 指示とツールの欄の分だけ上がった。#118 でオプションの行の欄（限月・P / C・行使価格）の分だけ 285,708 に上がった
+# （全体 2.00 USD に 7 回分が入る形を保つ）
+APP_RESERVE_MICRO_USD = 285_708
 
 
 def test_app_reserve_value_is_pinned():
     got = pricing.reserve_micro_usd(app_settings.APP_MODEL, app_settings.APP_MAX_OUTPUT_TOKENS)
     assert got == APP_RESERVE_MICRO_USD
+    # 全体の既定の上限 2.00 USD に明細 7 回分が入る（#118。指示・ツールの定義が伸びて 6 回分に落ちたら気づく）
+    assert 2_000_000 // got >= 7
 
 
 def test_reserve_covers_any_usage_within_bounds():

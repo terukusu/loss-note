@@ -10,6 +10,8 @@
   空白に加えて、間の空白も除く。「架空証券 X」「架空証券Ｘ」「 架空証券 x 」を同じにする。S15。評価の道具の採点と同じ）
 - 行の向きの書き方（``side_of`` = position / close）の集合。読めなかった行（None）は数えない
 - 行の通貨（``pnl_currency``。英字 3 文字）の集合。unknown は数えない
+- オプションの行（``option`` が null でない行）が 1 行でもあれば印 ``option`` を足す（#118。同じ会社でも先物と
+  オプションの明細で鍵を分ける。ADR-0020 の結果。オプションの行が無い明細の鍵は前と同じ）
 会社の名前が読めなければ鍵は作らない（向きと通貨だけの鍵は会社をまたいで同じになりやすく、誤って選ぶと
 リスク（%）の分母が誤る）。
 """
@@ -39,7 +41,10 @@ def profile_key(uid: str, issuer: str | None, rows: Iterable[dict]) -> str | Non
         r.get("pnl_currency") for r in rows
         if isinstance(r.get("pnl_currency"), str) and r.get("pnl_currency") != _UNKNOWN
     })  # fmt: skip
-    material = "\0".join([_VERSION, uid, name, ",".join(sides), ",".join(currencies)])
+    parts = [_VERSION, uid, name, ",".join(sides), ",".join(currencies)]
+    if any(r.get("option") is not None for r in rows):
+        parts.append("option")
+    material = "\0".join(parts)
     del name
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 

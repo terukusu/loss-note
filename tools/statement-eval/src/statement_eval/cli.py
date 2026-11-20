@@ -412,7 +412,9 @@ def run_eval(args, env: dict[str, str], reader_factory: Callable, out, err) -> i
         n_failed=tally.n_failed,
         n_answer_rows=tally.n_answer_rows,
         fields=tuple(report.FieldRate(name=f, matched=tally.field_matches[f], denominator=tally.n_answer_rows)
-                     for f in score.FIELDS),
+                     for f in score.FIELDS)
+        + tuple(report.FieldRate(name=f, matched=tally.field_matches.get(f, 0), denominator=tally.n_option_rows)
+                for f in score.OPTION_FIELDS if tally.n_option_rows),
         row_count_matched=tally.row_count_matches,
         row_count_denominator=tally.n_reads,
         hallucinations=tally.hallucinations,

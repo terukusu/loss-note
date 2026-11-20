@@ -9,13 +9,21 @@
 - 通貨（#66）: 損益・手数料の合計は明細の通貨のまま ``pnl``・``feesTotal`` と ``pnlCurrency``（英字 3 文字か unknown）。
   前からの ``pnlYen``・``feesTotalYen`` は通貨が JPY か unknown のときだけ値、ほかは None（USD の数を円として入れない）
 - 会社の名前（``issuer``）は応答に入れない（API が鍵に変えて捨てる。#66）
+- オプションの行（#118。設計書 7.6・C51）: 読み取りの ``option`` が null でない行だけ、応答の行に ``option`` を足す
+  （オプションでない行の鍵の集合は前と同じ）。``{underlying, expiry: "YYYY-MM" | null, expiryYearInferred,
+  putCall, strike, side: "buy" | "sell" | null, position}``。限月は ``values.expiry_of``（年が無ければ建てた日から。
+  建てた日は取引所の日付 = 日本時間（国内のオプション。時間帯が読めなければ書かれた日）。``opened_for_expiry``）、
+  向きは ``values.option_side``（建てた向きの買い / 売り）。``position`` は同じ原資産（名前の同一視）で建てた日
+  （日本時間。時間帯が読めなければ書かれた日）が同じオプションの行に同じ番号（0 から、最初に出た順）を振る
+  （1 つのポジションの下書きにまとめる単位）。原資産の名前（無ければ銘柄の名前）か建てた日が無い行は 1 行で 1 つ
 """
 
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from .result import UNKNOWN_CURRENCY, Bad
-from .values import opened_side, sum_fees
+from .values import expiry_of, opened_side, option_side, sum_fees
 
 MAX_ABS = 1e12
 _JST = timedelta(hours=9)
@@ -69,6 +77,76 @@ def _json_number(d: Decimal) -> int | float:
     return int(d) if d == d.to_integral_value() else float(d)
 
 
+def _opened_day(entry: dict | None) -> str | None:
+    """建てた日（日本時間の YYYY-MM-DD。直せなければ書かれた日）"""
+    if entry is None:
+        return None
+    t = entry.get("jst") or entry.get("written")
+    return t[:10] if isinstance(t, str) else None
+
+
+def _name_key(name) -> str | None:
+    """原資産の名前の同一視（API の ``schema.name_key`` と同じ: NFKC・大文字小文字・前後の空白）"""
+    if not isinstance(name, str):
+        return None
+    k = unicodedata.normalize("NFKC", name).casefold().strip()
+    return k or None
+
+
+def opened_for_expiry(entry_time: str | None, tz: str | None) -> str | None:
+    """年の無い限月を補う建てた日時（設計書 7.6 の 1）。取引所の日付 = 日本時間（日経 225 オプションなど国内の
+    取引所の暦。明細の時間帯が GMT でも日本時間に直してから比べる）。時間帯が読めなければ書かれた日時。
+    API の直しと評価の道具の採点が同じ規則で使う。暦にない日時は None（例外を出さない）"""
+    if entry_time is None:
+        return None
+    try:
+        jst, _ = to_jst(entry_time, tz)
+    except Bad:
+        return None
+    return jst or entry_time
+
+
+def _option(row: dict, entry: dict | None) -> dict | None:
+    opt = row.get("option")
+    if opt is None:
+        return None
+    opened = None if entry is None else (entry.get("jst") or entry.get("written"))  # = opened_for_expiry
+    expiry, inferred = expiry_of(opt.get("expiry_year"), opt.get("expiry_month"), opened)
+    return {
+        "underlying": opt.get("underlying"),
+        "expiry": expiry,
+        "expiryYearInferred": inferred,
+        "putCall": opt.get("put_call"),
+        "strike": _positive(opt.get("strike")),
+        "side": option_side(row.get("side_written"), row.get("side_of")),
+        "position": None,
+    }
+
+
+def group_positions(rows: list[dict]) -> list[dict]:
+    """応答の行（``normalize_row`` の出力）のオプションの行に ``option.position`` を振る（新しい行の並びを返す。
+    入力は変えない）。鍵 = (原資産の名前の同一視（無ければ銘柄の名前）, 建てた日)"""
+    out: list[dict] = []
+    keys: dict[tuple[str, str], int] = {}
+    n = 0
+    for r in rows:
+        opt = r.get("option")
+        if opt is None:
+            out.append(r)
+            continue
+        name = _name_key(opt.get("underlying")) or _name_key(r.get("symbol"))
+        day = _opened_day(r.get("entryTime"))
+        if name is None or day is None:
+            pos, n = n, n + 1
+        elif (name, day) in keys:
+            pos = keys[(name, day)]
+        else:
+            pos = keys[(name, day)] = n
+            n += 1
+        out.append({**r, "option": {**opt, "position": pos}})
+    return out
+
+
 def normalize_row(row: dict) -> dict:
     """``check_read_row`` を通った 1 行 → 応答の 1 行（欄の鍵の集合は常に同じ）"""
     tz = row.get("time_zone")
@@ -81,7 +159,7 @@ def normalize_row(row: dict) -> dict:
     pnl = _bounded(row.get("pnl"))
     fees_total = None if total is None else _json_number(total)
     yen = currency in _YEN_OR_UNKNOWN
-    return {
+    out = {
         "symbol": row.get("symbol"),
         "side": opened_side(row.get("side_written"), row.get("side_of")),
         "entryPrice": _positive(row.get("entry_price")),
@@ -98,6 +176,10 @@ def normalize_row(row: dict) -> dict:
         "feesTotalYen": fees_total if yen else None,
         "exitOrderType": row.get("exit_order_type") or "unknown",
     }
+    opt = _option(row, entry)
+    if opt is not None:
+        out["option"] = opt
+    return out
 
 
 def normalize_result(checked: dict) -> dict:
@@ -105,4 +187,5 @@ def normalize_result(checked: dict) -> dict:
     暦にない日時は Bad（API は結果全体を捨てる）。会社の名前（issuer）は写さない"""
     if checked.get("kind") != "statement":
         return {"kind": "notStatement", "rows": []}
-    return {"kind": "statement", "rows": [normalize_row(r) for r in checked.get("rows") or []]}
+    rows = group_positions([normalize_row(r) for r in checked.get("rows") or []])
+    return {"kind": "statement", "rows": rows}

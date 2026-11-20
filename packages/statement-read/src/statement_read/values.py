@@ -7,6 +7,8 @@
   - 形 2（「決済売」「決済買」）: 決済の向き → 決済売 = L、決済買 = S
 - 手数料は欄ごとの配列の合計（合計は AI でなくここで出す）
 - 明細を出した会社の名前の比べる形（``issuer_key``。API の明細の特徴の鍵と評価の道具の採点が共有する。#66）
+- オプションの行（#118。設計書 7.6・C51）: 建てた向きの買い / 売り（``option_side``。C27 の ``opened_side`` から）と、
+  書かれたままの限月 → 「YYYY-MM」（``expiry_of``。年が 2 桁なら 2000 年代、年が無ければ建てた日から直す）
 """
 
 import re
@@ -89,6 +91,41 @@ def opened_side(side_written: str | None, side_of: str | None) -> Literal["L", "
     if side_of == "close":
         return "L" if side_written == "sell" else "S"
     return None
+
+
+def option_side(side_written: str | None, side_of: str | None) -> Literal["buy", "sell"] | None:
+    """オプションの行の書かれた向き → 建てた向きの買い / 売り（レッグの ``buy`` / ``sell``。設計書 7.6 の 1）。
+    ``opened_side`` で建てた向き（L / S）に直してから、L = 買い・S = 売りにする。直せなければ None"""
+    side = opened_side(side_written, side_of)
+    if side is None:
+        return None
+    return "buy" if side == "L" else "sell"
+
+
+def expiry_of(year, month, opened: str | None) -> tuple[str | None, bool]:
+    """書かれたままの限月（年・月）→ (「YYYY-MM」, 年を建てた日から補ったか)。直せなければ (None, False)。
+
+    - 月が 1〜12 の整数でなければ直さない
+    - 年が書かれていれば（4 桁、または 2 桁 = 2000 年代）そのまま使う（建てた日とは比べない）
+    - 年が無ければ、建てた日（``opened`` = YYYY-MM-DD… の日時）の年。限月の月が建てた月より前なら翌年
+      （満期を過ぎたオプションは建てられないので、限月は建てた月以降）。建てた日が読めなければ直さない
+    """
+    if not isinstance(month, int) or isinstance(month, bool) or not 1 <= month <= 12:
+        return None, False
+    if year is not None:
+        if not isinstance(year, int) or isinstance(year, bool):
+            return None, False
+        y = 2000 + year if 0 <= year <= 99 else year
+        if not 1000 <= y <= 9999:
+            return None, False
+        return f"{y:04d}-{month:02d}", False
+    k = time_key(opened) if isinstance(opened, str) else None
+    if k is None:
+        return None, False
+    y = k[0] if month >= k[1] else k[0] + 1
+    if y > 9999:
+        return None, False
+    return f"{y:04d}-{month:02d}", True
 
 
 def sum_fees(v: list | None) -> Decimal | None:

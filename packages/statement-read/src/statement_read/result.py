@@ -32,7 +32,11 @@ READ_ROW_KEYS = (
     "pnl",
     "pnl_currency",
     "exit_order_type",
+    "option",
 )
+# オプションの行の欄（#118。設計書 7.6・C51）。オプションでない行は option = null
+PUT_CALL = ("put", "call")
+OPTION_KEYS = ("underlying", "expiry_year", "expiry_month", "put_call", "strike")
 # 損益・手数料の通貨（英字 3 文字か unknown。外れたら unknown。#66）
 UNKNOWN_CURRENCY = "unknown"
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
@@ -60,6 +64,19 @@ class Bad(ValueError):
 
 _NUM = {"type": ["number", "null"]}
 _TIME = {"type": ["string", "null"], "description": "YYYY-MM-DDTHH:MM（明細の時間帯のまま。換算しない）"}
+
+_OPTION_SCHEMA: dict[str, Any] = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "required": list(OPTION_KEYS),
+    "properties": {
+        "underlying": {"type": ["string", "null"], "maxLength": MAX_SYMBOL_LEN},
+        "expiry_year": {"type": ["integer", "null"]},
+        "expiry_month": {"type": ["integer", "null"]},
+        "put_call": {"type": ["string", "null"], "enum": [*PUT_CALL, None]},
+        "strike": _NUM,
+    },
+}
 
 TOOL_INPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -89,6 +106,7 @@ TOOL_INPUT_SCHEMA: dict[str, Any] = {
                     "pnl": _NUM,
                     "pnl_currency": {"type": "string", "description": "英字 3 文字（JPY・USD など）か unknown"},
                     "exit_order_type": {"type": "string", "enum": list(ORDER_TYPES)},
+                    "option": _OPTION_SCHEMA,
                 },
             },
         },
@@ -108,6 +126,48 @@ def _enum(v, path: str, allowed: tuple, nullable: bool = True):
     if not isinstance(v, str) or v not in allowed:
         raise Bad(path, "enum")
     return v
+
+
+def _int_or_none(v, path: str):
+    """整数の欄（限月の年・月）。整数でなければ Bad（小数・真偽値・文字列も外れ）"""
+    if v is None:
+        return None
+    if not isinstance(v, int) or isinstance(v, bool):
+        raise Bad(path, "type")
+    return v
+
+
+def check_option(opt, path: str) -> dict | None:
+    """オプションの行の欄（#118）。null はオプションでない行。形が外れたら Bad、許さない文字の原資産の名前と
+    範囲の外の年・月は、その欄だけ None（銘柄の名前と同じ扱い。C21）。
+    検査の後の 5 欄がすべて null（空の物・空白だけの名前を含む）ならオプションでない行として None
+    （先物の行の応答と明細の特徴の鍵を変えない。AI が null の代わりに中身が空の物で埋めても同じ）"""
+    if opt is None:
+        return None
+    if not isinstance(opt, dict):
+        raise Bad(path, "type")
+    for k in opt:
+        if k not in OPTION_KEYS:
+            raise Bad(f"{path}.<unknown>", "unknown_key")
+    und = opt.get("underlying")
+    if und is not None and not isinstance(und, str):
+        raise Bad(f"{path}.underlying", "type")
+    year = _int_or_none(opt.get("expiry_year"), f"{path}.expiry_year")
+    month = _int_or_none(opt.get("expiry_month"), f"{path}.expiry_month")
+    strike = opt.get("strike")
+    if strike is not None and not _is_num(strike):
+        raise Bad(f"{path}.strike", "type")
+    out = {
+        "underlying": und if isinstance(und, str) and _symbol_ok(und) else None,
+        "expiry_year": year if year is not None and (0 <= year <= 99 or 1000 <= year <= 9999) else None,
+        "expiry_month": month if month is not None and 1 <= month <= 12 else None,
+        "put_call": _enum(opt.get("put_call"), f"{path}.put_call", PUT_CALL),
+        "strike": strike,
+    }
+    # 検査の後の値で見る（空の文字列・空白だけの原資産の名前・範囲の外の年・月も null にした後）
+    if all(v is None for v in out.values()):
+        return None
+    return out
 
 
 def check_read_row(row, path: str) -> dict:
@@ -146,6 +206,7 @@ def check_read_row(row, path: str) -> dict:
     out["pnl_currency"] = cur if isinstance(cur, str) and _CURRENCY_RE.fullmatch(cur) else UNKNOWN_CURRENCY
     out["exit_order_type"] = _enum(row.get("exit_order_type", "unknown"), f"{path}.exit_order_type", ORDER_TYPES,
                                    nullable=False)
+    out["option"] = check_option(row.get("option"), f"{path}.option")
     return out
 
 

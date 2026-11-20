@@ -7,6 +7,10 @@
   - 形 1（1 行 1 取引で「方向」の欄に「売約定」「買約定」）: 建玉そのものの向き → 売約定 = S、買約定 = L
   - 形 2（「決済売」「決済買」）: 決済の向き → 決済売 = L、決済買 = S
 - 手数料は欄ごとの配列の合計で比べる（合計は AI でなくここで出す）
+- オプションの行（#118）: 正解に ``option`` がある行だけ、原資産の名前・限月・P / C・行使価格の 4 欄（OPTION_FIELDS）を
+  別に数える（分母 = オプションの正解の行）。限月は読み取りの年・月を ``values.expiry_of``（年が無ければ建てた日
+  = 取引所の日付（日本時間）から。建てた日は API と同じ ``normalize.opened_for_expiry``）で「YYYY-MM」に直して比べる。
+  FIELDS の 11 欄の数え方は変えない
 """
 
 import itertools
@@ -18,8 +22,18 @@ from decimal import Decimal
 from typing import Literal
 
 # 数・日時・向き・手数料の純関数は API の直しと共有する（statement_read.values。#11）。ここからも同じ名前で使える
+from statement_read.normalize import opened_for_expiry
 from statement_read.pricing import CACHE_WRITE_FACTOR, PRICES_PER_MTOK
-from statement_read.values import ORDER_TYPES, Usage, issuer_key, normalize_number, opened_side, sum_fees, time_key
+from statement_read.values import (
+    ORDER_TYPES,
+    Usage,
+    expiry_of,
+    issuer_key,
+    normalize_number,
+    opened_side,
+    sum_fees,
+    time_key,
+)
 
 # R1 の 10 欄 + 損益の通貨（#66）（出力の順番）
 FIELDS = (
@@ -35,6 +49,9 @@ FIELDS = (
     "pnl_currency",
     "exit_order_type",
 )
+# オプションの行だけの 4 欄（#118。正解の option の鍵と同じ並び）
+OPTION_FIELDS = ("option_underlying", "option_expiry", "option_put_call", "option_strike")
+OPTION_ANSWER_KEYS = ("underlying", "expiry", "put_call", "strike")
 # 判定と R に効く 4 欄（R7）
 DECISIVE_FIELDS = ("side", "entry_price", "exit_price", "pnl")
 NUMBER_FIELDS = ("entry_price", "exit_price", "qty", "pnl")
@@ -54,10 +71,16 @@ class RowScore:
 
     matches: tuple[bool, ...]
     hallucinated_order_type: bool = False
+    # オプションの正解の行だけ: OPTION_FIELDS の順の一致（#118）。オプションでない正解の行は None
+    option_matches: tuple[bool, ...] | None = None
 
     @property
     def n_matched(self) -> int:
         return sum(self.matches)
+
+    @property
+    def n_option_matched(self) -> int:
+        return sum(self.option_matches) if self.option_matches is not None else 0
 
 
 @dataclass(frozen=True)
@@ -93,11 +116,13 @@ class Tally:
     hallucinations: int = 0
     seconds: tuple[float, float] | None = None  # (中央値, 最大)
     cost_total_usd: Decimal | None = None
+    n_option_rows: int = 0  # オプションの欄の分母（オプションの正解の行の数 × 回数。#118）
 
     def rate(self, name: str) -> float | None:
-        if self.n_answer_rows == 0:
+        denominator = self.n_option_rows if name in OPTION_FIELDS else self.n_answer_rows
+        if denominator == 0:
             return None
-        return self.field_matches.get(name, 0) / self.n_answer_rows
+        return self.field_matches.get(name, 0) / denominator
 
 
 # ---- 正規化 ----
@@ -164,15 +189,37 @@ def compare_field(name: str, answer, read: ReadRow) -> bool:
     raise ValueError("field")
 
 
+def compare_option(answer: dict, read: ReadRow | None) -> tuple[bool, ...]:
+    """正解の option（{underlying, expiry: "YYYY-MM", put_call, strike: 数の文字列}）と読み取りの行の option の 4 欄"""
+    opt = read.get("option") if read is not None else None
+    if not isinstance(opt, dict):
+        return (False,) * len(OPTION_FIELDS)
+    opened = opened_for_expiry(read.get("entry_time"), read.get("time_zone"))
+    expiry, _ = expiry_of(opt.get("expiry_year"), opt.get("expiry_month"), opened)
+    a_strike, r_strike = normalize_number(answer.get("strike")), normalize_number(opt.get("strike"))
+    return (
+        normalize_symbol(answer.get("underlying")) == normalize_symbol(opt.get("underlying")),
+        answer.get("expiry") == expiry,
+        answer.get("put_call") == opt.get("put_call"),
+        a_strike is not None and a_strike == r_strike,
+    )
+
+
 def compare_row(answer: AnswerRow, read: ReadRow | None) -> RowScore:
     """正解の 1 行と読み取りの 1 行（None = 返らなかった行）"""
+    a_opt = answer.get("option")
+    option_matches = compare_option(a_opt, read) if isinstance(a_opt, dict) else None
     if read is None:
-        return RowScore(matches=(False,) * len(FIELDS))
+        return RowScore(matches=(False,) * len(FIELDS), option_matches=option_matches)
     matches = tuple(compare_field(n, answer.get(n), read) for n in FIELDS)
     a_type = answer.get("exit_order_type") or "unknown"
     r_type = read.get("exit_order_type") or "unknown"
     hallucinated = a_type == "unknown" and r_type in ORDER_TYPES and r_type != "unknown"
-    return RowScore(matches=matches, hallucinated_order_type=hallucinated)
+    return RowScore(matches=matches, hallucinated_order_type=hallucinated, option_matches=option_matches)
+
+
+def _gain(s: RowScore) -> int:
+    return s.n_matched + s.n_option_matched
 
 
 def match_rows(answers: list[AnswerRow], reads: list[ReadRow]) -> list[tuple[int, int | None]]:
@@ -183,7 +230,7 @@ def match_rows(answers: list[AnswerRow], reads: list[ReadRow]) -> list[tuple[int
         return []
     if na > MAX_PERMUTE_ROWS or nr > MAX_PERMUTE_ROWS:
         return [(i, i if i < nr else None) for i in range(na)]
-    gain = [[compare_row(a, r).n_matched for r in reads] for a in answers]
+    gain = [[_gain(compare_row(a, r)) for r in reads] for a in answers]
     best: list[tuple[int, int | None]] | None = None
     best_score = -1
     if nr >= na:
@@ -286,10 +333,15 @@ def cost_usd(model: str, usage: Usage) -> Decimal | None:
 def aggregate(scores: list[ImageScore], seconds: list[float], usages: list[Usage], model: str) -> Tally:
     """読み取りごとの採点・秒数（失敗した回を除いて呼び出し側が渡す）・使用量 → 集計"""
     field_matches = dict.fromkeys(FIELDS, 0)
+    n_option_rows = 0
     for s in scores:
         for r in s.rows:
             for name, ok in zip(FIELDS, r.matches, strict=True):
                 field_matches[name] += int(ok)
+            if r.option_matches is not None:
+                n_option_rows += 1
+                for name, ok in zip(OPTION_FIELDS, r.option_matches, strict=True):
+                    field_matches[name] = field_matches.get(name, 0) + int(ok)
     costs = [cost_usd(model, u) for u in usages]
     cost_total = None if not costs or any(c is None for c in costs) else sum(costs, Decimal(0))
     return Tally(
@@ -302,4 +354,5 @@ def aggregate(scores: list[ImageScore], seconds: list[float], usages: list[Usage
         hallucinations=sum(s.hallucinations for s in scores),
         seconds=median_max(seconds),
         cost_total_usd=cost_total,
+        n_option_rows=n_option_rows,
     )

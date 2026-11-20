@@ -387,7 +387,7 @@ _C = ReadLimits().chart_reserve_micro_usd
                                   (1_000_000 - _S, 1)])
 def test_statement_and_two_charts_at_once(p, ok):
     # B1 の例（ADR-0015 の結果の節）: その日の利用者の計上額 P のとき、明細 1 + チャート 2 の予約が重なって何件通るか
-    # （既定の上限: 利用者 1.00 USD・全体 2.00 USD。全体は他の利用者 0 とする）。予約額は 明細 282,012（#66 から）・
+    # （既定の上限: 利用者 1.00 USD・全体 2.00 USD。全体は他の利用者 0 とする）。予約額は 明細 285,708（#118 から）・
     # チャート 130,164
     limits = ReadLimits()
     reserves = [(limits, limits.reserve_micro_usd), (limits.for_chart(), limits.chart_reserve_micro_usd),

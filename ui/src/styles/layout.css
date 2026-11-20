@@ -208,6 +208,20 @@ body:has(.shell--bare) {
   line-height: var(--lh-tight);
 }
 
+/* 全画面のシートの帯の題の下の小さな行（SheetBar の sub。記録するの「1 / 2 行目」。2026-11-21） */
+.appbar__titles {
+  display: grid;
+  justify-items: center;
+  min-width: 0;
+}
+
+.appbar__sub {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.2;
+  color: var(--ink-3);
+}
+
 /* 「‹ 前の画面の名前」（3 番目の重さ: アイコンと名前。9.12） */
 .appbar__back {
   display: inline-flex;
@@ -519,6 +533,10 @@ body:has(.shell--bare) {
 
   .appbar__end {
     padding-inline-end: 0;
+  }
+
+  .appbar__titles {
+    justify-items: start;
   }
 
   .appbar__title {

@@ -36,13 +36,13 @@
 // フォーカスを戻す・足した口座が選ばれる・入れていた欄が残る）・SET5（設定で口座を追加 → 名前の順・知らせ・新しい行の [直す] へ）を流す。
 // 数量と提案の数量（Issue #67）: 手順 SZ1（幅 360 の記録する画面・詳細・編集の画面で、判定の枠の数量の行が区切りの中で折れず・
 // --ink-3・数の段の直後・横スクロール 0。2〜3 桁の比・小数 / 7 桁の提案の数量・1R が出ない・エントリー 2 つも。詳細の「すべての欄」に 2 行）を流す。
-// R12 は 1 画面に収まる（#130）: 390×844 の 3 つの状態で 0px、360×780 は口座 1・2・3 の形で 120px 以下。
+// R12 は 1 画面に収まる（#130。2026-11-21 に 2 段へ）: 390×844 の 1 段目と 2 段目の 4 つの状態で 0px、360×780 は口座 1・2・3 の形で 120px 以下。
 // 通貨と為替（Issue #47 PR-2・U34）: 記録する画面の為替の欄（USD 建て）・為替 7 桁・明細から逆算した為替・為替の誤り・USD の口座、
 // 設定の USD の口座の行と通貨を直せない口座の直す欄、詳細（外貨建て）を同じ幅とテーマで測る。円の口座・円建ての形は今のまま。
 // 記録する画面の密度と階層（Issue #33）: 全状態で枠の入れ子（線か、最も近い面と違う面の色を持つ箱の祖先）が 3 段以上の要素を
 // 数え、幅 360 の記録する画面の全状態で下の帯の高さ（判定の 1 行 + [記録する] の 112px まで。#130）と状態の文の行数（1 行まで）・
 // 切れ（scrollWidth）、直す画面の帯の高さ（変える前の 161.1px まで）を測る。手順 R11（最後のタップの直後に下の帯の判定の 1 行の
-// バッジと R が窓の中。スクロールしない）・R12（1 画面に収まる: 390×844 の選ぶ前・読み取り中・読み取りの後で縦のスクロール 0、
+// バッジと R が窓の中。スクロールしない）・R12（1 画面に収まる: 390×844 の 1 段目と 2 段目の 4 つの状態で縦のスクロール 0、
 // 読み取りが流れ込んでも LC が動かない、注意 3 行以下、360×780 は 120px 以下）・R13（大きな R は 44px（#131。前は 36px）・本文の書体、ラベルの
 // 上端が揃う）・R14（向きを変えても LC・取引の欄のシートの欄の要素・値・フォーカスが残る）を流す。#130 で取引の欄・ほかの欄・
 // タイムゾーン・判定・チャートの詳細は下のシートに置いたので、手順はシートを開いてから欄を入れる。幅 720 未満の画面は指で触る端末（hasTouch）として開く。
@@ -180,11 +180,6 @@ const BAR_MAX = 112;
  * 「360×780 で 120px 以下」に置き換えた）
  */
 const RECORD_OVER_360 = 120;
-/**
- * 安全域（上 47・下 34）を入れた 390×844 で、選ぶ前の状態だけに許す縦のスクロール（#130 のデザインレビュー a1・ui-guidelines 9.4。
- * 読み取り中・読み取りの後は 0px）
- */
-const RECORD_PICK_SAFE_OVER = 40;
 /** 直す画面の貼り付きの帯の高さの上限（幅 360。Issue #33 KEEP-7: 変える前に測った値 161.1px） */
 const EDIT_BAR_MAX = 161.1;
 const THEME_KEY = 'loss-note.theme';
@@ -1327,18 +1322,62 @@ const dialogsSeen = [];
 async function openRecord(page, base) {
   await page.goto(`${base}/record`);
   await waitReady(page, '記録する');
-  // 1 画面の形（#130）: 開いた直後に見えるのは LC（取引の欄は取引の欄のシートの中）
-  await page.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+  // 2 段（2026-11-21）: 開いた直後は 1 段目「スクショを入れる」（［明細なしで手入力］ が見える）
+  await page.locator('#record-manual').waitFor({ state: 'visible', timeout: 15000 });
 }
 
 /**
- * 取引の欄のシート（#130。銘柄・L / S・数量・イン・決済・時刻）を開く。要約があれば ［編集］、選ぶ前なら ［明細なしで手入力］。
+ * 明細を貼って 2 段目「振り返る」へ移る（シートを開かない = 履歴の段が混ざらない。2026-11-21）。fake は偽の API
+ */
+async function toReviewByPaste(page, fake) {
+  fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+  await makeImage(page, STATEMENT_SPEC, 'paste');
+  await page.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+  await page.locator('.rsum__mark').waitFor({ timeout: 10000 });
+}
+
+/** 記録する画面の 1 段目「スクショを入れる」へ戻る（2 段目なら上の帯の ［スクショ］。2026-11-21） */
+async function toInput(page) {
+  const back = page.locator('#record-to-input');
+  if (await back.isVisible()) await back.click();
+  await page.locator('#record-statement-file').waitFor({ state: 'attached', timeout: 5000 });
+}
+
+/**
+ * 記録する画面の 2 段目「振り返る」へ移り、LC の欄が出るまで待つ（2026-11-21）。LC が見えていればそのまま（書きかけに戻った
+ * ときなど）。1 段目なら、要約があれば ［振り返りへ進む］、無ければ ［明細なしで手入力］（取引の欄のシートが開くので閉じる）
+ */
+async function toReview(page) {
+  const lc = page.locator('#record-lc');
+  const go = page.locator('#record-proceed');
+  const manual = page.locator('#record-manual');
+  await lc.or(go).or(manual).first().waitFor({ state: 'visible', timeout: 15000 });
+  if (await lc.isVisible()) return;
+  if (await go.isVisible()) {
+    await go.click();
+  } else {
+    await manual.click();
+    await page.locator('#record-fields-sheet[open]').waitFor({ state: 'visible', timeout: 5000 });
+    await settleSheet(page);
+    await closeSheets(page);
+  }
+  await lc.waitFor({ state: 'visible', timeout: 15000 });
+}
+
+/**
+ * 取引の欄のシート（#130。銘柄・L / S・数量・イン・決済・時刻）を開く。要約があれば ［編集］、1 段目で要約があれば
+ * ［振り返りへ進む］ の後に ［編集］、無ければ ［明細なしで手入力］（2 段目へ移ってシートが開く。2026-11-21）。
  * 開いていればそのまま
  */
 async function openFields(page) {
   if ((await page.locator('#record-fields-sheet[open]').count()) > 0) return;
   // ほかのシート（判定・チャート）が開いていれば閉じてから
   await closeSheets(page);
+  const go = page.locator('#record-proceed');
+  if (await go.isVisible()) {
+    await go.click();
+    await page.locator('#record-lc').waitFor({ state: 'visible', timeout: 5000 });
+  }
   const edit = page.locator('#record-edit-fields');
   if (await edit.isVisible()) await edit.click();
   else await page.locator('#record-manual').click();
@@ -1365,11 +1404,11 @@ async function openVerdict(page) {
   await settleSheet(page);
 }
 
-/** チャートのシート（チャートのある小さな枠を押す。#130） */
+/** チャートのシート（2 段目のチャートの行・1 段目のチャートのある小さな枠を押す。#130・2026-11-21） */
 async function openChartSheet(page) {
   if ((await page.locator('#record-chart-sheet[open]').count()) > 0) return;
   await closeSheets(page);
-  await page.locator('.rchart--full').first().click();
+  await page.locator('.rchart--full, .rchartrow--full').first().click();
   await page.locator('#record-chart-sheet[open]').waitFor({ state: 'visible', timeout: 5000 });
   await settleSheet(page);
 }
@@ -1600,21 +1639,25 @@ async function makeChart(page, to, target = null) {
 }
 
 /**
- * チャートを貼り、プレビューが出るまで待つ。エントリー時・決済時は 1 画面の小さな枠に貼り（#130。空の枠はファイルの欄、ある枠は
- * 枠そのものに data-chart-slot）、追加の枠はチャートのシートの枠を選んで（クリックでフォーカスして）貼る
+ * チャートを貼り、プレビューが出るまで待つ。エントリー時は 1 段目の枠か 2 段目のチャートの行に貼り（空はファイルの欄、ある枠・行は
+ * そのものに data-chart-slot。2026-11-21）、決済時は 1 段目の小さな枠があればそこへ、無ければ（2 段目）チャートのシートの枠を
+ * 選んで貼ってシートを閉じる。追加の枠はチャートのシートの枠を選んで（クリックでフォーカスして）貼る
  */
 async function pasteChart(page, slot) {
-  if (slot === 'entry' || slot === 'exit') {
-    const mini = `#record-mini-${slot}`;
+  const mini = `#record-mini-${slot}`;
+  if (slot === 'entry' || (slot === 'exit' && (await page.locator(mini).count()) > 0)) {
     const full = (await page.locator(`button${mini}`).count()) > 0;
     await makeChart(page, 'paste', full ? mini : `${mini}-file`);
     await page.locator(`${mini} canvas`).waitFor({ timeout: 10000 });
     return;
   }
+  const sheet = slot === 'exit';
+  if (sheet) await openChartSheet(page);
   const frame = page.locator(`#record-chart-${slot}`);
   await frame.locator('.chart__name').click();
   await makeChart(page, 'paste');
   await frame.locator('canvas.chart__preview').waitFor({ timeout: 10000 });
+  if (sheet) await closeSheets(page);
 }
 
 /** 本文の形式と寸法（PNG の IHDR・JPEG の SOF。読めなければ null。image.py の image_info と同じ規則） */
@@ -1861,8 +1904,8 @@ const RECORD_STATES = [
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
       await p.locator('#record-chart-exit-tf-mark').waitFor({ state: 'attached' });
-      // 小さな枠の 2 行目に読めた時間足（#130）
-      await p.locator('#record-mini-exit', { hasText: '日足' }).waitFor();
+      // 2 段目のチャートの行の 2 行目に読めた決済時の時間足（2026-11-21）
+      await p.locator('#record-mini-entry', { hasText: '決済時 · 日足' }).waitFor();
       await openVerdict(p);
       await p
         .locator('.reasons__item', { hasText: '時間足を変えた（4 時間足 → 日足・チャートから）' })
@@ -1880,7 +1923,7 @@ const RECORD_STATES = [
       api.chartRead = { status: 200, kind: 'chart', holdMs: 20000 };
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
-      // 小さな枠の 2 行目（チャートのシートの中は「時間足を読み取っています…」。#130）
+      // 2 段目のチャートの行（チャートのシートの中は「時間足を読み取っています…」。#130・2026-11-21）
       await p.locator('#record-mini-entry', { hasText: '時間足を読み取り中' }).waitFor();
       // 読み取り中も [記録する] は押せる（帯は「待たずに記録できます」）
       if (await p.locator('#record-submit').isDisabled())
@@ -1917,10 +1960,12 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.chartTimeframes = ['1d'];
       api.chartRead = { status: 200, kind: 'chart', holdMs: 1500 };
-      await pasteChart(p, 'exit');
+      // 2026-11-21: 1 段目の空のチャートの枠はエントリー時だけ（決済時は入れてから見せる）。案の出し方は枠によらず同じなので
+      // エントリー時の枠で見る
+      await pasteChart(p, 'entry');
       await openChartSheet(p);
-      await p.locator('#record-chart-exit-tf').selectOption('4h');
-      await p.locator('#record-chart-exit .chart__suggest').waitFor({ timeout: 10000 });
+      await p.locator('#record-chart-entry-tf').selectOption('4h');
+      await p.locator('#record-chart-entry .chart__suggest').waitFor({ timeout: 10000 });
       await p.getByRole('button', { name: '日足にする' }).waitFor();
     },
   },
@@ -1932,8 +1977,8 @@ const RECORD_STATES = [
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
-      await p.locator('#record-mini-exit', { hasText: '日足' }).waitFor();
-      // タップの下の 1 行（1 画面）と、判定のシートの理由の 2 行目
+      await p.locator('#record-mini-entry', { hasText: '決済時 · 日足' }).waitFor();
+      // タップの下の 1 行（2 段目）と、判定のシートの理由の 2 行目
       await p.locator('.record__taps .field__hint', { hasText: 'チャートでは' }).waitFor();
       await openVerdict(p);
       await p.locator('.reasons__sub', { hasText: 'あなたの答え: そのまま' }).waitFor();
@@ -1996,6 +2041,82 @@ const RECORD_STATES = [
       await pasteChart(p, 'x5');
       if (!(await p.locator('#record-chart-add').isDisabled()))
         throw new Error('5 枚で [＋ 追加] が押せる');
+    },
+  },
+  // 2026-11-21: 記録する画面の 2 段（モックと同じ 6 状態。1 段目の空 = record-1-open・2 段目の読み取り中 = record-7-reading）
+  {
+    slug: 'record-40-stage1-statement',
+    name: '1 段目（明細あり）',
+    anchor: '.rin',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 20000 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      // 明細を選ぶとすぐ 2 段目（読み取りを待たない）。上の帯の ［スクショ］ で 1 段目へ戻る
+      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 10000 });
+      await p.locator('#record-to-input').click();
+      await p.locator('.rin__card--filled .rin__desc', { hasText: '読み取り中' }).waitFor();
+      await p.locator('#record-proceed').waitFor();
+    },
+  },
+  {
+    slug: 'record-44-stage1-chart',
+    name: '1 段目（明細とチャートあり）',
+    anchor: '.rin',
+    fn: async (p, api) => {
+      // 明細とエントリー時のチャートが入った 1 段目（デザインレビュー a4）
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      api.chartTimeframes = ['1h'];
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__mark').waitFor();
+      await p.locator('#record-to-input').click();
+      await pasteChart(p, 'entry');
+      await p.locator('#record-mini-entry', { hasText: '1 時間足' }).waitFor({ timeout: 10000 });
+      await p.locator('#record-proceed').waitFor();
+    },
+  },
+  {
+    slug: 'record-41-read-judged',
+    name: '2 段目（読み取りの後・判定）',
+    anchor: '.rinput',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      api.chartTimeframes = ['1h'];
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__mark').waitFor();
+      await pasteChart(p, 'entry');
+      await p.locator('#record-mini-entry', { hasText: '1 時間足' }).waitFor({ timeout: 10000 });
+      await p.locator('#record-lc').fill('99');
+      await p.locator('#record-broken').fill('押し目の安値を割ったら');
+      await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
+      await seg(p, 'LC を動かしたか', 'そのまま').click();
+      await seg(p, '時間足を変えたか', 'そのまま').click();
+      await p.locator('.vline .badge').waitFor();
+    },
+  },
+  {
+    slug: 'record-42-manual',
+    name: '2 段目（手入力）',
+    anchor: '.rinput',
+    fn: async (p) => {
+      // ［明細なしで手入力］ は 2 段目へ移って取引の欄のシートを開く。閉じると要約と「未入力」のチップ
+      await p.locator('#record-manual').click();
+      await p.locator('#record-fields-sheet[open]').waitFor({ state: 'visible', timeout: 5000 });
+      await settleSheet(p);
+      await seg(p, 'L / S', 'S ショート').click();
+      await closeSheets(p);
+      await p.locator('.rsum__chip').first().waitFor();
+    },
+  },
+  {
+    slug: 'record-43-rows-accounts',
+    name: '2 段目（2 行・口座 3 つ）',
+    anchor: '.rinput',
+    prep: (api) => setAccounts(api, ACCOUNTS_3_LONG),
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.appbar__sub', { hasText: '1 / 2 行目' }).waitFor();
+      await p.locator('.rsum__accounts [role="radiogroup"]').waitFor();
     },
   },
   {
@@ -2499,7 +2620,8 @@ const RECORD_STATES = [
     slug: 'record-15-info-statement',
     name: '説明（明細）',
     reopen: '「明細の送り方」の説明',
-    anchor: '.rstmt',
+    // 明細の注意は 1 段目の明細の枠の下（2026-11-21）
+    anchor: '.rin',
     fn: async (p) => {
       await openInfo(p, '「明細の送り方」の説明');
     },
@@ -2546,7 +2668,7 @@ async function deleteFromDetail(page, how = 'click') {
 async function expectRestore(page, what) {
   // 記録する画面は戻ると読み込み直す（中身が描けるまで背が低い）ので、ブラウザの位置の復元そのものは S1（部品の見本）で測る。
   // ここでは元の項目に manual が残っていないこと（B2）だけを見る
-  await page.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+  await toReview(page);
   await page.waitForTimeout(300);
   const mode = await page.evaluate(() => history.scrollRestoration);
   if (mode !== 'auto') throw new Error(`${what}: scrollRestoration = ${mode}`);
@@ -3825,7 +3947,9 @@ async function main() {
                 `    帯 ${bar ? `${bar.h}px・文 ${bar.lines} 行${bar.cut ? '・切れ' : ''}「${bar.text}」` : '無し'}・全長 ${m.scrollH}px`,
               );
               if (!bar) {
-                if (!st.noBar) problems.push(`${label}: 貼り付きの帯が無い`);
+                // 1 段目「スクショを入れる」は判定の帯・［記録する］ を置かない（2026-11-21）
+                const input = (await recPage.locator('form[data-stage="input"]').count()) > 0;
+                if (!st.noBar && !input) problems.push(`${label}: 貼り付きの帯が無い`);
               } else if (!bar.error) {
                 const why = [
                   bar.h > BAR_MAX + 0.5 ? `高さ ${bar.h}px > ${BAR_MAX}px` : '',
@@ -5222,7 +5346,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(q, '取引');
       await q.locator('nav a[href="/record"]').click();
       await waitReady(q, '記録する');
-      await q.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(q);
       await q.locator('#record-lc').fill('100.5');
       await q.locator('nav a[href="/settings"]').click();
       await waitReady(q, '設定');
@@ -5232,7 +5356,7 @@ async function runFlows(browser, base, signedIn) {
       expectEq(new URL(q.url()).pathname, '/trades', '取引のタブに戻った先');
       await q.locator('nav a[href="/record"]').click();
       await waitReady(q, '記録する');
-      await q.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(q);
       expectEq(await q.locator('#record-lc').inputValue(), '100.5', '残した書きかけ');
       steps.push('広い形で記録するを開いたまま設定のタブ → 閉じて残す・取引のタブは一覧');
     } catch (e) {
@@ -5280,7 +5404,9 @@ async function runFlows(browser, base, signedIn) {
         ]) {
           await p.goto(base + path);
           await waitReady(p, h1);
-          if (wait) await p.locator(wait).first().waitFor({ timeout: 15000 });
+          // 記録するは 2 段目（下の帯がある段）で測る（2026-11-21）
+          if (path === '/record') await toReview(p);
+          else if (wait) await p.locator(wait).first().waitFor({ timeout: 15000 });
           const r = await p.evaluate(() => {
             const vh = window.innerHeight;
             const bad = [];
@@ -5717,6 +5843,7 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await openRecord(p, base);
+      await toReview(p);
       const targets = p.locator('.numfield input:not([disabled]), select.select:not([disabled])');
       const n = await targets.count();
       if (n < 3) throw new Error(`欄の数 ${n}`);
@@ -5781,6 +5908,9 @@ async function runFlows(browser, base, signedIn) {
       expectEq(await p.locator('#record-quantity').inputValue(), '2', '数量');
       const t = await p.locator('#record-exit-time').inputValue();
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(t)) throw new Error(`決済の時刻 ${t}`);
+      // 1 段目には ［記録する］ が無い。タップと ［記録する］ は 2 段目（2026-11-21）
+      expectEq(await p.locator('button[type="submit"]').count(), 0, '1 段目の [記録する]');
+      await toReview(p);
       for (const g of [
         'L / S',
         'LC を入る前に決めていたか',
@@ -5839,8 +5969,7 @@ async function runFlows(browser, base, signedIn) {
       await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
       expectEq(fake.posts.length, 1, 'POST /api/trades の数');
       await p.getByRole('button', { name: '次の取引を記録' }).click();
-      await p.locator('#record-lc').waitFor();
-      // 次の取引は選ぶ前の明細の場所から（#130）
+      // 次の取引は 1 段目「スクショを入れる」から（2026-11-21）
       await p.locator('#record-manual').waitFor();
       expectEq(await p.locator('#record-entry').inputValue(), '', '次の取引のイン');
       expectEq(await p.locator('#record-instrument').inputValue(), 'US30', '次の取引の銘柄');
@@ -6105,7 +6234,8 @@ async function runFlows(browser, base, signedIn) {
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
       expectEq(fake.reads.length, 1, '貼り付けの後の要求');
-      // ファイル選択 1 回 → 1 件（合成の明細の画像）
+      // ファイル選択 1 回 → 1 件（合成の明細の画像）。明細を選ぶ入口は 1 段目だけ（2026-11-21）
+      await toInput(p);
       await p
         .locator('#record-statement-file')
         .setInputFiles({ name: 's05.png', mimeType: 'image/png', buffer: synthetic });
@@ -6174,7 +6304,8 @@ async function runFlows(browser, base, signedIn) {
       await p.keyboard.press('ControlOrMeta+V');
       await expectPoll(() => fake.reads.length === 3, '銘柄の欄に画像だけを貼った後の要求');
       await closeSheets(p);
-      // E12: 画像として読めないファイル → 要求 0 件・決まった文言
+      // E12: 画像として読めないファイル → 要求 0 件・決まった文言（選ぶ入口は 1 段目。2026-11-21）
+      await toInput(p);
       await p
         .locator('#record-statement-file')
         .setInputFiles({ name: 'x.png', mimeType: 'image/png', buffer: Buffer.from('架空の文字') });
@@ -6206,6 +6337,7 @@ async function runFlows(browser, base, signedIn) {
       for (const k of cases) {
         const src = Buffer.from(await makeImage(p, k.spec, 'bytes'));
         const before = fake.reads.length;
+        await toInput(p);
         await p
           .locator('#record-statement-file')
           .setInputFiles({ name: `${k.name}.img`, mimeType: k.spec.type, buffer: src });
@@ -6319,6 +6451,7 @@ async function runFlows(browser, base, signedIn) {
     const { c, p, fake, errors } = await recordContext();
     try {
       await openRecord(p, base);
+      await toReview(p);
       await p.locator('#record-lc').fill('99.5');
       const msgs = [];
       for (const [status, want] of [
@@ -6483,9 +6616,11 @@ async function runFlows(browser, base, signedIn) {
     return `最後のタップを押した直後、スクロールせずに下の帯の判定の 1 行（バッジと R）が窓の中・押したタップも見えてフォーカスは動かない（${n} 件 = 4 場面 × 360 / 1440 × 両テーマ + 390（動きを減らす設定））`;
   });
 
-  // R12（#130 で置き換え。ui-guidelines 9.4・9.10 の「1 画面に収まる」）: 等倍の文字の 390×844 で、明細の場所の 3 つの状態
-  // （選ぶ前・読み取り中・読み取りの後）とも縦のスクロール 0px。LC・チャートの注意・判定の 1 行・[記録する] が窓の中。
-  // 読み取り中 → 読み取りの後で LC の欄の上端が動かない（流れ込むだけ）。送る前の注意は選ぶ前に 3 行以下で畳まない。
+  // R12（#130 で置き換え。2026-11-21 に 2 段へ。ui-guidelines 9.4・9.10 の「1 画面に収まる」）: 等倍の文字の 390×844 で、
+  // 1 段目と 2 段目の 4 つの状態（読み取り中・読み取りの後・手入力・2 行の明細 + 口座 3 つ）とも縦のスクロール 0px（安全域 47 / 34
+  // を入れても。#130 の「選ぶ前は 40px まで」は 1 段目が LC 以下を持たなくなったので 0px に締めた）。2 段目は LC・チャートの注意・
+  // 判定の 1 行・[記録する]・3 つ目のタップ、1 段目は 2 つの注意・［スクショを選ぶ］・［明細なしで手入力］ が窓の中。
+  // 読み取り中 → 読み取りの後で LC の欄の上端が動かない（流れ込むだけ）。送る前の注意は 1 段目に 3 行以下で畳まない。
   // 360×780 は縦のスクロール 120px 以下（全長の上限 R12 の置き換え）。口座 2・3 の形も 360×780 で 120px 以下
   await check('R12', async () => {
     const out = [];
@@ -6497,7 +6632,8 @@ async function runFlows(browser, base, signedIn) {
           const r = document.querySelector(sel)?.getBoundingClientRect();
           return !!r && r.height > 0 && r.top >= -0.5 && r.bottom <= vh + 0.5;
         };
-        const notice = document.querySelector('.rstmt .statement__notice');
+        const notice = document.querySelector('.rin .statement__notice');
+        const input = !!document.querySelector('form[data-stage="input"]');
         const cs = notice ? getComputedStyle(notice) : null;
         const lines = notice
           ? Math.round(notice.getBoundingClientRect().height / Number.parseFloat(cs.lineHeight))
@@ -6505,20 +6641,28 @@ async function runFlows(browser, base, signedIn) {
         return {
           over: se.scrollHeight - vh,
           lc: document.getElementById('record-lc')?.getBoundingClientRect().top ?? null,
-          seen: {
-            lc: seen('#record-lc'),
-            chartNotice: seen('.rcharts__notice'),
-            line: seen('#record-verdict-line'),
-            submit: seen('#record-submit'),
-            taps: seen('[role="radiogroup"][aria-label="時間足を変えたか"]'),
-          },
+          input,
+          seen: input
+            ? {
+                statementNotice: seen('.rin .statement__notice'),
+                chartNotice: seen('.rin .charts__notice'),
+                pick: seen('label[for="record-statement-file"]'),
+                manual: seen('#record-manual'),
+              }
+            : {
+                lc: seen('#record-lc'),
+                chartNotice: seen('.rchartrow__notice'),
+                line: seen('#record-verdict-line'),
+                submit: seen('#record-submit'),
+                taps: seen('[role="radiogroup"][aria-label="時間足を変えたか"]'),
+              },
           noticeText: notice?.textContent ?? '',
           lines,
           hidden: !!notice?.closest('details, dialog'),
         };
       });
     const states = [
-      ['選ぶ前', async () => {}],
+      ['1 段目', async () => {}],
       [
         '読み取り中',
         async (p, fake) => {
@@ -6535,13 +6679,39 @@ async function runFlows(browser, base, signedIn) {
           await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
         },
       ],
+      [
+        '手入力',
+        async (p) => {
+          await p.locator('#record-manual').click();
+          await p
+            .locator('#record-fields-sheet[open]')
+            .waitFor({ state: 'visible', timeout: 5000 });
+          await settleSheet(p);
+          await seg(p, 'L / S', 'S ショート').click();
+          await closeSheets(p);
+          await p.locator('.rsum__chip').first().waitFor();
+        },
+      ],
+      [
+        '2 行の明細・口座 3 つ',
+        async (p, fake) => {
+          fake.read = {
+            status: 200,
+            rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }],
+            holdMs: 0,
+          };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          await p.locator('.rsum__accounts [role="radiogroup"]').waitFor({ timeout: 10000 });
+        },
+        ACCOUNTS_3_LONG,
+      ],
     ];
     // 安全域 0（Chromium の 390×844）と、ホーム画面に追加した iPhone の安全域（上 47・下 34。トークン --safe-* の差し替え）の
-    // 両方で測る。安全域を入れたときは、選ぶ前だけ RECORD_PICK_SAFE_OVER まで許す（ui-guidelines 9.4。#130 のデザインレビュー a1）
+    // 両方で測る（どちらも 0px）
     for (const theme of THEMES)
       for (const safe of [false, true]) {
         const lcTops = {};
-        for (const [name, fn] of states) {
+        for (const [name, fn, accounts] of states) {
           const c = await browser.newContext({
             viewport: { width: 390, height: 844 },
             storageState: signedIn,
@@ -6560,7 +6730,7 @@ async function runFlows(browser, base, signedIn) {
                 if (document.head) put();
                 else document.addEventListener('DOMContentLoaded', put);
               });
-            const fake = await installFakeApi(c);
+            const fake = await installFakeApi(c, accounts ? { accounts } : {});
             const p = await c.newPage();
             await openRecord(p, base);
             await fn(p, fake);
@@ -6568,15 +6738,12 @@ async function runFlows(browser, base, signedIn) {
             const m = await measureOne(p);
             lcTops[name] = m.lc;
             const where = `390×844${safe ? '（安全域 47 / 34）' : ''} ${theme} ${name}`;
-            const limit = safe && name === '選ぶ前' ? RECORD_PICK_SAFE_OVER : 0;
-            if (m.over > limit)
-              throw new Error(`${where}: 縦のスクロール ${m.over}px（${limit}px まで）`);
+            if (m.input !== (name === '1 段目')) throw new Error(`${where}: 段が違う`);
+            if (m.over > 0) throw new Error(`${where}: 縦のスクロール ${m.over}px（0px まで）`);
             for (const [k, v] of Object.entries(m.seen)) {
-              // 安全域を入れた選ぶ前はスクロールを許すので、下の方の欄（3 つのタップ）は見えなくてよい
-              if (limit > 0 && k === 'taps') continue;
               if (!v) throw new Error(`${where}: ${k} が窓の中に無い`);
             }
-            if (name === '選ぶ前') {
+            if (name === '1 段目') {
               for (const t of ['AI の提供元（Anthropic）に送', '切り取って', '保存しません'])
                 if (!m.noticeText.includes(t)) throw new Error(`${theme}: 注意に「${t}」が無い`);
               if (m.lines > 3) throw new Error(`${theme}: 注意が ${m.lines} 行（3 行まで）`);
@@ -6601,7 +6768,7 @@ async function runFlows(browser, base, signedIn) {
     ];
     for (const shape of shapes)
       for (const [name, fn] of states) {
-        if (name === '読み取り中') continue;
+        if (name !== '1 段目' && name !== '読み取りの後') continue;
         const c = await browser.newContext({
           viewport: { width: 360, height: 780 },
           storageState: signedIn,
@@ -6659,6 +6826,7 @@ async function runFlows(browser, base, signedIn) {
       ]) {
         await p.setViewportSize({ width: from[0], height: from[1] });
         await openRecord(p, base);
+        await toReview(p);
         await p.locator('#record-lc').fill('99.5');
         await p.locator('#record-lc').focus();
         await mark('record-lc');
@@ -6840,7 +7008,8 @@ async function runFlows(browser, base, signedIn) {
     const { c, p, fake, errors } = await recordContext();
     try {
       await openRecord(p, base);
-      await p.locator('.rcharts__notice', { hasText: 'AI（Anthropic）に送ります' }).waitFor();
+      // チャートの注意は 1 段目のチャートの枠の下（2026-11-21）
+      await p.locator('.rin .charts__notice', { hasText: 'AI（Anthropic）に送ります' }).waitFor();
       fake.chartTimeframes = ['4h', '1d'];
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
@@ -7345,11 +7514,13 @@ async function runFlows(browser, base, signedIn) {
   const popCount = sheetCount;
 
   await check('IT1', async () => {
-    const { c, p, errors } = await recordContext();
+    const { c, p, fake, errors } = await recordContext();
     const TF = '「時間足を変えたか」の説明';
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await openRecord(p, base);
+      // 3 つのタップは 2 段目（2026-11-21）
+      await toReviewByPaste(p, fake);
       const b = infoButton(p, TF);
       expectEq(await infoState(p, TF), 'false', '押す前');
       expectEq(await b.getAttribute('aria-haspopup'), 'dialog', 'aria-haspopup');
@@ -7445,7 +7616,7 @@ async function runFlows(browser, base, signedIn) {
   });
 
   await check('IT3', async () => {
-    const { c, p, errors } = await recordContext();
+    const { c, p, fake, errors } = await recordContext();
     const TF = '「時間足を変えたか」の説明';
     const DEC = '「LC を入る前に決めていたか」の説明';
     try {
@@ -7454,7 +7625,8 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'ホーム');
       await p.locator('.appnav a[href="/record"]').click();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      // 2 段目へは明細を貼って移る（シートを開くと履歴の段の出入りが混ざる。2026-11-21）
+      await toReviewByPaste(p, fake);
       // 書きかけは 1 画面の LC で作る（取引の欄のシートを開くと履歴の段の出入りが混ざる。#130）
       await p.locator('#record-lc').fill('99.50');
       const len = () => p.evaluate(() => history.length);
@@ -7507,7 +7679,7 @@ async function runFlows(browser, base, signedIn) {
         expectEq(new URL(p.url()).pathname, '/', `${how} で閉じた後の戻る`);
         await p.goForward();
         await waitReady(p, '記録する');
-        await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+        await toReview(p);
       }
       // 開いたままシートの中の ［用語集で見る］ で画面を移る → 用語集。戻る 1 回で記録する画面（N8 b）
       await openInfo(p, TF);
@@ -7808,7 +7980,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'ホーム');
       await p.locator('.appnav a[href="/record"]').click();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       await fillRecord(p, EX_E1);
       await p.locator('.vline .badge', { hasText: 'B 悪い損失' }).waitFor();
       // 「判定」の説明は判定のシートの中（#130）。シートを開いてから履歴の段を数える
@@ -7840,7 +8012,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'ホーム');
       await p.goForward();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       // [‹ 前の説明] と Esc でも 1 つずつ
       await openVerdict(p);
       await openInfo(p, J);
@@ -7874,7 +8046,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'ホーム');
       await p.goForward();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       // 記録する画面でも「用語集で見る」を出す（書きかけは画面を移っても残る。#75 R9。移って戻るは DR1）
       await openInfo(p, '「時間足を変えたか」の説明');
       expectEq(
@@ -7962,7 +8134,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, '取引');
       await p.locator('.appnav a[href="/record"]').click();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       await p.locator('#record-lc').fill('100.5');
       // キャンセルは全画面のシートの左上の ✕（読み上げの名前「キャンセル」。下の帯は 1 段・文 1 行のまま。#127・#33）・
       // 横スクロール・当たり
@@ -7991,7 +8163,7 @@ async function runFlows(browser, base, signedIn) {
       if (opts.shots) await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-kept.png') });
       await p.goBack();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       expectEq(await p.locator('#record-lc').inputValue(), '100.5', '戻った後の下書き');
       // 記録している間は下のタブを隠す（下の帯は 1 段。#127・A2。今いる画面のナビを押す #75 B1 は routes.test.ts）
       expectEq(await p.locator('nav.appnav').isVisible(), false, '記録している間の下のタブ');
@@ -8008,7 +8180,7 @@ async function runFlows(browser, base, signedIn) {
         await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-discarded.png') });
       await p.locator('#toast-draft-undo').click();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       expectEq(await p.locator('#record-lc').inputValue(), '100.5', '[元に戻す] の後の下書き');
       // 再読み込みは確認（beforeunload）を受けて進む
       const before = dialogsSeen.filter((t) => t === 'beforeunload').length;
@@ -8020,7 +8192,7 @@ async function runFlows(browser, base, signedIn) {
         '入力がある再読み込みの確認',
       );
       // 再読み込みで書きかけは消える（記憶の中だけ）→ 入力が無い [キャンセル] はトーストなしで前の画面（一覧）
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       expectEq(await p.locator('#record-lc').inputValue(), '', '再読み込みの後');
       await cancel.click();
       await waitReady(p, '取引');
@@ -8028,7 +8200,7 @@ async function runFlows(browser, base, signedIn) {
       // URL を直接開いた記録する画面（アプリの中の前の画面が無い）の [キャンセル] はホームへ置き換える
       await p.goto(`${base}/record`);
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       await cancel.click();
       await waitReady(p, 'ホーム');
       expectEq(await p.locator('.toast').count(), 0, '入力が無いキャンセルのトースト');
@@ -8084,7 +8256,7 @@ async function runFlows(browser, base, signedIn) {
           await waitReady(p, '取引');
           await p.locator('.appnav a[href="/record"]').click();
           await waitReady(p, '記録する');
-          await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+          await toReview(p);
           await p.locator('#record-lc').fill('100.5');
           // 離れる: 幅 720 未満は下のタブが隠れているので戻る、それ以上は取引のタブ（同じタブの押し直し = 根へ。#127）
           if (w >= 720) await p.locator('.appnav a[href="/trades"]').click();
@@ -8111,7 +8283,7 @@ async function runFlows(browser, base, signedIn) {
           // 幅 720 以上は記録している間も行き先が見える: 今いる画面の ［＋ 記録］ を押すと履歴を積まず、見出しへフォーカス
           // （#75 B1・R6。#127 のレビュー N10）
           if (w >= 720) {
-            await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+            await toReview(p);
             const len = await p.evaluate(() => history.length);
             await p.locator('.appnav a[href="/record"]').click();
             await expectPollAsync(
@@ -8152,7 +8324,7 @@ async function runFlows(browser, base, signedIn) {
           await p.locator('.toast button[aria-label="通知を閉じる"]').first().click();
           await p.locator('.appnav a[href="/record"]').click();
           await waitReady(p, '記録する');
-          await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+          await toReview(p);
           expectEq(await p.locator('#record-resumed').count(), 0, '捨てた後は続きの 1 行なし');
           await p.locator('.appbar--sheet button[aria-label="キャンセル"]').click();
           await waitReady(p, '取引');
@@ -8215,7 +8387,7 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.goto(`${base}/record`);
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       // 押して入れる（利用者の操作で履歴の組み直しが書かれる。#127）
       await p.locator('#record-lc').click();
       await p.locator('#record-lc').fill('100.5');
@@ -8246,7 +8418,7 @@ async function runFlows(browser, base, signedIn) {
       );
       await p.locator('.appnav a[href="/record"]').click();
       await waitReady(p, '記録する');
-      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await toReview(p);
       expectEq(await p.locator('#record-lc').inputValue(), '', 'ログインの後の下書き');
       expectEq(await p.locator('#record-resumed').count(), 0, 'ログインの後の続きの 1 行');
       expectEq(errors.length, 0, 'ページのエラー');
@@ -9130,7 +9302,7 @@ async function runFlows(browser, base, signedIn) {
             await p.screenshot({ path: join(opts.shots, `${tag}-hm1-home.png`), fullPage: true });
           // 書きかけあり（記録する画面で LC を入れて戻る → 「記録の書きかけがあります ›」）
           await p.locator('#appnav-record').click();
-          await p.locator('#record-lc').waitFor({ timeout: 15000 });
+          await toReview(p);
           await p.locator('#record-lc').fill('99.5');
           await p.goBack();
           await p.locator('.homedraft a.rowlink[href="/record"]').waitFor({ timeout: 15000 });

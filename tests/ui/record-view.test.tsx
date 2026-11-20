@@ -850,23 +850,23 @@ const filledE1 = () => {
 };
 
 describe('送る前の注意（AC-11・R10）', () => {
-  it('送る前（選ぶ前の明細の場所）に 3 つの中身（AI の提供元に送る・切り取る・保存しない）が畳まずに出ている。読み取りの後はもう 1 枚選ぶ所（取引の欄のシート）に出る（KEEP-6・#130）', () => {
+  it('送る前の注意は 1 段目の明細の枠の下に 3 つの中身（AI の提供元に送る・切り取る・保存しない）を畳まずに出す。2 段目と取引の欄のシートには明細を選ぶ入口も注意も無い（2026-11-21・C38）', () => {
     const f = filledE1();
     const area = (t: Node[]) => all(t, hasClass('rstmt'))[0] as El;
-    const pick = view(stateFor(draft({}), NO_CAPITAL));
+    const card = (t: Node[]) => all(t, hasClass('rin__card'))[0] as El;
+    const empty = view({ ...stateFor(draft({}), NO_CAPITAL), stage: 'input' });
+    const filled = view({ ...withStatement(f.draft, { marks: f.marks }), stage: 'input' });
     const reading = view(withStatement(E1, { phase: 'reading' }, true));
     const after = view(withStatement(f.draft, { marks: f.marks }));
-    expect(area(pick).props['data-area']).toBe('pick');
     expect(area(reading).props['data-area']).toBe('reading');
     expect(area(after).props['data-area']).toBe('summary');
-    // 読み取り中・読み取りの後の明細の場所は要約の 2 行（注意は送る前に出ている）
-    expect(all([area(reading)], hasClass('statement__notice'))).toEqual([]);
-    expect(all([area(after)], hasClass('statement__notice'))).toEqual([]);
-    for (const [t, where] of [
-      [pick, area(pick)],
-      [after, fieldsSheet(after)],
-    ] as const) {
-      const notice = all([where], hasClass('statement__notice'));
+    // 2 段目（読み取り中・読み取りの後）は要約の 2 行。取引の欄のシートも欄だけ
+    for (const t of [reading, after]) {
+      expect(all(t, hasClass('statement__notice'))).toEqual([]);
+      expect(all(t, (e) => e.props.id === 'record-statement-file')).toEqual([]);
+    }
+    for (const t of [empty, filled]) {
+      const notice = all([card(t)], hasClass('statement__notice'));
       expect(notice).toHaveLength(1);
       expect(all(t, hasClass('statement__notice'))).toHaveLength(1);
       expect(notice[0]?.type).toBe('p');
@@ -889,19 +889,22 @@ describe('送る前の注意（AC-11・R10）', () => {
       );
       expect(span && text(span)).toBe(STATEMENT_NOTICE.join(''));
       expect((input[0] as El).props['aria-describedby']).toBe(span?.props.id);
+      // 「i」は注意の文の末尾（デザインレビュー 6）。閉じている間は補足の文が無い
+      const info = all([card(t)], (e) => e.type === 'button' && hasClass('info')(e));
+      expect(info).toHaveLength(1);
+      expect(info[0]?.props['aria-label']).toBe('「明細の送り方」の説明');
+      expect(info[0]?.props['aria-expanded']).toBe('false');
+      expect(text(t)).not.toContain(STATEMENT_NOTICE_MORE);
     }
-    // 「i」は選ぶ前の注意の文の末尾（デザインレビュー 6）。閉じている間は補足の文が無い
-    const info = all([area(pick)], (e) => e.type === 'button' && hasClass('info')(e));
-    expect(info).toHaveLength(1);
-    expect(info[0]?.props['aria-label']).toBe('「明細の送り方」の説明');
-    expect(info[0]?.props['aria-expanded']).toBe('false');
-    expect(text(pick)).not.toContain(STATEMENT_NOTICE_MORE);
   });
 
   it('[スクショを選ぶ] は label + ファイルの input（画像だけ）。選ぶと onPickFile、同じファイルを選び直せるよう空に戻す', () => {
     const got: unknown[] = [];
-    const tree = view(stateFor(draft({}), NO_CAPITAL), { onPickFile: (f) => got.push(f) });
-    const input = all(tree, (e) => e.type === 'input' && e.props.type === 'file')[0] as El;
+    const tree = view(
+      { ...stateFor(draft({}), NO_CAPITAL), stage: 'input' },
+      { onPickFile: (f) => got.push(f) },
+    );
+    const input = all(tree, (e) => e.props.id === 'record-statement-file')[0] as El;
     expect(input.props.id).toBe('record-statement-file');
     expect(String(input.props.accept)).toContain('image/png');
     const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-statement-file');
@@ -1229,7 +1232,11 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
   });
 
   it('指摘 4: 貼り付けの案内はキーの名前に頼らない（PC だけに出すクラス）', () => {
-    const hint = all(view(stateFor(draft({}), NO_CAPITAL)), hasClass('statement__pastehint'));
+    // 貼り付けの案内は 1 段目（スクショを入れる段）
+    const hint = all(
+      view({ ...stateFor(draft({}), NO_CAPITAL), stage: 'input' }),
+      hasClass('statement__pastehint'),
+    );
     expect(hint.map(text)).toEqual(['PC はこの画面に貼り付けることもできます。']);
     expect(text(view(stateFor(E1, NO_CAPITAL)))).not.toContain('Ctrl');
   });
@@ -1501,18 +1508,27 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
     ...over,
   });
 
-  it('U0: チャートの枠の見出しの下に、AI の提供元に送って記録と一緒に保存する注意を常に出す。明細の注意は明細だけ', () => {
+  it('U0: チャートを送れる所すべてに、AI の提供元に送って記録と一緒に保存する注意を常に出す。明細の注意は明細の枠だけ（2026-11-21・C38）', () => {
+    // 1 段目: チャートの枠の下（空でも入った後でも）と、チャートのシートの見出しの下。明細の注意は明細の枠の下
     for (const tree of [
-      view(stateFor(E1, NO_CAPITAL)),
-      view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } })),
+      view(stateFor(E1, NO_CAPITAL, { stage: 'input' })),
+      view(stateFor(E1, NO_CAPITAL, { stage: 'input', charts: { entry: ready() } })),
     ]) {
-      // 1 画面の 2 枠の下と、チャートのシートの見出しの下（C38。畳まない）
       const notices = all(tree, hasClass('charts__notice'));
       expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
-      expect(cls(notices[0] as El)).toContain('rcharts__notice');
+      expect(cls(notices[0] as El)).toContain('rin__notice');
       const body = text(all(tree, (e) => e.props.id === 'record-statement-notice'));
       expect(body).toContain('明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません');
     }
+    // 2 段目: 空のチャートの行の中（1 タップで送れる）と、チャートのシートの見出しの下。明細の注意は無い
+    const empty = view(stateFor(E1, NO_CAPITAL));
+    const notices = all(empty, hasClass('charts__notice'));
+    expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
+    expect(cls(notices[0] as El)).toContain('rchartrow__notice');
+    expect(all(empty, (e) => e.props.id === 'record-statement-notice')).toEqual([]);
+    // チャートが入った行は押すとシート（シートの見出しの下に注意）
+    const full = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
+    expect(all(full, hasClass('charts__notice')).map(text)).toEqual([CHART_READ_NOTICE]);
   });
 
   it('U9: 利用者の選んだ値と読めた値が違えば、読めた値と [〈値〉にする] を出す', () => {
@@ -1599,15 +1615,28 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
 });
 
 describe('密度と階層（Issue #33）', () => {
-  it('#130（AC-3 の置き換え）: 1 画面の並びは 明細の場所 → チャートの 2 枠と注意 → LC と一言 → 3 つのタップ。判定は判定のシートの中', () => {
-    for (const d of [draft({}), E1, E16]) {
-      const tree = view(stateFor(d, NO_CAPITAL));
+  it('2026-11-21（#130 の AC-3 の置き換え）: 2 段目の並びは 入れたもののカード（明細の行 → チャートの行）→ LC と一言 → 3 つのタップ。判定は判定のシートの中。1 段目は入れる段だけ', () => {
+    const kidsOf = (tree: Node[]) => {
       const fieldset = all(tree, (e) => e.type === 'fieldset' && hasClass('record__fields')(e))[0];
-      const kids = (fieldset?.children ?? []).filter(
+      return (fieldset?.children ?? []).filter(
         (n): n is El => typeof n !== 'string' && n.type !== 'legend' && !('data-sheet' in n.props),
       );
-      expect(kids.map((k) => cls(k))).toEqual(['rstmt', 'rcharts', 'record__lc', 'record__taps']);
+    };
+    for (const d of [draft({}), E1, E16]) {
+      const tree = view(stateFor(d, NO_CAPITAL));
+      const kids = kidsOf(tree);
+      expect(kids.map((k) => cls(k))).toEqual(['rinput', 'record__lc', 'record__taps']);
+      const card = (kids[0] as El).children.filter((n): n is El => typeof n !== 'string');
+      expect(card.map((k) => cls(k).split(' ')[0])).toEqual(['rstmt', 'rchartrow']);
       expect(all([sheetOf(tree, 'record-verdict-sheet')], hasClass('verdict'))).toHaveLength(1);
+      expect(all(tree, (e) => e.props.id === 'record-submit')).toHaveLength(1);
+      // 1 段目: 入れる段だけ（LC・タップ・判定の帯・［記録する］ は無い。シートは同じ）
+      const input = view(stateFor(d, NO_CAPITAL, { stage: 'input' }));
+      expect(kidsOf(input).map((k) => cls(k))).toEqual(['rin']);
+      expect(all(input, (e) => e.props.id === 'record-lc')).toEqual([]);
+      expect(all(input, (e) => e.props.id === 'record-submit')).toEqual([]);
+      expect(all(input, hasClass('record__submit'))).toEqual([]);
+      expect(all([sheetOf(input, 'record-verdict-sheet')], hasClass('verdict'))).toHaveLength(1);
     }
   });
 
@@ -2166,10 +2195,17 @@ describe('言葉の説明の「i」（#57）', () => {
 
   it('AC-5: 「i」は type="button" で、押しても onUpdate・onSave を呼ばない（未選択の下書き）', () => {
     const got: unknown[] = [];
-    const t = view(stateFor(draft({}), NO_CAPITAL), {
-      onUpdate: (a) => got.push(a),
-      onSave: () => got.push('save'),
-    });
+    const t = [
+      ...view(stateFor(draft({}), NO_CAPITAL), {
+        onUpdate: (a) => got.push(a),
+        onSave: () => got.push('save'),
+      }),
+      // 明細の補足は 1 段目の明細の枠の下
+      ...view(stateFor(draft({}), NO_CAPITAL, { stage: 'input' }), {
+        onUpdate: (a) => got.push(a),
+        onSave: () => got.push('save'),
+      }),
+    ];
     const buttons = infoButtons(t);
     // 3 つのタップ・明細の補足・判定の枠の見出し・R（判定を待つ間も言葉の説明は読める）
     expect(names(t)).toEqual(
@@ -2196,14 +2232,99 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
   };
   const area = (t: Node[]) => all(t, hasClass('rstmt'))[0] as El;
 
-  it('選ぶ前: ［スクショを選ぶ］ と ［明細なしで手入力］ が 1 段。手入力を押すと onManual', () => {
+  it('1 段目（空）: 見出し・絵つきの枠 2 つ（主の ［スクショを選ぶ］・tonal の ［＋ チャートを選ぶ］）・［明細なしで手入力］。手入力を押すと onManual', () => {
     let manual = 0;
-    const tree = view(stateFor(draft({}), NO_CAPITAL), { onManual: () => manual++ });
-    const actions = all([area(tree)], hasClass('rstmt__actions'))[0] as El;
-    expect(text(actions)).toBe('スクショを選ぶ明細なしで手入力');
-    const btn = all([actions], (e) => e.type === 'button')[0] as El;
+    const tree = view(stateFor(draft({}), NO_CAPITAL, { stage: 'input' }), {
+      onManual: () => manual++,
+    });
+    const title = all(tree, (e) => e.props.id === 'record-stage1-title')[0] as El;
+    expect(text(title)).toBe('スクショを入れる');
+    expect(title.props.tabIndex).toBe(-1);
+    const cards = all(tree, hasClass('rin__card'));
+    expect(cards).toHaveLength(2);
+    // 絵は SVG（読み上げから隠す）
+    for (const c of cards) {
+      const art = all([c], hasClass('rin__artwrap'))[0] as El;
+      expect(art.props['aria-hidden']).toBe('true');
+      expect(all([art], (e) => e.type === 'svg')).toHaveLength(1);
+    }
+    expect(text(all([cards[0] as El], hasClass('rin__name')))).toBe('決済明細のスクショ');
+    expect(text(all(tree, hasClass('rin__lead')))).toBe(
+      '決済明細を選ぶと、読み取りを待たずに振り返りへ進みます。',
+    );
+    // チャートの題は「エントリーした足の / チャート」の語の切れ目でだけ折る（デザインレビュー a2）
+    expect(all([cards[1] as El], hasClass('rin__chunk')).map(text)).toEqual([
+      'エントリーした足の',
+      'チャート',
+    ]);
+    const pick = all([cards[0] as El], (e) => e.type === 'label')[0] as El;
+    expect(cls(pick)).toContain('btn--primary');
+    expect(text(pick)).toBe('スクショを選ぶ');
+    const chart = all([cards[1] as El], (e) => e.type === 'label')[0] as El;
+    expect(cls(chart)).toContain('btn--tonal');
+    expect(text(chart)).toBe('チャートを選ぶ');
+    const file = all([chart], (e) => e.type === 'input')[0] as El;
+    expect(file.props['data-chart-slot']).toBe('entry');
+    const btn = all(tree, (e) => e.props.id === 'record-manual')[0] as El;
+    expect(text(btn)).toBe('明細なしで手入力');
+    expect(cls(btn)).toContain('btn--secondary');
+    expect(all(tree, (e) => e.props.id === 'record-proceed')).toEqual([]);
     (btn.props.onClick as () => void)();
     expect(manual).toBe(1);
+  });
+
+  it('1 段目（明細あり・戻ってきた）: 枠は実物の写しと ✓・状態の文・［スクショを変更］、下は主の ［振り返りへ進む］（onStage）', () => {
+    const f = filledE1();
+    const stages: unknown[] = [];
+    const tree = view(
+      {
+        ...withStatement(f.draft, { marks: f.marks, preview: fakePreview(1200, 800) }),
+        stage: 'input',
+      },
+      { onStage: (x) => stages.push(x) },
+    );
+    const card = all(tree, hasClass('rin__card'))[0] as El;
+    expect(cls(card)).toContain('rin__card--filled');
+    expect(all([card], (e) => e.type === 'canvas')).toHaveLength(1);
+    expect(all([card], hasClass('rin__check'))).toHaveLength(1);
+    expect(text(all([card], hasClass('rin__desc')))).toBe('読み取りました');
+    const pick = all([card], (e) => e.type === 'label')[0] as El;
+    expect(text(pick)).toBe('スクショを変更');
+    expect(cls(pick)).toContain('btn--secondary');
+    expect(all(tree, (e) => e.props.id === 'record-manual')).toEqual([]);
+    // 案内の文は「入っています」に替わる（デザインレビュー a1）
+    expect(text(all(tree, hasClass('rin__lead')))).toBe(
+      '明細は入っています。チャートは振り返りの画面でも追加できます。',
+    );
+    const go = all(tree, (e) => e.props.id === 'record-proceed')[0] as El;
+    expect(text(go)).toBe('振り返りへ進む');
+    // 下のボタンは欄の外（フォームの下の端。デザインレビュー a3）
+    const fieldset = all(tree, (e) => e.type === 'fieldset')[0] as El;
+    expect(all([fieldset], (e) => e.props.id === 'record-proceed')).toEqual([]);
+    expect(cls(go)).toContain('btn--primary');
+    (go.props.onClick as () => void)();
+    expect(stages).toEqual(['review']);
+  });
+
+  it('2 段目のやり直し: 読み取りの失敗で取引の値が無い → 理由と ［スクショを選ぶ］（1 段目へ）・［手入力で続ける］。［記録する］ は押せない（7.5）', () => {
+    const stages: unknown[] = [];
+    let manual = 0;
+    const tree = view(
+      withStatement(draft({}), { phase: 'failed', message: READ_MSG.failed, rows: [] }),
+      { onStage: (x) => stages.push(x), onManual: () => manual++ },
+    );
+    expect(area(tree).props['data-area']).toBe('retry');
+    expect(text(all([area(tree)], (e) => e.props.role === 'alert'))).toBe(READ_MSG.failed);
+    const repick = all(tree, (e) => e.props.id === 'record-repick')[0] as El;
+    expect(text(repick)).toBe('スクショを選ぶ');
+    (repick.props.onClick as () => void)();
+    expect(stages).toEqual(['input']);
+    const cont = all(tree, (e) => e.props.id === 'record-manual')[0] as El;
+    expect(text(cont)).toBe('手入力で続ける');
+    (cont.props.onClick as () => void)();
+    expect(manual).toBe(1);
+    const submit = all(tree, (e) => e.props.id === 'record-submit')[0] as El;
+    expect(submit.props.disabled).toBe(true);
   });
 
   it('AC-4: 読み取りの後は要約 2 行と ［編集］。読めなかった欄を名指し、押すとその欄で取引の欄のシート', () => {
@@ -2272,15 +2393,59 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(text(statusOf(open))).toMatch(/^あと \d+ 欄$/);
   });
 
-  it('AC-7: チャートの 2 枠は横並び。空は ［チャートを選ぶ］（ファイルの欄に data-chart-slot）、ある枠は押すとチャートのシート', () => {
+  it('2026-11-21: 2 段目のチャートの行。空は行全体が 1 タップで選ぶ（ファイルの欄に data-chart-slot）、入ったら押すとチャートのシート', () => {
     const { got, onSheet } = sheets();
-    const tree = view(
+    const picked: unknown[] = [];
+    const empty = view(stateFor(E1, NO_CAPITAL), {
+      onSheet,
+      onPickChart: (slot, f) => picked.push([slot, f]),
+    });
+    const row = all(empty, hasClass('rchartrow'))[0] as El;
+    expect(row.type).toBe('label');
+    expect(text(all([row], hasClass('rchartrow__l1')))).toBe('エントリーした足のチャート');
+    const input = all([row], (e) => e.type === 'input')[0] as El;
+    expect(row.props.for).toBe(input.props.id);
+    expect(input.props['data-chart-slot']).toBe('entry');
+    expect(input.props['aria-label']).toBe('エントリー時のチャートを選ぶ');
+    const target = { files: ['架空のチャート'], value: 'x' };
+    (input.props.onChange as (e: unknown) => void)({ currentTarget: target });
+    expect(picked).toEqual([['entry', '架空のチャート']]);
+    const full = view(
       stateFor(E1, NO_CAPITAL, {
+        draft: { ...E1, entryChartTimeframe: '1h' },
         charts: { entry: { phase: 'ready', preview: fakePreview(1200, 800), message: null } },
       }),
       { onSheet },
     );
-    const mini = all(tree, hasClass('rcharts'))[0] as El;
+    const btn = all(full, hasClass('rchartrow--full'))[0] as El;
+    expect(btn.type).toBe('button');
+    expect(btn.props['aria-haspopup']).toBe('dialog');
+    expect(text(btn)).toBe('エントリー時 · 1 時間足決済時のチャートも追加できます');
+    expect(all([btn], (e) => e.type === 'canvas')).toHaveLength(1);
+    (btn.props.onClick as () => void)();
+    expect(got).toEqual([{ kind: 'chart' }]);
+    // 行に貼って差し替えたら 1 行で知らせる（2026-11-21 のレビュー N5）
+    const replaced = view(
+      stateFor(E1, NO_CAPITAL, {
+        charts: { entry: { phase: 'ready', preview: fakePreview(1200, 800), message: null } },
+      }),
+      { chartReplaced: 'エントリー時のチャートを差し替えました。' },
+    );
+    const note = all(replaced, hasClass('rchart__replaced'))[0] as El;
+    expect(note.props.role).toBe('status');
+    expect(text(note)).toBe('エントリー時のチャートを差し替えました。');
+  });
+
+  it('AC-7（1 段目に置き換え）: チャートが入ったら 1 段目の枠はエントリー時・決済時の 2 枠。空は ［チャートを選ぶ］、ある枠は押すとチャートのシート', () => {
+    const { got, onSheet } = sheets();
+    const tree = view(
+      stateFor(E1, NO_CAPITAL, {
+        stage: 'input',
+        charts: { entry: { phase: 'ready', preview: fakePreview(1200, 800), message: null } },
+      }),
+      { onSheet },
+    );
+    const mini = all(tree, hasClass('rin__charts'))[0] as El;
     const grid = all([mini], hasClass('rcharts__grid'))[0] as El;
     const slots = grid.children.filter((n): n is El => typeof n !== 'string');
     expect(slots.map((x) => x.type)).toEqual(['button', 'label']);
@@ -2290,7 +2455,7 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     const file = all([slots[1] as El], (e) => e.type === 'input')[0] as El;
     expect(file.props['data-chart-slot']).toBe('exit');
     expect(file.props['aria-label']).toBe('決済時のチャートを選ぶ');
-    expect(text(all([mini], hasClass('rcharts__notice')))).toBe(CHART_READ_NOTICE);
+    expect(text(all(tree, hasClass('rin__notice')))).toContain(CHART_READ_NOTICE);
   });
 
   it('AC-8: 「ほかの欄（任意）›」は取引の欄のシートの次の段。段 2 は ［‹ 取引の欄］ で戻る', () => {
@@ -2309,12 +2474,50 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(text(all([fieldsSheet(more)], (e) => e.type === 'h2'))).toBe('ほかの欄（任意）');
   });
 
-  it('AC-1: 行が 2 つ以上なら上の帯の右に「i / N 行目」', () => {
+  it('AC-1（2026-11-21 に置き場を替えた）: 行が 2 つ以上なら上の帯の題の下に「i / N 行目」。右は振り返る段の ［スクショ］', () => {
+    let toInput = 0;
     const bar = expand(
-      RecordBarView({ title: '記録する', saving: false, rows: '1 / 2 行目', onCancel: noop }),
+      RecordBarView({
+        title: '記録する',
+        saving: false,
+        rows: '1 / 2 行目',
+        stage: 'review',
+        onCancel: noop,
+        onInput: () => toInput++,
+      }),
     );
-    expect(text(all(bar, hasClass('appbar__meta')))).toBe('1 / 2 行目');
-    const none = expand(RecordBarView({ title: '記録する', saving: false, onCancel: noop }));
+    const sub = all(bar, hasClass('appbar__sub'));
+    expect(text(all(sub, hasClass('appbar__meta')))).toBe('1 / 2 行目');
+    const end = all(bar, hasClass('appbar__end'))[0] as El;
+    const btn = all([end], (e) => e.type === 'button')[0] as El;
+    expect(text(btn)).toBe('スクショ');
+    expect(btn.props.id).toBe('record-to-input');
+    expect(btn.props['aria-label']).toBe('スクショを入れる画面へ戻る');
+    (btn.props.onClick as () => void)();
+    expect(toInput).toBe(1);
+    // 保存中は押せない
+    const saving = expand(
+      RecordBarView({
+        title: '記録する',
+        saving: true,
+        stage: 'review',
+        onInput: noop,
+        onCancel: noop,
+      }),
+    );
+    expect(all(saving, (e) => e.props.id === 'record-to-input')[0]?.props.disabled).toBe(true);
+    // 1 段目・置き場の無い画面は右が空、行が 1 つなら題だけ（今の DOM）
+    const none = expand(
+      RecordBarView({
+        title: '記録する',
+        saving: false,
+        stage: 'input',
+        onCancel: noop,
+        onInput: noop,
+      }),
+    );
     expect(all(none, hasClass('appbar__meta'))).toEqual([]);
+    expect(all(none, hasClass('appbar__sub'))).toEqual([]);
+    expect(all(none, (e) => e.props.id === 'record-to-input')).toEqual([]);
   });
 });

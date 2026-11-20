@@ -2,11 +2,16 @@
 import { describe, expect, it } from 'vitest';
 import { EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
 import {
+  chartRow,
   chartSlotLine,
   focusLcAfterRead,
   NAMED_LEAD,
   namedLabel,
+  showProceed,
+  stage1Statement,
+  stageOf,
   statementArea,
+  statementRow,
   TZ_PENDING,
   timeText,
   timeZoneNeed,
@@ -174,5 +179,90 @@ describe('小さなチャートの枠の 2 行目（AC-7）', () => {
     expect(chartSlotLine({ ...base, timeframe: '4 時間足' })).toBe('4 時間足');
     expect(chartSlotLine(base)).toBe('時間足 指定なし');
     expect(chartSlotLine({ ...base, preparing: true })).toBe('準備しています…');
+  });
+});
+
+describe('2 段（入れる → 振り返る。設計書 K17・2026-11-21）', () => {
+  it('段は state の値。省けば振り返る段（状態だけを描くテスト）', () => {
+    expect(stageOf({ stage: 'input' })).toBe('input');
+    expect(stageOf({ stage: 'review' })).toBe('review');
+    expect(stageOf({})).toBe('review');
+  });
+
+  it('2 段目の明細の行: 読み取り中・要約・やり直し（失敗・キャンセルで取引の値が無い。選ぶ枠は 1 段目だけ）', () => {
+    expect(statementRow({ statement: { phase: 'reading' } })).toBe('reading');
+    expect(statementRow({ statement: { phase: 'ready' } })).toBe('summary');
+    expect(statementRow({ manual: true })).toBe('summary');
+    expect(statementRow({ statement: { phase: 'failed' } })).toBe('retry');
+    expect(statementRow({})).toBe('retry');
+  });
+
+  it('1 段目の明細の枠: 空・読み取り中・読めた（行の数）。失敗・終わった明細は空の枠（選び直す）', () => {
+    expect(stage1Statement(undefined)).toEqual({ kind: 'empty' });
+    expect(stage1Statement({ phase: 'done', rows: [] })).toEqual({ kind: 'empty' });
+    expect(stage1Statement({ phase: 'failed', rows: [] })).toEqual({ kind: 'empty' });
+    expect(stage1Statement({ phase: 'preparing', rows: [] })).toEqual({
+      kind: 'filled',
+      text: '読み取り中…',
+    });
+    expect(stage1Statement({ phase: 'ready', rows: [1] })).toEqual({
+      kind: 'filled',
+      text: '読み取りました',
+    });
+    expect(stage1Statement({ phase: 'ready', rows: [1, 2] })).toEqual({
+      kind: 'filled',
+      text: '2 行を読み取りました',
+    });
+  });
+
+  it('［振り返りへ進む］ は 2 段目に見せるものがあるときだけ（無ければ ［明細なしで手入力］）', () => {
+    expect(showProceed({})).toBe(false);
+    expect(showProceed({ statement: { phase: 'failed' } })).toBe(false);
+    expect(showProceed({ statement: { phase: 'reading' } })).toBe(true);
+    expect(showProceed({ manual: true })).toBe(true);
+  });
+
+  const none = {
+    hasChart: false,
+    preparing: false,
+    reading: false,
+    failed: false,
+    timeframe: null,
+    suggest: null,
+  };
+  it('2 段目のチャートの行: 空は 1 タップで選ぶ行（準備中・失敗は状態の文）', () => {
+    expect(chartRow({ entry: none, exit: none, extras: 0 })).toEqual({
+      kind: 'empty',
+      status: null,
+    });
+    expect(chartRow({ entry: { ...none, preparing: true }, exit: none, extras: 0 })).toEqual({
+      kind: 'empty',
+      status: '準備しています…',
+    });
+    expect(chartRow({ entry: { ...none, failed: true }, exit: none, extras: 0 })).toEqual({
+      kind: 'empty',
+      status: '使えない画像です',
+    });
+  });
+
+  it('2 段目のチャートの行: 入ったら「エントリー時 · 時間足」と決済時の 1 行（押すとチャートのシート）', () => {
+    const entry = { ...none, hasChart: true, timeframe: '1時間足' };
+    expect(chartRow({ entry, exit: none, extras: 0 })).toEqual({
+      kind: 'full',
+      line1: 'エントリー時 · 1時間足',
+      line2: '決済時のチャートも追加できます',
+    });
+    expect(
+      chartRow({ entry, exit: { ...none, hasChart: true, timeframe: '日足' }, extras: 2 }),
+    ).toEqual({
+      kind: 'full',
+      line1: 'エントリー時 · 1時間足',
+      line2: '決済時 · 日足 · 追加 2 枚',
+    });
+    expect(chartRow({ entry: none, exit: { ...none, hasChart: true }, extras: 0 })).toEqual({
+      kind: 'full',
+      line1: 'エントリー時 · 未選択',
+      line2: '決済時 · 時間足 指定なし',
+    });
   });
 });

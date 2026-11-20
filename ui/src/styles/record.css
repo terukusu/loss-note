@@ -1,6 +1,7 @@
-/* 記録する画面の 1 画面の形（#130。設計書 K17・9.2・docs/ui-guidelines.md 9.4）。部品 pages/Record.tsx が読み込む。
-   等倍の文字の 390×844 で、明細の場所の 3 つの状態とも縦のスクロール 0px（ui:check の「1 画面に収まる」）。
-   上から 明細の場所・チャートの 2 枠と注意・LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。
+/* 記録する画面の 2 つの段（#130。2026-11-21 に 2 段へ。設計書 K17・9.2・docs/ui-guidelines.md 9.4）。部品 pages/Record.tsx が読み込む。
+   安全域（上 47・下 34）を入れた 390×844 で、2 段目の 4 つの状態と 1 段目は縦のスクロール 0px（ui:check の R12）。
+   1 段目 = 見出し・明細とチャートの絵の枠・［明細なしで手入力］。2 段目 = 入れたもののカード（明細の行・口座・チャートの行）・
+   LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。
    色はトークンだけ（tokens.css）。形（縦・横・広い）で DOM を替えない（9.5）。文字の拡大では縦に伸びてよい */
 
 /* 全画面のシートの中身: 下の余白（--sp-8）と段の間を詰め、下の帯を下の端に付ける */
@@ -34,18 +35,6 @@
   padding: calc(var(--sp-2) + 2px) var(--sp-3);
   border-radius: var(--radius-lg);
   background: var(--s1);
-}
-
-.rstmt__card--pick {
-  /* 安全域を入れた 390×844 の選ぶ前を 40px 以内に（ui-guidelines 9.4） */
-  gap: var(--sp-1);
-  padding-block: var(--sp-2);
-  border: 1.5px dashed var(--line-2);
-}
-
-.rstmt__notice {
-  margin: 0;
-  line-height: 1.4;
 }
 
 .rstmt__actions {
@@ -197,21 +186,24 @@
   gap: var(--sp-1);
 }
 
-/* ── チャートの 2 枠（横に並べる）と注意 */
-.rcharts {
+/* 口座の Segment は「口座」と同じ 1 行に並べる（2 段目の 1 画面。2026-11-21）。「選択中: 〈名前〉」は選んだ項目の ✓ と
+   項目の文字（title に全文）で足りるので、この行では出さない */
+.rsum__accounts .accountfield > .field {
   display: grid;
-  gap: 2px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--sp-3);
 }
 
+.rsum__accounts .seg__note {
+  display: none;
+}
+
+/* ── 1 段目のチャートの枠に入った後のエントリー時・決済時の 2 枠（横に並べる） */
 .rcharts__grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--sp-2);
-}
-
-.rcharts .rcharts__notice {
-  margin: 0;
-  line-height: 1.35;
 }
 
 .rchart {
@@ -413,6 +405,12 @@
   white-space: nowrap;
 }
 
+/* 題の下の行（SheetBar の sub。形は layout.css）に置いたとき */
+.appbar__sub .appbar__meta {
+  padding: 0;
+  font-size: inherit;
+}
+
 /* ── シートの中 */
 .record__sheetbody {
   display: grid;
@@ -449,4 +447,379 @@
 #record-chart-sheet .chart__remove {
   top: 6px;
   right: var(--sp-3);
+}
+
+/* ── 1 段目「スクショを入れる」: 絵つきの大きな枠 2 つと ［明細なしで手入力］（2026-11-21） */
+.record--input > .record__fields {
+  padding-top: var(--sp-3);
+}
+
+.rin {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  gap: calc(var(--sp-3) + 2px);
+}
+
+.rin__head {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.rin__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  line-height: 1.3;
+}
+
+.rin__title:focus {
+  outline: none;
+}
+
+.rin__lead {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+/* 空の枠は点線、入った枠は実線（線の色は面と同じ = 線が消えて面だけ） */
+.rin__card {
+  display: grid;
+  gap: 10px;
+  padding: var(--sp-3);
+  border: 1.5px dashed var(--line-2);
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+  box-shadow: var(--shadow-card);
+}
+
+.rin__card--filled {
+  border-style: solid;
+  border-color: transparent;
+}
+
+/* チャートが入った 1 段目の枠は面を敷かない（中の小さな 2 枠が線を持つ。入れ子の段を増やさない） */
+.rin__card--bare {
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.rin__body {
+  display: grid;
+  /* 幅 360 でも右の列のボタンが 1 行に入る絵の幅（390 で 112px、360 で 96px 前後） */
+  grid-template-columns: clamp(84px, calc(100vw - 278px), 112px) minmax(0, 1fr);
+  gap: 10px 14px;
+}
+
+.rin__artwrap {
+  position: relative;
+  align-self: center;
+}
+
+.rin__art {
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--s3);
+  line-height: 0;
+}
+
+.rin__art > svg,
+.rin__preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.rin__preview {
+  object-fit: cover;
+  object-position: top;
+}
+
+/* 実物の写しが入ったら面を敷かない（入れ子の段を増やさない） */
+.rin__art:has(.rin__preview) {
+  background: none;
+}
+
+.rin__check {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--tier-neutral-line);
+  border-radius: var(--radius-pill);
+  background: var(--tier-neutral-bg);
+  color: var(--ink);
+}
+
+.rin__check .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.rin__text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rin__name {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  line-height: 1.3;
+}
+
+.rin__name .field__optional {
+  margin-left: var(--sp-1);
+}
+
+.rin__desc {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.rin__btn {
+  position: relative;
+  margin-top: var(--sp-1);
+  padding-inline: var(--sp-3);
+  white-space: nowrap;
+}
+
+.rin__card .rin__notice {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.rin__charts {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.rin__charts .rin__name {
+  font-size: var(--fs-md);
+}
+
+.rin .statement__pastehint {
+  margin: 0;
+}
+
+/* 1 段目の下のボタンはフォームの下の端（2 段目の ［記録する］ と同じ所。中身が窓より長ければ枠の続きに流れる。
+   デザインレビュー a3） */
+.rin__foot {
+  display: grid;
+  gap: 6px;
+  margin-top: auto;
+  padding: var(--sp-3) 0 calc(var(--sp-2) + var(--safe-bottom));
+}
+
+/* 「エントリーした足の / チャート」は語の切れ目でだけ折る（デザインレビュー a2） */
+.rin__chunk {
+  display: inline-block;
+}
+
+.rin__footlead {
+  margin: 0;
+  font-size: var(--fs-xs);
+  text-align: center;
+  color: var(--ink-3);
+}
+
+/* ── 2 段目の入れたもののカード（明細の行・口座・チャートの行を 1 枚の面に） */
+.rinput {
+  display: grid;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+  box-shadow: var(--shadow-card);
+}
+
+.rinput .rstmt__card {
+  padding-block: var(--sp-2);
+  border-radius: 0;
+  background: none;
+}
+
+.rstmt__card--retry {
+  gap: var(--sp-2);
+}
+
+.rinput .rchartrow__blocked {
+  margin: 0;
+  padding: 0 var(--sp-3) var(--sp-2);
+}
+
+/* チャートの行: 空は押すとエントリー時のチャートを選ぶ（1 タップ）、入ったら押すとチャートのシート */
+.rchartrow {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--sp-1) var(--sp-3);
+  border: 0;
+  border-top: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.rchartrow:focus-within,
+.rchartrow:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.rchartrow__thumb {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--s3);
+  line-height: 0;
+}
+
+.rchartrow__thumb:has(canvas) {
+  background: none;
+}
+
+.rchartrow__thumb > svg {
+  width: 100%;
+  height: 100%;
+}
+
+.rchartrow__thumb--empty {
+  overflow: visible;
+  border: 1.5px dashed var(--line-2);
+  background: none;
+}
+
+.rchartrow__plus {
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  color: var(--accent);
+}
+
+.rchartrow__plus .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.rchartrow__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rchartrow:not(.rchartrow--full) .rchartrow__text {
+  grid-column: 2 / 4;
+}
+
+.rchartrow__l1,
+.rchartrow__l2 {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.rchartrow__l1 {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.rchartrow__l2 {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.rchartrow .rchartrow__notice {
+  margin: 0;
+  line-height: 1.3;
+}
+
+.rchartrow__chev {
+  color: var(--ink-3);
+}
+
+/* ── 絵（RecordArt.tsx。色はトークンだけ） */
+.rart__phone {
+  fill: var(--s1);
+  stroke: var(--line-2);
+}
+
+.rart__rule,
+.rart__grid {
+  fill: var(--line-2);
+}
+
+.rart__bar,
+.rart__strong {
+  fill: var(--ink-2);
+}
+
+.rart__line {
+  fill: var(--ink-3);
+  opacity: 0.55;
+}
+
+.rart__pill,
+.rart__tag {
+  fill: var(--s1);
+  stroke: var(--line-2);
+}
+
+.rart__accent,
+.rart__in {
+  fill: var(--accent);
+}
+
+.rart__level {
+  fill: var(--accent);
+  opacity: 0.6;
+}
+
+.rart__wick,
+.rart__body {
+  fill: var(--ink-2);
+}
+
+.rart__glyph {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rart__glyph--in {
+  stroke: var(--accent);
 }

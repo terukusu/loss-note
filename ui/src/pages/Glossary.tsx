@@ -5,9 +5,10 @@
 // （「i」の「用語集で見る」から来たとき = ?from=〈パス〉。それ以外は設定へ）。
 // 文はテキストのノードとリンクの部品だけ（HTML の文字列にしない）。GlossaryView は hook を持たない（テストは関数を呼んで木にする）
 import { useEffect, useState } from 'preact/hooks';
+import { TopBar } from '../components/AppBar';
+import { Chip } from '../components/Button';
 import { GlossaryText } from '../components/GlossaryText';
 import { GradeName } from '../components/InfoTip';
-import { PageHeader } from '../components/PageHeader';
 import {
   GLOSSARY,
   GLOSSARY_GROUPS,
@@ -17,8 +18,9 @@ import {
   isGlossaryId,
 } from '../lib/glossary';
 import { glossaryAnchor, relatedIds } from '../lib/glossary-text';
-import { Link } from '../lib/router';
+import { depthOf } from '../lib/router';
 import { glossaryBack } from '../lib/routes';
+import { inPageStepState } from '../lib/tab-nav';
 
 function Term({ t, current }: { readonly t: GlossaryTerm; readonly current: boolean }) {
   const text = (s: string) => <GlossaryText text={s} link="anchor" />;
@@ -54,17 +56,17 @@ function Term({ t, current }: { readonly t: GlossaryTerm; readonly current: bool
       ) : null}
       {t.example ? <p class="glossary__example">{t.example}</p> : null}
       {related.length > 0 ? (
-        <p class="glossary__related">
-          <span class="glossary__related-label">関係する言葉:</span>{' '}
-          {related.map((id, i) => (
-            <span key={id}>
-              {i > 0 ? '・' : ''}
-              <a class="glink" href={`#${glossaryAnchor(id)}`}>
-                {glossaryTerm(id).term}
-              </a>
-            </span>
-          ))}
-        </p>
+        <div class="glossary__related">
+          <span class="glossary__related-label">関係する言葉:</span>
+          {/* 関係する言葉の札（チップ。9.12） */}
+          <ul class="chips">
+            {related.map((id) => (
+              <li key={id}>
+                <Chip href={`#${glossaryAnchor(id)}`}>{glossaryTerm(id).term}</Chip>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
     </section>
   );
@@ -73,7 +75,7 @@ function Term({ t, current }: { readonly t: GlossaryTerm; readonly current: bool
 export interface GlossaryViewProps {
   /** 今見ている項目（たどった先。見出しの左の線で示す） */
   readonly current?: GlossaryId | null;
-  /** 上の戻るリンクの名前（「‹ 記録する」の〈記録する〉） */
+  /** 上の帯の戻るのボタンの名前（「‹ 記録する」の〈記録する〉） */
   readonly backLabel?: string;
   /** 押したとき（来た画面へ戻る）。無ければ設定へのリンク */
   readonly onBack?: (() => void) | undefined;
@@ -83,35 +85,23 @@ export function GlossaryView(p: GlossaryViewProps) {
   const backLabel = p.backLabel ?? '設定';
   return (
     <>
-      <PageHeader
+      <TopBar
         title="用語集"
-        description={
-          <>
-            {p.onBack ? (
-              <button type="button" class="detail__back glossary__back" onClick={p.onBack}>
-                ‹ {backLabel}
-              </button>
-            ) : (
-              <Link href="/settings" class="detail__back">
-                ‹ 設定
-              </Link>
-            )}
-            <span>
-              判定に関わる言葉の意味です。下線の言葉を押すと、その説明へ移動します。ブラウザの「戻る」で元の位置に戻れます。
-            </span>
-          </>
+        back={
+          p.onBack ? { label: backLabel, onBack: p.onBack } : { label: '設定', href: '/settings' }
         }
       />
+      <p class="pagehead__desc">
+        判定に関わる言葉の意味です。下線の言葉を押すと、その説明へ移動します。ブラウザの「戻る」で元の位置に戻れます。
+      </p>
       <nav class="card section glossary__index" aria-label="言葉の一覧">
         {GLOSSARY_GROUPS.map((g) => (
           <div key={g.id} class="glossary__index-group">
             <p class="glossary__group-name">{g.name}</p>
-            <ul>
+            <ul class="chips">
               {GLOSSARY.filter((t) => t.group === g.id).map((t) => (
                 <li key={t.id}>
-                  <a class="glink" href={`#${glossaryAnchor(t.id)}`}>
-                    {t.term}
-                  </a>
+                  <Chip href={`#${glossaryAnchor(t.id)}`}>{t.term}</Chip>
                 </li>
               ))}
             </ul>
@@ -174,11 +164,19 @@ export function Glossary() {
       const id = a.getAttribute('href')?.slice(PREFIX.length) ?? '';
       if (!isGlossaryId(id)) return;
       e.preventDefault();
-      const { pathname, search } = window.location;
+      const { pathname, search, hash } = window.location;
+      const next = `${pathname}${search}#${glossaryAnchor(id)}`;
+      // アプリの印は 1 段進める（たどった段も積み重ねの深さに数える。タブの切り替え・押し直しで戻る段が足りるように。
+      // 再読み込みで履歴を組み直さない。#127 のレビュー B1）
       window.history.pushState(
-        { glossary: depthNow() + 1 },
+        {
+          ...inPageStepState(window.history.state, `${pathname}${search}${hash}`, next, {
+            dev: import.meta.env.DEV,
+          }),
+          glossary: depthNow() + 1,
+        },
         '',
-        `${pathname}${search}#${glossaryAnchor(id)}`,
+        next,
       );
       setCurrent(id);
       reveal(id, true);
@@ -198,8 +196,13 @@ export function Glossary() {
     <GlossaryView
       current={current}
       backLabel={back?.label ?? '設定'}
-      // 来た画面へ: 用語集の中でたどった数 + 用語集に入った 1 つを戻る
-      onBack={back ? () => window.history.go(-(depthNow() + 1)) : undefined}
+      // 来た画面へ: 用語集の中でたどった数 + 用語集に入った 1 つを戻る（直接開いても履歴は [/, /settings, /glossary] に
+      // 組み直してあるので設定へ戻る。アプリの中に前の画面が無い古い履歴だけ設定へのリンク）
+      onBack={
+        back || depthOf(window.history.state) > 0
+          ? () => window.history.go(-(depthNow() + 1))
+          : undefined
+      }
     />
   );
 }

@@ -253,7 +253,7 @@ describe('AC-5: 色だけに頼らない', () => {
 });
 
 describe('AC-6: ホームと一覧に出す場所', () => {
-  it('ホーム: [記録する] の後・規律の振り返りの前（直近の判定はその後）', () => {
+  it('ホーム: 先頭（規律の振り返りの前。直近の判定はその後。[記録する] は置かない = #127）', () => {
     const sel = parsePeriod('');
     const tree = expand(
       <HomeView
@@ -286,7 +286,7 @@ describe('AC-6: ホームと一覧に出す場所', () => {
               ? 'recent'
               : null;
     const order = all(tree, (e) => kind(e) !== null).map(kind);
-    expect(order).toEqual(['record', 'streak', 'review', 'recent']);
+    expect(order).toEqual(['streak', 'review', 'recent']);
     expect(all(tree, hasClass('streak'))[0]?.props['aria-labelledby']).toBe('home-streak-title');
   });
 

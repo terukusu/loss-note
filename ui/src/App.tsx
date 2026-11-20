@@ -7,7 +7,7 @@ import { type AuthState, gate } from './auth/gate';
 import { type AuthSession, api, forbiddenFlag } from './auth/session';
 import { DRAFT_UNDO_ID, TOAST_UNDO_ID, Toast } from './components/Toast';
 import { loadParts } from './devPages';
-import { Shell } from './layout/Shell';
+import { RootTitleBar, Shell, tabLabel } from './layout/Shell';
 import { createDeletions, type DeletionsState } from './lib/deletions';
 import { DeletionsContext } from './lib/deletions-context';
 import { createDrafts, type DraftsState, editKey, recordKey } from './lib/drafts';
@@ -21,6 +21,7 @@ import { Glossary } from './pages/Glossary';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Record } from './pages/Record';
+import { Review } from './pages/Review';
 import { Settings } from './pages/Settings';
 import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
@@ -63,6 +64,8 @@ export function Page(p: PageProps) {
       return <Record />;
     case 'trades':
       return <Trades />;
+    case 'review':
+      return <Review />;
     case 'trade':
       return <TradeDetail id={route.id} />;
     case 'tradeEdit':
@@ -84,6 +87,37 @@ export function Page(p: PageProps) {
   }
 }
 
+/** 覚えていた位置へ戻す（届くまで毎フレーム試し、1 秒か利用者の操作でやめる）。やめる関数を返す */
+export function restoreScroll(win: Window, y: number): () => void {
+  if (y <= 0) {
+    win.scrollTo(0, 0);
+    return () => {};
+  }
+  let frame = 0;
+  const until = Date.now() + 1000;
+  const stop = () => {
+    if (frame) win.cancelAnimationFrame(frame);
+    frame = 0;
+    win.removeEventListener('wheel', stop);
+    win.removeEventListener('touchstart', stop);
+    win.removeEventListener('keydown', stop);
+  };
+  const step = () => {
+    win.scrollTo(0, y);
+    if (Math.abs(win.scrollY - y) <= 1 || Date.now() > until) {
+      frame = 0;
+      stop();
+      return;
+    }
+    frame = win.requestAnimationFrame(step);
+  };
+  win.addEventListener('wheel', stop, { passive: true });
+  win.addEventListener('touchstart', stop, { passive: true });
+  win.addEventListener('keydown', stop);
+  step();
+  return stop;
+}
+
 /** ログインの状態が分かるまでの面（中身もログイン画面も出さない） */
 export function Loading() {
   return (
@@ -95,7 +129,7 @@ export function Loading() {
 
 export function App(props: AppProps) {
   const { nav, session, initialTheme, storage, root, dev, emulator } = props;
-  const { route, search, via } = useCurrent(nav);
+  const { route, search, via, mark, scroll } = useCurrent(nav);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [auth, setAuth] = useState<AuthState>({ kind: 'unknown' });
   const [forbidden, setForbidden] = useState(forbiddenFlag.isSet());
@@ -267,8 +301,13 @@ export function App(props: AppProps) {
     focusUndo.current = null;
     if (undo) undo.focus({ preventScroll: true });
     else document.querySelector<HTMLElement>('main h1')?.focus({ preventScroll: true });
-    if (via === 'push') window.scrollTo(0, 0);
-  }, [route, via, g.render]);
+    if (via === 'push' || via === 'retap') window.scrollTo(0, 0);
+    // タブを替えて記憶の画面を積み直した: 積み直した項目はブラウザが位置を戻さないので、覚えていた位置へ殻が戻す
+    // （中身が読み込まれて高さが足りるまで、1 秒の間だけ毎フレーム試す。利用者がスクロールしたらやめる。9.7 の 2）
+    if (via === 'tab') return restoreScroll(window, scroll);
+    // 積み直した段へ戻った（router が覚えていた位置を渡す。ブラウザは積み直した段の位置を正しく覚えていない。#127 N1）
+    if (via === 'pop' && scroll > 0) return restoreScroll(window, scroll);
+  }, [route, via, g.render, mark]);
 
   let body: JSX.Element;
   if (g.render === 'forbidden') {
@@ -293,6 +332,8 @@ export function App(props: AppProps) {
     body = (
       <Shell
         route={route}
+        tab={mark.tab}
+        rootbar={<RootTitleBar title={tabLabel(mark.tab)} />}
         emulator={emulator}
         recordDraft={draftState.kept.has(recordKey())}
         toast={

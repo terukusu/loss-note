@@ -90,7 +90,7 @@ export function ChartPanel(p: ChartPanelProps) {
         <button
           type="button"
           id={addExtraId(p.idPrefix)}
-          class="btn btn--ghost section__action charts__add"
+          class="btn btn--tonal btn--sm section__action charts__add"
           aria-label="チャートを追加"
           disabled={full}
           {...(full ? { 'aria-describedby': `${addExtraId(p.idPrefix)}-full` } : {})}
@@ -156,7 +156,7 @@ function FilePick(p: {
   readonly id: string;
   readonly label: string;
   readonly ariaLabel: string;
-  readonly variant: 'secondary' | 'ghost';
+  readonly variant: 'secondary' | 'tonal';
   readonly onFile: (file: File) => void;
 }) {
   return (
@@ -219,7 +219,7 @@ function ChartBox(
       {removable ? (
         <div class="chart__remove">
           <Button
-            variant="ghost"
+            variant="secondary"
             label={`${p.name}のチャートを削除`}
             onClick={() => p.onRemove?.(slot)}
           >
@@ -348,7 +348,7 @@ function ChartBox(
               id={`${id}-file`}
               label="差し替え"
               ariaLabel={`${p.name}のチャートを差し替える`}
-              variant="ghost"
+              variant="secondary"
               onFile={pick}
             />
           </div>

@@ -2,7 +2,12 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- 安全域まで面を敷き（viewport-fit=cover。押せるものは --safe-* の内側）、Android の Chrome はキーボードの分だけ窓を縮める
+         （interactive-widget=resizes-content。窓が縮んでも画面の形は替えない。ui-guidelines 9.5・9.6。#127） -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>損失ノート</title>
     <!-- アイコン（ui/public/。元は favicon.svg、ほかは scripts/make-icons.mjs で作る。#52） -->
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
@@ -13,6 +18,8 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0a0c10" />
     <meta name="apple-mobile-web-app-title" content="損失ノート" />
+    <!-- ホーム画面に追加して開いたとき、状態のバーの下まで面を敷く（上の安全域の面は殻が敷く。9.6） -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   </head>
   <body>
     <div id="app"></div>

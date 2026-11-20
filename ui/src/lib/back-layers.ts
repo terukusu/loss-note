@@ -167,17 +167,21 @@ export function createBackLayers(env: BackEnv): BackLayers {
     scheduleSettle();
   });
 
-  // 起動・再読み込みの直後: 前に開いていた層の段（back > 0）の項目にいたら、その印を外す（再読み込みの後の戻るが
-  // 同じ画面のまま空振りしないように。#57 レビュー N3 a）
-  if (backOf(env.readState()) > 0) {
-    try {
-      env.replaceState({ ...baseState(), back: 0 });
-    } catch {
-      // 置き換えられなければそのまま
-    }
+  // 起動・再読み込みの直後: 前に開いていた層の段（back = n > 0）の項目にいたら、層は開き直さず、画面に出さずに n 段戻って
+  // 画面の段へ着く（印を外すだけだと同じ URL の段が 2 つ並び、戻るが 1 回効かなく見えるため。前へ側に残った層の段は次に
+  // 積むときに消える。ui-guidelines 9.7 の 5・#127。router は URL の変わらない popstate で画面を変えない）
+  const atBoot = backOf(env.readState());
+  if (atBoot > 0) {
+    state = { layers: [], hist: 0, awaiting: 0 };
+    env.go(-atBoot);
+    cancelUnstick = env.defer(() => {
+      cancelUnstick = null;
+      if (state.awaiting !== null) dispatch({ type: 'unstick' });
+    }, UNSTICK_MS);
+  } else {
+    // 起動・再読み込みの直後も、前に manual のまま残った項目なら auto に戻す
+    setMode('auto');
   }
-  // 起動・再読み込みの直後も、前に manual のまま残った項目なら auto に戻す
-  setMode('auto');
 
   return {
     open(id, onClose) {

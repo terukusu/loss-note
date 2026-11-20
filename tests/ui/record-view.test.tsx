@@ -23,8 +23,8 @@ import {
 import { fillFromRow, gateReading, READ_MSG } from '../../ui/src/lib/statement-fill';
 import {
   RESUMED_ID,
-  RecordCancel,
-  RecordCancelView,
+  RecordBar,
+  RecordBarView,
   Record as RecordPage,
   RecordView,
   type RecordViewProps,
@@ -340,39 +340,33 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     expect(saved).toBe(1);
   });
 
-  it('#75 AC-4: [キャンセル] は見出しの右（帯は 1 段のまま）。押すと onCancel、保存中は押せない', () => {
+  it('#127（#75 AC-4 の置き換え）: キャンセルは全画面のシートの左上の ✕ のアイコンのボタン（読み上げの名前「キャンセル」）。押すと onCancel、保存中は押せない。下の帯には置かない', () => {
     let cancelled = 0;
-    const btn = (saving: boolean) =>
-      all(
-        expand(RecordCancelView({ saving, onCancel: () => cancelled++ })),
-        (e) => e.type === 'button',
-      )[0] as El;
+    const bar = (saving: boolean) =>
+      expand(RecordBarView({ title: '記録する', saving, onCancel: () => cancelled++ }));
+    const btn = (saving: boolean) => all(bar(saving), (e) => e.type === 'button')[0] as El;
     const b = btn(false);
-    expect(b.props['aria-label']).toBe('記録をキャンセル');
-    expect(text(b)).toBe('キャンセル');
+    expect(b.props['aria-label']).toBe('キャンセル');
+    // 見た目は ✕ のアイコンだけ（文字のリンクの見た目にしない。9.12）
+    expect(text(b)).toBe('');
+    expect(all([b], (e) => e.type === 'svg')).toHaveLength(1);
     expect(b.props.disabled).toBe(false);
     (b.props.onClick as () => void)();
     expect(cancelled).toBe(1);
     expect(btn(true).props.disabled).toBe(true);
-    // 置き場の無い描画（onCancel なし）では帯にも出さない
-    const tree = view(stateFor(E1, NO_CAPITAL));
-    expect(all(tree, (e) => e.props['aria-label'] === '記録をキャンセル')).toEqual([]);
-    // 置き場があれば帯の [記録する] の左にも（幅 720 以上だけ見える = .record__barcancel）。保存中は押せない
+    // 帯の先頭（左上）が ✕、次が題（h1）
+    const head = all(bar(false), (e) => e.type === 'header')[0] as El;
+    const order = all([head], (e) => e.type === 'button' || e.type === 'h1').map((e) => e.type);
+    expect(order).toEqual(['button', 'h1']);
+    expect(text(all([head], (e) => e.type === 'h1')[0] as El)).toBe('記録する');
+    // 下の帯（判定の 1 行 + [記録する]）にキャンセルを置かない
     const withCancel = view(stateFor(E1, NO_CAPITAL), { onCancel: noop });
-    const bar = all(withCancel, hasClass('record__submit--bar'))[0] as El;
-    const wrap = all([bar], hasClass('record__barcancel'))[0] as El;
-    const inBar = all([wrap], (e) => e.type === 'button')[0] as El;
-    expect(inBar.props['aria-label']).toBe('記録をキャンセル');
-    const kids = bar.children.filter((n) => typeof n !== 'string') as El[];
-    expect(kids.indexOf(wrap) + 1).toBe(kids.indexOf(submit(withCancel)));
-    const savingBar = view(stateFor(E1, NO_CAPITAL, { phase: 'saving' }), { onCancel: noop });
-    expect(
-      (all(savingBar, (e) => e.props['aria-label'] === '記録をキャンセル')[0] as El).props.disabled,
-    ).toBe(true);
-    const head = RecordPage() as {
-      props: { children: { props: { actions: { type: unknown } } }[] };
-    };
-    expect(head.props.children[0]?.props.actions.type).toBe(RecordCancel);
+    const submitBar = all(withCancel, hasClass('record__submit--bar'))[0] as El;
+    expect(all([submitBar], (e) => e.type === 'button').map(text)).toEqual([
+      text(submit(withCancel)),
+    ]);
+    const page = RecordPage() as { props: { children: { type: unknown }[] } };
+    expect(page.props.children[0]?.type).toBe(RecordBar);
   });
 
   it('#75 デザイン 1: 借り直した書きかけは見出しの下に「前の入力の続きです」と決済の時刻のまま。借り直していなければ出さない', () => {
@@ -385,7 +379,7 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     const l = line(tree)[0] as El;
     expect(text(l)).toContain('前の入力の続きです（5 分前）。');
     expect(text(l)).toContain('のままです。');
-    expect(text(l)).toContain('[キャンセル]');
+    expect(text(l)).toContain('左上の ✕（キャンセル）');
     const changed = view(
       { ...st, baseline: { ...base.draft, exitTime: '2000-01-01T00:00' } },
       {
@@ -1589,11 +1583,11 @@ describe('密度と階層（Issue #33）', () => {
     for (const item of others) expect(all([item], hasClass('seg__check'))).toEqual([]);
   });
 
-  it('AC-4: 画面の見出しに説明文を付けない（見出しだけ）', () => {
+  it('AC-4: 画面の見出しに説明文を付けない（上の帯の題だけ）', () => {
     const page = RecordPage() as VNode<{ children: VNode<Record<string, unknown>>[] }>;
     const head = (page.props.children as VNode<Record<string, unknown>>[])[0];
     expect(head?.props.title).toBe('記録する');
-    expect(head?.props.description).toBeUndefined();
+    expect(Object.keys(head?.props ?? {})).toEqual(['title']);
   });
 
   it('AC-1: 帯は 1 段（状態の文 1 つ + [記録する]）。保存の後の帯は [次の取引を記録] だけで大きいボタンにしない', () => {

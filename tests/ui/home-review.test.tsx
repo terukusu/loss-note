@@ -119,7 +119,7 @@ describe('振り返りの段の並びと中身（S1）', () => {
   const tree = home(slot(SEVEN, { phase: 'ready', range: R7, trades: S1, truncated: false }));
   const r = reviewOf(tree);
 
-  it('[記録する] → 振り返り → 直近の判定の順', () => {
+  it('振り返り → 直近の判定の順（ホームに [記録する] を置かない。下のタブの ［＋ 記録］ の 1 か所。#127）', () => {
     const order = all(
       tree,
       (e) =>
@@ -129,7 +129,7 @@ describe('振り返りの段の並びと中身（S1）', () => {
     ).map((e) =>
       hasClass('home__record')(e) ? 'record' : hasClass('review')(e) ? 'review' : 'recent',
     );
-    expect(order).toEqual(['record', 'review', 'recent']);
+    expect(order).toEqual(['review', 'recent']);
   });
 
   it('期間の 5 つの選択肢（radio）・範囲と件数の行（aria-live）・数字の段', () => {
@@ -265,7 +265,7 @@ describe('件数が少ない・0 件・期間の誤り', () => {
   });
 });
 
-describe('KEEP-4: 振り返りだけ失敗しても [記録する] と直近の判定は出る', () => {
+describe('KEEP-4: 振り返りだけ失敗しても直近の判定は出る', () => {
   it('偽の API で範囲つきの GET だけ 503 → 直近 5 件は読め、振り返りは決まった文言と [再読み込み]', async () => {
     const fake = createFakeApi({
       trades: H1,
@@ -277,7 +277,7 @@ describe('KEEP-4: 振り返りだけ失敗しても [記録する] と直近の�
     await Promise.all([recent.load(), review.load(R7)]);
     expect(recent.getState().phase).toBe('ready');
     const tree = home(slot(SEVEN, review.getState()), recent.getState());
-    expect(all(tree, hasClass('home__record'))).toHaveLength(1);
+    expect(all(tree, hasClass('home__record'))).toHaveLength(0);
     expect(all(tree, hasClass('traderow'))).toHaveLength(5);
     const r = reviewOf(tree);
     expect(text(r)).toContain(REVIEW_LOAD_FAILED);

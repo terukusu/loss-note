@@ -25,16 +25,18 @@ describe('App', () => {
   it.each([
     ['home', 'ホーム'],
     ['record', '記録する'],
-    ['trades', '取引の一覧'],
+    ['trades', '取引'],
+    ['review', '振り返り'],
     ['settings', '設定'],
   ] as const)('%s の画面に見出し「%s」がある', (name, title) => {
     expect(pageTree({ name } as Route)).toContain(title);
   });
 
-  it('ホームの空の状態に [記録する]（/record へのリンク）がある（V1）', () => {
+  it('ホームの空の状態は短い文と下の ［＋ 記録］ を指す一言（ボタンは足さない。［記録する］ は下のタブの 1 か所。#127）', () => {
     const tree = pageTree({ name: 'home' });
     expect(tree).toContain('最初の取引を記録しましょう');
-    expect(tree).toContain('"href":"/record"');
+    expect(tree).toContain('[記録] を押');
+    expect(tree).not.toContain('"href":"/record"');
   });
 
   it('設定にテーマの切り替え（ダーク / ライト）とログアウトがある', () => {

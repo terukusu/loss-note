@@ -13,7 +13,7 @@ import type {
 } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { AiUsageCard } from '../components/AiUsage';
-import { Button, buttonClass } from '../components/Button';
+import { Button, buttonClass, RowLink } from '../components/Button';
 import { AmountText } from '../components/Num';
 import { NumberField } from '../components/NumberField';
 import { PageHeader } from '../components/PageHeader';
@@ -29,7 +29,6 @@ import {
 import { currencyLockedText, unitOf } from '../lib/currency';
 import { formatDateTime } from '../lib/datetime';
 import { formatAmount } from '../lib/format';
-import { Link } from '../lib/router';
 import {
   ACCOUNT_FIELD_ID,
   ADD_ACCOUNT_ID,
@@ -86,11 +85,8 @@ export function Settings({ theme, onTheme, onSignOut, signOutBusy, signOutError 
           用語集
         </h2>
         <p class="field__hint">LC・R・判定など、判定に関わる言葉の意味です。</p>
-        <div>
-          <Link class="btn btn--secondary" href="/glossary">
-            用語集を開く
-          </Link>
-        </div>
+        {/* 次の画面へ（押せる行。9.12） */}
+        <RowLink href="/glossary">用語集を開く</RowLink>
       </section>
       <section class="card section">
         <h2 class="section__title">表示</h2>
@@ -325,7 +321,7 @@ function AccountsCard(p: SettingsViewProps) {
         <button
           type="button"
           id={ADD_ACCOUNT_ID}
-          class={`${buttonClass({ variant: 'ghost', block: true })} accountlist__add`}
+          class={`${buttonClass({ variant: 'tonal', block: true })} accountlist__add`}
           disabled={ed?.saving === true}
           onClick={() => p.onOpenAccount(null)}
         >
@@ -477,7 +473,7 @@ function AccountEditor(
         <Button type="submit" id={SAVE_BUTTON_ID.account} disabled={editing.saving}>
           {editing.saving ? (rec ? '保存しています…' : '追加しています…') : rec ? '保存' : '追加'}
         </Button>
-        <Button variant="ghost" onClick={p.onCloseAccount} disabled={editing.saving}>
+        <Button variant="secondary" onClick={p.onCloseAccount} disabled={editing.saving}>
           キャンセル
         </Button>
       </div>
@@ -701,7 +697,7 @@ function InstrumentEditor(
         <Button type="submit" id={SAVE_BUTTON_ID.instrument} disabled={editing.saving}>
           {editing.saving ? '保存しています…' : '保存'}
         </Button>
-        <Button variant="ghost" onClick={p.onClose} disabled={editing.saving}>
+        <Button variant="secondary" onClick={p.onClose} disabled={editing.saving}>
           キャンセル
         </Button>
       </div>

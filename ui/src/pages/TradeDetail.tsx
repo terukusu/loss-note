@@ -9,10 +9,10 @@ import { Fragment, type JSX } from 'preact';
 import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
 import { accountCurrencyOf } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
+import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button } from '../components/Button';
 import { EXTRA_TITLE } from '../components/ChartPanel';
 import { EmptyState } from '../components/EmptyState';
-import { PageHeader } from '../components/PageHeader';
 import { Verdict } from '../components/Verdict';
 import { hasManyAccounts, tradeAccountName, verdictAsideText } from '../lib/accounts';
 import { APP_NAME } from '../lib/app-name';
@@ -21,8 +21,8 @@ import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { editBlock } from '../lib/edit-form';
-import { Link, NavigatorContext } from '../lib/router';
-import { titleOf } from '../lib/routes';
+import { type Navigator, NavigatorContext } from '../lib/router';
+import { screenLabel, titleOf } from '../lib/routes';
 import { browserCodec } from '../lib/statement-image';
 import { createTradeDetailController, type DetailState } from '../lib/trade-detail-controller';
 import {
@@ -95,16 +95,18 @@ function TradeDetailScreen({
   return (
     <TradeDetailView
       id={id}
+      back={backTargetOf(nav, '/trades')}
       state={state}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       editDraft={kept.has(editKey(id))}
       onDelete={() => {
-        // 確認を挟まずに消す（取り消しはトーストの [元に戻す]。P4）。一覧へ置き換える（戻るで消した取引に戻らない）
+        // 確認を挟まずに消す（取り消しはトーストの [元に戻す]。P4）。前の画面（取引のタブなら一覧）へ戻る（9.7 の 6。
+        // 置き換えると同じ URL の一覧が 2 段並ぶ。消した取引は印で隠れる）
         if (state.phase === 'ready') {
           del?.remove(id, shortLabel(state.trade, state.instrumentName));
         }
-        nav?.replace('/trades');
+        nav?.back('/trades');
       }}
       onReloadChart={(slot) => {
         void controller.reloadChart(slot);
@@ -119,8 +121,22 @@ function TradeDetailScreen({
   );
 }
 
+/**
+ * 上の帯の「‹ 前の画面の名前」（9.2）: 今の並びの 1 つ下の画面の名前と、押すと前の画面へ（無ければ fallback へ置き換え）。
+ * 殻の行き来が無い（テストで画面だけ）なら fallback へのリンク
+ */
+export function backTargetOf(nav: Navigator | null, fallback: string): BackTarget {
+  const opts = { dev: import.meta.env.DEV };
+  const stack = nav?.current.mark.stack ?? [];
+  const prev = stack.length >= 2 ? stack[stack.length - 2] : undefined;
+  const label = screenLabel(prev ?? fallback, opts) ?? screenLabel(fallback, opts) ?? '';
+  return nav ? { label, onBack: () => nav.back(fallback) } : { label, href: fallback };
+}
+
 export interface TradeDetailViewProps {
   readonly id: string;
+  /** 上の帯の「‹ 前の画面」（無ければ「‹ 取引」で一覧へのリンク） */
+  readonly back?: BackTarget;
   readonly state: DetailState;
   readonly hidden: ReadonlySet<string>;
   readonly notFound: JSX.Element;
@@ -135,7 +151,8 @@ export interface TradeDetailViewProps {
 /** 判定の枠（3 つのタップの答えの札を含む）・チャートの枠・すべての欄（畳む）・[直す] / [消す]（hook を持たない） */
 export function TradeDetailView(p: TradeDetailViewProps) {
   const { state } = p;
-  const plain = <PageHeader title="取引の詳細" />;
+  const back: BackTarget = p.back ?? { label: '取引', href: '/trades' };
+  const plain = <TopBar back={back} title="取引の詳細" />;
   if (p.hidden.has(p.id) || state.phase === 'notFound') {
     return (
       <>
@@ -157,44 +174,40 @@ export function TradeDetailView(p: TradeDetailViewProps) {
   const h = detailHeading(t, state.instrumentName, state.accounts);
   return (
     <>
-      <PageHeader
+      <TopBar
+        back={back}
         title={h.title}
-        description={
-          <>
-            <Link href="/trades" class="detail__back">
-              ‹ 一覧
-            </Link>
-            <span class="detail__when">
-              {/* 幅 480px 以上だけ「エントリー … → 」を頭に（360 は見出しの下の行を 1 行に保つ。#58 デザインレビュー 5） */}
-              {h.entry ? <span class="detail__entry">{h.entry} → </span> : null}
-              {/* 区切り（決済の日時・保有・口座）の中では折らず、「·」は後ろの区切りの頭に付ける（判定の枠の数量の行と同じ） */}
-              {h.sub.split(' · ').map((seg, i) => (
-                <Fragment key={seg}>
-                  {i > 0 ? ' ' : null}
-                  <span class="detail__seg">{i > 0 ? `· ${seg}` : seg}</span>
-                </Fragment>
-              ))}
-            </span>
-          </>
-        }
         actions={
-          <>
-            {block === null ? (
-              <Button
-                href={`/trades/${t.id}/edit`}
-                variant="secondary"
-                icon="edit"
-                {...(p.editDraft ? { dot: DRAFT_DOT_TEXT } : {})}
-              >
-                編集
-              </Button>
-            ) : null}
-            <Button variant="ghost" icon="trash" onClick={p.onDelete}>
-              削除
+          block === null ? (
+            <Button
+              href={`/trades/${t.id}/edit`}
+              variant="secondary"
+              icon="edit"
+              size="sm"
+              {...(p.editDraft ? { dot: DRAFT_DOT_TEXT } : {})}
+            >
+              編集
             </Button>
-          </>
+          ) : null
         }
       />
+      <div class="detail__head">
+        <p class="detail__when">
+          {/* 幅 480px 以上だけ「エントリー … → 」を頭に（360 は見出しの下の行を 1 行に保つ。#58 デザインレビュー 5） */}
+          {h.entry ? <span class="detail__entry">{h.entry} → </span> : null}
+          {/* 区切り（決済の日時・保有・口座）の中では折らず、「·」は後ろの区切りの頭に付ける（判定の枠の数量の行と同じ） */}
+          {h.sub.split(' · ').map((seg, i) => (
+            <Fragment key={seg}>
+              {i > 0 ? ' ' : null}
+              <span class="detail__seg">{i > 0 ? `· ${seg}` : seg}</span>
+            </Fragment>
+          ))}
+        </p>
+        {/* 削除（確認を挟まない。[元に戻す] はトースト）。上の帯の「…」の操作のシートへ移すのは U6（#131） */}
+        <Button variant="secondary" icon="trash" onClick={p.onDelete}>
+          削除
+        </Button>
+      </div>
       <DetailBody {...p} />
     </>
   );

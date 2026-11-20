@@ -230,9 +230,23 @@ describe('index.html の head（#77）', () => {
     expect(metas.filter((m) => m.name === 'apple-mobile-web-app-title')).toEqual([
       { name: 'apple-mobile-web-app-title', content: '損失ノート' },
     ]);
-    // iOS は manifest の display を読む（ADR-0018）。全画面・状態バーの meta は置かない
+    // iOS は manifest の display を読む（ADR-0018）。全画面の meta は置かない
     expect(html).not.toMatch(/mobile-web-app-capable/i);
-    expect(html).not.toMatch(/apple-mobile-web-app-status-bar-style/i);
+  });
+
+  it('#127: 安全域まで面を敷く（viewport-fit=cover・状態のバーは black-translucent）・キーボードで窓を縮める（ui-guidelines 9.6）', () => {
+    const viewport = metas.filter((m) => m.name === 'viewport');
+    expect(viewport).toHaveLength(1);
+    const parts = (viewport[0]?.content ?? '').split(',').map((p) => p.trim());
+    expect(parts).toEqual([
+      'width=device-width',
+      'initial-scale=1',
+      'viewport-fit=cover',
+      'interactive-widget=resizes-content',
+    ]);
+    expect(metas.filter((m) => m.name === 'apple-mobile-web-app-status-bar-style')).toEqual([
+      { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+    ]);
   });
 });
 

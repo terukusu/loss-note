@@ -45,7 +45,7 @@ function DraftToastBody(p: ToastProps) {
       <p class="toast__text">{d.text}</p>
       <Button
         {...(discarded ? { id: DRAFT_UNDO_ID, label: DRAFT_TOAST_TEXT.undoName[d.kind] } : {})}
-        variant="ghost"
+        variant="tonal"
         icon={discarded ? 'undo' : 'back'}
         onClick={() => p.onDraftAction?.()}
       >
@@ -78,7 +78,7 @@ export function Toast(p: ToastProps) {
             onPointerLeave={p.onResume}
           >
             <p class="toast__text">{TOAST_TEXT.deleted(t.label)}</p>
-            <Button id={TOAST_UNDO_ID} variant="ghost" icon="undo" onClick={p.onUndo}>
+            <Button id={TOAST_UNDO_ID} variant="tonal" icon="undo" onClick={p.onUndo}>
               元に戻す
             </Button>
             <CloseButton onClick={p.onDismiss} />

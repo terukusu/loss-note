@@ -463,16 +463,58 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
         );
       }
     }
-    // 大きな R は 36px
+    // 主役の数字は 36px（9.9 の案の 44px は、判定の枠を組み直す U4・U6 で。#127）
     const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
     expect(root.get('--fs-num-xl')).toBe('36px');
   });
 
-  it('AC-6: 角丸のトークンは 12 / 8 / 6px（丸は 999px）。部品の CSS の角丸は var(--radius-*) か 0 だけ（px の直書き 0 件）', () => {
+  it('#127 A7: 文字の大きさのトークンは 6 段（30 / 20 / 17 / 16 / 14 / 12）と数字の 2 段（36 / 24）だけ', () => {
     const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
-    expect(root.get('--radius-lg')).toBe('12px');
-    expect(root.get('--radius-md')).toBe('8px');
-    expect(root.get('--radius-sm')).toBe('6px');
+    const fs = [...root].filter(([k]) => k.startsWith('--fs-'));
+    expect(Object.fromEntries(fs)).toEqual({
+      '--fs-title': '30px',
+      '--fs-lg': '20px',
+      '--fs-nav': '17px',
+      '--fs-md': '16px',
+      '--fs-sm': '14px',
+      '--fs-xs': '12px',
+      '--fs-num-lg': '24px',
+      '--fs-num-xl': '36px',
+    });
+    // 本文の行の高さは 1.5（9.9）
+    expect(root.get('--lh-body')).toBe('1.5');
+  });
+
+  it('#127 9.6: 安全域は --safe-* のトークンだけが env() を受ける（部品の CSS に env() を書かない）', () => {
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    for (const side of ['top', 'right', 'bottom', 'left']) {
+      expect(root.get(`--safe-${side}`)).toBe(`env(safe-area-inset-${side}, 0px)`);
+    }
+    for (const [path, raw] of Object.entries(files)) {
+      if (path === TOKENS) continue;
+      expect(stripComments(raw), path).not.toMatch(/env\(/);
+    }
+  });
+
+  it('#127 9.9: 主のボタンの面（藍のグラデーションの両端）と白い文字が両テーマで 4.5:1 以上', () => {
+    for (const [theme, d] of THEMES) {
+      for (const end of ['--primary-from', '--primary-to']) {
+        const fg = d.get('--on-primary') ?? '';
+        const bg = d.get(end) ?? '';
+        expect(
+          contrast(fg, bg),
+          `${theme} --on-primary(${fg}) / ${end}(${bg})`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it('AC-6: 角丸のトークンは 18 / 14 / 10px・シートの 28px（丸は 999px。9.9・#127）。部品の CSS の角丸は var(--radius-*) か 0 だけ（px の直書き 0 件）', () => {
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(root.get('--radius-lg')).toBe('18px');
+    expect(root.get('--radius-md')).toBe('14px');
+    expect(root.get('--radius-sm')).toBe('10px');
+    expect(root.get('--radius-sheet')).toBe('28px');
     expect(root.get('--radius-pill')).toBe('999px');
     const bad: string[] = [];
     let seen = 0;

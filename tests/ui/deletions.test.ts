@@ -165,6 +165,49 @@ describe('時間の止め方と、すぐ送る場面', () => {
     expect(deletes(fake.calls)).toHaveLength(1);
   });
 
+  it('#129 AC-4: シートを開いている間（hold("sheet")）は送らず、閉じたら 8 秒を置き直す。トーストの hold と別に数える', async () => {
+    const { fake, timers, del } = setup();
+    del.remove('d1');
+    timers.advance(5000);
+    del.hold('sheet');
+    timers.advance(60_000);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(0);
+    // シートの間にトーストへポインタが入って出ても、シートが閉じるまでは動かない
+    del.hold();
+    del.resume();
+    timers.advance(60_000);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(0);
+    del.resume('sheet');
+    timers.advance(UNDO_MS - 1);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(0);
+    timers.advance(1);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(1);
+  });
+
+  it('#129 AC-4: シートを開いている間に出たトーストも止まり、閉じてから 8 秒。閉じていない resume("sheet") は何もしない', async () => {
+    const { fake, timers, del } = setup();
+    del.resume('sheet');
+    del.hold('sheet');
+    del.remove('d1');
+    timers.advance(60_000);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(0);
+    // [元に戻す] で消えた後も、シートの止めは残る（次の [消す] も止まる）
+    del.undo();
+    del.remove('l1');
+    timers.advance(60_000);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(0);
+    del.resume('sheet');
+    timers.advance(UNDO_MS);
+    await flushMicro();
+    expect(deletes(fake.calls).map((c) => c.path)).toEqual(['/api/trades/l1']);
+  });
+
   it('次の [消す] で前の削除はすぐ送り、新しいトーストに替わる（同時に待つのは 1 件）', async () => {
     const { fake, del } = setup();
     del.remove('d1');
@@ -267,5 +310,21 @@ describe('時間の止め方と、すぐ送る場面', () => {
     off();
     del.undo();
     expect(seen).toHaveLength(2);
+  });
+});
+
+describe('#129: 出来事の手から呼ばれた hold / resume', () => {
+  it('onFocusIn / onFocusOut に渡して出来事を引数に呼ばれても、トーストの止めとして数えて時間を置き直す', async () => {
+    const { fake, timers, del } = setup();
+    del.remove('d1');
+    const ev = { type: 'focusin' } as unknown as Parameters<typeof del.hold>[0];
+    del.hold(ev);
+    timers.advance(60_000);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(0);
+    del.resume(ev);
+    timers.advance(UNDO_MS);
+    await flushMicro();
+    expect(deletes(fake.calls)).toHaveLength(1);
   });
 });

@@ -2078,7 +2078,7 @@ describe('言葉の説明の「i」（#57）', () => {
     );
   });
 
-  it('AC-3（木）: 閉じている間は aria-expanded="false"・aria-controls なし（開いている間だけ。レビュー N10）、吹き出しは無い。名前は重ならない', () => {
+  it('AC-3（木）: 閉じている間は aria-expanded="false"・aria-controls なし（開いている間だけ。レビュー N10）、画面の木にシート（dialog）は無い（アプリに 1 つ。#129）。名前は重ならない', () => {
     const t = view(stateFor(E1, CAPITAL_1M));
     for (const b of infoButtons(t)) {
       expect(b.props['aria-expanded']).toBe('false');
@@ -2086,7 +2086,7 @@ describe('言葉の説明の「i」（#57）', () => {
     }
     const n = names(t);
     expect(new Set(n).size).toBe(n.length);
-    expect(all(t, hasClass('info__pop'))).toEqual([]);
+    expect(all(t, (e) => e.type === 'dialog')).toEqual([]);
   });
 
   it('AC-5: 「i」は type="button" で、押しても onUpdate・onSave を呼ばない（未選択の下書き）', () => {

@@ -15,6 +15,7 @@
 // - hasInput: 入力がある書きかけがあるか（タブを閉じる・再読み込みの確認 = beforeunload。殻が使う）
 // - drop: 1 つの書きかけを捨てる（その取引を削除した。#75 N1）。reset: ログアウト。全部 dispose
 // 書きかけは記憶の中だけ（端末の保存先・URL・履歴に書かない。画像を保存しない ADR-0005）
+import { type HoldReason, holdReason } from './deletions';
 import type { DraftStatus } from './draft-status';
 
 /** 書きかけの印の点の読み上げ（ナビの [記録する]・詳細の [編集]） */
@@ -104,6 +105,9 @@ export type CancelResult = 'busy' | 'empty' | 'discarded';
 
 export type TimerId = unknown;
 
+/** 知らせの時間を止める理由（deletions.ts と同じ。#129） */
+export type { HoldReason };
+
 export interface DraftsDeps {
   readonly setTimer: (fn: () => void, ms: number) => TimerId;
   readonly clearTimer: (id: TimerId) => void;
@@ -122,8 +126,10 @@ export interface Drafts {
   undo(): string | null;
   /** [記録に戻る] / [編集に戻る]: 戻る画面の URL（残っていなければ null） */
   back(): string | null;
-  hold(): void;
-  resume(): void;
+  /** 時間を止める（toast = 知らせにフォーカス・ポインタがある（既定）、sheet = 下のシートが開いている。#129） */
+  hold(reason?: HoldReason): void;
+  /** 止める理由を外す（すべて外れたら知らせの時間を置き直す） */
+  resume(reason?: HoldReason): void;
   /** トーストを閉じる（取り消し待ちはすぐ確定して捨てる） */
   dismiss(): void;
   hasInput(): boolean;
@@ -162,7 +168,8 @@ export function createDrafts(deps: DraftsDeps): Drafts {
   /** 取り消し待ち（同時に 1 つ） */
   let discarded: { key: string; slot: Slot } | null = null;
   let timer: TimerId | null = null;
-  let held = false;
+  /** 時間を止めている理由（知らせの理由は知らせが消えたら外す。シートの理由は閉じるまで残す） */
+  const holds = new Set<HoldReason>();
 
   const emit = (patch: Partial<DraftsState>) => {
     state = { ...state, ...patch };
@@ -186,15 +193,16 @@ export function createDrafts(deps: DraftsDeps): Drafts {
   };
   const closeToast = () => {
     stopTimer();
-    held = false;
+    holds.delete('toast');
     finalize();
   };
   /** 知らせの時間（破棄 = 過ぎたら確定、残っています = 過ぎたら閉じるだけ） */
   const startTimer = () => {
     stopTimer();
+    if (holds.size > 0) return;
     timer = deps.setTimer(() => {
       timer = null;
-      held = false;
+      holds.delete('toast');
       finalize();
       emit({ toast: null });
     }, undoMs);
@@ -321,7 +329,7 @@ export function createDrafts(deps: DraftsDeps): Drafts {
       const d = discarded;
       if (!d) return null;
       stopTimer();
-      held = false;
+      holds.delete('toast');
       discarded = null;
       const cur = slots.get(d.key);
       if (cur && cur !== d.slot) disposeSlot(cur);
@@ -337,15 +345,16 @@ export function createDrafts(deps: DraftsDeps): Drafts {
       emit({ toast: null });
       return slot ? slot.entry.href : null;
     },
-    hold() {
-      if (state.toast === null) return;
-      held = true;
+    hold(reason) {
+      // 部品の出来事の手（onFocusIn など）から出来事を引数に呼ばれても、シート以外はトーストの理由に数える
+      const r = holdReason(reason);
+      if (r === 'toast' && state.toast === null) return;
+      holds.add(r);
       stopTimer();
     },
-    resume() {
-      if (state.toast === null || !held) return;
-      held = false;
-      startTimer();
+    resume(reason) {
+      if (!holds.delete(holdReason(reason))) return;
+      if (state.toast !== null) startTimer();
     },
     dismiss() {
       closeToast();

@@ -92,6 +92,7 @@ h1[tabindex="-1"]:focus {
   :root {
     --dur-fast: 0s;
     --dur-base: 0s;
+    --dur-sheet: 0s;
   }
 
   html {

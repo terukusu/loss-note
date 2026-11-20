@@ -2,7 +2,9 @@
 // - [消す] は確認を挟まずに、その取引をアプリの中の「消した印」（hidden）に入れて一覧・ホーム・詳細・直すから隠し、
 //   トースト「取引を消しました」と [元に戻す] を出す。DELETE は取り消しの時間（undoMs = 8 秒）が過ぎてから 1 回だけ送る
 // - [元に戻す] は印を外すだけ（要求を送らない。同じ ID・同じチャートのまま）
-// - トーストにフォーカス・ポインタがある間は時間を止め（hold）、離れたら undoMs で置き直す（resume。WCAG 2.2.1）
+// - トーストにフォーカス・ポインタがある間は時間を止め（hold）、離れたら undoMs で置き直す（resume。WCAG 2.2.1）。
+//   下のシートを開いている間も止める（hold('sheet')。モーダルの間はトーストを押せない。#129・9.3）。止める理由は別々に数え、
+//   すべて外れたときだけ置き直す
 // - 次の [消す]・ログアウト・タブが隠れた（flush）・トーストを閉じた（dismiss）ときは、待っている削除をすぐ送る
 //   （keepalive。タブを閉じても届きやすくする）。届かなければ取引は残る（消える側に倒れない。ADR-0007）
 // - 送り始めたら [元に戻す] のトーストは閉じる（押しても戻せない [元に戻す] を出さない）
@@ -32,6 +34,14 @@ export interface DeletionsState {
 
 export type TimerId = unknown;
 
+/** 時間を止める理由（toast = トーストにフォーカス・ポインタがある、sheet = 下のシートが開いている。#129） */
+export type HoldReason = 'toast' | 'sheet';
+
+/** 止める理由に直す（'sheet' 以外 = 省いた・出来事の手から渡った値は 'toast'） */
+export function holdReason(reason: unknown): HoldReason {
+  return reason === 'sheet' ? 'sheet' : 'toast';
+}
+
 export interface DeletionsDeps {
   readonly api: ApiFn;
   readonly setTimer: (fn: () => void, ms: number) => TimerId;
@@ -49,10 +59,10 @@ export interface Deletions {
   remove(id: string, label?: string): void;
   /** [元に戻す]: 待っている削除をやめて印を外す（何も送らない） */
   undo(): void;
-  /** トーストにフォーカス・ポインタがある: 時間を止める */
-  hold(): void;
-  /** 離れた: 取り消しの時間を置き直す */
-  resume(): void;
+  /** トーストにフォーカス・ポインタがある（既定）・シートが開いた: 時間を止める */
+  hold(reason?: HoldReason): void;
+  /** 離れた・シートが閉じた: 止める理由がすべて外れたら取り消しの時間を置き直す */
+  resume(reason?: HoldReason): void;
   /** 待っている削除をすぐ送る（タブが隠れた・ログアウト・次の [消す]） */
   flush(): Promise<void>;
   /** [元に戻す] のトーストを閉じる（待っている削除はすぐ送る） */
@@ -71,7 +81,8 @@ export function createDeletions(deps: DeletionsDeps): Deletions {
   /** 取り消しを待っている取引の ID */
   let pending: string | null = null;
   let timer: TimerId | null = null;
-  let held = false;
+  /** 時間を止めている理由（トーストの理由は知らせが消えたら外す。シートの理由は閉じるまで残す） */
+  const holds = new Set<HoldReason>();
 
   const set = (patch: Partial<DeletionsState>) => {
     state = { ...state, ...patch };
@@ -83,6 +94,7 @@ export function createDeletions(deps: DeletionsDeps): Deletions {
   };
   const startTimer = () => {
     stopTimer();
+    if (holds.size > 0) return;
     timer = deps.setTimer(() => {
       timer = null;
       void flush();
@@ -116,7 +128,7 @@ export function createDeletions(deps: DeletionsDeps): Deletions {
 
   const flush = (): Promise<void> => {
     stopTimer();
-    held = false;
+    holds.delete('toast');
     const id = pending;
     pending = null;
     if (id === null) return Promise.resolve();
@@ -149,18 +161,19 @@ export function createDeletions(deps: DeletionsDeps): Deletions {
       if (id === null) return;
       stopTimer();
       pending = null;
-      held = false;
+      holds.delete('toast');
       set({ hidden: without(id), toast: null });
     },
-    hold() {
-      if (pending === null) return;
-      held = true;
+    hold(reason) {
+      // 部品の出来事の手（onFocusIn など）から出来事を引数に呼ばれても、シート以外はトーストの理由に数える
+      const r = holdReason(reason);
+      if (r === 'toast' && pending === null) return;
+      holds.add(r);
       stopTimer();
     },
-    resume() {
-      if (pending === null || !held) return;
-      held = false;
-      startTimer();
+    resume(reason) {
+      if (!holds.delete(holdReason(reason))) return;
+      if (pending !== null) startTimer();
     },
     flush,
     dismiss() {
@@ -175,7 +188,7 @@ export function createDeletions(deps: DeletionsDeps): Deletions {
     },
     reset() {
       stopTimer();
-      held = false;
+      holds.delete('toast');
       pending = null;
       set({ hidden: new Set(), toast: null, failed: false });
     },

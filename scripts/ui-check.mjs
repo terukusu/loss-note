@@ -41,9 +41,12 @@
 // （変える前の 161.1px まで）を測る。手順 R11（最後のタップの直後に判定のバッジと R が見える）・R12（開いた直後の 1 画面・
 // 注意 3 行以下・全長 2,550px 以下）・R13（大きな R は 36px・本文の書体、ラベルの上端が揃う）を流す。R11 は判定が見える範囲の
 // 外にある状態で最後のタップを座標で押し、アプリが寄せることを確かめる。幅 720 未満の画面は指で触る端末（hasTouch）として開く。
-// 言葉の説明の「i」（Issue #57）: 記録する画面で説明を 1 つ開いた状態（時間足・判定）を同じ幅とテーマで測り、吹き出しが窓の
-// 見える範囲に収まることを見る。手順 IT1（押して開く・閉じる・Esc でフォーカスが「i」・外側・同時に 1 つ）・IT2（押しても
-// 入力の状態が変わらず保存の要求 0）・IT3（戻るで吹き出しだけを閉じ、画面は移らない・閉じた後の履歴の数）を流す。
+// 言葉の説明の「i」（Issue #57。#129 で吹き出しから説明のシートへ）: 記録する画面で説明を 1 つ開いた状態（時間足・判定）を同じ幅と
+// テーマで測り、シートが窓の中に収まることを見る。手順 IT1（押して開く・✕・Esc でフォーカスが「i」・外を押す・同時に 1 つ）・
+// IT2（押しても入力の状態が変わらず保存の要求 0）・IT3（戻るでシートだけを閉じ、画面は移らない・閉じた後の履歴の数）を流す。
+// 下のシート（#129。ui-guidelines 9.3・9.10）: 手順 SH1（360×780・390×844 × ダーク / ライトと文字の拡大 200%: 下から出る・窓の中・
+// 最大 86%・中がスクロールで最後まで届く・✕ の当たり 44・Tab でシートの外へ出ない・閉じたら「i」へ・安全域を差し替えて押せるものが
+// 内側）・SH2（シートを開いている間はトーストの取り消しの時間が止まる）・SH3（<html data-form> を付けた横・広いの見せ方）を流す。
 // 文字の拡大 200%（Issue #79・WCAG 1.4.4）: 文字の大きさのトークン（tokens.css の --fs-*）を全部 2 倍にし、ルートの文字の
 // 大きさも 200% にした状態で、全画面と記録する画面・設定の画面・ホームの振り返りの主な状態を 360×780 と 1440×900 × ダークで
 // 測る。文字は px のトークンなので、ルートの文字の大きさだけを 2 倍にしても変わらない。トークンを 2 倍にするのは、文字だけの
@@ -191,15 +194,8 @@ const ZOOM_SETTINGS = ['settings-1-open', 'settings-5-accounts', 'settings-3-err
  * 既知として数え（失敗にしない）、当たらない外れは失敗にする。match に当たる外れが無くなったら「消す」で失敗にする。
  * 理由は handoff と docs/ui-guidelines.md 5 章
  */
-const ZOOM_KNOWN = {
-  // 説明の吹き出しは幅 320px まで・高さの上限なしで、文字 2 倍の 360×780 では窓（上の帯・下部の行き先・貼り付きの帯を
-  // 除く）より高くなる。吹き出しの中をスクロールにすると矢印（::before）が切れるので、作りの変更（矢印を外に出す・
-  // 高さの上限と吹き出しの中のスクロール・置き方の infoPlace の見直し）として別に直す
-  '360:record-11-info-tap': {
-    match: /^開けない 「時間足を変えたか」の説明: 吹き出しが窓の上下の外/,
-    why: '説明の吹き出しが窓より高い（吹き出しの作りの変更が要る。ガイドライン 5 章 #6）',
-  },
-};
+// 説明の吹き出しが窓より高くなる件（360:record-11-info-tap。#110）は、説明のシート（最大 86dvh・中のスクロール）で解いた（#129）
+const ZOOM_KNOWN = {};
 /** 下のタブ 4 つと真ん中の ［＋ 記録］（V6。ui-guidelines 9.2・#127） */
 const NAV_HREFS = ['/', '/trades', '/record', '/review', '/settings'];
 /** 全画面のシートの画面（下のタブを隠す。9.2・A2） */
@@ -2276,8 +2272,7 @@ const RECORD_STATES = [
       await p.getByRole('alert').filter({ hasText: '今は読み取りを使えません' }).waitFor();
     },
   },
-  // 言葉の説明の「i」を 1 つ開いた状態（Issue #57 AC-10）。吹き出しが窓の見える範囲の左右・上下に収まることも見る（H3）。
-  // 撮るときは見出しの位置へスクロールしてから開き直す（窓が基準の位置はスクロールで閉じる）
+  // 言葉の説明の「i」を 1 つ開いた状態（Issue #57 AC-10）。説明のシートが窓の左右・上下に収まることも見る（H3・#129）
   {
     // #56 デザインレビュー: 「LC を動かしたか」の説明（狭めた / 広げた の文）
     slug: 'record-11b-info-lcmove',
@@ -2324,7 +2319,7 @@ const RECORD_STATES = [
     slug: 'record-14-info-ruler',
     name: '説明（物差し）',
     reopen: '「LC の物差し」の説明',
-    // 判定の枠を上の帯のすぐ下に（物差しの上に吹き出しの入る余地を残して撮る。物差しの i は上を先に開く）
+    // 判定の枠を上の帯のすぐ下に寄せて撮る
     anchor: '.verdict',
     fn: async (p) => {
       await fillRecord(p, EX_E1);
@@ -2370,76 +2365,122 @@ async function expectRestore(page, what) {
   if (mode !== 'auto') throw new Error(`${what}: scrollRestoration = ${mode}`);
 }
 
-/** 開いている吹き出しの中の用語集のリンクを押し、その言葉の説明（見出し）になるのを待つ（#57） */
-async function followLink(page, linkText, title) {
-  await page.locator('.info__pop button.glink', { hasText: linkText }).first().click();
-  await page.locator('.info__pop .info__title', { hasText: title }).waitFor({ timeout: 5000 });
-  await page.waitForTimeout(50);
-  const r = await page.evaluate(() => {
-    const pop = document.querySelector('.info__pop');
-    if (!pop) return null;
-    const b = pop.getBoundingClientRect();
-    return {
-      left: b.left,
-      right: b.right,
-      top: b.top,
-      bottom: b.bottom,
-      vw: document.documentElement.clientWidth,
-      vh: window.innerHeight,
-    };
-  });
-  if (!r) throw new Error(`${title}: 吹き出しが無い`);
-  if (r.left < -0.5 || r.right > r.vw + 0.5 || r.top < -0.5 || r.bottom > r.vh + 0.5)
-    throw new Error(
-      `${title}: たどった後の吹き出しが窓の外（${Math.round(r.top)}〜${Math.round(r.bottom)} / ${r.vh}）`,
-    );
+/** 「i」のボタン（シートを開いている間、後ろは inert なので役割ではなく名前の属性で探す） */
+const infoButton = (page, name) => page.locator(`button.info[aria-label="${name}"]`).first();
+/** 開いている説明のシート（#129） */
+const OPEN_SHEET = 'dialog.sheet[open]';
+const sheetCount = (page) => page.locator(OPEN_SHEET).count();
+/** 開いているシートの見出し（無ければ null） */
+async function sheetTitle(page) {
+  const t = page.locator(`${OPEN_SHEET} .sheet__title`);
+  return (await t.count()) === 0 ? null : ((await t.first().textContent())?.trim() ?? '');
 }
 
-/** 「i」を押して吹き出しを開き、窓の見える範囲（上の帯・下部の行き先・貼り付きの帯を除く）に収まることを確かめる（#57） */
-async function openInfo(page, name, reopen = false) {
-  const b = page.getByRole('button', { name, exact: true });
-  // 撮る前の開き直し: スクロールの後に開いたときの位置（下が帯に隠れるなら寄せる）で撮る
-  if (reopen && (await b.getAttribute('aria-expanded')) === 'true') await b.click();
-  await b.scrollIntoViewIfNeeded();
-  if ((await b.getAttribute('aria-expanded')) !== 'true') await b.click();
-  const id = await b.getAttribute('aria-controls');
-  await page.locator(`[id="${id}"]`).waitFor({ state: 'visible', timeout: 5000 });
-  // 位置（揃え・上下）は開いた後の描き直しで決まる
-  await page.waitForTimeout(50);
-  const r = await page.evaluate((pid) => {
-    const pop = document.getElementById(pid);
-    if (!pop) return null;
-    const pr = pop.getBoundingClientRect();
-    const top = Math.max(
-      0,
-      ...[...document.querySelectorAll('.apphead, .appbar')]
-        .filter((e) => ['sticky', 'fixed'].includes(getComputedStyle(e).position))
-        .map((e) => e.getBoundingClientRect())
-        .filter((r) => r.height > 0)
-        .map((r) => r.bottom),
-    );
+/** シートの出入りの動き（320ms）が終わるのを待つ */
+async function settleSheet(page) {
+  await page
+    .waitForFunction(
+      () =>
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.target?.closest?.('dialog.sheet'))
+          .every((a) => a.playState !== 'running'),
+      null,
+      { timeout: 3000 },
+    )
+    .catch(() => {});
+}
+
+/** 開いているシートの箱と窓の大きさ（#129。窓の中か・下からか・最大の高さを見る） */
+async function sheetBox(page) {
+  return page.evaluate((sel) => {
+    const d = document.querySelector(sel);
+    if (!d) return null;
+    const r = d.getBoundingClientRect();
+    const body = d.querySelector('.sheet__body');
     return {
-      left: pr.left,
-      right: pr.right,
-      top: pr.top,
-      bottom: pr.bottom,
+      id: d.id,
+      left: r.left,
+      right: r.right,
+      top: r.top,
+      bottom: r.bottom,
+      width: r.width,
+      height: r.height,
       vw: document.documentElement.clientWidth,
-      topBar: top,
       vh: window.innerHeight,
-      cls: pop.className,
+      form: document.documentElement.getAttribute('data-form') ?? 'compact',
+      scrollable: body ? body.scrollHeight - body.clientHeight : 0,
     };
-  }, id);
-  if (!r) throw new Error(`${name}: 吹き出しが無い`);
+  }, OPEN_SHEET);
+}
+
+/** シートが窓の中（上下左右）にある・縦の形は最大 86%（#110・9.3） */
+function expectSheetInWindow(r, what) {
+  if (!r) throw new Error(`${what}: シートが無い`);
   if (r.left < -0.5 || r.right > r.vw + 0.5)
     throw new Error(
-      `${name}: 吹き出しが窓の左右の外（${Math.round(r.left)}〜${Math.round(r.right)} / ${r.vw}）`,
+      `${what}: シートが窓の左右の外（${Math.round(r.left)}〜${Math.round(r.right)} / ${r.vw}）`,
     );
   if (r.top < -0.5 || r.bottom > r.vh + 0.5)
     throw new Error(
-      `${name}: 吹き出しが窓の上下の外（${Math.round(r.top)}〜${Math.round(r.bottom)} / ${r.vh}）`,
+      `${what}: シートが窓の上下の外（${Math.round(r.top)}〜${Math.round(r.bottom)} / ${r.vh}）`,
     );
+  if (r.form === 'compact' && r.height > r.vh * 0.86 + 1)
+    throw new Error(`${what}: シートの高さ ${Math.round(r.height)}px が窓の 86% を超える`);
+}
+
+/** 閉じる動きが終わった後、窓の中に見えているシートが無い（閉じた dialog が最上層に残らない。#129 のデザインレビュー a-1） */
+async function expectNoSheetShown(page, what) {
+  await settleSheet(page);
+  const shown = await page.evaluate(
+    () =>
+      [...document.querySelectorAll('dialog.sheet')].filter((d) => {
+        const r = d.getBoundingClientRect();
+        const inWindow = r.bottom > 0.5 && r.top < window.innerHeight - 0.5 && r.height > 0;
+        return d.checkVisibility() && inWindow;
+      }).length,
+  );
+  if (shown > 0) throw new Error(`${what}: 窓の中にシートが ${shown} 枚見えている`);
+}
+
+/** 開いている説明のシートの中の用語集のリンクを押し、その言葉の説明（見出し）になるのを待つ（#57） */
+async function followLink(page, linkText, title) {
+  await page.locator(`${OPEN_SHEET} button.glink`, { hasText: linkText }).first().click();
+  await expectPollAsync(async () => (await sheetTitle(page)) === title, `「${title}」の説明へ`);
+  await settleSheet(page);
+  expectSheetInWindow(await sheetBox(page), `${title}（たどった後）`);
+}
+
+/**
+ * 「i」を押して説明のシートを開き、窓の中に収まることを確かめる（#57・#129）。開いていればそのまま確かめる（撮る前の
+ * 開き直しは要らない。シートは窓に対して置く）
+ */
+async function openInfo(page, name, _reopen = false) {
+  const b = infoButton(page, name);
+  if ((await b.getAttribute('aria-expanded')) !== 'true') {
+    await b.scrollIntoViewIfNeeded();
+    await b.click();
+  }
+  const id = await b.getAttribute('aria-controls');
+  if (!id) throw new Error(`${name}: aria-controls が無い（シートが開かない）`);
+  await page.locator(`dialog[id="${id}"][open]`).waitFor({ state: 'visible', timeout: 5000 });
+  await settleSheet(page);
+  const r = await sheetBox(page);
+  expectSheetInWindow(r, name);
   return r;
 }
+
+/** 今のフォーカスの読み上げの名前（aria-label） */
+const focusLabel = (page) =>
+  page.evaluate(() => document.activeElement?.getAttribute('aria-label'));
+/** 後ろの暗い面（シートの上・窓の上端の近く）を押す（#129） */
+async function pressBackdrop(page) {
+  const r = await sheetBox(page);
+  if (!r) throw new Error('シートが無い');
+  await page.mouse.click(Math.round(r.vw / 2), Math.max(4, Math.round(r.top / 2)));
+}
+/** シートの右上の ✕ で閉じる（#129） */
+const closeSheet = (page) => page.locator(`${OPEN_SHEET} .sheet__close`).click();
 
 // ── 設定の画面（Issue #5 の E16）。値はすべて架空 ──
 const FAKE_N225 = {
@@ -2872,7 +2913,14 @@ async function measure(page, withTargets, tap, slack = 1) {
             }
           }
           const c = clipAncestor(el);
-          if (c && outside(r, c.getBoundingClientRect())) {
+          // 縦にスクロールする祖先（説明のシートの中身。#129）の上下の外は、スクロールで隠れているだけ（切れではない）。左右は見る
+          const scrollsY = c ? ['auto', 'scroll'].includes(getComputedStyle(c).overflowY) : false;
+          const cb = c?.getBoundingClientRect();
+          if (
+            c &&
+            cb &&
+            (scrollsY ? r.left < cb.left - 1 || r.right > cb.right + 1 : outside(r, cb))
+          ) {
             clipped.push(
               `${name} 切れ（${c.className.split(' ')[0] || c.tagName.toLowerCase()} の外）`,
             );
@@ -3067,7 +3115,7 @@ const RECORD_DUP = new Set();
  * 文字の拡大（Issue #79）の測り。拡大の漏れ = 描かれた文字を持つ要素の文字の大きさが minFont 未満（トークンを通らない
  * px の大きさ）。行の重なり = 行の高さ（px）が文字の大きさより小さい（折り返すと行が重なる）か、別の要素の文字と文字の
  * 箱が重なる（列の幅が足りず隣の列に入る）。文字の箱は切る祖先（overflow が visible でない）の箱で切ってから比べ、
- * 位置を固定した帯（fixed・sticky）の中と外は比べない（スクロールで重なるのは正しい）。開いた説明の吹き出しの文字は
+ * 位置を固定した帯（fixed・sticky）の中と外は比べない（スクロールで重なるのは正しい）。開いた説明のシートの文字は
  * 比べ合いにだけ入れない（拡大の漏れ・行の高さ・切れは見る）。
  * 文字が切る祖先の左右の外に出る（「…」で省く作りを除く）のも、文字の切れとして重なりに数える
  */
@@ -3120,8 +3168,8 @@ async function measureZoom(page, minFont) {
       if (!el || n.textContent.trim() === '') continue;
       if (el.closest('[data-ui-check-wide], [data-ui-check-clip], .sr-only, script, style'))
         continue;
-      // 開いた説明の吹き出しは上に重ねて出すもの。拡大の漏れ・行の高さ・切れは見るが、文字どうしの比べ合いには入れない
-      const inPop = !!el.closest('.info__pop');
+      // 開いた説明のシートは上に重ねて出すもの。拡大の漏れ・行の高さ・切れは見るが、文字どうしの比べ合いには入れない
+      const inPop = !!el.closest('dialog.sheet');
       if (typeof el.checkVisibility === 'function' && !el.checkVisibility()) continue;
       const cs = getComputedStyle(el);
       const fs = Number.parseFloat(cs.fontSize);
@@ -3201,6 +3249,18 @@ async function waitReady(page, h1) {
     .locator('main h1', { hasText: text })
     .first()
     .waitFor({ state: 'visible', timeout: 15000 });
+}
+
+/**
+ * 取引の詳細に着いた（見出しは取引の名前で、「取引の詳細」は読み込み中だけ。一覧から開くと読み込み済みの取引ですぐ名前になるので、
+ * URL と判定の枠で見る。RP1 と同じ）
+ */
+async function waitDetail(page) {
+  await expectPollAsync(
+    async () => /^\/trades\/[^/]+$/.test(new URL(page.url()).pathname),
+    '詳細の URL',
+  );
+  await page.locator('main .verdict').first().waitFor({ state: 'visible', timeout: 15000 });
 }
 
 function pad(s, n) {
@@ -3494,7 +3554,7 @@ async function main() {
                 const v = document.querySelector(sel);
                 if (v) window.scrollTo(0, v.getBoundingClientRect().top + window.scrollY - 76);
               }, st.anchor ?? '.verdict');
-              // 説明の吹き出しの状態は、スクロールで閉じたら開き直してから撮る（#57）
+              // 説明のシートの状態は、開いたままか確かめてから撮る（#57・#129）
               if (st.reopen) await openInfo(recPage, st.reopen, true);
               await recPage.screenshot({
                 path: join(opts.shots, `${w}x${hgt}-${theme}-${st.slug}.png`),
@@ -3662,7 +3722,7 @@ async function main() {
               'home-review-info',
               async (pg) => {
                 await pg.locator('.review button[aria-label="「規律コスト」の説明"]').click();
-                await pg.locator('.review .info__lead').first().waitFor();
+                await pg.locator('dialog.sheet[open] .info__lead').first().waitFor();
               },
             ],
             ['/?period=7d', REVIEW_CLEAN, '.curve', 'home-review-clean'],
@@ -3688,7 +3748,7 @@ async function main() {
               'home-review-info-rate',
               async (pg) => {
                 await pg.locator('.review button[aria-label="「計画どおり率」の説明"]').click();
-                await pg.locator('.review .info__lead').first().waitFor();
+                await pg.locator('dialog.sheet[open] .info__lead').first().waitFor();
               },
             ],
             [
@@ -4350,7 +4410,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -4561,10 +4621,10 @@ async function runFlows(browser, base, signedIn) {
     // B2（#57 再レビュー・N12）: 「i」を開いたまま別の画面へ移って戻った後も、この画面の戻るの位置の復元が効く
     // （元の項目に scrollRestoration = manual が残らない）。部品の見本は読み込みの待ちが無いので、復元をそのまま測れる
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.getByRole('button', { name: '「判定」の説明', exact: true }).click();
-    await page.locator('#parts-info-judgment').waitFor({ state: 'visible', timeout: 5000 });
-    await page.locator('nav a[href="/record"]').click();
-    await waitReady(page, '記録する');
+    // 説明のシートはモーダルなので、シートの中の ［用語集で見る］ で移る（#129）
+    await openInfo(page, '「判定」の説明');
+    await page.locator(`${OPEN_SHEET} .info__glossary`).click();
+    await waitReady(page, '用語集');
     await page.goBack();
     await waitReady(page, '部品の見本');
     await page.waitForTimeout(300);
@@ -4723,23 +4783,25 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'US30 · L');
       await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
       await p.waitForTimeout(300);
-      expectEq(await p.locator('.info__pop').count(), 0, '再読み込みの後の説明');
+      expectEq(await sheetCount(p), 0, '再読み込みの後の説明');
       await p.goBack();
       await waitReady(p, '取引');
       expectEq(at(), '/trades', '層の段で再読み込みした後の戻る 1 回');
       steps.push('説明を開いたまま再読み込み → 開かない・戻る 1 回で一覧');
-      // 説明を開いたままタブを替える → 層の段を戻してから替える。[/, /settings]・戻るとホーム（#127 のレビュー N9）
+      // 説明を閉じた直後（層の段を戻している途中）にタブを替える → 層の段を戻してから替える。[/, /settings]・戻るとホーム
+      // （#127 のレビュー N9。説明のシートはモーダルで、開いている間はタブを押せない。#129）
       await p.locator('a.traderow[href="/trades/x-r1"]').click();
       await waitReady(p, 'US30 · L');
       await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
       await openInfo(p, '「LC の物差し」の説明');
+      await closeSheet(p);
       await p.locator('nav a[href="/settings"]').click();
       await waitReady(p, '設定');
       // 戻るは利用者の戻ると同じ history.back（Chrome が操作の無い段を飛ばすかも見る。#127 のレビュー N3）
       await p.evaluate(() => history.back());
       await waitReady(p, 'ホーム');
       expectEq(at(), '/', '説明を開いたまま設定のタブへ移った後の戻る');
-      steps.push('説明を開いたまま設定のタブ → 戻るとホーム');
+      steps.push('説明を閉じた直後に設定のタブ → 戻るとホーム');
       // 用語集の中で言葉を 2 つたどる → 取引のタブ → 戻るとホーム。設定のタブの押し直しは根（#127 のレビュー B1）
       await p.locator('nav a[href="/settings"]').click();
       await waitReady(p, '設定');
@@ -6586,14 +6648,14 @@ async function runFlows(browser, base, signedIn) {
     return '誤りのまま押す → 最初の誤りの欄・知らせ、保存の失敗 → 押したボタン（設定の [保存]・記録する画面の [記録する]）';
   });
 
-  // ── 言葉の説明の「i」（Issue #57）。幅 360 で、偽の記録の API で流す
-  // IT1: 押して開く → もう一度押して閉じる・Esc で閉じてフォーカスが「i」へ・外側を押して閉じる・ほかの「i」で替わる（同時に 1 つ）
+  // ── 言葉の説明の「i」（Issue #57。#129 で説明のシート）。幅 360 で、偽の記録の API で流す
+  // IT1: 押して開く → ✕ で閉じる・Esc で閉じてフォーカスが「i」へ・外（後ろの暗い面）を押して閉じる（押した所の欄には届かない）・
+  //      同時に 1 つ（開いている間、後ろの「i」は押せない）
   // IT2: 未選択のまま「i」を押し・Enter で開いても、選択・帯の文・下書きが変わらず、保存の要求 0（AC-5）
-  // IT3: 開いて戻る → 吹き出しだけが閉じ、URL・画面・下書きはそのまま・履歴の長さは開く前と同じ。もう一度押して閉じた後も
+  // IT3: 開いて戻る → シートだけが閉じ、URL・画面・下書きはそのまま・履歴の長さは開く前と同じ。✕・Esc・外で閉じた後も
   //      履歴の長さは開く前に戻り、その後の戻るは前の画面へ（H1）
-  const infoState = (p, name) =>
-    p.getByRole('button', { name, exact: true }).getAttribute('aria-expanded');
-  const popCount = (p) => p.locator('.info__pop').count();
+  const infoState = (p, name) => infoButton(p, name).getAttribute('aria-expanded');
+  const popCount = sheetCount;
 
   await check('IT1', async () => {
     const { c, p, errors } = await recordContext();
@@ -6601,46 +6663,58 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await openRecord(p, base);
-      const b = p.getByRole('button', { name: TF, exact: true });
+      const b = infoButton(p, TF);
       expectEq(await infoState(p, TF), 'false', '押す前');
-      expectEq(await popCount(p), 0, '押す前の吹き出し');
+      expectEq(await b.getAttribute('aria-haspopup'), 'dialog', 'aria-haspopup');
+      expectEq(await popCount(p), 0, '押す前のシート');
       await openInfo(p, TF);
       expectEq(await infoState(p, TF), 'true', '1 回目');
-      const txt = await p.locator('.info__pop').textContent();
+      expectEq(await sheetTitle(p), '時間足を変えたか', 'シートの見出し');
+      const txt = await p.locator(OPEN_SHEET).textContent();
       for (const w of ['長い足へ', 'B 悪い損失', '短い足へ'])
-        if (!txt?.includes(w)) throw new Error(`吹き出しに「${w}」が無い`);
-      await b.click();
-      expectEq(await infoState(p, TF), 'false', '2 回目');
-      expectEq(await popCount(p), 0, '2 回目の吹き出し');
+        if (!txt?.includes(w)) throw new Error(`シートに「${w}」が無い`);
+      // 開くとフォーカスはシートの見出しへ
+      expectEq(
+        await p.evaluate(() => document.activeElement?.classList.contains('sheet__title')),
+        true,
+        '開いた後のフォーカス',
+      );
+      // ✕ で閉じる → フォーカスは「i」
+      await closeSheet(p);
+      await expectPollAsync(async () => (await popCount(p)) === 0, '✕ で閉じる');
+      expectEq(await infoState(p, TF), 'false', '✕ の後');
+      expectEq(await focusLabel(p), TF, '✕ の後のフォーカス');
       // Esc: 閉じてフォーカスが「i」
       await b.focus();
       await p.keyboard.press('Enter');
-      expectEq(await infoState(p, TF), 'true', 'Enter で開く');
+      await expectPollAsync(async () => (await infoState(p, TF)) === 'true', 'Enter で開く');
+      await settleSheet(p);
       await p.keyboard.press('Escape');
       await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc で閉じる');
-      const focusName = await p.evaluate(() => document.activeElement?.getAttribute('aria-label'));
-      expectEq(focusName, TF, 'Esc の後のフォーカス');
-      // 外側を押すと閉じる
+      expectEq(await focusLabel(p), TF, 'Esc の後のフォーカス');
+      // 外を押すと閉じる（後ろの欄には届かない）・フォーカスは「i」
       await openInfo(p, TF);
-      // 吹き出しに隠れない、画面の上の銘柄の欄を押す
-      await p.locator('#record-instrument').click();
-      await expectPollAsync(async () => (await popCount(p)) === 0, '外側で閉じる');
-      // ほかの「i」を開くと前は閉じる（同時に 1 つ）
-      // （開いた吹き出しが隣の「i」に重なることがあるので、キーで押す）
+      await pressBackdrop(p);
+      await expectPollAsync(async () => (await popCount(p)) === 0, '外を押して閉じる');
+      expectEq(await focusLabel(p), TF, '外を押した後のフォーカス');
+      // シートの中を押しても閉じない
       await openInfo(p, TF);
-      await p.getByRole('button', { name: '「LC を動かしたか」の説明', exact: true }).focus();
-      await p.keyboard.press('Enter');
-      await expectPollAsync(
-        async () => (await infoState(p, '「LC を動かしたか」の説明')) === 'true',
-        'ほかの「i」が開く',
-      );
+      await p.locator(`${OPEN_SHEET} .sheet__body`).click({ position: { x: 4, y: 4 } });
+      await p.waitForTimeout(150);
+      expectEq(await popCount(p), 1, '中を押した後のシート');
+      // 同時に 1 つ: 開いている間、後ろの「i」は押せない（モーダルの外は inert）
+      const reached = await infoButton(p, '「LC を動かしたか」の説明')
+        .click({ timeout: 1000, trial: true })
+        .then(() => true)
+        .catch(() => false);
+      expectEq(reached, false, '開いている間に後ろの「i」を押せる');
       expectEq(await popCount(p), 1, '同時に開いている数');
-      expectEq(await infoState(p, TF), 'false', '前の「i」');
+      await closeSheet(p);
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return '押して開く・もう一度で閉じる（aria-expanded false → true → false・吹き出しの有無）、Esc で閉じてフォーカスは「i」、外側で閉じる、同時に 1 つ、中身に「長い足へ・B 悪い損失・短い足へ」';
+    return '押して開く（aria-haspopup="dialog"・aria-expanded false → true・見出しへフォーカス）、✕・Esc・外を押すで閉じてフォーカスは「i」、中を押しても閉じない、開いている間は後ろの「i」を押せない（同時に 1 つ）、中身に「長い足へ・B 悪い損失・短い足へ」';
   });
 
   await check('IT2', async () => {
@@ -6664,16 +6738,20 @@ async function runFlows(browser, base, signedIn) {
       const before = await snap();
       if (!before.status) throw new Error('帯の文が無い');
       const MOVE = '「LC を動かしたか」の説明';
-      await p.getByRole('button', { name: MOVE, exact: true }).click();
-      await p.getByRole('button', { name: MOVE, exact: true }).click();
-      await p.getByRole('button', { name: MOVE, exact: true }).focus();
+      await infoButton(p, MOVE).click();
+      await p.locator(OPEN_SHEET).waitFor();
+      await closeSheet(p);
+      await expectPollAsync(async () => (await popCount(p)) === 0, '✕ で閉じる');
+      await infoButton(p, MOVE).focus();
       await p.keyboard.press('Enter');
+      await p.locator(OPEN_SHEET).waitFor();
       await p.keyboard.press('Escape');
+      await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc で閉じる');
       const after = await snap();
       expectEq(JSON.stringify(after), JSON.stringify(before), '入力の状態');
       expectEq(fake.posts.length, 0, '保存の要求');
       expectEq(errors.length, 0, 'ページのエラー');
-      return `未選択のまま「i」を押す・Enter・Esc: 選択・帯の文（${before.status}）・欄の値・判定が同じ、保存の要求 0`;
+      return `未選択のまま「i」を押す・✕・Enter・Esc: 選択・帯の文（${before.status}）・欄の値・判定が同じ、保存の要求 0`;
     } finally {
       await c.close();
     }
@@ -6694,7 +6772,7 @@ async function runFlows(browser, base, signedIn) {
       const len = () => p.evaluate(() => history.length);
       const y = () => p.evaluate(() => Math.round(window.scrollY));
       const base0 = await len();
-      // 開いて戻る → 吹き出しだけが閉じる
+      // 開いて戻る → シートだけが閉じる
       await openInfo(p, TF);
       await expectPollAsync(async () => (await len()) === base0 + 1, '開いたら履歴に 1 段');
       await p.goBack();
@@ -6702,30 +6780,19 @@ async function runFlows(browser, base, signedIn) {
       expectEq(new URL(p.url()).pathname, '/record', '戻った後の URL');
       expectEq(await p.locator('main h1').first().textContent(), '記録する', '戻った後の画面');
       expectEq(await p.locator('#record-entry').inputValue(), '100.00', '下書き');
-      const focusName = await p.evaluate(() => document.activeElement?.getAttribute('aria-label'));
-      expectEq(focusName, TF, '戻るの後のフォーカス');
-      // B1（レビュー）: 開いたままスクロール → 外の欄を押す → 吹き出しが閉じ、押した欄にフォーカスが入り、位置は変わらない
-      // （タップの選択肢は押すと判定の枠を寄せる作り（R11）なので、ここでは位置を動かさない数量の欄を押す。吹き出しに隠れない上の方の欄）
+      expectEq(await focusLabel(p), TF, '戻るの後のフォーカス');
+      // B1（レビュー）の置き換え（#129）: スクロールした所で開いて外を押す → シートだけが閉じ、窓の位置は変わらない
+      await infoButton(p, DEC).scrollIntoViewIfNeeded();
+      await p.evaluate(() => window.scrollBy(0, 120));
       await openInfo(p, DEC);
-      await p.evaluate(() => window.scrollBy(0, 400));
-      await p.waitForTimeout(100);
-      const lc = p.locator('#record-quantity');
-      await lc.scrollIntoViewIfNeeded();
       const y2 = await y();
-      await lc.click();
+      await pressBackdrop(p);
       await expectPollAsync(async () => (await popCount(p)) === 0, '外を押して閉じる');
       await p.waitForTimeout(250);
-      expectEq(
-        await p.evaluate(() => document.activeElement?.id ?? ''),
-        'record-quantity',
-        '押した欄にフォーカス',
-      );
       const y3 = await y();
       if (Math.abs(y3 - y2) > 2) throw new Error(`外を押した後に位置が ${y2} → ${y3}`);
-      // B1: 開いたままスクロール → 戻る → 吹き出しだけ閉じ、位置は変わらない
+      // B1: 開いて戻る → シートだけ閉じ、位置は変わらない
       await openInfo(p, DEC);
-      await p.evaluate(() => window.scrollBy(0, 300));
-      await p.waitForTimeout(100);
       const y4 = await y();
       await p.goBack();
       await expectPollAsync(
@@ -6736,49 +6803,306 @@ async function runFlows(browser, base, signedIn) {
       const y5 = await y();
       if (Math.abs(y5 - y4) > 2) throw new Error(`戻るの後に位置が ${y4} → ${y5}`);
       expectEq(new URL(p.url()).pathname, '/record', 'スクロールの後の戻るの URL');
-      // 押して閉じる → 積んだ段を戻して数を合わせる（その後の戻るは 1 回で前の画面へ。進む側には積んだ段の項目が残り、
+      // ✕ で閉じる → 積んだ段を戻して数を合わせる（その後の戻るは 1 回で前の画面へ。進む側には積んだ段の項目が残り、
       // 進むで入ると押し戻される = option-simulator と同じ規則。レビュー N3 b・N8 a）
+      for (const [how, close] of [
+        ['✕', closeSheet],
+        ['Esc', (q) => q.keyboard.press('Escape')],
+        ['外', pressBackdrop],
+      ]) {
+        await openInfo(p, TF);
+        await close(p);
+        await expectPollAsync(async () => (await popCount(p)) === 0, `${how} で閉じる`);
+        await p.waitForTimeout(200);
+        await p.goBack();
+        await waitReady(p, 'ホーム');
+        expectEq(new URL(p.url()).pathname, '/', `${how} で閉じた後の戻る`);
+        await p.goForward();
+        await waitReady(p, '記録する');
+        await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      }
+      // 開いたままシートの中の ［用語集で見る］ で画面を移る → 用語集。戻る 1 回で記録する画面（N8 b）
       await openInfo(p, TF);
-      await p.getByRole('button', { name: TF, exact: true }).click();
-      await expectPollAsync(async () => (await popCount(p)) === 0, '押して閉じる');
-      await p.waitForTimeout(200);
-      await p.goBack();
-      await waitReady(p, 'ホーム');
-      expectEq(new URL(p.url()).pathname, '/', '閉じた後の戻る');
-      await p.goForward();
-      await waitReady(p, '記録する');
-      // Esc で閉じた後も同じ
-      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
-      await openInfo(p, TF);
-      await p.keyboard.press('Escape');
-      await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc で閉じる');
-      await p.waitForTimeout(200);
-      await p.goBack();
-      await waitReady(p, 'ホーム');
-      expectEq(new URL(p.url()).pathname, '/', 'Esc の後の戻る');
-      // 開いたまま画面のリンクで画面を移る → 用語集。戻る 1 回で記録する画面（N8 b）。記録している間は下のタブが
-      // 隠れているので、吹き出しの中の「用語集で見る」で移る（#127）
-      await p.goForward();
-      await waitReady(p, '記録する');
-      await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
-      await openInfo(p, TF);
-      await p.locator('.info__pop .info__glossary').click();
+      await p.locator(`${OPEN_SHEET} .info__glossary`).click();
       await waitReady(p, '用語集');
       expectEq(new URL(p.url()).pathname, '/glossary', '開いたまま移った先');
+      expectEq(await popCount(p), 0, '移った先のシート');
+      await expectNoSheetShown(p, '用語集へ移った後');
       await p.goBack();
       await expectPollAsync(
         async () => new URL(p.url()).pathname === '/record',
         '戻る 1 回で記録する画面',
       );
       await waitReady(p, '記録する');
-      expectEq(await popCount(p), 0, '戻った後の吹き出し');
+      expectEq(await popCount(p), 0, '戻った後のシート');
       // B2（再レビュー）: 開いたまま移って戻った後も、その画面の戻るの位置の復元は効く（scrollRestoration が manual で残らない）
       await expectRestore(p, '開いたまま一覧へ移って戻った後');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return '開いて戻る → 吹き出しだけ閉じ、URL /record・画面・下書き・フォーカス（「i」）はそのまま。開いたままスクロールして外の欄を押す → フォーカスが入り・位置は変わらない、スクロールして戻る → 位置は変わらない（B1）。押して / Esc で閉じた後の戻るは 1 回でホームへ。開いたまま一覧へ移り、戻る 1 回で記録する画面';
+    return '開いて戻る → シートだけ閉じ、URL /record・画面・下書き・フォーカス（「i」）はそのまま。スクロールした所で開いて外を押す・戻る → 位置は変わらない（B1）。✕ / Esc / 外で閉じた後の戻るは 1 回でホームへ。開いたまま用語集へ移り、戻る 1 回で記録する画面';
+  });
+
+  // ── 下のシート（#129。ui-guidelines 9.3・9.6・9.10）。説明のシートで流す
+  // SH1: 360×780・390×844 × ダーク / ライトと、文字の拡大 200%（ダーク）で「判定」の説明（判定の一覧つきの長い説明）を開く →
+  //      下から出る（下端が窓の下端・左右いっぱい）・窓の中・最大 86%・中を最後までスクロールして ［用語集で見る］ が見える・
+  //      ✕ の当たり 44・Tab を 12 回押してもシートの外の要素へ移らない（✕ と ［用語集で見る］ に届く）・✕ で閉じたら「i」へ。
+  //      安全域を上 47・下 34 に差し替えた 390×844 で、シートの押せるものが安全域の内側
+  await check('SH1', async () => {
+    const out = [];
+    const runs = [];
+    for (const theme of THEMES)
+      for (const [w, h] of [
+        [360, 780],
+        [390, 844],
+      ])
+        runs.push({ theme, w, h, zoom: false, safe: false });
+    for (const [w, h] of [
+      [360, 780],
+      [390, 844],
+    ])
+      runs.push({ theme: 'dark', w, h, zoom: true, safe: false });
+    runs.push({ theme: 'dark', w: 390, h: 844, zoom: false, safe: true });
+    const J = '「判定」の説明';
+    for (const run of runs) {
+      const { c, p, errors } = await recordContext();
+      const label = `${run.w}x${run.h} ${run.theme}${run.zoom ? ' 拡大' : ''}${run.safe ? ' 安全域' : ''}`;
+      try {
+        await setupContext(c, run.theme, run.zoom);
+        if (run.safe)
+          await c.addInitScript(() => {
+            const put = () => {
+              const st = document.createElement('style');
+              st.textContent =
+                ':root:root{--safe-top:47px;--safe-bottom:34px;--safe-left:0px;--safe-right:0px}';
+              document.head.append(st);
+            };
+            if (document.head) put();
+            else document.addEventListener('DOMContentLoaded', put);
+          });
+        await p.setViewportSize({ width: run.w, height: run.h });
+        await openRecord(p, base);
+        await fillRecord(p, EX_E1);
+        await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor();
+        const r = await openInfo(p, J);
+        // 下から出る（下端が窓の下端・左右いっぱい）
+        if (Math.abs(r.bottom - r.vh) > 1) throw new Error(`${label}: 下端 ${r.bottom} / ${r.vh}`);
+        if (r.left > 0.5 || r.right < r.vw - 0.5)
+          throw new Error(`${label}: 左右 ${r.left}〜${r.right} / ${r.vw}`);
+        // ✕ の当たり
+        const x = await p.locator(`${OPEN_SHEET} .sheet__close`).boundingBox();
+        if (!x || x.width < TAP - 0.5 || x.height < TAP - 0.5)
+          throw new Error(`${label}: ✕ の当たり ${x?.width}×${x?.height}`);
+        if (opts.shots && run.w === 390 && !run.safe)
+          await p.screenshot({
+            path: join(opts.shots, `390x844-${run.theme}${run.zoom ? '-zoom' : ''}-sheet-info.png`),
+          });
+        // 中を最後までスクロールすると ［用語集で見る］ が見える
+        const end = await p.evaluate((sel) => {
+          const d = document.querySelector(sel);
+          const body = d?.querySelector('.sheet__body');
+          const g = d?.querySelector('.info__glossary');
+          if (!d || !body || !g) return null;
+          body.scrollTop = body.scrollHeight;
+          const br = body.getBoundingClientRect();
+          const gr = g.getBoundingClientRect();
+          return {
+            inside: gr.top >= br.top - 0.5 && gr.bottom <= br.bottom + 0.5,
+            scroll: body.scrollHeight - body.clientHeight,
+            page: document.documentElement.scrollWidth - window.innerWidth,
+          };
+        }, OPEN_SHEET);
+        if (!end) throw new Error(`${label}: シートの中身が無い`);
+        if (!end.inside)
+          throw new Error(`${label}: 最後までスクロールしても ［用語集で見る］ が見えない`);
+        if (end.page > 0) throw new Error(`${label}: 横スクロール ${end.page}px`);
+        if (opts.shots && run.w === 390 && run.zoom)
+          await p.screenshot({ path: join(opts.shots, '390x844-dark-zoom-sheet-info-end.png') });
+        // 中身がスクロールする形（文字の拡大）で下の方のリンクからたどる → 中身は先頭から・見出しは新しい言葉。Esc で戻っても
+        // 先頭から（#129 のデザインレビュー a-3）
+        if (run.zoom) {
+          const bodyTop = () =>
+            p.evaluate(
+              (sel) => document.querySelector(`${sel} .sheet__body`)?.scrollTop ?? -1,
+              OPEN_SHEET,
+            );
+          const link = p.locator(`${OPEN_SHEET} .sheet__body button.glink`).last();
+          await link.scrollIntoViewIfNeeded();
+          if ((await bodyTop()) <= 0)
+            throw new Error(`${label}: 下の方のリンクで中身がスクロールしていない`);
+          await link.click();
+          await expectPollAsync(async () => (await sheetTitle(p)) !== '判定', `${label}: たどる`);
+          expectEq(await bodyTop(), 0, `${label}: たどった後の中身の位置`);
+          await p.locator(`${OPEN_SHEET} .sheet__body`).evaluate((b) => {
+            b.scrollTop = b.scrollHeight;
+          });
+          await p.keyboard.press('Escape');
+          await expectPollAsync(
+            async () => (await sheetTitle(p)) === '判定',
+            `${label}: Esc で戻る`,
+          );
+          expectEq(await bodyTop(), 0, `${label}: 戻った後の中身の位置`);
+        }
+        // 安全域: シートの押せるものが上 47・下 34 の内側
+        if (run.safe) {
+          const bad = await p.evaluate((sel) => {
+            const d = document.querySelector(sel);
+            const vh = window.innerHeight;
+            const out = [];
+            for (const el of d?.querySelectorAll('button, a') ?? []) {
+              const b = el.getBoundingClientRect();
+              if (b.width === 0 || b.height === 0) continue;
+              const body = el.closest('.sheet__body')?.getBoundingClientRect();
+              // 中のスクロールで隠れている物は見ない（見えている物だけ）
+              if (body && (b.bottom <= body.top || b.top >= body.bottom)) continue;
+              if (b.top < 47 - 0.5 || b.bottom > vh - 34 + 0.5)
+                out.push(
+                  `${(el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 10)} ${Math.round(b.top)}〜${Math.round(b.bottom)}`,
+                );
+            }
+            return out;
+          }, OPEN_SHEET);
+          if (bad.length > 0) throw new Error(`${label}: 安全域に掛かる ${bad.join(' / ')}`);
+        }
+        // フォーカスを閉じ込める: Tab を 12 回押しても外の要素へ移らない
+        const seen = new Set();
+        for (let i = 0; i < 12; i++) {
+          await p.keyboard.press('Tab');
+          const f = await p.evaluate((sel) => {
+            const d = document.querySelector(sel);
+            const a = document.activeElement;
+            if (!a || a === document.body) return { where: 'body', name: '' };
+            return {
+              where: d?.contains(a) ? 'inside' : 'outside',
+              name: (a.getAttribute('aria-label') || a.textContent || '').trim().slice(0, 12),
+            };
+          }, OPEN_SHEET);
+          if (f.where === 'outside') throw new Error(`${label}: Tab でシートの外（${f.name}）へ`);
+          seen.add(f.name);
+        }
+        for (const want of ['閉じる', '用語集で見る'])
+          if (![...seen].some((n) => n.startsWith(want)))
+            throw new Error(`${label}: Tab で「${want}」に届かない（${[...seen].join(' / ')}）`);
+        // ✕ で閉じたら「i」へ
+        await closeSheet(p);
+        await expectPollAsync(async () => (await sheetCount(p)) === 0, `${label}: ✕ で閉じる`);
+        expectEq(await focusLabel(p), J, `${label}: 閉じた後のフォーカス`);
+        expectEq(errors.length, 0, `${label}: ページのエラー`);
+        out.push(`${label}（高さ ${Math.round((r.height / r.vh) * 100)}%・中 ${end.scroll}px）`);
+      } finally {
+        await c.close();
+      }
+    }
+    return `下から・窓の中・最大 86%・中を最後までスクロール・✕ 44・Tab で外へ出ない・閉じたら「i」・安全域の内側（${out.join(' / ')}）`;
+  });
+
+  // SH2（#129 AC-4）: 詳細で [削除] → 一覧に「〜を削除しました」+ [元に戻す] → 別の取引の詳細で説明のシートを開いたまま 9 秒 →
+  //      トーストは残り DELETE 0 → 閉じてから 8.5 秒で DELETE 1
+  await check('SH2', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await p.setViewportSize({ width: 390, height: 844 });
+      await p.goto(`${base}/trades/x-d1`);
+      await waitReady(p, 'US30 · L');
+      await p.locator('canvas.chartview__canvas').nth(1).waitFor();
+      await p.getByRole('button', { name: '削除', exact: true }).click();
+      await waitReady(p, '取引');
+      const toast = p.locator('.toast').filter({ hasText: 'を削除しました' });
+      await toast.waitFor();
+      await p.locator('a.traderow[href="/trades/x-r1"]').click();
+      await waitReady(p, 'US30 · L');
+      await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
+      await openInfo(p, '「判定」の説明');
+      await p.waitForTimeout(9000);
+      expectEq(await toast.count(), 1, 'シートを開いている間のトースト');
+      expectEq(fake.deletes.length, 0, 'シートを開いている間の DELETE');
+      await closeSheet(p);
+      await expectPollAsync(async () => (await sheetCount(p)) === 0, '✕ で閉じる');
+      await p.waitForTimeout(2000);
+      expectEq(fake.deletes.length, 0, '閉じて 2 秒の DELETE（8 秒を置き直す）');
+      await p.waitForTimeout(6500);
+      await expectPollAsync(async () => fake.deletes.length === 1, '閉じて 8.5 秒で DELETE');
+      expectEq(fake.deletes.join(' '), 'x-d1', 'DELETE の取引');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '削除のトーストが出ている間に説明のシートを開いて 9 秒: トーストは残り DELETE 0、閉じて 2 秒で 0・8.5 秒で 1（8 秒を置き直す）';
+  });
+
+  // SH3（#129 AC-8・9.3）: 形ごとの見せ方を <html data-form> で替える（属性を書くのは U9 #134。ここでは検査が付ける）。
+  //      横（844×390・landscape）= 右のパネル（右端・高さいっぱい・幅 400 以下）、広い（1440×900・wide）= 説明は押した「i」の
+  //      そばの吹き出し（幅 360 以下・窓の中・「i」との縦のすき間 16px 以下で左右が重なる）、入力のシート（.sheet--form）は中央の
+  //      ダイアログ（幅 480 以下・中央）。どちらも同じ dialog の要素のまま
+  await check('SH3', async () => {
+    const out = [];
+    const { c, p, errors } = await recordContext();
+    const form = (f) => p.evaluate((v) => document.documentElement.setAttribute('data-form', v), f);
+    try {
+      // 横: 右のパネル
+      await p.setViewportSize({ width: 844, height: 390 });
+      await openRecord(p, base);
+      await fillRecord(p, EX_E1);
+      await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor();
+      await form('landscape');
+      const lr = await openInfo(p, '「判定」の説明');
+      if (Math.abs(lr.right - lr.vw) > 1 || lr.top > 0.5 || Math.abs(lr.bottom - lr.vh) > 1)
+        throw new Error(
+          `横: 右のパネルでない（${Math.round(lr.left)},${Math.round(lr.top)}〜${Math.round(lr.right)},${Math.round(lr.bottom)}）`,
+        );
+      if (lr.width > 400.5) throw new Error(`横: パネルの幅 ${lr.width}px`);
+      if (opts.shots)
+        await p.screenshot({ path: join(opts.shots, '844x390-dark-sheet-landscape.png') });
+      await closeSheet(p);
+      await expectPollAsync(async () => (await sheetCount(p)) === 0, '横: ✕ で閉じる');
+      out.push(`横 ${Math.round(lr.width)}×${Math.round(lr.height)} 右端`);
+      // 広い: 押した「i」のそばの吹き出し
+      await p.setViewportSize({ width: 1440, height: 900 });
+      await form('wide');
+      const name = '「判定」の説明';
+      const wr = await openInfo(p, name);
+      const btn = await infoButton(p, name).boundingBox();
+      if (!btn) throw new Error('広い: 「i」が無い');
+      if (wr.width > 360.5) throw new Error(`広い: 吹き出しの幅 ${wr.width}px`);
+      const gap = Math.min(Math.abs(wr.top - (btn.y + btn.height)), Math.abs(btn.y - wr.bottom));
+      const overlapX = Math.min(wr.right, btn.x + btn.width) - Math.max(wr.left, btn.x);
+      if (gap > 16 || overlapX <= 0)
+        throw new Error(
+          `広い: 「i」のそばでない（すき間 ${Math.round(gap)}px・左右の重なり ${Math.round(overlapX)}px）`,
+        );
+      if (opts.shots)
+        await p.screenshot({ path: join(opts.shots, '1440x900-dark-sheet-wide-info.png') });
+      out.push(`広い 説明 ${Math.round(wr.width)}px・すき間 ${Math.round(gap)}px`);
+      // 広い: 入力のシートは中央のダイアログ（同じ要素のクラスを替えて見る）
+      const fr = await p.evaluate(() => {
+        const d = document.querySelector('dialog.sheet[open]');
+        if (!d) return null;
+        d.classList.replace('sheet--info', 'sheet--form');
+        const r = d.getBoundingClientRect();
+        const res = {
+          w: r.width,
+          cx: (r.left + r.right) / 2,
+          cy: (r.top + r.bottom) / 2,
+          vw: document.documentElement.clientWidth,
+          vh: window.innerHeight,
+          h: r.height,
+        };
+        d.classList.replace('sheet--form', 'sheet--info');
+        return res;
+      });
+      if (!fr) throw new Error('広い: シートが無い');
+      if (fr.w > 480.5 || Math.abs(fr.cx - fr.vw / 2) > 1 || Math.abs(fr.cy - fr.vh / 2) > 1)
+        throw new Error(`広い: 入力のシートが中央でない（幅 ${fr.w}・中心 ${fr.cx},${fr.cy}）`);
+      if (fr.h > fr.vh * 0.8 + 1) throw new Error(`広い: 入力のシートの高さ ${fr.h}px`);
+      out.push(`広い 入力 ${Math.round(fr.w)}px 中央`);
+      await p.keyboard.press('Escape');
+      await expectPollAsync(async () => (await sheetCount(p)) === 0, '広い: Esc で閉じる');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return `data-form で見せ方を替える（${out.join(' / ')}）`;
   });
 
   // GL1（#57 オーナーの要望）: 「i」の中の用語集のリンクを 3 段たどり、戻るで 1 つずつ前の説明へ戻り、最後に吹き出しが閉じて
@@ -6786,10 +7110,8 @@ async function runFlows(browser, base, signedIn) {
   await check('GL1', async () => {
     const { c, p, errors } = await recordContext();
     const J = '「判定」の説明';
-    const title = async () =>
-      (await p.locator('.info__pop .info__title').count()) === 0
-        ? null
-        : await p.locator('.info__pop .info__title').textContent();
+    // シートの見出し（「i」の言葉そのものを見ている間は「判定」。#129）
+    const title = () => sheetTitle(p);
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/`);
@@ -6813,7 +7135,7 @@ async function runFlows(browser, base, signedIn) {
       }
       await p.goBack();
       await expectPollAsync(
-        async () => (await popCount(p)) === 1 && (await title()) === null,
+        async () => (await popCount(p)) === 1 && (await title()) === '判定',
         '戻るで「判定」',
       );
       await p.goBack();
@@ -6829,15 +7151,28 @@ async function runFlows(browser, base, signedIn) {
       await openInfo(p, J);
       await followLink(p, 'LC', 'LC');
       await followLink(p, '根拠が崩れる条件', '根拠が崩れる条件');
-      await p.locator('.info__pop .info__up').click();
+      await p.locator(`${OPEN_SHEET} .info__up`).click();
       await expectPollAsync(async () => (await title()) === 'LC', '[‹ 前の説明] で LC');
       await p.keyboard.press('Escape');
       await expectPollAsync(
-        async () => (await popCount(p)) === 1 && (await title()) === null,
+        async () => (await popCount(p)) === 1 && (await title()) === '判定',
         'Esc で「判定」',
       );
       await p.keyboard.press('Escape');
       await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc で閉じる');
+      // 2 段たどってから操作をはさまずに Esc を続けて 2 回 → 1 段ずつ戻って「判定」（close watcher の 2 回目でシートごと
+      // 閉じない。#129 のレビュー N1）→ もう 1 回で閉じる
+      await openInfo(p, J);
+      await followLink(p, 'LC', 'LC');
+      await followLink(p, '1R', '1R');
+      await p.keyboard.press('Escape');
+      await p.keyboard.press('Escape');
+      await expectPollAsync(
+        async () => (await popCount(p)) === 1 && (await title()) === '判定',
+        'Esc を続けて 2 回で「判定」',
+      );
+      await p.keyboard.press('Escape');
+      await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc の 3 回目で閉じる');
       await p.waitForTimeout(250);
       await p.goBack();
       await waitReady(p, 'ホーム');
@@ -6847,7 +7182,7 @@ async function runFlows(browser, base, signedIn) {
       // 記録する画面でも「用語集で見る」を出す（書きかけは画面を移っても残る。#75 R9。移って戻るは DR1）
       await openInfo(p, '「時間足を変えたか」の説明');
       expectEq(
-        await p.locator('.info__pop .info__glossary').count(),
+        await p.locator(`${OPEN_SHEET} .info__glossary`).count(),
         1,
         '記録する画面の「用語集で見る」',
       );
@@ -6859,9 +7194,9 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/trades`);
       await waitReady(p, '取引');
       await p.locator('main a[href^="/trades/"]').first().click();
-      await waitReady(p, '取引の詳細');
+      await waitDetail(p);
       await openInfo(p, '「時間足を変えたか」の説明');
-      await p.locator('.info__pop .info__glossary').click();
+      await p.locator(`${OPEN_SHEET} .info__glossary`).click();
       await waitReady(p, '用語集');
       expectEq(new URL(p.url()).hash, '#glossary-timeframeChange', '用語集の項目');
       await p.waitForTimeout(300);
@@ -6871,7 +7206,7 @@ async function runFlows(browser, base, signedIn) {
       });
       expectEq(seen, true, '用語集の項目が見える');
       await p.goBack();
-      await waitReady(p, '取引の詳細');
+      await waitDetail(p);
       await p.waitForTimeout(300);
       expectEq(
         await p.evaluate(() => history.scrollRestoration),
@@ -6880,7 +7215,7 @@ async function runFlows(browser, base, signedIn) {
       );
       // 「用語集で見る」→ 用語集の中で 2 回たどる → 上の「‹ 取引の詳細」で 1 回で詳細へ（たどった段を飛ばす）
       await openInfo(p, '「時間足を変えたか」の説明');
-      await p.locator('.info__pop .info__glossary').click();
+      await p.locator(`${OPEN_SHEET} .info__glossary`).click();
       await waitReady(p, '用語集');
       await p.locator('#glossary-timeframeChange a.glink', { hasText: '時間足' }).first().click();
       await expectPollAsync(
@@ -6892,11 +7227,22 @@ async function runFlows(browser, base, signedIn) {
         async () => new URL(p.url()).hash === '#glossary-timeframeChange',
         '時間足を変えたかへ',
       );
+      // シートの閉じる動きが終わり、移った先の窓にシートが残っていない（#129 のデザインレビュー a-1）
+      await expectNoSheetShown(p, '用語集へ移った後');
       if (opts.shots)
         await p.screenshot({ path: join(opts.shots, '360x780-dark-glossary-from.png') });
       await p.locator('button.appbar__back', { hasText: '取引の詳細' }).click();
-      await waitReady(p, '取引の詳細');
+      await waitDetail(p);
       expectEq(new URL(p.url()).pathname.startsWith('/trades/'), true, '‹ 取引の詳細 の行き先');
+      // 説明のシートから用語集へ移った後に下のタブを替えて戻る → ホーム（層の段を巻き戻してから積む。#129 のレビュー N6）
+      await openInfo(p, '「時間足を変えたか」の説明');
+      await p.locator(`${OPEN_SHEET} .info__glossary`).click();
+      await waitReady(p, '用語集');
+      await p.locator('nav a[href="/settings"]').click();
+      await waitReady(p, '設定');
+      await p.evaluate(() => history.back());
+      await waitReady(p, 'ホーム');
+      expectEq(new URL(p.url()).pathname, '/', '用語集から設定のタブ → 戻る');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
@@ -6941,7 +7287,7 @@ async function runFlows(browser, base, signedIn) {
       if (opts.shots) await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-bar.png') });
       // 「用語集で見る」で移って戻る → 書きかけが残る
       await openInfo(p, '「時間足を変えたか」の説明');
-      await p.locator('.info__pop .info__glossary').click();
+      await p.locator(`${OPEN_SHEET} .info__glossary`).click();
       await waitReady(p, '用語集');
       await toast('記録の入力は残っています').waitFor({ timeout: 5000 });
       if (opts.shots) await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-kept.png') });
@@ -7258,9 +7604,9 @@ async function runFlows(browser, base, signedIn) {
     return `設定 → 用語集（横 0・当たり<44 0・はみ出し 0）→ 判定 → LC → 1R → R → 戻るで 1R → LC → 先頭 → 設定（${out.join(' / ')}）`;
   });
 
-  // RP1（#57 再レビュー 3 の B3・N14）: 「i」を開いたまま画面を置き換える操作（[消す] = 一覧へ・[保存] = 詳細へ）で移っても、
-  // 戻るで消した取引・保存し終えた編集の画面へ戻らない（積んだ段を戻してから置き換える）。キーで押す（フォーカスが外へ出ると
-  // 吹き出しは閉じる）と、速いクリックの両方
+  // RP1（#57 再レビュー 3 の B3・N14）: 「i」を開いて閉じた直後（積んだ段を戻している途中）に画面を置き換える操作（[消す] = 一覧へ・
+  // [保存] = 詳細へ）で移っても、戻るで消した取引・保存し終えた編集の画面へ戻らない（積んだ段を戻してから置き換える）。説明のシートは
+  // モーダルで、開いている間は後ろを押せない（#129）ので、Esc で閉じてキーで押す・✕ で閉じて速くクリックするの両方
   await check('RP1', async () => {
     const out = [];
     for (const how of ['key', 'click']) {
@@ -7282,13 +7628,12 @@ async function runFlows(browser, base, signedIn) {
         await openInfo(p, '「LC を動かしたか」の説明');
         const save = p.locator('#edit-submit');
         if (how === 'key') {
+          await p.keyboard.press('Escape');
+          await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc で閉じる');
           await save.focus();
-          await expectPollAsync(
-            async () => (await popCount(p)) === 0,
-            'フォーカスが外へ出て閉じる',
-          );
           await p.keyboard.press('Enter');
         } else {
+          await closeSheet(p);
           await save.click();
         }
         // 詳細の見出しは取引の名前（読み込み中だけ「取引の詳細」）なので、URL と判定の枠で着いたことを見る
@@ -7308,13 +7653,12 @@ async function runFlows(browser, base, signedIn) {
         await openInfo(p, '「判定」の説明');
         const del = p.getByRole('button', { name: '削除', exact: true });
         if (how === 'key') {
+          await p.keyboard.press('Escape');
+          await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc で閉じる');
           await del.focus();
-          await expectPollAsync(
-            async () => (await popCount(p)) === 0,
-            'フォーカスが外へ出て閉じる',
-          );
           await p.keyboard.press('Enter');
         } else {
+          await closeSheet(p);
           await del.click();
         }
         await waitReady(p, '取引');
@@ -7329,11 +7673,11 @@ async function runFlows(browser, base, signedIn) {
         await c.close();
       }
     }
-    return `「i」を開いたまま置き換える（${out.join(' / ')}）`;
+    return `「i」を開いて閉じた直後に置き換える（${out.join(' / ')}）`;
   });
 
   // DI1（#57 デザインレビューの撮れていなかった状態・レビュー N4）: 取引の詳細（物差し・タップの答えの札の「i」）と編集の画面の
-  // 「i」を開き、吹き出しが窓に収まる。幅 320 の物差しの「i」の吹き出しが縦長にならない（幅 200px 以上）
+  // 「i」を開き、説明のシートが窓に収まる。幅 320 の物差しの「i」のシートが縦長にならない（幅 200px 以上）
   await check('DI1', async () => {
     const out = [];
     for (const theme of THEMES)
@@ -7356,15 +7700,15 @@ async function runFlows(browser, base, signedIn) {
           await p.goto(`${base}/trades`);
           await waitReady(p, '取引');
           await p.locator('main a[href^="/trades/"]').first().click();
-          await waitReady(p, '取引の詳細');
+          await waitDetail(p);
           const rr = await openInfo(p, '「LC の物差し」の説明');
           const width = Math.round(rr.right - rr.left);
-          if (width < 200) throw new Error(`${theme} ${w}: 物差しの吹き出しの幅 ${width}px`);
+          if (width < 200) throw new Error(`${theme} ${w}: 物差しの説明のシートの幅 ${width}px`);
           if (opts.shots && w !== 320)
             await p.screenshot({
               path: join(opts.shots, `${w}x${h}-${theme}-detail-info-ruler.png`),
             });
-          // 開いた吹き出しは下の札に重なるので、閉じてから次の「i」を押す
+          // 開いている間は後ろを押せないので、閉じてから次の「i」を押す
           await p.keyboard.press('Escape');
           await openInfo(p, '「時間足を変えたか」の説明');
           if (opts.shots && w !== 320)
@@ -7380,7 +7724,7 @@ async function runFlows(browser, base, signedIn) {
               await p.screenshot({ path: join(opts.shots, `${w}x${h}-${theme}-edit-info.png`) });
           }
           expectEq(errors.length, 0, 'ページのエラー');
-          out.push(`${theme} ${w}${w === 320 ? `（物差しの吹き出し ${width}px）` : ''}`);
+          out.push(`${theme} ${w}${w === 320 ? `（物差しのシート ${width}px）` : ''}`);
         } finally {
           await c.close();
         }
@@ -7773,7 +8117,8 @@ async function runFlows(browser, base, signedIn) {
         return { label: c.getAttribute('aria-label'), alpha: d ? d[3] : 0 };
       }),
     );
-  const noDialogs = (p) => p.locator('dialog, [role="dialog"], [role="alertdialog"]').count();
+  // 開いている dialog だけ（説明のシートの dialog は閉じたまま置いてある。#129）
+  const noDialogs = (p) => p.locator('dialog[open], [role="dialog"], [role="alertdialog"]').count();
 
   await check('T-L4', async () => {
     const { c, p, errors } = await recordContext({ trades: [TX_L1, TX_L2, TX_L3] });

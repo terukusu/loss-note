@@ -906,8 +906,10 @@ describe('前の画面へ（nav.back。#75 R1）', () => {
       },
     });
     nav.push('/record');
-    nav.back('/');
+    // 進むも層の段を巻き戻してから積む（#129 のレビュー N6）
     expect(unwound).toBe(1);
+    nav.back('/');
+    expect(unwound).toBe(2);
     expect(b.url).toBe('/trades');
   });
 });
@@ -959,9 +961,10 @@ describe('同じ画面への push と層・殻への伝え方（#75 R5・R6）',
       },
     });
     nav.push('/record');
-    expect(unwound).toBe(0);
-    nav.push('/record');
+    // 別の画面への push も巻き戻しを通る（#129 のレビュー N6）
     expect(unwound).toBe(1);
+    nav.push('/record');
+    expect(unwound).toBe(2);
     expect(b.stack).toEqual(['/', '/trades', '/record']);
     nav.back('/');
     expect(b.url).toBe('/trades');

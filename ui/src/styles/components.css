@@ -3009,6 +3009,262 @@ summary.settings__subtitle {
   }
 }
 
+/* ── 下のシート（#129。components/Sheet.tsx。ui-guidelines 9.3・9.6・9.8） ─────────────── */
+/* <dialog> の showModal()。縦の形は下から中身の高さ分だけ出る（最大 86dvh・中がスクロール。#110）。上につまみ、後ろは暗く。
+   見せ方は <html data-form> で替える（横 = 右のパネル、広い = 説明は押した所の吹き出し・入力は中央のダイアログ）。要素は同じで、
+   作り直さない。dialog の既定（中央・枠・余白・最大の大きさ）は外す。面は 1 段（線と影を重ねない。9.9。例外は広い形の
+   吹き出し: 後ろを暗くしないので、線で面の端を示す）。中身はパネルが覆う
+   （後ろの暗い面を押したときだけ的が dialog そのものになる = 外を押した） */
+.sheet {
+  position: fixed;
+  inset: auto 0 0;
+  box-sizing: border-box;
+  inline-size: min(100%, 640px);
+  max-inline-size: none;
+  block-size: auto;
+  max-block-size: 86dvh;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background: var(--s2);
+  color: var(--ink);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+  overscroll-behavior: contain;
+  translate: 0 100%;
+  transition:
+    translate var(--dur-sheet) var(--ease-sheet),
+    display var(--dur-sheet) allow-discrete,
+    overlay var(--dur-sheet) allow-discrete;
+}
+
+.sheet[open] {
+  display: flex;
+  flex-direction: column;
+  translate: 0 0;
+}
+
+@starting-style {
+  .sheet[open] {
+    translate: 0 100%;
+  }
+}
+
+.sheet::backdrop {
+  background: transparent;
+  transition:
+    background-color var(--dur-sheet) var(--ease-sheet),
+    display var(--dur-sheet) allow-discrete,
+    overlay var(--dur-sheet) allow-discrete;
+}
+
+.sheet[open]::backdrop {
+  background: var(--scrim);
+}
+
+@starting-style {
+  .sheet[open]::backdrop {
+    background: transparent;
+  }
+}
+
+.sheet__panel {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  max-block-size: 86dvh;
+  padding: 0 calc(var(--gutter) + var(--safe-right)) 0 calc(var(--gutter) + var(--safe-left));
+}
+
+/* つまみ（見た目だけ。引いて閉じる操作は置かない = 9.3 の「しない（最初は）」） */
+.sheet__grip {
+  flex: none;
+  inline-size: 40px;
+  block-size: 5px;
+  margin: var(--sp-2) auto 0;
+  border-radius: var(--radius-pill);
+  background: var(--line-2);
+}
+
+/* 見出しの行: 題と右上の ✕。前に置くもの（［‹ 前の言葉］）があれば 1 段目の左に置き、題は 2 段目 */
+.sheet__head {
+  display: grid;
+  flex: none;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  /* 行の間は ［‹ 前の言葉］ の札と題を分けて読ませる（題が札に負けない。#129 のデザインレビュー a-2） */
+  gap: var(--sp-3) var(--sp-2);
+  padding-block: var(--sp-3) var(--sp-2);
+}
+
+.sheet__lead {
+  grid-row: 1;
+  grid-column: 1;
+  justify-self: start;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.sheet__title {
+  grid-row: 1;
+  grid-column: 1;
+  min-inline-size: 0;
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.sheet__lead + .sheet__title {
+  grid-row: 2;
+  grid-column: 1 / -1;
+}
+
+.sheet__title:focus {
+  outline: none;
+}
+
+.sheet__close {
+  grid-row: 1;
+  grid-column: 2;
+  justify-self: end;
+}
+
+/* 中身: 中だけがスクロールする（後ろへ伝えない）。下は安全域の分も空ける */
+.sheet__body {
+  flex: 0 1 auto;
+  min-block-size: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-block: var(--sp-1) calc(var(--sp-6) + var(--safe-bottom));
+}
+
+/* 横の形: 右から出るパネル（幅 400px・高さいっぱい。右の安全域の分だけ広げる） */
+:root[data-form="landscape"] .sheet {
+  inset: 0 0 0 auto;
+  inline-size: min(100%, calc(400px + var(--safe-right)));
+  block-size: 100dvh;
+  max-block-size: 100dvh;
+  margin: 0;
+  border-radius: var(--radius-sheet) 0 0 var(--radius-sheet);
+  translate: 100% 0;
+}
+
+:root[data-form="landscape"] .sheet[open] {
+  translate: 0 0;
+}
+
+@starting-style {
+  :root[data-form="landscape"] .sheet[open] {
+    translate: 100% 0;
+  }
+}
+
+:root[data-form="landscape"] .sheet__panel {
+  flex: 1 1 auto;
+  max-block-size: 100dvh;
+  padding-inline-start: var(--gutter);
+}
+
+:root[data-form="landscape"] .sheet__grip,
+:root[data-form="wide"] .sheet__grip {
+  display: none;
+}
+
+/* 広い形の入力: 中央のダイアログ（幅 480px・最大の高さ 80%） */
+:root[data-form="wide"] .sheet--form {
+  inset: 0;
+  inline-size: min(calc(100% - 2 * var(--gutter)), 480px);
+  max-block-size: 80dvh;
+  margin: auto;
+  border-radius: var(--radius-lg);
+  translate: none;
+  opacity: 0;
+  transition:
+    opacity var(--dur-sheet) var(--ease-sheet),
+    display var(--dur-sheet) allow-discrete,
+    overlay var(--dur-sheet) allow-discrete;
+}
+
+:root[data-form="wide"] .sheet--form[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  :root[data-form="wide"] .sheet--form[open] {
+    opacity: 0;
+  }
+}
+
+:root[data-form="wide"] .sheet--form .sheet__panel {
+  max-block-size: 80dvh;
+  padding-inline: var(--sp-5);
+}
+
+/* 広い形の説明と小さな操作: 開いた「i」（.info の aria-expanded。ほかの開くボタンと名前がぶつからないよう「i」に絞る）に付けた吹き出し（幅 360px まで）。
+   置き方は infoPlace と同じ規則を宣言で: 下・左端をボタンに揃える → 入らなければ上・右端に揃える（3 つの質問・物差しは上を先に）。
+   後ろは暗くしない（吹き出し）。anchor positioning が無いブラウザは中央 */
+:root[data-form="wide"] .sheet--info {
+  position-anchor: --sheet-anchor;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks:
+    flip-block,
+    flip-inline,
+    flip-block flip-inline;
+  inset: auto;
+  inline-size: max-content;
+  max-inline-size: min(360px, calc(100vw - 2 * var(--gutter)));
+  max-block-size: calc(100% - 2 * var(--sp-2));
+  margin: var(--sp-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-lg);
+  translate: none;
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    display var(--dur-fast) allow-discrete,
+    overlay var(--dur-fast) allow-discrete;
+}
+
+:root[data-form="wide"] .sheet--info.sheet--above {
+  position-area: block-start span-inline-end;
+}
+
+:root[data-form="wide"] .sheet--info[open] {
+  opacity: 1;
+}
+
+@starting-style {
+  :root[data-form="wide"] .sheet--info[open] {
+    opacity: 0;
+  }
+}
+
+:root[data-form="wide"] .sheet--info[open]::backdrop {
+  background: transparent;
+}
+
+:root[data-form="wide"] .sheet--info .sheet__panel {
+  max-block-size: none;
+  padding-inline: var(--sp-4);
+}
+
+:root[data-form="wide"] .sheet--info .sheet__body {
+  padding-block-end: var(--sp-4);
+}
+
+@supports not (anchor-name: --sheet-anchor) {
+  :root[data-form="wide"] .sheet--info {
+    inset: 0;
+    margin: auto;
+    max-block-size: 80dvh;
+  }
+}
+
 /* ── 言葉の説明の「i」（#57。components/InfoTip.tsx） ─────────────────── */
 /* 見た目は 20px の丸の i（--sm は 16px）、当たりは 44×44px。.info-wrap の負の余白でラベルの段の高さを変えない（上下左右に
    12px ずつはみ出す）。吹き出しは .info-wrap に対する絶対配置 */
@@ -3060,142 +3316,40 @@ summary.settings__subtitle {
   stroke-width: 2.4;
 }
 
+/* 広い形の説明のシート（吹き出し）が付く先（.sheet--info の position-anchor。#129） */
+:root[data-form="wide"] .info[aria-expanded="true"] {
+  anchor-name: --sheet-anchor;
+}
+
 .info:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -8px;
-}
-
-/* 吹き出し: ボタンの下に開く。start = 左端をボタンに、--end = 右端をボタンに、--above = ボタンの上に。位置はボタンの見た目
-   （当たりの 44px の内側）に寄せ、すき間 8px（矢印 4px を含む。InfoTip.tsx の GAP）。矢印は「i」の中心を指す */
-.info__pop {
-  --info-half: calc(var(--tap) / 2);
-  --info-in: calc((var(--tap) - var(--info-size)) / 2);
-  position: absolute;
-  top: calc(100% - var(--info-in) + 8px);
-  left: 0;
-  z-index: 30;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-2);
-  inline-size: max-content;
-  max-inline-size: min(320px, calc(100vw - 16px));
-  padding: var(--sp-3) var(--sp-4);
-  border: 1px solid var(--line-2);
-  border-radius: var(--radius-lg);
-  background: var(--s2);
-  box-shadow: var(--shadow-2);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-regular);
-  letter-spacing: normal;
-  line-height: 1.6;
-  text-align: start;
-  text-transform: none;
-  color: var(--ink-2);
-  text-wrap: pretty;
-  white-space: normal;
-  cursor: auto;
-}
-
-.info__pop:focus {
-  outline: none;
-}
-
-.info__pop:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-
-.info__pop::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: calc(var(--info-half) - 4px);
-  inline-size: 8px;
-  block-size: 8px;
-  border-block-start: 1px solid var(--line-2);
-  border-inline-start: 1px solid var(--line-2);
-  background: var(--s2);
-  rotate: 45deg;
-}
-
-.info__pop--end {
-  right: 0;
-  left: auto;
-}
-
-.info__pop--end::before {
-  right: calc(var(--info-half) - 4px);
-  left: auto;
-}
-
-.info__pop--above {
-  top: auto;
-  bottom: calc(100% - var(--info-in) + 8px);
-}
-
-.info__pop--above::before {
-  top: auto;
-  bottom: -5px;
-  rotate: 225deg;
-}
-
-/* 左右どちらに揃えても入らないとき（fit）: ボタンを含むカードに対する絶対配置で、カードの左右 8px の内側に広げる
-   （.info-wrap は位置を持たない = 包むブロックはカード・判定の枠）。縦は .info-wrap（flex）の中の静的な位置（下端 / 上端を
-   ボタンに揃える）から自分の高さ + すき間だけずらす。--above の後に置いて top / bottom を戻す。矢印はボタンの x を CSS に
-   渡せない（style 属性を使わない）ので出さない */
-.card:has(.info-wrap) {
-  position: relative;
-}
-
-.info-wrap--fit {
-  position: static;
-}
-
-.info__pop--fit {
-  top: auto;
-  right: var(--sp-2);
-  bottom: auto;
-  left: var(--sp-2);
-  inline-size: auto;
-  max-inline-size: none;
-  align-self: flex-end;
-  translate: 0 calc(100% - var(--info-in) + 8px);
-}
-
-.info__pop--fit.info__pop--above {
-  align-self: flex-start;
-  translate: 0 calc(-100% + var(--info-in) - 8px);
-}
-
-.info__pop--fit::before {
-  content: none;
 }
 
 .info__lead {
   color: var(--ink);
 }
 
-/* たどった先の見出しと [‹ 前の説明] */
-.info__nav {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0 var(--sp-2);
-  margin: calc(var(--sp-2) * -1) 0 0 calc(var(--sp-3) * -1);
-}
-
+/* たどった先で見出しの前に置く ［‹ 〈前の言葉〉］（3 番目の重さ: 面のある小さいボタン。当たり 44px） */
 .info__up {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
   min-block-size: var(--tap);
-  padding: 0 var(--sp-2);
+  max-inline-size: 100%;
+  padding: 0 var(--sp-3) 0 var(--sp-2);
   border: 0;
-  border-radius: var(--radius-md);
-  background: none;
-  font-size: var(--fs-xs);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  font-size: var(--fs-sm);
   color: var(--ink-2);
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.info__up span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .info__up .icon {
@@ -3208,12 +3362,20 @@ summary.settings__subtitle {
   outline-offset: -2px;
 }
 
-/* たどった先の言葉の見出し（戻るの行とは分けた 1 行。#57 デザインの再レビュー 5） */
-.info__title {
-  margin-block-start: calc(var(--sp-2) * -1);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  color: var(--ink);
+/* 説明のシートの中身（#129）: 本文の大きさ・行の高さ。段の間は余白で区切る（枠を足さない） */
+.info__content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+.info__content p,
+.info__content ul {
+  margin: 0;
 }
 
 /* 判定の名前の前の記号（判定のバッジと同じ形。色は付けない = 色は判定の枠の段だけ） */
@@ -3224,8 +3386,9 @@ summary.settings__subtitle {
 }
 
 .info__grade {
-  inline-size: 14px;
-  block-size: 14px;
+  /* 文字に合わせて大きくする（文字の拡大で記号が点にならない。色に頼らない示し方 P5。#129 のデザインレビュー a-4） */
+  inline-size: 0.875em;
+  block-size: 0.875em;
   flex: none;
 }
 
@@ -3244,28 +3407,14 @@ summary.settings__subtitle {
 }
 
 .info__example {
-  font-size: var(--fs-xs);
-  color: var(--ink-3);
+  /* 例は「何か」を一番よく伝える行なので、本文より 1 段小さい段 5（#129 のデザインレビュー a-5） */
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
 }
 
-.info__more {
-  font-size: var(--fs-xs);
-}
-
+/* ［用語集で見る］（2 番目の重さのボタン・全幅。9.12）。説明との間を少し空ける */
 .info__glossary {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-block-size: var(--tap);
-  margin-block: calc((var(--tap) - 1.5em) / -2);
-  color: var(--accent);
-  font-weight: var(--fw-bold);
-  text-decoration: none;
-}
-
-.info__glossary .icon {
-  inline-size: 18px;
-  block-size: 18px;
+  margin-block-start: var(--sp-2);
 }
 
 /* 文の中の用語集のリンク（吹き出しの中はボタン・用語集の画面はページの中のリンク）。文の中なので当たりの 44px の例外

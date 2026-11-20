@@ -5,6 +5,7 @@ import { errorCode, loginErrorMessage, SIGN_OUT_FAILED } from './auth/errors';
 import { onAuthKind } from './auth/forbidden';
 import { type AuthState, gate } from './auth/gate';
 import { type AuthSession, api, forbiddenFlag } from './auth/session';
+import { InfoHost } from './components/InfoSheet';
 import { DRAFT_UNDO_ID, TOAST_UNDO_ID, Toast } from './components/Toast';
 import { loadParts } from './devPages';
 import { RootTitleBar, Shell, tabLabel } from './layout/Shell';
@@ -14,6 +15,7 @@ import { createDrafts, type DraftsState, editKey, recordKey } from './lib/drafts
 import { DraftsContext, DraftsKeptContext, type DraftsValue } from './lib/drafts-context';
 import { type Navigator, NavigatorContext, useCurrent } from './lib/router';
 import { hrefOf, type Route, titleOf } from './lib/routes';
+import { createSheetsHost, SheetsContext } from './lib/sheets-context';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
 import { createTradesCache, TradesCacheContext } from './lib/trades-cache';
 import { Forbidden } from './pages/Forbidden';
@@ -161,6 +163,21 @@ export function App(props: AppProps) {
         onDeleted: (id) => drafts.drop(editKey(id)),
       }),
     [drafts],
+  );
+  // 下のシート（#129。9.3）: 1 つでも開いている間は、トーストの取り消しの時間（削除の [元に戻す]・書きかけの知らせ）を止める
+  const sheets = useMemo(
+    () =>
+      createSheetsHost({
+        onHold: () => {
+          deletions.hold('sheet');
+          drafts.hold('sheet');
+        },
+        onResume: () => {
+          deletions.resume('sheet');
+          drafts.resume('sheet');
+        },
+      }),
+    [deletions, drafts],
   );
   const [delState, setDelState] = useState<DeletionsState>(deletions.getState());
   // 取引の一覧の読み込み済みの分と位置（Issue #87）: 戻るで一覧に戻ったときに使う。ログインしていなければ空にする
@@ -387,7 +404,12 @@ export function App(props: AppProps) {
       <DeletionsContext.Provider value={{ state: delState, deletions, remove: removeTrade }}>
         <DraftsContext.Provider value={draftsValue}>
           <DraftsKeptContext.Provider value={draftState.kept}>
-            <TradesCacheContext.Provider value={tradesCache}>{body}</TradesCacheContext.Provider>
+            <TradesCacheContext.Provider value={tradesCache}>
+              <SheetsContext.Provider value={sheets}>
+                {/* 「i」の説明のシート（アプリに 1 つ。画面が替わったら閉じる。#129） */}
+                <InfoHost pathKey={hrefOf(route)}>{body}</InfoHost>
+              </SheetsContext.Provider>
+            </TradesCacheContext.Provider>
           </DraftsKeptContext.Provider>
         </DraftsContext.Provider>
       </DeletionsContext.Provider>

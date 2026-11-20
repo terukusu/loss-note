@@ -198,7 +198,7 @@ export function Parts() {
 
       <Section
         title="言葉の説明（i）"
-        note="押すと吹き出しが開きます。文の中の言葉で用語集をたどり、戻るで 1 つずつ戻ります（#57）。"
+        note="押すと説明のシートが開きます（#129）。文の中の言葉で用語集をたどり、戻るで 1 つずつ戻ります（#57）。"
       >
         <p class="field__head">
           <span class="field__label">判定</span>

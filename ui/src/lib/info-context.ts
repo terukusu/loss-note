@@ -15,6 +15,12 @@ export interface InfoHostValue {
   /** 今開いている説明を頼んだ「i」（閉じていれば null） */
   readonly owner: object | null;
   open(req: InfoRequest): void;
+  /**
+   * 開いている間に頼んだ「i」の中身が替わった（一覧の「—」の理由の件数など）: 開いているのがその「i」なら中身を差し替える（#132 N3）
+   */
+  refresh(owner: object, source: InfoSource): void;
+  /** 頼んだ「i」が画面から消えた: 開いているのがその「i」なら閉じる（古い中身を出し続けない。#132 N3） */
+  release(owner: object): void;
 }
 
 /** 無い = テスト・部品だけの描画（押しても何もしない） */

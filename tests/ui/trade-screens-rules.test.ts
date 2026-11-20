@@ -11,6 +11,7 @@ const sources = import.meta.glob('../../ui/src/**/*.{ts,tsx}', {
 
 const FILES = [
   '../../ui/src/lib/trade-view.ts',
+  '../../ui/src/lib/trade-list.ts',
   '../../ui/src/lib/edit-form.ts',
   '../../ui/src/lib/trades-controller.ts',
   '../../ui/src/lib/trade-detail-controller.ts',

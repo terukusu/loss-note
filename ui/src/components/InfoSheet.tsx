@@ -94,6 +94,9 @@ export function InfoHost({
   const layered = useRef(0);
   const layerId = (k: number) => `${id}~${k}`;
 
+  /** 今の頼み（消えた「i」の後始末は古い文脈の値からも呼ばれるので、ref で今を見る） */
+  const reqRef = useRef(req);
+  reqRef.current = req;
   const value = useMemo<InfoHostValue>(
     () => ({
       owner: open && req ? req.owner : null,
@@ -101,6 +104,12 @@ export function InfoHost({
         setReq({ ...r, from: typeof window === 'undefined' ? '' : window.location.pathname });
         setTrail([]);
         setOpen(true);
+      },
+      refresh: (owner, source) => {
+        setReq((r) => (r && r.owner === owner ? { ...r, source } : r));
+      },
+      release: (owner) => {
+        if (reqRef.current?.owner === owner) setOpen(false);
       },
     }),
     [open, req],

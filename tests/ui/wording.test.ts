@@ -224,7 +224,8 @@ describe('相場の用語と画面の言葉（#74 AC-2）', () => {
     expect(FIELD_LABEL.exitPrice).toBe('決済');
     expect(MISSING_LABEL.exitPrice).toBe('決済');
     expect(GLOSSARY_GROUPS.find((g) => g.id === 'action')?.name).toBe('決済までの行動');
-    expect(ALL_STRINGS).toContain('決済日時');
+    // 一覧の列の見出し「決済日時」は #132 で行を詰めた 2 行にして列の見出しごと無くした（8.2 の表からも外した）
+    expect(ALL_STRINGS).not.toContain('決済日時');
     expect(ALL_STRINGS).toContain('根拠が崩れる条件（任意）');
     expect(MSG.lcDirection('L')).toBe('ロングの LC はインより下にしてください');
     expect(MSG.lcDirection('S')).toBe('ショートの LC はインより上にしてください');

@@ -41,6 +41,9 @@ interface El {
 }
 type Node = El | string;
 
+/** 展開の途中で見た「i」の出どころ（説明のシートの中身を確かめる。#132） */
+const tipSources: Record<string, unknown>[] = [];
+
 /** 部品（関数）を呼んで、要素（文字列の type）だけの木にする。Link は a として止める（hook を使うため） */
 function expand(v: unknown): Node[] {
   if (v === null || v === undefined || typeof v === 'boolean') return [];
@@ -48,7 +51,10 @@ function expand(v: unknown): Node[] {
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
   const tip = closedInfoTip(vn);
-  if (tip) return expand(tip);
+  if (tip) {
+    tipSources.push(vn.props);
+    return expand(tip);
+  }
   if (vn.type === (Link as unknown)) {
     const { children, ...props } = vn.props ?? {};
     return [{ type: 'a', props, children: expand(children) }];
@@ -95,14 +101,22 @@ const ready = (trades: readonly StoredTrade[]): TradesState => ({
   more: 'done',
 });
 
+/** 一覧の行（#132: 判定の名前は 2 行目の traderow__grade、段は左の記号の札 traderow__mark の class） */
 function rowsOf(tree: Node[]) {
   return all(tree, hasClass('traderow')).map((a) => ({
     href: a.props.href,
     label: a.props['aria-label'],
-    badge: text(all(a.children, hasClass('badge'))[0] ?? []),
-    badgeClass: cls(all(a.children, hasClass('badge'))[0] as El),
+    badge: text(all(a.children, hasClass('traderow__grade'))[0] ?? []),
+    badgeClass: cls(all(a.children, hasClass('traderow__mark'))[0] as El),
     text: text(a),
   }));
+}
+
+/** 「—」の理由の「i」（題の行。#132）の出どころ。無ければ undefined */
+function missingTip(v: unknown): Record<string, unknown> | undefined {
+  tipSources.length = 0;
+  expand(v);
+  return tipSources.find((t) => t.id === 'info-trades-missing');
 }
 
 describe('AC-1: 一覧（例 L1〜L4）', () => {
@@ -120,37 +134,108 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
     expect(rows.map((r) => r.href)).toEqual(['/trades/l2', '/trades/l3', '/trades/l1']);
     expect(rows[0]?.badge).toBe('計画どおりの勝ち');
     expect(rows[0]?.text).toContain('+2.0R');
-    // 行には「—」だけ。理由は一覧の上に 1 回だけ
-    expect(rows[0]?.text).toContain('—');
+    // リスクだけ出ない行はリスクの段を出さない。理由の文は行に出さない（題の行の「i」）
+    expect(rows[0]?.text).not.toContain('リスク');
     expect(rows[0]?.text).not.toContain('資金を設定すると表示されます');
     expect(rows[1]?.badge).toBe('危ない勝ち');
-    expect(rows[1]?.badgeClass).toContain('badge--break');
-    expect(rows[1]?.text).not.toContain('R なし');
+    expect(rows[1]?.badgeClass).toContain('traderow__mark--break');
+    // R が出ない行は「—」を 1 つだけ
+    expect((rows[1]?.text.match(/—/g) ?? []).length).toBe(1);
     expect(rows[1]?.text).not.toContain('LC が無いため表示されません');
-    const notes = all(tree, hasClass('tradelist__notes')).map(text).join('');
-    expect(notes).toContain('リスクの「—」: 資金を設定すると表示されます（1 件）');
-    expect(notes).toContain('R・リスクの「—」: LC が無いため表示されません（1 件）');
+    expect(all(tree, hasClass('tradelist__notes'))).toEqual([]);
     expect(rows[2]?.badge).toBe('A いい損失');
+    expect(rows[2]?.badgeClass).toContain('traderow__mark--plan');
     expect(rows[2]?.text).toContain('−1.0R');
-    expect(rows[2]?.text).toContain('0.5%');
+    expect(rows[2]?.text).toContain('リスク 0.5%');
     expect(text(tree)).toContain('全 3 件');
-    // 行の読み上げの名前
+    // 行の読み上げの名前（出ない値は理由の文言）
     expect(rows[2]?.label).toContain('US30 L ロング A いい損失 R −1.0R リスク 0.5%');
     expect(rows[1]?.label).toContain('R LC が無いため表示されません');
-    // 列（日付・銘柄・L / S・判定・R・リスク）が行ごとに同じ順でそろう
+    // 行の形: 記号の札・2 行（銘柄 · L / S と 判定の名前 · 時刻）・R とリスク（› は擬似要素）
     const row = all(tree, hasClass('traderow'))[0] as El;
     expect(row.children.map((c) => (typeof c === 'string' ? c : cls(c)))).toEqual([
-      'traderow__date',
-      'traderow__inst',
-      'traderow__badge',
-      'traderow__risk traderow__none',
+      'traderow__mark traderow__mark--plan',
+      'traderow__main',
+      'traderow__nums',
     ]);
-    // 1 行目の判定・R は 1 つのセルの中（幅 720 未満で口座が R の手前まで使える。720 以上は display: contents で列に戻る）
-    const badgeCell = row.children[2] as El;
-    expect(badgeCell.children.map((c) => (typeof c === 'string' ? c : cls(c))).at(-1)).toBe(
-      'num traderow__r',
+    const sub = all([row], hasClass('traderow__sub'))[0] as El;
+    expect(sub.children.map((c) => (typeof c === 'string' ? c : cls(c)))).toEqual([
+      'traderow__grade',
+      'traderow__when',
+    ]);
+    const when = all([row], hasClass('traderow__when'))[0] as El;
+    expect(when.type).toBe('time');
+    // datetime は表示の時刻と合わせる（端末の時間帯の YYYY-MM-DDTHH:mm。#132 N2）
+    expect(when.props.dateTime).toMatch(/^2026-11-1[23]T\d\d:\d\d$/);
+    expect(text(when)).toMatch(/^11\/1[23] \d\d:\d\d$/);
+    expect(text(all([row], hasClass('traderow__title')))).toBe('US30S');
+  });
+
+  it('題「取引」の右に件数、題の下に説明の文を置かない（#127 デザイン b5）。「—」の理由は題の行の「i」', () => {
+    const el = (
+      <TradesView
+        state={ready([L1, L2, L3])}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />
     );
-    expect(row.children[0] && (row.children[0] as El).props.dateTime).toMatch(/^2026-11-1[23]$/);
+    const tree = expand(el);
+    expect(all(tree, hasClass('pagehead__desc'))).toEqual([]);
+    expect(text(all(tree, hasClass('pagehead__title')))).toBe('取引');
+    expect(text(all(tree, hasClass('tradeshead__count')))).toBe('全 3 件（決済の新しい順）');
+    const info = all(tree, (e) => e.type === 'button' && e.props.class === 'info');
+    expect(info.map((b) => b.props['aria-label'])).toEqual(['「表示されない値」の説明']);
+    expect(missingTip(el)?.body).toEqual([
+      'リスクの「—」: 資金を設定すると表示されます（1 件）',
+      'R・リスクの「—」: LC が無いため表示されません（1 件）',
+    ]);
+    // 「—」の無い一覧は「i」を出さない
+    const clean = (
+      <TradesView
+        state={ready([L1])}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />
+    );
+    expect(missingTip(clean)).toBeUndefined();
+  });
+
+  it('月の区切り: 決済の月ごとの見出し（h2）と「N 件 · 計画どおり M」、月ごとのまとめた一覧', () => {
+    const oct = (t: StoredTrade, id: string): StoredTrade => ({
+      ...t,
+      id,
+      record: {
+        ...t.record,
+        exit: { ...t.record.exit, time: new Date(2026, 9, 20, 12).getTime() },
+      },
+    });
+    const tree = expand(
+      <TradesView
+        state={ready([L1, L2, L3, oct(L1, 'o1')])}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    const months = all(tree, hasClass('tradelist-month'));
+    expect(months.map((m) => text(all([m], hasClass('tradelist-month__title'))))).toEqual([
+      '2026年11月',
+      '2026年10月',
+    ]);
+    expect(months.map((m) => text(all([m], hasClass('tradelist-month__sum'))))).toEqual([
+      '3 件 · 計画どおり 2',
+      '1 件 · 計画どおり 1',
+    ]);
+    const h2 = all([months[0] as El], (e) => e.type === 'h2')[0] as El;
+    expect((months[0] as El).props['aria-labelledby']).toBe(h2.props.id);
+    expect(all([months[0] as El], hasClass('traderow'))).toHaveLength(3);
+    const list = all([months[1] as El], (e) => e.type === 'ul')[0] as El;
+    expect(list.props['aria-label']).toBe('2026年10月の取引');
   });
 
   it('取引が無い → 渡した空の状態。読み込み中・読めない', () => {
@@ -163,7 +248,8 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
         onRelogin={noop}
       />,
     );
-    expect(text(empty)).toBe('空');
+    // 題「取引」は空の状態でも残す（見出しへのフォーカスを作り直さない）
+    expect(text(empty)).toBe('取引空');
     const loading = expand(
       <TradesView
         state={{ phase: 'loading' }}
@@ -223,7 +309,7 @@ describe('AC-7: ホーム（例 H1。#128 で直近 3 件の詰めた行）', ()
     const b = rowsOf(bTree)[0];
     expect(b?.badge).toBe('B 悪い損失');
     // 危ない勝ちは B と同じ崩れの段（勝ちの色 = 計画どおりの段を付けない）
-    expect(b?.badgeClass).toContain('badge--break');
+    expect(b?.badgeClass).toContain('traderow__mark--break');
     expect(mark).toContain('homerow__mark--break');
     expect(mark).not.toContain('homerow__mark--plan');
     const links = all(tree, (e) => e.type === 'a').map((a) => a.props.href);
@@ -1132,25 +1218,40 @@ describe('一覧の末尾の段（Issue #87）', () => {
     ]);
   });
 
-  it('「—」の理由は末尾の段の後に 1 回。続きがある間は件数の括弧を出さない', () => {
+  it('月の束の後に末尾の段。「—」の理由は題の行の「i」で、続きがある間は件数の括弧を出さない（#132）', () => {
     const loading = view(withMore('idle'));
-    expect(order(loading)).toEqual([
-      'tradelist-card__count',
-      'tradelist-wrap',
-      'tradelist-more',
-      'tradelist__notes',
-      'sr-only',
-    ]);
-    const notes = all(loading, hasClass('tradelist__notes')).map(text).join('');
+    expect(order(loading)).toEqual(['tradelist-month', 'tradelist-more', 'sr-only']);
+    expect(all(loading, hasClass('tradelist__notes'))).toEqual([]);
+    const tipIdle = missingTip(
+      <TradesView
+        state={withMore('idle')}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+        onMore={noop}
+        sentinelRef={noop}
+      />,
+    );
+    const notes = ((tipIdle?.body ?? []) as string[]).join('');
     expect(notes).toContain('リスクの「—」: 資金を設定すると表示されます');
     expect(notes).not.toMatch(/件）/);
-    const done = all(view(ready([L1, L2, L3])), hasClass('tradelist__notes'))
-      .map(text)
-      .join('');
-    expect(done).toContain('リスクの「—」: 資金を設定すると表示されます（1 件）');
+    // 続きがある間、いちばん古い月の数は「N 件を表示中 · 続きあり」
+    expect(text(all(loading, hasClass('tradelist-month__sum')))).toBe('3 件を表示中 · 続きあり');
+    const tipDone = missingTip(
+      <TradesView
+        state={ready([L1, L2, L3])}
+        hidden={EMPTY}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    expect(((tipDone?.body ?? []) as string[]).join('')).toContain(
+      'リスクの「—」: 資金を設定すると表示されます（1 件）',
+    );
     expect(order(view(ready(many(LIST_PAGE + 1))))).toEqual([
-      'tradelist-card__count',
-      'tradelist-wrap',
+      'tradelist-month',
       'tradelist-end',
       'sr-only',
     ]);
@@ -1162,7 +1263,7 @@ describe('一覧の末尾の段（Issue #87）', () => {
     expect(rowsOf(tree).map((r) => r.href)).not.toContain('/trades/l2');
     expect(text(tree)).toContain('2 件を表示中');
     const none = view(withMore('idle', {}, [L2]), hidden);
-    expect(text(none)).not.toBe('空');
+    expect(all(none, hasClass('empty-marker'))).toEqual([]);
     expect(tail(none)).toHaveLength(1);
   });
 });

@@ -1,23 +1,28 @@
-// 取引の一覧（Issue #9 契約 U-1。設計書 9.2）。記録した取引を決済の時刻の新しい順に並べ、各行に判定・R・リスク（%）・
-// 銘柄・L / S・決済の日付。行から詳細へ。判定・R・リスクは保存した記録から計算する（記録したときの資金・銘柄の値。C36）。
+// 取引の一覧（Issue #9 契約 U-1。#132 で作り直した。設計書 9.2・9.3）。記録した取引を決済の時刻の新しい順に、決済の月ごとの
+// 区切り（スクロールしても上に残る見出し「2026年11月」と「13 件 · 計画どおり 8」。数の数え方は lib/trade-list.ts）で並べる。
+// 行は押せる行（判定の記号の札・銘柄と L / S・判定の名前と決済の時刻・R とリスク・›）。判定・R・リスクは保存した記録から計算する
+// （記録したときの資金・銘柄の値。C36）。題「取引」の右に件数、「—」の理由は題の行の「i」（説明のシート。設計書 9.3）。
 // ページ分け（Issue #87・ADR-0016）: 最初に 50 件、末尾の印が見えそうになったら（IntersectionObserver）次の 50 件。
 // [続きを読み込む] でも読める。読み込み中・失敗（[もう一度読み込む]）・最後まで（「全 N 件」）。戻るで開いたときは
 // 読み込み済みの分と位置を殻の入れ物（trades-cache.ts）から戻し、裏で読み直す。
-// 3 層: 純関数（lib/trade-view.ts）→ 通信と状態（lib/trades-controller.ts）→ この画面。Trades は hook を持たない
-// （App のテストが 1 段だけ呼ぶ）。空の状態は Trades が作って渡す。消した印（[元に戻す] を待つ取引）は隠す
-// 直近の流れ（Issue #35）はホームだけに置く（#128。設計書 9.2・9.3。一覧の月の区切りは U7（#132））
+// 3 層: 純関数（lib/trade-view.ts・lib/trade-list.ts）→ 通信と状態（lib/trades-controller.ts）→ この画面。Trades は hook を
+// 持たない（App のテストが 1 段だけ呼ぶ）。空の状態は Trades が作って渡す。消した印（[元に戻す] を待つ取引）は隠す
+// 直近の流れ（Issue #35）はホームだけに置く（#128。設計書 9.2・9.3）
 import type { JSX } from 'preact';
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { api, signOutActive } from '../auth/session';
 import { Button, buttonClass } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
+import { InfoTip } from '../components/InfoTip';
 import { PageHeader } from '../components/PageHeader';
-import { TradeList, TradeNotes } from '../components/TradeRow';
+import { TradeMonth } from '../components/TradeRow';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import { NavigatorContext } from '../lib/router';
+import { missingInfo, monthGroups } from '../lib/trade-list';
 import { countText, endText, LIST_PAGE, notesWhileLoading } from '../lib/trade-pages';
 import { missingNotes, sortTrades, tradeRow, visibleTrades } from '../lib/trade-view';
 import { TradesCacheContext } from '../lib/trades-cache';
+import '../styles/trades.css';
 import {
   createTradesController,
   type TradesController,
@@ -26,18 +31,15 @@ import {
 
 export function Trades() {
   return (
-    <>
-      <PageHeader title="取引" description="判定・R・リスクで、計画と実行を並べて見ます。" />
-      <TradesScreen
-        empty={
-          <EmptyState
-            icon="list"
-            title="まだ取引がありません"
-            description="記録した取引がここに並びます。[記録] を押すと記録できます。"
-          />
-        }
-      />
-    </>
+    <TradesScreen
+      empty={
+        <EmptyState
+          icon="list"
+          title="まだ取引がありません"
+          description="記録した取引がここに並びます。[記録] を押すと記録できます。"
+        />
+      }
+    />
   );
 }
 
@@ -194,15 +196,54 @@ export interface TradesViewProps {
 /** [続きを読み込む] の ID（読み込み中・失敗の後も同じボタンを残し、フォーカスを保つ） */
 export const TRADES_MORE_ID = 'trades-more';
 
-/** 読み込み中・読めない・空・直近の流れ・行の並び・続きの段（hook を持たない） */
+/** 題「取引」と右の件数・「—」の理由の「i」。どの状態でも同じ位置に置く（見出しへのフォーカスを作り直さない） */
+function TradesHead({
+  count,
+  info,
+}: {
+  readonly count: string | null;
+  readonly info: ReturnType<typeof missingInfo>;
+}) {
+  return (
+    <PageHeader
+      title="取引"
+      actions={
+        count === null ? null : (
+          <div class="tradeshead">
+            <p class="tradeshead__count" id="trades-count">
+              {count}
+            </p>
+            {info !== null ? <InfoTip label={info.label} body={info.body} id={info.id} /> : null}
+          </div>
+        )
+      }
+    />
+  );
+}
+
+/** 題・読み込み中・読めない・空・月の束・続きの段（hook を持たない） */
 export function TradesView(p: TradesViewProps) {
   const { state } = p;
-  if (state.phase !== 'ready') return <LoadState {...p} />;
+  if (state.phase !== 'ready') {
+    return (
+      <>
+        <TradesHead count={null} info={null} />
+        <LoadState {...p} />
+      </>
+    );
+  }
   const trades = sortTrades(visibleTrades(state.trades, p.hidden));
-  if (trades.length === 0 && state.more === 'done') return p.empty;
+  if (trades.length === 0 && state.more === 'done') {
+    return (
+      <>
+        <TradesHead count={null} info={null} />
+        {p.empty}
+      </>
+    );
+  }
   const rows = trades.map((t) => tradeRow(t, state.instruments, state.accounts));
   const done = state.more === 'done';
-  // 「—」の理由は末尾の段の後（カードの最後）に 1 回。続きがある間は件数を出さない（読み込んだ分だけの数になるため）
+  // 「—」の理由は題の行の「i」に 1 回。続きがある間は件数を出さない（読み込んだ分だけの数になるため）
   const notes = done ? missingNotes(rows) : notesWhileLoading(missingNotes(rows));
   const end = done && rows.length > LIST_PAGE ? endText(rows.length) : null;
   const status =
@@ -214,23 +255,24 @@ export function TradesView(p: TradesViewProps) {
           ? endText(rows.length)
           : countText(rows.length, false);
   return (
-    <section class="card tradelist-card" aria-labelledby="trades-count">
-      <p class="tradelist-card__count" id="trades-count">
-        {countText(rows.length, done)}
-      </p>
-      <TradeList rows={rows} label="取引" notes={[]} />
-      <MoreState {...p} />
-      {end !== null ? (
-        <p class="tradelist-end" tabIndex={-1}>
-          {end}
+    <>
+      <TradesHead count={countText(rows.length, done)} info={missingInfo(notes)} />
+      <section class="tradelist-card" aria-labelledby="trades-count">
+        {monthGroups(rows, done).map((g) => (
+          <TradeMonth key={g.key} group={g} />
+        ))}
+        <MoreState {...p} />
+        {end !== null ? (
+          <p class="tradelist-end" tabIndex={-1}>
+            {end}
+          </p>
+        ) : null}
+        {/* 読み込みの始まりと終わり・件数を伝える（常に置いておき、中身だけを入れ替える） */}
+        <p class="sr-only" role="status">
+          {status}
         </p>
-      ) : null}
-      <TradeNotes notes={notes} />
-      {/* 読み込みの始まりと終わり・件数を伝える（常に置いておき、中身だけを入れ替える） */}
-      <p class="sr-only" role="status">
-        {status}
-      </p>
-    </section>
+      </section>
+    </>
   );
 }
 

@@ -22,7 +22,7 @@
 // 一覧のページ分け（Issue #87）は、合成の取引 120 件で手順 TL-P1（末尾へ送ると続きが自動で出て「全 120 件」・要求 3 回・
 // 幅 360 で横スクロール 0）・TL-P2（80 行目の詳細から戻ると行の数と位置が保たれる）・TL-P3（続きの読みの失敗と
 // [再読み込み]）・TL-P4（キーで押したときのフォーカスと末尾の段の高さ）・TL-P5（5 つの状態を 360 / 1440 × ダーク /
-// ライトで測って撮る）を流す。
+// ライトで測って撮る）を流す。月の区切り（Issue #132）は合成の取引 60 件で手順 TL-M1（月の見出しの数・貼り付く見出し・390×844 の撮影）、口座の名前の置き場は TL-A1。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
@@ -3634,7 +3634,8 @@ async function main() {
         }
         // 一覧・ホーム・詳細・直す（口座 2 つ。Issue #47 D1・U16・U17・U19）。測った後に口座を戻す。
         // 直す画面は口座を替えて、欄の下の 1 行（今の資金で計算し直す）が出た形を測る
-        const ACCOUNT_ROW = '.traderow__account:visible, .traderow__account-top:visible';
+        // #132: 口座の名前は幅によらず 1 行目の銘柄・L / S の後ろ（デザイン a1）
+        const ACCOUNT_ROW = '.traderow__account:visible';
         for (const [path, h1, wait, slug, after] of [
           ['/trades', '取引', ACCOUNT_ROW, 'trades-accounts'],
           // ホームの詰めた行は 2 行目に口座の名前（#128）
@@ -4484,7 +4485,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -8168,12 +8169,13 @@ async function runFlows(browser, base, signedIn) {
   });
 
   // ── 取引の一覧・詳細・直す・消す（Issue #9 の例の表 L4・H1・D1・D2・E1・E2・X1・X2）。偽の記録の API で流す
+  // #132: 一覧の行の判定の名前は 2 行目の .traderow__grade、判定の段は左の記号の札 .traderow__mark の class
   const rowsOf = (p) =>
     p.locator('a.traderow').evaluateAll((as) =>
       as.map((a) => ({
         href: a.getAttribute('href'),
-        badge: a.querySelector('.badge')?.textContent ?? '',
-        badgeClass: a.querySelector('.badge')?.className ?? '',
+        badge: a.querySelector('.traderow__grade')?.textContent ?? '',
+        badgeClass: a.querySelector('.traderow__mark')?.className ?? '',
         text: a.textContent ?? '',
       })),
     );
@@ -8206,28 +8208,33 @@ async function runFlows(browser, base, signedIn) {
       const rows = await rowsOf(p);
       expectEq(rows.map((r) => r.href).join(' '), '/trades/x-l2 /trades/x-l3 /trades/x-l1', '並び');
       expectEq(rows[0].badge, '計画どおりの勝ち', 'L2 の判定');
-      // 出ない値は行では「—」だけ、理由は一覧の下の脚注に 1 回だけ（Issue #9 のデザインレビュー 2・#33 の 4b 指摘 3）
-      if (!rows[0].text.includes('+2.0R') || !rows[0].text.endsWith('—'))
+      // #132 で期待を変えた: 行はホームの詰めた行と同じ規則（R が出ない行は「—」を 1 つだけ、リスクだけ出ない行はリスクの段を
+      // 出さない）。「—」の理由は一覧の下の脚注をやめ、題の行の「i」（説明のシート）に 1 回（設計書 9.3）。理由の文と件数は同じ
+      if (!rows[0].text.includes('+2.0R') || rows[0].text.includes('リスク'))
         throw new Error(`L2 の行: ${rows[0].text}`);
       expectEq(rows[1].badge, '危ない勝ち', 'L3 の判定');
-      if (!rows[1].badgeClass.includes('badge--break')) throw new Error('L3 の段が崩れでない');
-      if ((rows[1].text.match(/—/g) ?? []).length !== 2)
+      if (!rows[1].badgeClass.includes('traderow__mark--break'))
+        throw new Error('L3 の段が崩れでない');
+      if ((rows[1].text.match(/—/g) ?? []).length !== 1)
         throw new Error(`L3 の行: ${rows[1].text}`);
-      const notes = (await p.locator('.tradelist__notes').textContent()) ?? '';
+      expectEq(await p.locator('.tradelist__notes').count(), 0, '一覧の下の脚注');
+      await openInfo(p, '「表示されない値」の説明');
+      const notes = (await p.locator(OPEN_SHEET).textContent()) ?? '';
       for (const want of [
         'リスクの「—」: 資金を設定すると表示されます（1 件）',
         'R・リスクの「—」: LC が無いため表示されません（1 件）',
       ]) {
-        if (!notes.includes(want)) throw new Error(`一覧の下の理由に「${want}」が無い`);
+        if (!notes.includes(want)) throw new Error(`「—」の理由のシートに「${want}」が無い`);
       }
+      await closeSheet(p);
       expectEq(rows[2].badge, 'A いい損失', 'L1 の判定');
-      if (!rows[2].text.includes('−1.0R') || !rows[2].text.includes('0.5%'))
+      if (!rows[2].text.includes('−1.0R') || !rows[2].text.includes('リスク 0.5%'))
         throw new Error(`L1 の行: ${rows[2].text}`);
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」、理由は一覧の下に 1 回）が例どおり';
+    return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」を 1 つ、理由は題の行の「i」のシートに 1 回）が例どおり';
   });
 
   // T-H1（#128 で直近 3 件の詰めた行に）: 新しい順の 3 件、2 件目の危ない勝ちは B と同じ崩れの段。［記録する］ は下のタブだけ
@@ -8474,7 +8481,8 @@ async function runFlows(browser, base, signedIn) {
     });
   const scrollToBottom = (p) =>
     p.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-  const countText = (p) => p.locator('.tradelist-card__count').textContent();
+  // 件数の文は題「取引」の右（#132 で一覧の面の先頭から移した。文は同じ）
+  const countText = (p) => p.locator('.tradeshead__count').textContent();
 
   await check('TL-P1', async () => {
     const { c, p, fake, errors } = await recordContext({ trades: manyTrades(120) });
@@ -8719,6 +8727,264 @@ async function runFlows(browser, base, signedIn) {
       }
     }
     return `${out.join('・')}: 件数の多い一覧・続きを読んでいる・最後まで・戻った位置・続きの読みの失敗で横スクロール 0`;
+  });
+
+  // TL-M1（#132 AC-2・AC-3）: 月の区切り。合成の取引 60 件（決済は 1.5 日おきで 3 か月余り。3 件に 1 件は LC を広げた取引）を
+  // 390×844 × ダーク / ライトで開き、(1) 月の見出しの数が行と合う（そろった月は「N 件 · 計画どおり M」、続きがある間の
+  // いちばん古い月は「N 件を表示中 · 続きあり」）、(2) 見出しはスクロールしても上の帯のすぐ下に残り、次の月の見出しで押し出される
+  // （貼り付く見出しは常に 1 つ）、(3) 最後まで読むとどの月もそろい、数の合計 = 60。--shots なら先頭・月の境・続きの読み込み中を撮る
+  const monthTrades = (n) =>
+    Array.from({ length: n }, (_, i) => {
+      const t = fakeTrade(`m${String(i).padStart(3, '0')}`, FAKE_US30.id, 1, 1600000000000 + i);
+      return {
+        ...t,
+        record: {
+          ...t.record,
+          // 3 件に 1 件は LC を広げた負け（B）、5 件に 1 件は LC を広げた勝ち（危ない勝ち = 崩れの段。計画どおりに数えない）
+          ...(i % 3 === 2 || i % 5 === 4 ? { lcMove: { kind: 'widened', after: 99.2 } } : {}),
+          exit: {
+            ...t.record.exit,
+            time: T_1110 - Math.round(i * 1.5 * DAY_MS),
+            ...(i % 5 === 4 ? { price: 101 } : {}),
+          },
+        },
+      };
+    });
+  /** 月の見出しと、その月の行（見出しの文・行の数・計画どおりの札の数・行の月の鍵） */
+  const monthsOf = (p) =>
+    p.locator('.tradelist-month').evaluateAll((ss) =>
+      ss.map((s) => {
+        const rows = [...s.querySelectorAll('a.traderow')];
+        return {
+          title: s.querySelector('.tradelist-month__title')?.textContent ?? '',
+          sum: s.querySelector('.tradelist-month__sum')?.textContent ?? '',
+          rows: rows.length,
+          plan: rows.filter((a) => a.querySelector('.traderow__mark--plan')).length,
+          keys: [
+            ...new Set(
+              rows.map((a) => a.querySelector('time')?.getAttribute('datetime')?.slice(0, 7)),
+            ),
+          ],
+        };
+      }),
+    );
+  const checkMonths = (ms, done, where) => {
+    ms.forEach((m, i) => {
+      if (m.keys.length !== 1)
+        throw new Error(`${where}: ${m.title} の行の月が ${m.keys.join(',')}`);
+      const [y, mo] = (m.keys[0] ?? '').split('-');
+      expectEq(m.title, `${Number(y)}年${Number(mo)}月`, `${where}: 見出し`);
+      const complete = done || i < ms.length - 1;
+      expectEq(
+        m.sum,
+        complete ? `${m.rows} 件 · 計画どおり ${m.plan}` : `${m.rows} 件を表示中 · 続きあり`,
+        `${where}: ${m.title} の数`,
+      );
+    });
+  };
+  /** 貼り付いた見出し（上端が貼り付く位置 ±1px にあるもの）の見出しの文と、貼り付く位置 */
+  const stuckOf = (p) =>
+    p.evaluate(() => {
+      const heads = [...document.querySelectorAll('.tradelist-month__head')];
+      const top = Number.parseFloat(getComputedStyle(heads[0]).top);
+      const at = heads
+        .map((h) => ({ h, r: h.getBoundingClientRect() }))
+        .filter(({ r }) => Math.abs(r.top - top) <= 1)
+        .map(({ h }) => h.querySelector('.tradelist-month__title')?.textContent ?? '');
+      const bar = document.querySelector('.rootbar');
+      return { top, at, barBottom: bar ? bar.getBoundingClientRect().bottom : null };
+    });
+  /** 月の束 i の上端（文書の座標） */
+  const monthY = (p, i) =>
+    p.evaluate(
+      (k) =>
+        document.querySelectorAll('.tradelist-month')[k].getBoundingClientRect().top +
+        window.scrollY,
+      i,
+    );
+
+  await check('TL-M1', async () => {
+    const out = [];
+    for (const theme of THEMES) {
+      // 月の境は端末の時間帯で決まるので、期待の数を固定するため日本時間で開く
+      const ctx = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        storageState: signedIn,
+        hasTouch: true,
+        timezoneId: 'Asia/Tokyo',
+      });
+      await setupContext(ctx, theme);
+      const fake = await installFakeApi(ctx, { trades: monthTrades(60) });
+      const p = await ctx.newPage();
+      const errors = [];
+      p.on('pageerror', (e) => errors.push(e.message));
+      const shot = async (slug) => {
+        if (opts.shots) {
+          await p.screenshot({ path: join(opts.shots, `390x844-${theme}-trades-${slug}.png`) });
+        }
+      };
+      try {
+        await p.goto(`${base}/trades`);
+        await waitReady(p, '取引');
+        await p.locator('a.traderow').nth(49).waitFor();
+        await p.waitForTimeout(200);
+        await shot('list');
+        const first = await monthsOf(p);
+        if (first.length < 2) throw new Error(`最初のページの月 ${first.length}`);
+        checkMonths(first, false, `${theme} 最初の 50 件`);
+        // 期待の数（手で数えた値。i = 0〜59 のうち i % 3 = 2 か i % 5 = 4 は計画どおりでない。日本時間の月）
+        expectEq(
+          first.map((m) => `${m.title} ${m.sum}`).join(' / '),
+          '2026年11月 7 件 · 計画どおり 4 / 2026年10月 20 件 · 計画どおり 10 / 2026年9月 20 件 · 計画どおり 12 / 2026年8月 3 件を表示中 · 続きあり',
+          `${theme}: 最初の 50 件の月の数`,
+        );
+        // (2) 1 つ目の月の途中まで送る → 1 つ目の見出しだけが貼り付く（上の帯の下端と同じ位置）
+        await p.evaluate((y) => window.scrollTo(0, y), (await monthY(p, 0)) + 240);
+        await p.waitForTimeout(250);
+        const s1 = await stuckOf(p);
+        expectEq(s1.at.join(','), first[0].title, `${theme}: 1 つ目の月で貼り付く見出し`);
+        if (s1.barBottom === null) throw new Error(`${theme}: 上の帯（.rootbar）が無い`);
+        if (Math.abs(s1.barBottom - s1.top) > 1)
+          throw new Error(`${theme}: 貼り付く位置 ${s1.top}px と上の帯の下端 ${s1.barBottom}px`);
+        // 2 つ目の月の頭を少し過ぎるまで送る → 2 つ目の見出しが貼り付き、1 つ目は押し出されている
+        await p.evaluate((y) => window.scrollTo(0, y), (await monthY(p, 1)) - s1.top + 120);
+        await p.waitForTimeout(250);
+        const s2 = await stuckOf(p);
+        expectEq(s2.at.join(','), first[1].title, `${theme}: 2 つ目の月で貼り付く見出し`);
+        // 月の境の手前（2 つ目の見出しが 1 つ目を押し出している途中）を撮る
+        await p.evaluate((y) => window.scrollTo(0, y), (await monthY(p, 1)) - s1.top - 20);
+        await p.waitForTimeout(250);
+        await shot('month-boundary');
+        // (3) 最後まで読む
+        for (let k = 0; k < 5 && (await p.locator('.tradelist-more').count()) > 0; k++) {
+          await scrollToBottom(p);
+          await p.waitForTimeout(400);
+        }
+        await p.getByText('全 60 件（決済の新しい順）').waitFor({ timeout: 5000 });
+        const all = await monthsOf(p);
+        checkMonths(all, true, `${theme} 最後まで`);
+        expectEq(
+          all.map((m) => m.sum).join(' / '),
+          '7 件 · 計画どおり 4 / 20 件 · 計画どおり 10 / 20 件 · 計画どおり 12 / 13 件 · 計画どおり 6',
+          `${theme}: 最後まで読んだ月の数`,
+        );
+        expectEq(
+          all.reduce((a, m) => a + m.rows, 0),
+          60,
+          `${theme}: 月の数の合計`,
+        );
+        // 続きの読み込み中（開き直して 2 ページ目の応答を待たせる）
+        await p.goto(`${base}/trades`);
+        await waitReady(p, '取引');
+        await p.locator('a.traderow').nth(49).waitFor();
+        fake.tradesPageDelayMs = 3000;
+        await scrollToBottom(p);
+        await p.locator('#trades-more[aria-busy="true"]').waitFor({ timeout: 3000 });
+        // 末尾まで送る（下のタブの上に読み込み中のボタンが見える位置）
+        await scrollToBottom(p);
+        await p.waitForTimeout(150);
+        await shot('more-loading');
+        const busy = await stuckOf(p);
+        expectEq(busy.at.length, 1, `${theme}: 読み込み中に貼り付く見出しの数`);
+        fake.tradesPageDelayMs = 0;
+        const overflow = await p.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+        expectEq(overflow, 0, `${theme}: 横スクロール`);
+        if (errors.length > 0) throw new Error(`${theme}: ページのエラー ${errors.length}`);
+        out.push(`${theme} ${all.map((m) => m.sum).join(' / ')}`);
+      } finally {
+        await ctx.close();
+      }
+    }
+    return `月の見出しの数が行と合い（続きの間は古い月だけ「続きあり」）、貼り付く見出しは上の帯の下に 1 つ: ${out.join('｜')}`;
+  });
+
+  // TL-A1（#132 デザイン a1）: 口座 2 つ（1 つは 10 字以上の長い名前）の一覧を 360×780・390×844 × ダーク / ライトで開き、
+  // 口座の名前は 1 行目の「銘柄 · L / S」の後ろにだけあり、見えている口座は 4 字ぶん以上の幅（「…」だけの口座が 0）、
+  // 見えない行は区切りごと次の行へ落ちている（1 行目の高さは 1 行のまま）、行の文字に「· ·」の並びが 0。--shots なら撮る
+  await check('TL-A1', async () => {
+    const out = [];
+    const trades = EXAMPLE_TRADES.map((t, i) =>
+      i % 2 === 0 ? { ...t, record: { ...t.record, accountId: ACC_LONG.id } } : t,
+    );
+    for (const [w, hgt] of [
+      [360, 780],
+      [390, 844],
+    ]) {
+      for (const theme of THEMES) {
+        const ctx = await browser.newContext({
+          viewport: { width: w, height: hgt },
+          storageState: signedIn,
+          hasTouch: true,
+        });
+        await setupContext(ctx, theme);
+        await installFakeApi(ctx, { trades, accounts: [ACC_ONE, ACC_LONG] });
+        const p = await ctx.newPage();
+        const errors = [];
+        p.on('pageerror', (e) => errors.push(e.message));
+        try {
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引');
+          await p.locator('a.traderow .traderow__account').first().waitFor();
+          const rows = await p.locator('a.traderow').evaluateAll((as) =>
+            as.map((a) => {
+              const title = a.querySelector('.traderow__title').getBoundingClientRect();
+              const head = a.querySelector('.traderow__head').getBoundingClientRect();
+              const acc = a.querySelector('.traderow__account');
+              const r = acc?.getBoundingClientRect();
+              const fs = acc ? Number.parseFloat(getComputedStyle(acc).fontSize) : 0;
+              return {
+                text: a.textContent ?? '',
+                sub: a.querySelector('.traderow__sub')?.textContent ?? '',
+                lineH: title.height,
+                headH: head.height,
+                acc: acc
+                  ? {
+                      shown: r.top < title.bottom - 1 && r.bottom > title.top + 1,
+                      inside: r.top >= title.top - 1,
+                      width: r.width,
+                      fs,
+                    }
+                  : null,
+              };
+            }),
+          );
+          const withAcc = rows.filter((r) => r.acc !== null);
+          if (withAcc.length !== rows.length) throw new Error('口座の名前の無い行がある');
+          let shown = 0;
+          for (const r of rows) {
+            if (r.text.includes('· ·') || r.text.includes('··'))
+              throw new Error(`「· ·」: ${r.text}`);
+            if (r.sub.includes('口座')) throw new Error(`2 行目に口座: ${r.sub}`);
+            if (r.lineH > r.headH * 1.6) throw new Error(`1 行目が 2 行になった: ${r.text}`);
+            if (r.acc?.shown) {
+              shown++;
+              if (r.acc.width < 4 * r.acc.fs - 0.5)
+                throw new Error(
+                  `口座の幅 ${r.acc.width}px（4 字 ${4 * r.acc.fs}px 未満）: ${r.text}`,
+                );
+            }
+          }
+          if (shown === 0) throw new Error('見えている口座が 0');
+          const overflow = await p.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          );
+          expectEq(overflow, 0, `${w} ${theme}: 横スクロール`);
+          if (opts.shots) {
+            await p.screenshot({
+              path: join(opts.shots, `${w}x${hgt}-${theme}-trades-accounts-long.png`),
+              fullPage: true,
+            });
+          }
+          if (errors.length > 0) throw new Error(`${w} ${theme}: ページのエラー ${errors.length}`);
+          out.push(`${w}-${theme} ${shown}/${rows.length}`);
+        } finally {
+          await ctx.close();
+        }
+      }
+    }
+    return `口座は 1 行目だけ・見えるものは 4 字以上・「· ·」0（見えた口座/行: ${out.join('・')}）`;
   });
 
   await check('T-D1', async () => {

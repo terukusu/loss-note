@@ -1,0 +1,372 @@
+/* 取引の一覧（#132。pages/Trades.tsx が読み込む）。設計書 9.2、ui-guidelines 9.9（まとめた一覧・文字の段）・9.12（押せる行）。
+   - 題「取引」の右に件数と「—」の理由の「i」
+   - 月の束: 見出し（スクロールしても上に残る。上の帯の下）と、まとめた一覧（角丸 18 の 1 枚の面。区切りは文字の左端から）
+   - 行: 左に判定の段の記号の札、真ん中に 2 行、右に R とリスク、右端に ›（擬似要素）。ホームの詰めた行（home.css の .homerow）と
+     同じ形。色は判定の段（記号の札）だけ */
+
+/* 題の右の件数と「i」 */
+.tradeshead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.tradeshead__count {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.tradelist-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* 月の束 */
+.tradelist-month {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 月の見出しはスクロールしても上に残す（次の月の見出しが来たら押し出される）。振り返りの期間の帯と同じく画面の端まで敷き、
+   上の帯と同じ面（半透明 + ぼかし + 下の細い線）にする（止まっている間も板に見せない。#128 デザイン a5） */
+.tradelist-month__head {
+  position: sticky;
+  top: var(--above);
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--sp-3);
+  margin-inline: calc(-1 * (var(--gutter) + var(--safe-left)))
+    calc(-1 * (var(--gutter) + var(--safe-right)));
+  padding: var(--sp-2) calc(var(--gutter) + var(--safe-right)) var(--sp-2)
+    calc(var(--gutter) + var(--safe-left));
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 720px) {
+  /* 幅 720 以上の上の帯（行き先の帯）は中身の幅の外まで広がるので、月の見出しも中身の列の幅のまま敷く */
+  .tradelist-month__head {
+    margin-inline: 0;
+    padding-inline: var(--sp-1);
+  }
+}
+
+.tradelist-month__title {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.tradelist-month__sum {
+  color: var(--ink-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* まとめた一覧（角丸の 1 枚の面）。列の幅のコンテナ（口座の位置・文字の拡大の段） */
+.tradelist {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  background: var(--s1);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+/* 区切り線は文字の左端から（記号の札の右） */
+.tradelist__item + .tradelist__item .traderow::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--sp-4) + var(--sp-3) + 2.25rem);
+  border-top: 1px solid var(--line);
+}
+
+/* 行（押せる行。行全体が当たり、右に ›） */
+.traderow {
+  position: relative;
+  display: grid;
+  grid-template-areas: "mark main nums chev";
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0 var(--sp-3);
+  min-height: calc(var(--tap) + var(--sp-3));
+  padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.traderow::after {
+  content: "›";
+  grid-area: chev;
+  color: var(--ink-3);
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.traderow:active {
+  background: var(--s2);
+}
+
+@media (hover: hover) {
+  .traderow:hover {
+    background: var(--s2);
+  }
+}
+
+.traderow:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  border-radius: var(--radius-lg);
+}
+
+/* 判定の段の記号の札（色と記号の 2 つで示す。P5） */
+.traderow__mark {
+  grid-area: mark;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.traderow__mark .icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+.traderow__mark--plan {
+  color: var(--tier-plan-ink);
+  background: var(--tier-plan-bg);
+  border-color: var(--tier-plan-line);
+}
+
+.traderow__mark--break {
+  color: var(--tier-break-ink);
+  background: var(--tier-break-bg);
+  border-color: var(--tier-break-line);
+}
+
+.traderow__mark--worst {
+  color: var(--tier-worst-ink);
+  background: var(--tier-worst-bg);
+  border-color: var(--tier-worst-line);
+}
+
+.traderow__mark--neutral {
+  color: var(--tier-neutral-ink);
+  background: var(--tier-neutral-bg);
+  border-color: var(--tier-neutral-line);
+}
+
+.traderow__main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.traderow__title {
+  /* 1 行目: 「銘柄 · L / S」の塊と、口座の名前（口座が 2 つ以上のとき）。1 行の高さで切り、口座に 4 字ぶんの余りが無い行では
+     口座が次の行へ落ちて見えなくなる（区切りごと出さない。「…」だけの口座を作らない。#132 デザイン a1） */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-1);
+  height: calc(var(--lh-tight) * 1em);
+  overflow: hidden;
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+}
+
+/* 銘柄と L / S は口座のために詰めない（折り返さない 1 つの塊。入らなければ銘柄を「…」で詰める） */
+.traderow__head {
+  display: flex;
+  flex: 0 1 auto;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.traderow__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.traderow__side {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.traderow__side::before,
+.traderow__account::before {
+  content: "· ";
+}
+
+/* 口座の名前: 銘柄より 1 段小さく薄い。区切りの「· 」（約 1 字）+ 4 字ぶん（5em）以上あるときだけ同じ行に入る */
+.traderow__account {
+  flex: 1 1 5em;
+  min-width: 5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+
+/* 2 行目: 判定の名前 · 時刻。時刻は詰めず、判定の名前の側を「…」で詰める */
+.traderow__sub {
+  display: flex;
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  white-space: nowrap;
+}
+
+.traderow__grade {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 区切りの「·」は時刻の頭に置く（判定の名前が「…」で詰まっても区切りが消えない） */
+.traderow__when::before {
+  content: " · ";
+  white-space: pre;
+}
+
+.traderow__when {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.traderow__nums {
+  grid-area: nums;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* 行の R（段 3。9.9） */
+.traderow__r {
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  white-space: nowrap;
+}
+
+.traderow__risk {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-body);
+  white-space: nowrap;
+}
+
+/* 値が出ない（「—」）。理由は題の行の「i」。細い 1 本の線なので › より暗くしない（空欄に見せない。#132 デザイン a3。色は付けない C34） */
+.traderow__none {
+  color: var(--ink-2);
+}
+
+/* 幅 360 の一覧（列 340px 以下）: 行の列の間を詰めて、判定の名前を欠けにくくする（#132 デザイン a2）。区切り線の左端も合わせる */
+@container (max-width: 340px) {
+  .traderow {
+    column-gap: var(--sp-2);
+  }
+
+  .tradelist__item + .tradelist__item .traderow::before {
+    left: calc(var(--sp-4) + var(--sp-2) + 2.25rem);
+  }
+}
+
+/* 文字の拡大（列が文字の 18 字分より狭い）: R とリスクを 2 段目に回し、銘柄と 2 行目を折り返す（「…」で潰さない） */
+@container (max-width: 18em) {
+  .traderow {
+    grid-template-areas:
+      "mark main chev"
+      "mark nums chev";
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .traderow__nums {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--sp-2);
+  }
+
+  .traderow__name,
+  .traderow__sub {
+    white-space: normal;
+  }
+
+  .traderow__title {
+    height: auto;
+  }
+
+  .traderow__sub {
+    display: block;
+  }
+}
+
+/* 一覧の末尾の段（#87）: 続きを読む印とボタン（読み込み中も同じボタンで高さを変えない）・失敗。印は見えない 1px の帯
+   （見えそうになったら続きを読む）。最後まで読んだら末尾の文 */
+.tradelist-more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-3);
+  position: relative;
+  min-height: calc(var(--tap) + var(--sp-5));
+  padding: var(--sp-2) 0;
+}
+
+.tradelist-more--failed .notice {
+  align-self: stretch;
+}
+
+.tradelist-more .btn[aria-disabled="true"] {
+  cursor: progress;
+  color: var(--ink-3);
+}
+
+.tradelist-end {
+  padding: var(--sp-2) 0 var(--sp-4);
+  text-align: center;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.tradelist-more__sentinel {
+  /* 段の高さに効かせない（ボタン → 読み込み中で印が消えても段が跳ねない） */
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+}

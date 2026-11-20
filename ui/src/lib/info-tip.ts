@@ -22,10 +22,10 @@ export function infoTrail(trail: readonly GlossaryId[], ev: TrailEvent): readonl
   return [...trail, ev.id];
 }
 
-/** 説明の出どころ: 用語のデータの ID か、言葉と文（明細の枠の補足） */
+/** 説明の出どころ: 用語のデータの ID か、言葉と文（明細の枠の補足・一覧の「—」の理由。文は段落ごとの配列でもよい。#132） */
 export type InfoSource =
   | { readonly term: GlossaryId; readonly id?: string }
-  | { readonly label: string; readonly body: string; readonly id: string };
+  | { readonly label: string; readonly body: string | readonly string[]; readonly id: string };
 
 export interface InfoContent {
   /** ボタンの名前「「〈言葉〉」の説明」（「i」の言葉。たどっても変えない） */
@@ -82,7 +82,7 @@ export function infoContent(src: InfoSource, trail: readonly GlossaryId[] = []):
     title: src.label,
     back: null,
     lead: null,
-    body: [src.body],
+    body: typeof src.body === 'string' ? [src.body] : [...src.body],
     items: [],
     example: null,
     glossary: null,

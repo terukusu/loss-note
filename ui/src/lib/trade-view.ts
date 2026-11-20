@@ -72,6 +72,8 @@ export interface TradeRow {
   readonly dateText: string;
   /** 決済の日付（time 要素の datetime。端末の時間帯の YYYY-MM-DD） */
   readonly dateIso: string;
+  /** 決済の時刻（ms。一覧の行の「11/19 14:05」・月の区切り。#132） */
+  readonly exitTime: number;
   /** 行のリンクの読み上げの名前（日付 銘柄 L / S [口座] 判定 R リスク。出ない値は理由の文言） */
   readonly label: string;
 }
@@ -139,6 +141,7 @@ export function tradeRow(
     sideText: SIDE_SHORT[t.record.side],
     dateText,
     dateIso: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+    exitTime: t.record.exit.time,
     label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]}${accountName === undefined ? '' : ` ${accountName}`} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
   };
 }

@@ -6,7 +6,7 @@
 // - 欄の見出し・判定の枠・押せるカードの中に置かれるので、ここに dialog を置かない（中の押下が祖先へ伝わらないように）
 // - 描く木は hook を持たない InfoTipView（テストはこちらを関数として呼ぶ）
 import type { Ref } from 'preact';
-import { useContext, useRef } from 'preact/hooks';
+import { useContext, useEffect, useRef } from 'preact/hooks';
 import { badgeModel } from '../lib/badge';
 import type { GlossaryItem } from '../lib/glossary';
 import { InfoContext } from '../lib/info-context';
@@ -67,11 +67,24 @@ export function GradeName({
   );
 }
 
+/** 中身の同一性の鍵（用語の ID、または言葉と文） */
+function sourceKey(p: InfoSource): string {
+  if ('term' in p) return `term\u0000${p.term}`;
+  const body = typeof p.body === 'string' ? p.body : p.body.join('\n');
+  return `text\u0000${p.label}\u0000${body}`;
+}
+
 export function InfoTip(p: InfoTipProps) {
   const host = useContext(InfoContext);
   /** この「i」の印（同じ言葉の「i」が 2 つあっても、押した方だけが開いて見える） */
   const me = useRef<object>({});
   const open = host !== null && host.owner === me.current;
+  // 開いている間に中身が替わったらシートの中身も替え、この「i」が消えたらシートを閉じる（#132 N3）
+  const key = sourceKey(p);
+  useEffect(() => {
+    if (open) host?.refresh(me.current, p);
+  }, [key]);
+  useEffect(() => () => host?.release(me.current), []);
   return (
     <InfoTipView
       source={p}

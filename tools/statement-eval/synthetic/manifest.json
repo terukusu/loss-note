@@ -193,6 +193,47 @@
         "decimal_and_separator",
         "pnl_usd"
       ]
+    },
+    {
+      "file": "s17.png",
+      "form": "form2_option",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_option_close_buy",
+        "day_le_12",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator",
+        "option_position_legs"
+      ]
+    },
+    {
+      "file": "s18.png",
+      "form": "form2_mixed",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "form2_future_close_sell",
+        "form2_option_close_buy",
+        "day_le_12",
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator",
+        "option_position_legs",
+        "option_month_no_year"
+      ]
+    },
+    {
+      "file": "s19.png",
+      "form": "form2_option",
+      "order_type_column": false,
+      "date_order": "YMD",
+      "scenes": [
+        "multi_rows",
+        "pnl_zero_and_loss",
+        "decimal_and_separator"
+      ]
     }
   ]
 }

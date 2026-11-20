@@ -271,3 +271,48 @@ def test_profile_store_failure_keeps_200(monkeypatch, capfd):
     assert line["profile"] == "unavailable" and line["reason"] == "ok"
     # 覚える入口の保存先の失敗は 503（画面は黙って捨てる）
     assert learn(api, U1, prof["key"], "default").status_code == 503
+
+
+# ---- #118: オプションの行（限月・P / C・行使価格・買い / 売り・ポジションの番号）。先物の行は前と同じ ----
+
+
+def _option_row(strike: int, side_written: str, **kw) -> dict:
+    return read_row(
+        symbol=f"日経225OP 1月限 P {strike}", side_written=side_written, side_of="close",
+        entry_time="2026-12-10T10:05", exit_time="2026-12-15T13:50", time_zone="JST", qty=2,
+        option={"underlying": "日経225OP", "expiry_year": None, "expiry_month": 1, "put_call": "put", "strike": strike},
+        **kw,
+    )  # fmt: skip
+
+
+def test_option_rows_in_response(papi, sdk):
+    sdk.tool_input = statement(X, _option_row(36000, "buy"), _option_row(35500, "sell"), read_row())
+    res = read(papi, U1)
+    assert res.status_code == 200
+    body = res.get_json()
+    first, second, futures = body["rows"]
+    assert first["option"] == {
+        "underlying": "日経225OP", "expiry": "2027-01", "expiryYearInferred": True, "putCall": "put",
+        "strike": 36000, "side": "sell", "position": 0,
+    }  # fmt: skip
+    assert second["option"]["side"] == "buy" and second["option"]["position"] == 0
+    assert "option" not in futures
+    # 先物だけの明細とは鍵が分かれる
+    sdk.tool_input = statement(X, read_row(side_of="close"))
+    assert read(papi, U1).get_json()["profile"]["key"] != body["profile"]["key"]
+
+
+_NULLS = {"underlying": None, "expiry_year": None, "expiry_month": None, "put_call": None, "strike": None}
+
+
+@pytest.mark.parametrize("empty", [{}, _NULLS, {**_NULLS, "underlying": ""}, {**_NULLS, "underlying": " 　"},
+                                   {"underlying": "  ", "strike": None}])
+def test_all_null_option_keeps_futures_response_and_key(papi, sdk, empty):
+    """レビュー B1: AI が先物の行の option を null ではなく中身が空の物で返しても、応答の行と鍵は前と同じ"""
+    sdk.tool_input = statement(X, read_row())
+    before = read(papi, U1).get_json()
+    sdk.tool_input = statement(X, read_row(option=empty))
+    after = read(papi, U1).get_json()
+    assert after == before
+    assert "option" not in after["rows"][0]
+    assert after["profile"]["key"] == profile_key(U1, X, [read_row()])

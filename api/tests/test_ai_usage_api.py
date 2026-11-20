@@ -1,7 +1,7 @@
 """AI の利用状況の入口 ``GET /api/ai-usage``（Issue #62 の AC-1〜AC-4・KEEP-2）と純関数 ``read_limits.usage_of``。
 
 保存先 2 つ（記憶 / エミュレーターの Firestore）で回す。上限は環境変数から読む（本番と同じ経路）。予約額は本物
-（Sonnet 5.5 で P = 282,012 µUSD。
+（Sonnet 5.5 で P = 285,708 µUSD。
 値は pricing から取る）。AI は呼ばない（偽の claude_agent_sdk を入れて、呼ばれないことを見る）。
 メール・値はすべて架空。
 """

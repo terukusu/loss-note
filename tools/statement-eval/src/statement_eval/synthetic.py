@@ -11,6 +11,9 @@
   オプションは銘柄名に限月・プット / コール・行使価格
 - order_type = True の明細は「決済注文」の欄（逆指値 / 成行）を足した版
 - currency = "USD" の明細（形 1 だけ。#66）は損益を USD（セント未満は四捨五入）で書き、見出しを「損益 (USD)」にする
+- オプションの行（#118）は正解に ``option``（原資産の名前・限月「YYYY-MM」・P / C・行使価格）を持つ。s17〜s19 は
+  ポジションのまとまり（同じ原資産・同じ建てた日の 2 本）、年の無い限月（「1月限」。建てた日の翌年）、先物と
+  オプションが混ざった明細（form2_mixed。形は形 2 と同じ）、原資産の違うオプションを同じ日に建てた明細
 """
 
 from dataclasses import dataclass
@@ -19,11 +22,25 @@ from decimal import ROUND_HALF_UP, Decimal
 from .score import parse_statement_datetime
 
 TITLE = "約定明細（合成・架空の値）"
-FORMS = ("form1", "form2_future", "form2_option")
+FORMS = ("form1", "form2_future", "form2_option", "form2_mixed")
 ORDER_TYPE_LABEL = {"stop": "逆指値", "market": "成行", "limit": "指値"}
 # 明細を出した会社の名前（実在しない架空の名前だけ。#66）
 ISSUER_X = "架空証券 X"
 ISSUER_Y = "架空 FX Y"
+
+
+@dataclass(frozen=True)
+class OptionAnswer:
+    """オプションの行の正解（#118。架空）。expiry は「YYYY-MM」（年の無い限月は建てた日から直した値）"""
+
+    underlying: str
+    expiry: str
+    put_call: str  # put / call
+    strike: str
+
+
+def _op(underlying: str, expiry: str, put_call: str, strike: str) -> OptionAnswer:
+    return OptionAnswer(underlying, expiry, put_call, strike)
 
 
 @dataclass(frozen=True)
@@ -40,6 +57,7 @@ class Trade:
     multiplier: str  # 1 単位の損益の倍率（円換算を含む。架空）
     fees: tuple[str, ...] | None = None  # 形 2: 建手数料・建消費税・決済手数料・決済消費税
     order_type: str = "unknown"
+    option: OptionAnswer | None = None
 
 
 @dataclass(frozen=True)
@@ -143,13 +161,13 @@ STATEMENTS: tuple[Statement, ...] = (
     )),
     Statement("s07.png", "form2_option", (
         Trade("日経225OP 26/03 P 37500", "S", "120", "85", "1", "2026/02/24 10:05", "2026/02/26 13:50", "1000",
-              _OP_FEE_1),
+              _OP_FEE_1, option=_op("日経225OP", "2026-03", "put", "37500")),
     )),
     Statement("s08.png", "form2_option", (
         Trade("日経225OP 26/04 C 39500", "L", "210", "150", "2", "2026/03/23 09:30", "2026/03/25 14:10", "1000",
-              _OP_FEE_2),
+              _OP_FEE_2, option=_op("日経225OP", "2026-04", "call", "39500")),
         Trade("日経225OP 26/04 C 40000", "L", "95", "140", "1", "2026/03/24 11:20", "2026/03/27 10:45", "1000",
-              _OP_FEE_1),
+              _OP_FEE_1, option=_op("日経225OP", "2026-04", "call", "40000")),
     )),
     Statement("s09.png", "form2_future", (
         Trade("日経225 26/06", "L", "38000", "38250", "5", "2026/05/13 09:00", "2026/05/14 14:30", "1000",
@@ -169,7 +187,7 @@ STATEMENTS: tuple[Statement, ...] = (
     ), order_type_column=True),
     Statement("s12.png", "form2_option", (
         Trade("日経225OP 26/05 P 36000", "S", "180", "95", "2", "2026/04/14 13:10", "2026/04/16 10:30", "1000",
-              _OP_FEE_2, "market"),
+              _OP_FEE_2, "market", option=_op("日経225OP", "2026-05", "put", "36000")),
     ), order_type_column=True),
     Statement("s13.png", "form1", (
         Trade("USD/JPY", "S", "152.018", "151.703", "50000", "05/06/2026 07:30", "05/06/2026 11:15", "1"),
@@ -188,6 +206,31 @@ STATEMENTS: tuple[Statement, ...] = (
         Trade("US30", "S", "42180.5", "42095.75", "1", "09/06/2026 14:30", "09/06/2026 15:05", "1"),
         Trade("EUR/USD", "L", "1.08425", "1.08190", "10000", "10/06/2026 08:00", "10/06/2026 12:30", "1"),
     ), currency="USD"),
+    # #118: プットのバーティカル（売り 36000 + 買い 35500。同じ日に建てた 1 つのポジション）と、別の日に建てたコール
+    Statement("s17.png", "form2_option", (
+        Trade("日経225OP 26/07 P 36000", "S", "240", "110", "2", "2026/06/10 09:40", "2026/06/24 13:15", "1000",
+              _OP_FEE_2, option=_op("日経225OP", "2026-07", "put", "36000")),
+        Trade("日経225OP 26/07 P 35500", "L", "150", "70", "2", "2026/06/10 09:41", "2026/06/24 13:16", "1000",
+              _OP_FEE_2, option=_op("日経225OP", "2026-07", "put", "35500")),
+        Trade("日経225OP 26/07 C 41000", "L", "60", "35", "1", "2026/06/12 10:20", "2026/06/19 14:05", "1000",
+              _OP_FEE_1, option=_op("日経225OP", "2026-07", "call", "41000")),
+    )),
+    # #118: 年の無い限月（「1月限」を 12 月に建てた = 翌年の 1 月）のストラングルの売りと、先物の 1 行が混ざった明細
+    Statement("s18.png", "form2_mixed", (
+        Trade("日経225OP 1月限 P 37000", "S", "185", "90", "1", "2026/12/08 10:05", "2026/12/22 11:30", "1000",
+              _OP_FEE_1, option=_op("日経225OP", "2027-01", "put", "37000")),
+        Trade("日経225OP 1月限 C 41500", "S", "130", "205", "1", "2026/12/08 10:06", "2026/12/22 11:31", "1000",
+              _OP_FEE_1, option=_op("日経225OP", "2027-01", "call", "41500")),
+        Trade("日経225mini 27/03", "L", "39120", "39255", "1", "2026/12/09 09:15", "2026/12/09 10:40", "100",
+              _F2_FEE_1),
+    )),
+    # #118: 同じ日に建てた、原資産の違うオプション（2 つのポジション）
+    Statement("s19.png", "form2_option", (
+        Trade("TOPIXOP 26/09 C 2850", "L", "18.5", "26", "3", "2026/08/20 09:30", "2026/08/27 14:20", "10000",
+              ("660", "66", "660", "66"), option=_op("TOPIXOP", "2026-09", "call", "2850")),
+        Trade("日経225OP 26/09 C 40500", "L", "120", "95", "1", "2026/08/20 09:32", "2026/08/27 14:22", "1000",
+              _OP_FEE_1, option=_op("日経225OP", "2026-09", "call", "40500")),
+    )),
 )
 
 
@@ -196,7 +239,7 @@ STATEMENTS: tuple[Statement, ...] = (
 
 def answer_row(form: str, t: Trade, currency: str = "JPY") -> dict:
     order = _order(form)
-    return {
+    row = {
         "symbol": t.symbol,
         "side": t.side,
         "entry_price": _plain(_d(t.entry)),
@@ -209,6 +252,11 @@ def answer_row(form: str, t: Trade, currency: str = "JPY") -> dict:
         "pnl_currency": currency,
         "exit_order_type": t.order_type,
     }
+    if t.option is not None:
+        o = t.option
+        row["option"] = {"underlying": o.underlying, "expiry": o.expiry, "put_call": o.put_call,
+                         "strike": _plain(_d(o.strike))}
+    return row
 
 
 def answers(statements: tuple[Statement, ...] = STATEMENTS) -> dict:
@@ -235,6 +283,8 @@ SCENES = (
     "order_type_column",  # 決済の注文の種類の欄（逆指値と成行）
     "decimal_and_separator",  # 小数のある価格・桁区切りのある大きな数
     "pnl_usd",  # 損益が USD の明細（#66）
+    "option_position_legs",  # 同じ原資産・同じ建てた日のオプションの行が 2 本以上（1 つのポジション。#118）
+    "option_month_no_year",  # 年の無い限月（建てた日から年を直す。#118）
 )
 
 
@@ -246,9 +296,12 @@ def scenes_of(s: Statement) -> list[str]:
         out.append("form1_long")
     if s.form == "form1" and "S" in sides:
         out.append("form1_short")
-    if s.form == "form2_future" and "L" in sides:
+    # 先物とオプションが混ざった明細（form2_mixed）は、先物の行・オプションの行ごとに数える
+    fut_sides = {r["side"] for r in rows if "option" not in r}
+    opt_sides = {r["side"] for r in rows if "option" in r}
+    if (s.form == "form2_future" and "L" in sides) or (s.form == "form2_mixed" and "L" in fut_sides):
         out.append("form2_future_close_sell")
-    if s.form == "form2_option" and "S" in sides:
+    if (s.form == "form2_option" and "S" in sides) or (s.form == "form2_mixed" and "S" in opt_sides):
         out.append("form2_option_close_buy")
     if any(int(r[k][8:10]) <= 12 and int(r[k][8:10]) != int(r[k][5:7]) for r in rows for k in ("entry_time",
                                                                                             "exit_time")):
@@ -265,6 +318,11 @@ def scenes_of(s: Statement) -> list[str]:
         out.append("decimal_and_separator")
     if s.currency == "USD":
         out.append("pnl_usd")
+    opened = [(r["option"]["underlying"], r["entry_time"][:10]) for r in rows if "option" in r]
+    if len(opened) != len(set(opened)):
+        out.append("option_position_legs")
+    if any(t.option is not None and "/" not in t.symbol for t in s.trades):
+        out.append("option_month_no_year")
     return out
 
 
@@ -319,5 +377,6 @@ def layout(s: Statement) -> Layout:
             if ot:
                 row.insert(5, ORDER_TYPE_LABEL.get(t.order_type, ""))
             cells.append(tuple(row))
-        sub = "先物・オプション 決済明細" if s.form == "form2_future" else "先物・オプション 決済明細（オプション）"
+        futures = s.form in ("form2_future", "form2_mixed")
+        sub = "先物・オプション 決済明細" if futures else "先物・オプション 決済明細（オプション）"
     return Layout(title=TITLE, subtitle=sub, columns=tuple(cols), cells=tuple(cells), issuer=s.issuer_name)

@@ -102,3 +102,14 @@ def test_profile_doc_and_response():
     assert profile_response(key, None) == {"key": key, "accountId": None}
     assert profile_response(key, {"accountId": "acctA", "updatedAt": 1}) == {"key": key, "accountId": "acctA"}
     assert profile_response(key, {"accountId": 5}) == {"key": key, "accountId": None}
+
+
+def test_option_rows_split_key_futures_key_unchanged():
+    # #118（ADR-0020 の結果）: 同じ会社・同じ向きの書き方でも、オプションの行がある明細は先物の明細と別の鍵。
+    # オプションの行が無い明細の鍵は前と同じ（option の鍵が無い行・null の行は同じ）
+    futures = rows("JPY", side_of="close")
+    with_null = [{**r, "option": None} for r in futures]
+    options = [{**r, "option": {"underlying": "OP"}} for r in futures]
+    assert profile_key(U1, X, with_null) == profile_key(U1, X, futures)
+    assert profile_key(U1, X, options) != profile_key(U1, X, futures)
+    assert profile_key(U1, X, options + with_null) == profile_key(U1, X, options)

@@ -192,7 +192,11 @@ def test_eval_output_has_all_fields_and_counts(tmp_path):
     d = json.loads(js)
     assert [f["name"] for f in d["fields"]] == list(report.FIELD_LABELS)
     n_rows = sum(len(im["rows"]) for im in answers)
-    assert all(f["denominator"] == n_rows for f in d["fields"])
+    # オプションの欄（#118）の分母はオプションの正解の行、ほかは正解の行
+    n_option_rows = sum(1 for im in answers for r in im["rows"] if "option" in r)
+    assert n_option_rows > 0
+    assert all(f["denominator"] == (n_option_rows if f["name"].startswith("option_") else n_rows)
+               for f in d["fields"])
     assert d["n_reads"] == len(answers) and d["n_failed"] == len(answers) // 5 + (1 if len(answers) % 5 > 4 else 0)
     assert d["hallucinations"] > 0
     assert d["seconds_median"] is not None and d["cost_total_usd"] is not None

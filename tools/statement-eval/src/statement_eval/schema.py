@@ -25,7 +25,9 @@ from statement_read.result import (
     check_result,
 )
 
-from .score import FIELDS, ORDER_TYPES, normalize_number, time_key
+from .score import FIELDS, OPTION_ANSWER_KEYS, ORDER_TYPES, normalize_number, time_key
+
+_EXPIRY_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 __all__ = [
     "KINDS",
@@ -65,7 +67,7 @@ def check_answer_row(row, path: str) -> dict:
     if not isinstance(row, dict):
         raise Bad(path, "type")
     for k in row:
-        if k not in FIELDS:
+        if k not in FIELDS and k != "option":
             raise Bad(f"{path}.<unknown>", "unknown_key")
     for k in FIELDS:
         if k not in row:
@@ -92,7 +94,30 @@ def check_answer_row(row, path: str) -> dict:
             _num_str(x, f"{path}.fees[{i}]")
     if row["exit_order_type"] not in ORDER_TYPES:
         raise Bad(f"{path}.exit_order_type", "enum")
+    if "option" in row:
+        _check_answer_option(row["option"], f"{path}.option")
     return dict(row)
+
+
+def _check_answer_option(opt, path: str) -> None:
+    """オプションの行の正解（#118。任意）: {underlying, expiry: "YYYY-MM", put_call: put / call, strike: 数の文字列}"""
+    if not isinstance(opt, dict):
+        raise Bad(path, "type")
+    for k in opt:
+        if k not in OPTION_ANSWER_KEYS:
+            raise Bad(f"{path}.<unknown>", "unknown_key")
+    for k in OPTION_ANSWER_KEYS:
+        if k not in opt:
+            raise Bad(f"{path}.{k}", "missing")
+    und = opt["underlying"]
+    if not isinstance(und, str) or not und.strip():
+        raise Bad(f"{path}.underlying", "type")
+    if not isinstance(opt["expiry"], str) or not _EXPIRY_RE.match(opt["expiry"]):
+        raise Bad(f"{path}.expiry", "format")
+    if opt["put_call"] not in ("put", "call"):
+        raise Bad(f"{path}.put_call", "enum")
+    if _num_str(opt["strike"], f"{path}.strike") is None:
+        raise Bad(f"{path}.strike", "missing")
 
 
 def check_answers(obj) -> dict:

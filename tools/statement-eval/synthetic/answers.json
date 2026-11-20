@@ -184,7 +184,13 @@
           ],
           "pnl": "34396",
           "pnl_currency": "JPY",
-          "exit_order_type": "unknown"
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-03",
+            "put_call": "put",
+            "strike": "37500"
+          }
         }
       ]
     },
@@ -208,7 +214,13 @@
           ],
           "pnl": "-121210",
           "pnl_currency": "JPY",
-          "exit_order_type": "unknown"
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-04",
+            "put_call": "call",
+            "strike": "39500"
+          }
         },
         {
           "symbol": "日経225OP 26/04 C 40000",
@@ -226,7 +238,13 @@
           ],
           "pnl": "44396",
           "pnl_currency": "JPY",
-          "exit_order_type": "unknown"
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-04",
+            "put_call": "call",
+            "strike": "40000"
+          }
         }
       ]
     },
@@ -366,7 +384,13 @@
           ],
           "pnl": "168790",
           "pnl_currency": "JPY",
-          "exit_order_type": "market"
+          "exit_order_type": "market",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-05",
+            "put_call": "put",
+            "strike": "36000"
+          }
         }
       ]
     },
@@ -479,6 +503,210 @@
           "pnl": "-23.5",
           "pnl_currency": "USD",
           "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s17.png",
+      "issuer": "架空証券 X",
+      "rows": [
+        {
+          "symbol": "日経225OP 26/07 P 36000",
+          "side": "S",
+          "entry_price": "240",
+          "entry_time": "2026-06-10T09:40",
+          "exit_price": "110",
+          "exit_time": "2026-06-24T13:15",
+          "qty": "2",
+          "fees": [
+            "550",
+            "55",
+            "550",
+            "55"
+          ],
+          "pnl": "258790",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-07",
+            "put_call": "put",
+            "strike": "36000"
+          }
+        },
+        {
+          "symbol": "日経225OP 26/07 P 35500",
+          "side": "L",
+          "entry_price": "150",
+          "entry_time": "2026-06-10T09:41",
+          "exit_price": "70",
+          "exit_time": "2026-06-24T13:16",
+          "qty": "2",
+          "fees": [
+            "550",
+            "55",
+            "550",
+            "55"
+          ],
+          "pnl": "-161210",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-07",
+            "put_call": "put",
+            "strike": "35500"
+          }
+        },
+        {
+          "symbol": "日経225OP 26/07 C 41000",
+          "side": "L",
+          "entry_price": "60",
+          "entry_time": "2026-06-12T10:20",
+          "exit_price": "35",
+          "exit_time": "2026-06-19T14:05",
+          "qty": "1",
+          "fees": [
+            "275",
+            "27",
+            "275",
+            "27"
+          ],
+          "pnl": "-25604",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-07",
+            "put_call": "call",
+            "strike": "41000"
+          }
+        }
+      ]
+    },
+    {
+      "file": "s18.png",
+      "issuer": "架空証券 X",
+      "rows": [
+        {
+          "symbol": "日経225OP 1月限 P 37000",
+          "side": "S",
+          "entry_price": "185",
+          "entry_time": "2026-12-08T10:05",
+          "exit_price": "90",
+          "exit_time": "2026-12-22T11:30",
+          "qty": "1",
+          "fees": [
+            "275",
+            "27",
+            "275",
+            "27"
+          ],
+          "pnl": "94396",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2027-01",
+            "put_call": "put",
+            "strike": "37000"
+          }
+        },
+        {
+          "symbol": "日経225OP 1月限 C 41500",
+          "side": "S",
+          "entry_price": "130",
+          "entry_time": "2026-12-08T10:06",
+          "exit_price": "205",
+          "exit_time": "2026-12-22T11:31",
+          "qty": "1",
+          "fees": [
+            "275",
+            "27",
+            "275",
+            "27"
+          ],
+          "pnl": "-75604",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2027-01",
+            "put_call": "call",
+            "strike": "41500"
+          }
+        },
+        {
+          "symbol": "日経225mini 27/03",
+          "side": "L",
+          "entry_price": "39120",
+          "entry_time": "2026-12-09T09:15",
+          "exit_price": "39255",
+          "exit_time": "2026-12-09T10:40",
+          "qty": "1",
+          "fees": [
+            "38",
+            "3",
+            "38",
+            "3"
+          ],
+          "pnl": "13418",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown"
+        }
+      ]
+    },
+    {
+      "file": "s19.png",
+      "issuer": "架空証券 X",
+      "rows": [
+        {
+          "symbol": "TOPIXOP 26/09 C 2850",
+          "side": "L",
+          "entry_price": "18.5",
+          "entry_time": "2026-08-20T09:30",
+          "exit_price": "26",
+          "exit_time": "2026-08-27T14:20",
+          "qty": "3",
+          "fees": [
+            "660",
+            "66",
+            "660",
+            "66"
+          ],
+          "pnl": "223548",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "TOPIXOP",
+            "expiry": "2026-09",
+            "put_call": "call",
+            "strike": "2850"
+          }
+        },
+        {
+          "symbol": "日経225OP 26/09 C 40500",
+          "side": "L",
+          "entry_price": "120",
+          "entry_time": "2026-08-20T09:32",
+          "exit_price": "95",
+          "exit_time": "2026-08-27T14:22",
+          "qty": "1",
+          "fees": [
+            "275",
+            "27",
+            "275",
+            "27"
+          ],
+          "pnl": "-25604",
+          "pnl_currency": "JPY",
+          "exit_order_type": "unknown",
+          "option": {
+            "underlying": "日経225OP",
+            "expiry": "2026-09",
+            "put_call": "call",
+            "strike": "40500"
+          }
         }
       ]
     }

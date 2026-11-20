@@ -21,6 +21,11 @@ FIELD_LABELS = {
     "pnl": "損益",
     "pnl_currency": "損益の通貨",
     "exit_order_type": "決済の注文の種類",
+    # オプションの行だけ（#118。分母はオプションの正解の行）
+    "option_underlying": "オプション: 原資産の名前",
+    "option_expiry": "オプション: 限月",
+    "option_put_call": "オプション: P / C",
+    "option_strike": "オプション: 行使価格",
 }
 SET_LABELS = {"synthetic": "合成の明細", "real": "実物の明細"}
 

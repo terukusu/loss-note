@@ -978,3 +978,69 @@ describe('同じ画面への push と層・殻への伝え方（#75 R5・R6）',
     expect(b.stack).toEqual(['/', '/trades', '/trades/a']);
   });
 });
+
+describe('振り返りの「数で見る」と今月の規律のカード（#128。ui-guidelines 9.3・9.4・9.7）', () => {
+  it('/review/table は次の画面「数で見る」（振り返りのタブ）', () => {
+    expect(parseRoute('/review/table', PROD)).toEqual({ name: 'reviewTable' });
+    expect(parseRoute('/review/table/', PROD)).toEqual({ name: 'reviewTable' });
+    expect(parseRoute('/review/nope', PROD)).toBeNull();
+    expect(hrefOf({ name: 'reviewTable' })).toBe('/review/table');
+    expect(tabOfRoute({ name: 'reviewTable' })).toBe('review');
+    expect(screenKindOf({ name: 'reviewTable' })).toBe('push');
+    expect(screenLabel('/review/table?period=7d', PROD)).toBe('数で見る');
+    expect(titleOf({ name: 'reviewTable' })).toBe('数で見る — 損失ノート');
+  });
+
+  it('直接開いた /review/table?… は [/, /review?…, /review/table?…] に組み直す（同じ期間の根）', () => {
+    expect(bootStack('/review/table?period=7d', PROD)).toEqual([
+      '/',
+      '/review?period=7d',
+      '/review/table?period=7d',
+    ]);
+    expect(bootStack('/review/table', PROD)).toEqual(['/', '/review', '/review/table']);
+    const b = new MarkBrowser('/review/table?period=1m');
+    const nav = createNavigator(b, PROD);
+    nav.tab('review');
+    expect(b.stack).toEqual(['/', '/review?period=1m']);
+  });
+
+  it('振り返り → 数で見る: [/, /review?…, /review/table?…]、戻ると同じ期間の振り返り', () => {
+    const b = new MarkBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.tab('review');
+    nav.replace('/review?period=3m');
+    nav.push('/review/table?period=3m');
+    expect(b.stack).toEqual(['/', '/review?period=3m', '/review/table?period=3m']);
+    expect(nav.current.mark.tab).toBe('review');
+    b.back();
+    expect(nav.current.route).toEqual({ name: 'review' });
+    expect(nav.current.search).toBe('?period=3m');
+  });
+
+  it('ホームの今月の規律のカード: 期間つきの振り返りの根へ push → 振り返りのタブへ替える（積まない・記憶を捨てる）', () => {
+    const b = new MarkBrowser('/');
+    const nav = createNavigator(b, PROD);
+    // 前に振り返りで「数で見る」を開いていた（記憶）
+    nav.tab('review');
+    nav.push('/review/table?period=7d');
+    nav.tab('home');
+    expect(b.stack).toEqual(['/']);
+    const month = '/review?period=custom&from=2026-11-01&to=2026-11-19';
+    nav.push(month);
+    expect(b.stack).toEqual(['/', month]);
+    expect(nav.current.mark.tab).toBe('review');
+    expect(nav.current.via).toBe('tab');
+    expect(nav.current.route).toEqual({ name: 'review' });
+    b.back();
+    expect(nav.current.route).toEqual({ name: 'home' });
+  });
+
+  it('振り返りのタブの中で期間つきの根へ push は今までどおり積む（タブは振り返りのまま）', () => {
+    const b = new MarkBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.tab('review');
+    nav.push('/review?period=1m');
+    expect(nav.current.mark.tab).toBe('review');
+    expect(b.stack).toEqual(['/', '/review', '/review?period=1m']);
+  });
+});

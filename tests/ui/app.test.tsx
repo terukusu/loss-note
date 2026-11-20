@@ -22,8 +22,8 @@ describe('App', () => {
     expect(APP_NAME).toBe('損失ノート');
   });
 
+  // ホームの見出し（印 + 「損失ノート」、読み上げで「ホーム」。#128）は HomeView が描く（home-view.test.tsx）
   it.each([
-    ['home', 'ホーム'],
     ['record', '記録する'],
     ['trades', '取引'],
     ['review', '振り返り'],

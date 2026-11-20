@@ -48,13 +48,17 @@
 // 最大 86%・中がスクロールで最後まで届く・✕ の当たり 44・Tab でシートの外へ出ない・閉じたら「i」へ・安全域を差し替えて押せるものが
 // 内側）・SH2（シートを開いている間はトーストの取り消しの時間が止まる）・SH3（<html data-form> を付けた横・広いの見せ方）を流す。
 // 文字の拡大 200%（Issue #79・WCAG 1.4.4）: 文字の大きさのトークン（tokens.css の --fs-*）を全部 2 倍にし、ルートの文字の
-// 大きさも 200% にした状態で、全画面と記録する画面・設定の画面・ホームの振り返りの主な状態を 360×780 と 1440×900 × ダークで
+// 大きさも 200% にした状態で、全画面と記録する画面・設定の画面・振り返りのタブの主な状態を 360×780 と 1440×900 × ダークで
 // 測る。文字は px のトークンなので、ルートの文字の大きさだけを 2 倍にしても変わらない。トークンを 2 倍にするのは、文字だけの
 // 拡大（Android の Chrome の文字の拡大。px の文字も大きくなり、窓の幅は変わらない）に当たる。あわせて 1440×900 のページの拡大
 // 200%（窓 720×450・DPR 2・等倍の文字）も同じ状態で測る。横スクロール 0px・部品のはみ出し 0 件に加えて、拡大の漏れ（文字が
 // 20px 未満 = トークンを通らない大きさ）と行の重なり（行の高さが文字より小さい・文字どうしの重なり・切れ）を数える。当たり・
 // 帯の高さ・全長・入れ子は拡大では見ない（文字に合わせて大きくなるのが正しい）。残している崩れは ZOOM_KNOWN（外れの文言で絞る）。
 // 等倍の状態では、ボタン・バッジが 2 行に折れていないかも部品のはみ出しに数える（#79 で親より広いときだけ折り返す作りにした）。
+// ホームの 1 画面（#128。ui-guidelines 9.4・9.10）: 手順 HM1（等倍の文字の 390×844・360×780 × ダーク / ライト × 取引 0 件・取引あり・
+// 書きかけありで縦のスクロール量 0px・見える直近の行の数・主役の数字 44px、文字の拡大 200% では縦に伸びて切れず横 0）・HM2（押せる
+// カードの行き先 = 取引のタブ・振り返りのタブを今月で・詳細）を流す。規律の振り返りの状態は振り返りのタブ `/review` と次の画面
+// 「数で見る」（`/review/table`）で測る（RV1 は期間の置き換えと「数で見る ›」の往復）。
 // ホーム画面に追加（Issue #77）: 手順 PWA1（/ に manifest-src 'self' の CSP を付けて開き、CDP の Page.getAppManifest のエラー 0 件・
 // manifest の CSP の違反 0 件・manifest のアイコンが 200）を流す。
 // ログイン済みの文脈の /api は、このスクリプトの中の偽の記録の API（記憶の中だけ・架空の値）に置き換える
@@ -130,11 +134,13 @@ const opts = parseArgs(process.argv.slice(2));
  */
 const PAGES = [
   { path: '/login', h1: 'ログイン' },
-  { path: '/', h1: 'ホーム', wait: '.traderow' },
+  // ホームの直近の取引は詰めた行（#128）。h1 は印と「損失ノート」、読み上げで「ホーム」
+  { path: '/', h1: 'ホーム', wait: '.homerow' },
   { path: '/record', h1: '記録する' },
   { path: '/trades', h1: '取引', wait: '.traderow' },
-  // 振り返りのタブ（#127。U1 の時点ではホームの規律の振り返りの部品をそのまま出す）
+  // 振り返りのタブ（#128 で作り直した）と次の画面「数で見る」
   { path: '/review', h1: '振り返り', wait: '.review' },
+  { path: '/review/table', h1: '数で見る', wait: '.review__card' },
   { path: '/trades/no-such-trade', h1: '取引の詳細' },
   { path: '/trades/x-d1', h1: 'US30 · L', wait: 'canvas.chartview__canvas >> nth=1' },
   { path: '/trades/x-e1/edit', h1: '取引を編集', wait: '#edit-submit' },
@@ -561,6 +567,18 @@ const REVIEW_IMPORTS = [
   reviewTrade(2, 'rv-i2', 99.35, { lcMove: { kind: 'widened', after: 99.3 } }, 'import'),
 ];
 /** S2: 判定の出た取引 3 件（A 1・B 2） */
+/**
+ * ホームの今月の規律（#128）の取引: S1 の 7 件の決済を今日の 0:01〜0:07 に寄せる（月の初めに流しても今月に入る）。
+ * 直近の流れの点 10 個は TX_H1（7 件）と合わせて出す
+ */
+function homeMonthTrades() {
+  const t = new Date();
+  const start = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+  return REVIEW_S1.map((x, i) => ({
+    ...x,
+    record: { ...x.record, exit: { ...x.record.exit, time: start + (i + 1) * 60_000 } },
+  }));
+}
 const REVIEW_S2 = REVIEW_S1.slice(0, 3);
 /** 差が無い期間（S1 から 3 番の B を除く） */
 const REVIEW_NOGAP = REVIEW_S1.filter((t) => t.id !== 'rv-3');
@@ -3619,7 +3637,8 @@ async function main() {
         const ACCOUNT_ROW = '.traderow__account:visible, .traderow__account-top:visible';
         for (const [path, h1, wait, slug, after] of [
           ['/trades', '取引', ACCOUNT_ROW, 'trades-accounts'],
-          ['/', 'ホーム', ACCOUNT_ROW, 'home-accounts'],
+          // ホームの詰めた行は 2 行目に口座の名前（#128）
+          ['/', 'ホーム', '.homerow__sub:has-text(" · 口座")', 'home-accounts'],
           ['/trades/x-d1', 'US30 · L', '.verdict__account', 'trade-x-d1-accounts'],
           // 保有時間と口座が並ぶ見出しの下の行（#58 デザインレビュー: 360 で 1 行に収まるか）
           ['/trades/x-r3', 'US30 · S', '.verdict__account', 'trade-x-r3-accounts'],
@@ -3678,63 +3697,63 @@ async function main() {
             setAccounts(recApi, []);
           }
         }
-        // ホームの規律の振り返り（Issue #88 AC-12）: 期間ごと・件数が少ない・0 件・期間の誤り・取り込みを含める / 外す・
-        // 「数で見る」を開いた形。取引を一時だけ S1（架空の値）に替えて測り、後で戻す
+        // 振り返りのタブの規律の振り返り（Issue #88 AC-12。#128 でホームから `/review` へ移した。期待は同じ）: 期間ごと・件数が
+        // 少ない・0 件・期間の誤り・取り込みを含める / 外す・「数で見る」の画面。取引を一時だけ S1（架空の値）に替えて測り、後で戻す
         {
           const ymd = (d) =>
             `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
           const today = new Date();
           const back5 = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5);
           const REVIEW_STATES = [
-            ['/?period=7d', REVIEW_S1, '.curve', 'home-review-7d'],
-            ['/?period=1d', REVIEW_S1, '.review__grid', 'home-review-1d'],
-            ['/?period=1m', REVIEW_S1, '.curve', 'home-review-1m'],
-            ['/?period=3m', REVIEW_S1, '.curve', 'home-review-3m'],
+            ['/review?period=7d', REVIEW_S1, '.curve', 'review-7d'],
+            ['/review?period=1d', REVIEW_S1, '.review__ratecard', 'review-1d'],
+            ['/review?period=1m', REVIEW_S1, '.curve', 'review-1m'],
+            ['/review?period=3m', REVIEW_S1, '.curve', 'review-3m'],
             [
-              `/?period=custom&from=${ymd(today)}&to=${ymd(back5)}`,
+              `/review?period=custom&from=${ymd(today)}&to=${ymd(back5)}`,
               REVIEW_S1,
               '#review-to-error',
-              'home-review-custom-error',
+              'review-custom-error',
             ],
             [
-              `/?period=custom&from=${ymd(back5)}&to=${ymd(today)}`,
+              `/review?period=custom&from=${ymd(back5)}&to=${ymd(today)}`,
               REVIEW_S1,
               '.curve',
-              'home-review-custom',
+              'review-custom',
             ],
             [
-              '/?period=custom&from=2020-01-01&to=2020-01-31',
+              '/review?period=custom&from=2020-01-01&to=2020-01-31',
               REVIEW_S1,
               '.review__empty',
-              'home-review-empty',
+              'review-empty',
             ],
-            ['/?period=7d', REVIEW_S2, '.review__missing', 'home-review-few'],
+            ['/review?period=7d', REVIEW_S2, '.review__missing', 'review-few'],
             // レビュー後に足した状態（#88 Phase 4b）: 差が無い・大きな負け・取引の多い期間（合成 120 件）・読み込み中・
             // 「i」を開いた・キーボードのフォーカス
-            ['/?period=7d', REVIEW_NOGAP, '.curve', 'home-review-nogap'],
-            ['/?period=7d', REVIEW_BIG, '.curve', 'home-review-bigloss'],
-            ['/?period=3m', REVIEW_MANY, '.curve', 'home-review-many'],
-            ['/?period=7d', REVIEW_S1, '.review .loading', 'home-review-loading', null, 200, 4000],
+            ['/review?period=7d', REVIEW_NOGAP, '.curve', 'review-nogap'],
+            ['/review?period=7d', REVIEW_BIG, '.curve', 'review-bigloss'],
+            ['/review?period=3m', REVIEW_MANY, '.curve', 'review-many'],
+            ['/review?period=7d', REVIEW_S1, '.review .loading', 'review-loading', null, 200, 4000],
             [
-              '/?period=7d',
+              '/review?period=7d',
               REVIEW_S1,
               '.curve',
-              'home-review-info',
+              'review-info',
               async (pg) => {
                 await pg.locator('.review button[aria-label="「規律コスト」の説明"]').click();
                 await pg.locator('dialog.sheet[open] .info__lead').first().waitFor();
               },
             ],
-            ['/?period=7d', REVIEW_CLEAN, '.curve', 'home-review-clean'],
-            ['/?period=1d', REVIEW_OLD, '.review__empty', 'home-review-empty-1d'],
-            ['/?period=7d', REVIEW_OLD, '.review__empty', 'home-review-empty-7d'],
-            ['/?period=1m', REVIEW_OLD, '.review__empty', 'home-review-empty-1m'],
-            ['/?period=3m', REVIEW_OLD, '.review__empty', 'home-review-empty-3m'],
+            ['/review?period=7d', REVIEW_CLEAN, '.curve', 'review-clean'],
+            ['/review?period=1d', REVIEW_OLD, '.review__empty', 'review-empty-1d'],
+            ['/review?period=7d', REVIEW_OLD, '.review__empty', 'review-empty-7d'],
+            ['/review?period=1m', REVIEW_OLD, '.review__empty', 'review-empty-1m'],
+            ['/review?period=3m', REVIEW_OLD, '.review__empty', 'review-empty-3m'],
             [
-              '/?period=7d',
+              '/review?period=7d',
               REVIEW_S1,
               '.curve',
-              'home-review-switching',
+              'review-switching',
               async (pg) => {
                 recApi.rangeHoldMs = 4000;
                 await seg(pg, '期間', '1か月').click();
@@ -3742,20 +3761,20 @@ async function main() {
               },
             ],
             [
-              '/?period=7d',
+              '/review?period=7d',
               REVIEW_S1,
               '.curve',
-              'home-review-info-rate',
+              'review-info-rate',
               async (pg) => {
                 await pg.locator('.review button[aria-label="「計画どおり率」の説明"]').click();
                 await pg.locator('dialog.sheet[open] .info__lead').first().waitFor();
               },
             ],
             [
-              '/?period=7d',
+              '/review?period=7d',
               [...REVIEW_S1, ...REVIEW_IMPORTS],
               '.review__toggle',
-              'home-review-focus-toggle',
+              'review-focus-toggle',
               async (pg) => {
                 await pg.locator('input[name="review-period"]:checked').focus();
                 await pg.keyboard.press('Tab');
@@ -3764,27 +3783,31 @@ async function main() {
                 );
               },
             ],
+            // 「数で見る」は次の画面（#128。その場で開く折りたたみをやめた）: 見出しから Tab で横に送る表の箱へ
             [
-              '/?period=7d',
+              '/review/table?period=7d',
               REVIEW_S1,
-              '.review__table > summary',
-              'home-review-focus-table',
+              '.review__table table',
+              'review-focus-table',
               async (pg) => {
-                await pg.locator('.review__table > summary').focus();
-                await pg.keyboard.press('Enter');
-                await pg.locator('.review__table table').waitFor();
-                await pg.keyboard.press('Tab');
+                await pg.locator('main h1').first().focus();
+                for (let i = 0; i < 6; i++) {
+                  await pg.keyboard.press('Tab');
+                  const at = await pg.evaluate(() =>
+                    document.activeElement?.classList.contains('review__scroll'),
+                  );
+                  if (at) break;
+                }
                 await pg.waitForFunction(() =>
                   document.activeElement?.classList.contains('review__scroll'),
                 );
-                await pg.locator('.review__table').scrollIntoViewIfNeeded();
               },
             ],
             [
-              '/?period=7d',
+              '/review?period=7d',
               REVIEW_S1,
               '.curve',
-              'home-review-focus',
+              'review-focus',
               async (pg) => {
                 // 見出しから Tab で期間の選択へ（#127 でホームの [記録する] を無くしたので、見出しを起点にする）
                 await pg.locator('main h1').first().focus();
@@ -3799,41 +3822,32 @@ async function main() {
               },
             ],
             [
-              '/?period=7d',
+              '/review?period=7d',
               [...REVIEW_S1, ...REVIEW_IMPORTS],
               '.review__toggle',
-              'home-review-imports-off',
+              'review-imports-off',
             ],
             [
-              '/?period=7d&imports=1',
+              '/review?period=7d&imports=1',
               [...REVIEW_S1, ...REVIEW_IMPORTS],
               '.review__toggle',
-              'home-review-imports-on',
+              'review-imports-on',
             ],
-            ['/?period=7d', REVIEW_IMPORTS, '.review__toggle', 'home-review-imports-only'],
-            [
-              '/?period=7d',
-              REVIEW_S1,
-              '.review__table > summary',
-              'home-review-table',
-              async (pg) => {
-                await pg.locator('.review__table > summary').click();
-                await pg.locator('.review__table table').waitFor();
-                await pg.locator('.review__table').scrollIntoViewIfNeeded();
-              },
-            ],
-            ['/?period=7d', REVIEW_S1, '.review .notice--error', 'home-review-failed', null, 503],
+            ['/review?period=7d', REVIEW_IMPORTS, '.review__toggle', 'review-imports-only'],
+            ['/review/table?period=7d', REVIEW_S1, '.review__table table', 'review-table'],
+            ['/review/table?period=7d', [], '.review__empty', 'review-table-empty'],
+            ['/review?period=7d', REVIEW_S1, '.review .notice--error', 'review-failed', null, 503],
           ];
           for (const [path, trades, wait, slug, after, rangeStatus, holdMs] of REVIEW_STATES) {
             const tp = pageFor.get(false);
-            const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`振り返り ${slug.replace('home-review-', '')}`, 22)}`;
+            const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`振り返り ${slug.replace('review-', '')}`, 22)}`;
             const saved = recApi.trades;
             try {
               recApi.trades = [...trades];
               recApi.rangeStatus = rangeStatus ?? 200;
               recApi.rangeHoldMs = holdMs ?? 0;
               await tp.goto(base + path);
-              await waitReady(tp, 'ホーム');
+              await waitReady(tp, path.startsWith('/review/table') ? '数で見る' : '振り返り');
               await tp.locator(wait).first().waitFor({ timeout: 15000 });
               if (after) await after(tp);
               await tp.mouse.move(0, 0);
@@ -3872,8 +3886,9 @@ async function main() {
               recApi.rangeHoldMs = 0;
             }
           }
-          // RV1（幅 360・ダークで 1 回）: 5 つの期間を順に押す → URL の検索部分が置き換わり（履歴の数が増えない）、
-          // フォーカスは押した選択肢に残る（見出しへ移らない）。開き直すと同じ期間。7 日の S1 の数字が出る
+          // RV1（幅 360・ダークで 1 回。#128 で振り返りのタブ `/review` へ）: 5 つの期間を順に押す → URL の検索部分が置き換わり
+          // （履歴の数が増えない）、フォーカスは押した選択肢に残る（見出しへ移らない）。開き直すと同じ期間。7 日の S1 の数字が出る。
+          // 「数で見る ›」は同じ期間の次の画面（`/review/table?period=3m`）で、戻ると同じ期間の振り返り
           if (w === 360 && theme === 'dark') {
             const tp = pageFor.get(false);
             const saved = recApi.trades;
@@ -3883,8 +3898,8 @@ async function main() {
             };
             try {
               recApi.trades = [...REVIEW_S1];
-              await tp.goto(`${base}/`);
-              await waitReady(tp, 'ホーム');
+              await tp.goto(`${base}/review`);
+              await waitReady(tp, '振り返り');
               await tp.locator('.review .curve').waitFor({ timeout: 15000 });
               const text7 = (await tp.locator('.review').textContent()) ?? '';
               for (const want of [
@@ -3900,7 +3915,7 @@ async function main() {
                 ['1d', '1日'],
                 ['1m', '1か月'],
                 ['3m', '3か月'],
-                ['custom', '任意'],
+                ['custom', '指定'],
                 ['7d', '7日'],
               ]) {
                 await seg(tp, '期間', name).click();
@@ -3912,6 +3927,22 @@ async function main() {
                     document.activeElement?.tagName,
                 );
                 expectEq(focused, key, `RV1: ${name} を押した後のフォーカス`);
+                // 貼り付く期間の帯は 5 つの選択肢の行だけ（指定の日付の欄は帯の外で流れる。#128 デザイン a5）
+                if (key === 'custom') {
+                  const bar = await tp.evaluate(() => {
+                    const b = document.querySelector('.review__period-bar');
+                    return {
+                      h: b ? Math.round(b.getBoundingClientRect().height) : 0,
+                      dates: b ? b.querySelectorAll('input[type="date"]').length : -1,
+                      outside: document.querySelectorAll('.review__dates input[type="date"]')
+                        .length,
+                    };
+                  });
+                  expectEq(bar.dates, 0, 'RV1: 貼り付く帯の中の日付の欄');
+                  expectEq(bar.outside, 2, 'RV1: 帯の外の日付の欄');
+                  if (bar.h > 80)
+                    throw new Error(`RV1: 貼り付く帯の高さ ${bar.h}px（期待 80 以下）`);
+                }
               }
               expectEq(
                 await tp.evaluate(() => history.length),
@@ -3926,7 +3957,7 @@ async function main() {
               );
               const meta = await tp.locator('.review__meta').textContent();
               await tp.reload();
-              await waitReady(tp, 'ホーム');
+              await waitReady(tp, '振り返り');
               await tp.waitForFunction(
                 () => document.querySelector('.review__meta')?.textContent?.includes('件') === true,
               );
@@ -3940,7 +3971,33 @@ async function main() {
                 '3m',
                 'RV1: 再読み込みで選ばれた期間',
               );
-              console.log('RV1 期間の置き換え・フォーカス・再読み込み ok');
+              // 「数で見る ›」→ 同じ期間の次の画面（表）→ 戻ると同じ期間の振り返り（#128）
+              await tp.locator('.review__more a.rowlink', { hasText: '数で見る' }).click();
+              await waitReady(tp, '数で見る');
+              expectEq(
+                await tp.evaluate(() => location.pathname + location.search),
+                '/review/table?period=3m',
+                'RV1: 数で見るの URL',
+              );
+              await tp.locator('.review__table table').waitFor({ timeout: 15000 });
+              expectEq(
+                await tp.locator('.review__meta').textContent(),
+                meta,
+                'RV1: 数で見るの範囲と件数',
+              );
+              expectEq(
+                await tp.locator('.appbar__back').first().getAttribute('aria-label'),
+                '振り返りへ戻る',
+                'RV1: 上の帯の戻る',
+              );
+              await tp.locator('.appbar__back').first().click();
+              await waitReady(tp, '振り返り');
+              expectEq(
+                await tp.evaluate(() => location.pathname + location.search),
+                '/review?period=3m',
+                'RV1: 戻った振り返りの期間',
+              );
+              console.log('RV1 期間の置き換え・フォーカス・再読み込み・数で見る ok');
             } catch (e) {
               const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
               console.log(`RV1 NG ${msg}`);
@@ -3949,56 +4006,62 @@ async function main() {
               recApi.trades = saved;
             }
           }
-          // ST1（幅 360・ダークで 1 回。Issue #35）: ホームと一覧の直近の流れは点 10 個が 1 行に並び（同じ高さ・カードの中）、
-          // 並びの名前が「直近 10 件の判定（古い順）」、見出しの文が出る。ホームは先頭（振り返りの前。#127 で [記録する] を無くした）
+          // ST1（幅 360・ダークで 1 回。Issue #35・#128）: ホームの直近の流れは点 10 個が 1 行に並び（同じ高さ・カードの中）、
+          // 並びの名前が「直近 10 件の判定（古い順）」、見出しの文が出る。ホームの並びは 見出し → 直近の流れ → 今月の規律 →
+          // 直近の取引（#128）。一覧の上には直近の流れを置かない（#128。設計書 9.2・9.3）
           if (w === 360 && theme === 'dark') {
             const tp = pageFor.get(false);
             try {
-              for (const [at, h1] of [
-                ['/', 'ホーム'],
-                ['/trades', '取引'],
-              ]) {
-                await tp.goto(base + at);
-                await waitReady(tp, h1);
-                await tp.locator('.streak__item').first().waitFor({ timeout: 15000 });
-                const r = await tp.evaluate(() => {
-                  const card = document.querySelector('.streak');
-                  const items = [...document.querySelectorAll('.streak__item')];
-                  const cb = card?.getBoundingClientRect();
-                  const tops = new Set(
-                    items.map((li) => Math.round(li.getBoundingClientRect().top)),
-                  );
-                  const outside = items.filter((li) => {
-                    const b = li.getBoundingClientRect();
-                    return !cb || b.left < cb.left || b.right > cb.right;
-                  }).length;
-                  const order = [
-                    ...document.querySelectorAll('.home__record, .streak, .review'),
-                  ].map((e) =>
-                    e.className.split(' ').find((c) => !['card', 'section'].includes(c)),
-                  );
-                  return {
-                    n: items.length,
-                    rows: tops.size,
-                    outside,
-                    label: document.querySelector('.streak__dots')?.getAttribute('aria-label'),
-                    headline: document.querySelector('.streak__headline')?.textContent ?? '',
-                    order,
-                  };
-                });
-                const where = `ST1 ${at}`;
-                if (r.n !== 10) throw new Error(`${where}: 点の数 ${r.n}（期待 10）`);
-                if (r.rows !== 1) throw new Error(`${where}: 点の行 ${r.rows}（期待 1）`);
-                if (r.outside !== 0) throw new Error(`${where}: カードの外の点 ${r.outside}`);
-                if (r.label !== '直近 10 件の判定（古い順）')
-                  throw new Error(`${where}: 並びの名前 ${r.label}`);
-                if (!/続いています|直近の取引は/.test(r.headline))
-                  throw new Error(`${where}: 見出しの文 ${r.headline}`);
-                // ホームに [記録する] を置かない（下のタブの 1 か所。#127）
-                if (at === '/' && r.order.join(',') !== 'streak,review')
-                  throw new Error(`${where}: 並び ${r.order.join(',')}`);
-              }
-              console.log('ST1 直近の流れ（点 10 個が 1 行・名前・見出し・ホームの並び） ok');
+              await tp.goto(`${base}/`);
+              await waitReady(tp, 'ホーム');
+              await tp.locator('.streak__item').first().waitFor({ timeout: 15000 });
+              const r = await tp.evaluate(() => {
+                const card = document.querySelector('.streak');
+                const items = [...document.querySelectorAll('.streak__item')];
+                const cb = card?.getBoundingClientRect();
+                const tops = new Set(items.map((li) => Math.round(li.getBoundingClientRect().top)));
+                const outside = items.filter((li) => {
+                  const b = li.getBoundingClientRect();
+                  return !cb || b.left < cb.left || b.right > cb.right;
+                }).length;
+                const KINDS = [
+                  'homehead',
+                  'homedraft',
+                  'streak',
+                  'homemonth',
+                  'homerecent',
+                  'review',
+                ];
+                const order = [
+                  ...document.querySelectorAll(KINDS.map((k) => `main .${k}`).join(', ')),
+                ].map((e) => KINDS.find((k) => e.classList.contains(k)));
+                return {
+                  n: items.length,
+                  rows: tops.size,
+                  outside,
+                  label: document.querySelector('.streak__dots')?.getAttribute('aria-label'),
+                  headline: document.querySelector('.streak__headline')?.textContent ?? '',
+                  order,
+                };
+              });
+              const where = 'ST1 /';
+              if (r.n !== 10) throw new Error(`${where}: 点の数 ${r.n}（期待 10）`);
+              if (r.rows !== 1) throw new Error(`${where}: 点の行 ${r.rows}（期待 1）`);
+              if (r.outside !== 0) throw new Error(`${where}: カードの外の点 ${r.outside}`);
+              if (r.label !== '直近 10 件の判定（古い順）')
+                throw new Error(`${where}: 並びの名前 ${r.label}`);
+              if (!/続いています|直近の取引は/.test(r.headline))
+                throw new Error(`${where}: 見出しの文 ${r.headline}`);
+              if (r.order.join(',') !== 'homehead,streak,homemonth,homerecent')
+                throw new Error(`${where}: 並び ${r.order.join(',')}`);
+              await tp.goto(`${base}/trades`);
+              await waitReady(tp, '取引');
+              await tp.locator('.traderow').first().waitFor({ timeout: 15000 });
+              const onList = await tp.locator('main .streak').count();
+              if (onList !== 0) throw new Error(`ST1 /trades: 直近の流れ ${onList} 個（期待 0）`);
+              console.log(
+                'ST1 直近の流れ（点 10 個が 1 行・名前・見出し・ホームの並び・一覧に無い） ok',
+              );
             } catch (e) {
               const msg = e instanceof Error ? e.message.split('\n')[0] : String(e);
               console.log(`ST1 NG ${msg}`);
@@ -4261,7 +4324,8 @@ async function main() {
         if (!st) throw new Error(`ZOOM_SETTINGS の ${slug} が SETTINGS_STATES に無い`);
         return st;
       });
-      const zoomStates = PAGES.length + recStates.length + setStates.length + 1;
+      // + 3 = 振り返り（7 日）・数で見る・ホーム（今月の取引あり）（#128）
+      const zoomStates = PAGES.length + recStates.length + setStates.length + 3;
       console.log('');
       console.log(
         `文字の拡大 ${ZOOM * 100}%: ${zoomStates} 状態 × ${ZOOM_SIZES.length} 窓（${ZOOM_SIZES.map((z) => `${z.w}x${z.h}${z.text ? '' : ' ページの拡大'}`).join('・')}）× ${ZOOM_THEMES.length} テーマ`,
@@ -4388,16 +4452,26 @@ async function main() {
               await st.fn(recPage, recApi);
             });
           }
-          // ホームの規律の振り返り（取引のある 7 日・数の段・曲線・「数で見る」を開いた形）
+          // 振り返りのタブの規律の振り返り（取引のある 7 日・数の段・曲線）と「数で見る」の画面の表（#128）
           {
             const saved = recApi.trades;
             recApi.trades = [...REVIEW_S1];
-            await zoomState(recPage, '/（振り返り・数で見る）', 'home-review-table', async () => {
-              await recPage.goto(`${base}/?period=7d`);
-              await waitReady(recPage, 'ホーム');
+            await zoomState(recPage, '/review（7 日）', 'review-7d', async () => {
+              await recPage.goto(`${base}/review?period=7d`);
+              await waitReady(recPage, '振り返り');
               await recPage.locator('.curve').first().waitFor({ timeout: 15000 });
-              await recPage.locator('.review__table > summary').click();
-              await recPage.locator('.review__table table').waitFor();
+            });
+            await zoomState(recPage, '/review/table（7 日）', 'review-table', async () => {
+              await recPage.goto(`${base}/review/table?period=7d`);
+              await waitReady(recPage, '数で見る');
+              await recPage.locator('.review__table table').waitFor({ timeout: 15000 });
+            });
+            // ホーム（今月の取引あり。主役の数字・小さな曲線・詰めた行が縦に伸びる。横は 0）
+            recApi.trades = [...homeMonthTrades(), ...TX_H1];
+            await zoomState(recPage, '/（今月の取引あり）', 'home-month', async () => {
+              await recPage.goto(`${base}/`);
+              await waitReady(recPage, 'ホーム');
+              await recPage.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
             });
             recApi.trades = saved;
           }
@@ -4410,7 +4484,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -4904,7 +4978,7 @@ async function runFlows(browser, base, signedIn) {
         await installFakeApi(c);
         const p = await c.newPage();
         for (const [path, h1, wait] of [
-          ['/', 'ホーム', '.traderow'],
+          ['/', 'ホーム', '.homerow'],
           ['/trades', '取引', '.traderow'],
           ['/trades/x-d1', 'US30 · L', 'canvas.chartview__canvas'],
           ['/record', '記録する', '#record-entry'],
@@ -4929,7 +5003,10 @@ async function runFlows(browser, base, signedIn) {
               }
             }
             const face = document.querySelector('.statusbar-bg')?.getBoundingClientRect();
-            const big = document.querySelector('main .pagehead__title')?.getBoundingClientRect();
+            // タブの根の大きな題（ホームは印と「損失ノート」の小さな見出し。#128）
+            const big = document
+              .querySelector('main .pagehead__title, main .homehead__title')
+              ?.getBoundingClientRect();
             const bar = document.querySelector('main .appbar')?.getBoundingClientRect();
             return {
               bad,
@@ -7463,7 +7540,7 @@ async function runFlows(browser, base, signedIn) {
           await shot('empty-cancel');
           // 編集
           await p.goto(`${base}/trades/x-e1`);
-          await waitReady(p, '取引の詳細');
+          await waitDetail(p);
           await p.locator('a[href="/trades/x-e1/edit"]').click();
           await waitReady(p, '取引を編集');
           await p.locator('#edit-submit').waitFor({ state: 'visible', timeout: 15000 });
@@ -7475,13 +7552,13 @@ async function runFlows(browser, base, signedIn) {
             await waitReady(p, '取引');
           } else {
             await p.goBack();
-            await waitReady(p, '取引の詳細');
+            await waitDetail(p);
           }
           await toast('の編集の変更は残っています').waitFor({ timeout: 5000 });
           await shot('edit-kept');
           if (w >= 720) {
             await p.locator('a.traderow[href="/trades/x-e1"]').click();
-            await waitReady(p, '取引の詳細');
+            await waitDetail(p);
           }
           // 印は離れた画面（編集）の後始末で付くので、出るのを待つ
           await p
@@ -7500,7 +7577,7 @@ async function runFlows(browser, base, signedIn) {
             .waitFor({ timeout: 5000 });
           expectEq(await p.locator('#record-exit').inputValue(), `${ex}1`, '戻った後の編集');
           await p.locator('.appbar--sheet button[aria-label="キャンセル"]').click();
-          await waitReady(p, '取引の詳細');
+          await waitDetail(p);
           await toast('の編集の変更を破棄しました').waitFor({ timeout: 5000 });
           await shot('edit-discarded');
           expectEq(errors.length, 0, 'ページのエラー');
@@ -8153,28 +8230,237 @@ async function runFlows(browser, base, signedIn) {
     return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」、理由は一覧の下に 1 回）が例どおり';
   });
 
+  // T-H1（#128 で直近 3 件の詰めた行に）: 新しい順の 3 件、2 件目の危ない勝ちは B と同じ崩れの段。［記録する］ は下のタブだけ
   await check('T-H1', async () => {
     const { c, p, errors } = await recordContext({ trades: [...TX_H1].reverse() });
     try {
       await p.goto(`${base}/`);
       await waitReady(p, 'ホーム');
-      await p.locator('a.traderow').first().waitFor();
-      const rows = await rowsOf(p);
+      await p.locator('a.homerow').first().waitFor();
+      const rows = await p.locator('a.homerow').evaluateAll((as) =>
+        as.map((a) => ({
+          href: a.getAttribute('href'),
+          mark: a.querySelector('.homerow__mark')?.className ?? '',
+          sub: a.querySelector('.homerow__sub')?.textContent ?? '',
+        })),
+      );
       expectEq(
         rows.map((r) => r.href).join(' '),
-        '/trades/x-h0 /trades/x-h1 /trades/x-h2 /trades/x-h3 /trades/x-h4',
-        '直近 5 件の並び',
+        '/trades/x-h0 /trades/x-h1 /trades/x-h2',
+        '直近 3 件の並び',
       );
-      expectEq(rows[1].badge, '危ない勝ち', '2 件目の判定');
-      if (!rows[1].badgeClass.includes('badge--break')) throw new Error('2 件目の段が崩れでない');
+      if (!rows[1].sub.startsWith('危ない勝ち · ')) throw new Error(`2 件目: ${rows[1].sub}`);
+      if (!rows[1].mark.includes('homerow__mark--break')) throw new Error('2 件目の段が崩れでない');
       // ホームの中に [記録する] を置かない（下のタブの ［＋ 記録］ の 1 か所。#127）。「すべての取引」の押せる行
       expectEq(await p.locator('main a[href="/record"]').count(), 0, 'ホームの中の [記録する]');
-      await p.locator('main a.rowlink[href="/trades"]').first().waitFor();
+      await p.locator('main a.rowlink[href="/trades"]', { hasText: 'すべての取引' }).waitFor();
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return 'ホームに新しい順の 5 件、2 件目の危ない勝ちは B と同じ崩れの段。[記録する] は下のタブだけ・「すべての取引」は押せる行';
+    return 'ホームに新しい順の 3 件（詰めた行）、2 件目の危ない勝ちは B と同じ崩れの段。[記録する] は下のタブだけ・「すべての取引」は押せる行';
+  });
+
+  // HM1（#128 AC-1・AC-2・AC-3・AC-5。ui-guidelines 9.4・9.10「1 画面に収まる」）: 等倍の文字のホームの縦のスクロール量
+  // （scrollHeight − innerHeight）を 390×844 と 360×780 × ダーク / ライト × 取引 0 件・取引あり（今月の取引あり）・書きかけあり
+  // で測る。期待はすべて 0px（低い窓は直近の取引を下の行から隠す。最低 1 行・書きかけの行があれば 2 件目から）。あわせて見える
+  // 直近の行の数（390×844 = 3・360×780 = 2・360×780 の書きかけあり = 1）・主役の数字の大きさ（44px）・
+  // 横スクロール 0。文字の拡大 200%（トークン 2 倍）では縦に伸びてよく（切らない = 直近の行の下端まで送れる）、横は 0
+  await check('HM1', async () => {
+    const homeTrades = [...homeMonthTrades(), ...TX_H1];
+    const out = [];
+    const fails = [];
+    for (const theme of ['dark', 'light']) {
+      for (const [w, h] of [
+        [390, 844],
+        [360, 780],
+      ]) {
+        const c = await browser.newContext({
+          viewport: { width: w, height: h },
+          storageState: signedIn,
+          hasTouch: true,
+        });
+        try {
+          await setupContext(c, theme);
+          const api = await installFakeApi(c, { trades: homeTrades });
+          const p = await c.newPage();
+          const measureHome = () =>
+            p.evaluate(() => {
+              const se = document.scrollingElement;
+              const last = document.querySelector('main .home')?.lastElementChild;
+              return {
+                v: se.scrollHeight - window.innerHeight,
+                x: document.documentElement.scrollWidth - window.innerWidth,
+                rows: [...document.querySelectorAll('.homerow')].filter((r) => r.offsetParent)
+                  .length,
+                xl: [...document.querySelectorAll('.homemonth .num--xl')].map(
+                  (e) => getComputedStyle(e).fontSize,
+                ),
+                bottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
+              };
+            });
+          const tag = `${w}x${h}-${theme}`;
+          const expectZero = (m, state) => {
+            if (m.x > 0) fails.push(`${tag} ${state}: 横スクロール ${m.x}px`);
+            if (m.v > 0) fails.push(`${tag} ${state}: 縦スクロール ${m.v}px`);
+          };
+          // 取引あり
+          await p.goto(`${base}/`);
+          await waitReady(p, 'ホーム');
+          await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+          let m = await measureHome();
+          expectZero(m, '取引あり');
+          const wantRows = h >= 820 ? 3 : 2;
+          if (m.rows !== wantRows)
+            fails.push(`${tag}: 見える直近の行 ${m.rows}（期待 ${wantRows}）`);
+          if (m.xl.join(',') !== '44px,44px') fails.push(`${tag}: 主役の数字 ${m.xl.join(',')}`);
+          out.push(`${tag} 取引あり 縦 ${m.v}px・中身の下端 ${m.bottom}px・行 ${m.rows}`);
+          if (opts.shots)
+            await p.screenshot({ path: join(opts.shots, `${tag}-hm1-home.png`), fullPage: true });
+          // 書きかけあり（記録する画面で LC を入れて戻る → 「記録の書きかけがあります ›」）
+          await p.locator('#appnav-record').click();
+          await p.locator('#record-lc').waitFor({ timeout: 15000 });
+          await p.locator('#record-lc').fill('99.5');
+          await p.goBack();
+          await p.locator('.homedraft a.rowlink[href="/record"]').waitFor({ timeout: 15000 });
+          await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+          m = await measureHome();
+          expectZero(m, '書きかけ');
+          // 低い窓（360×780）は書きかけの行があると 2 件目から隠す（最低 1 行。#128 デザイン AC-2）
+          const wantDraftRows = h >= 820 ? 3 : 1;
+          if (m.rows !== wantDraftRows)
+            fails.push(`${tag} 書きかけ: 見える直近の行 ${m.rows}（期待 ${wantDraftRows}）`);
+          out.push(`${tag} 書きかけ 縦 ${m.v}px・行 ${m.rows}`);
+          if (opts.shots)
+            await p.screenshot({ path: join(opts.shots, `${tag}-hm1-draft.png`), fullPage: true });
+          // 取引 0 件（書きかけは新しい文脈で無し）
+          api.trades = [];
+          const p2 = await c.newPage();
+          await p2.goto(`${base}/`);
+          await waitReady(p2, 'ホーム');
+          await p2.getByText('最初の取引を記録しましょう').waitFor({ timeout: 15000 });
+          m = await p2.evaluate(() => ({
+            v: document.scrollingElement.scrollHeight - window.innerHeight,
+            x: document.documentElement.scrollWidth - window.innerWidth,
+          }));
+          expectZero(m, '0 件');
+          out.push(`${tag} 0 件 縦 ${m.v}px`);
+          if (opts.shots)
+            await p2.screenshot({ path: join(opts.shots, `${tag}-hm1-empty.png`), fullPage: true });
+        } finally {
+          await c.close();
+        }
+      }
+    }
+    // 文字の拡大 200%: 縦に伸びる（切らない）・横 0
+    for (const [w, h] of [
+      [360, 780],
+      [390, 844],
+    ]) {
+      const c = await browser.newContext({
+        viewport: { width: w, height: h },
+        storageState: signedIn,
+      });
+      try {
+        await setupContext(c, 'dark', true);
+        await installFakeApi(c, { trades: homeTrades });
+        const p = await c.newPage();
+        await p.goto(`${base}/`);
+        await waitReady(p, 'ホーム');
+        await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+        const z = await p.evaluate(() => {
+          const se = document.scrollingElement;
+          const last = [...document.querySelectorAll('.homerecent .rowlink')].at(-1);
+          const b = last ? last.getBoundingClientRect().bottom + window.scrollY : 0;
+          return {
+            v: se.scrollHeight - window.innerHeight,
+            x: document.documentElement.scrollWidth - window.innerWidth,
+            reach: se.scrollHeight >= b,
+          };
+        });
+        if (z.x > 0) fails.push(`拡大 ${w}x${h}: 横スクロール ${z.x}px`);
+        if (!z.reach) fails.push(`拡大 ${w}x${h}: 「すべての取引」まで送れない（切れている）`);
+        out.push(`拡大 ${w}x${h} 縦 ${z.v}px（伸びてよい）・横 ${z.x}px`);
+      } finally {
+        await c.close();
+      }
+    }
+    if (fails.length > 0) throw new Error(fails.join(' / '));
+    return out.join(' / ');
+  });
+
+  // HM2（#128 AC-6）: ホームの押せるカード。直近の流れ（点の上を押す）→ 取引のタブ、今月の規律（数字の上を押す）→ 振り返りの
+  // タブを今月で（`/review?period=custom&from=<1 日>&to=<今日>`。タブは振り返り・戻るとホーム）、直近の行 → 詳細。
+  // 見出しの行のリンクの当たりは 44px 以上
+  await check('HM2', async () => {
+    const { c, p, errors } = await recordContext({ trades: [...homeMonthTrades(), ...TX_H1] });
+    try {
+      await setupContext(c, 'dark');
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/`);
+      await waitReady(p, 'ホーム');
+      await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+      const hits = await p
+        .locator('.homecard__link')
+        .evaluateAll((as) =>
+          as.map((a) => a.getBoundingClientRect()).map((r) => [r.width, r.height]),
+        );
+      for (const [wd, ht] of hits)
+        if (wd < 44 || ht < 44) throw new Error(`カードのリンクの当たり ${wd}×${ht}`);
+      // 直近の流れ: 点の並びの上を押す（カードの全面が当たり）
+      // カードの全面に広げたリンク（::before）が点の上に重なるので、点の真ん中の座標を押す
+      const dots = await p.locator('.streak__dots').boundingBox();
+      await p.mouse.click(dots.x + dots.width / 2, dots.y + dots.height / 2);
+      await waitReady(p, '取引');
+      expectEq(path(p), '/trades', '直近の流れ → 取引のタブ');
+      expectEq(
+        await p.locator('#appnav-trades').getAttribute('aria-current'),
+        'page',
+        '取引のタブ',
+      );
+      await p.goBack();
+      await waitReady(p, 'ホーム');
+      await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+      // 今月の規律: 数字の上を押す
+      const num = await p.locator('.homemonth .num--xl').first().boundingBox();
+      await p.mouse.click(num.x + num.width / 2, num.y + num.height / 2);
+      await waitReady(p, '振り返り');
+      const now = new Date();
+      const ymd = (d) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const first = new Date(now.getFullYear(), now.getMonth(), 1);
+      expectEq(
+        new URL(p.url()).search,
+        `?period=custom&from=${ymd(first)}&to=${ymd(now)}`,
+        '今月の規律 → 振り返りの期間',
+      );
+      expectEq(
+        await p.locator('#appnav-review').getAttribute('aria-current'),
+        'page',
+        '振り返りのタブ',
+      );
+      await p.locator('.review__meta').waitFor();
+      await p.goBack();
+      await waitReady(p, 'ホーム');
+      await p.locator('a.homerow').first().click();
+      await p.locator('main h1', { hasText: '·' }).first().waitFor({ timeout: 15000 });
+      if (!path(p).startsWith('/trades/')) throw new Error(`直近の行 → ${path(p)}`);
+      // 幅 720 以上は上の帯に印と名前があるので、ホームの見出しの印と名前は見せない（2 回出さない。デザイン a6）
+      await p.setViewportSize({ width: 1440, height: 900 });
+      await p.goto(`${base}/`);
+      await waitReady(p, 'ホーム');
+      const brand = await p.evaluate(
+        () =>
+          [...document.querySelectorAll('.homehead__mark, .homehead__name')].filter(
+            (e) => e.getBoundingClientRect().width > 0,
+          ).length,
+      );
+      if (brand > 0) throw new Error(`1440 のホームの見出しの印と名前が見える（${brand} 個）`);
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '1440 は見出しの印と名前を隠す。直近の流れ（点の上）→ 取引のタブ、今月の規律（数字の上）→ 振り返りのタブを今月で・戻るとホーム、直近の行 → 詳細。カードのリンクの当たり 44 以上';
   });
 
   // ── 一覧のページ分け（Issue #87 の例 #8〜#10・AC-12）。合成の取引 120 件（架空の値）で流す

@@ -1,4 +1,5 @@
-// ホームの規律の振り返りの期間（Issue #88 契約 P-2・ルール R1。設計書 9.2・C44）。DOM・通信なし。「今」は引数で受ける。
+// 振り返りのタブの期間（Issue #88 契約 P-2・ルール R1。設計書 9.2・C44。#128 でホームから振り返りのタブ `/review` へ移した）。
+// DOM・通信なし。「今」は引数で受ける。
 // - 日の境目は端末の時間帯の暦日（new Date(年, 月, 日) のローカルの 0 時）。決済の時刻で数える
 // - 1 日 = 今日。7 日 = 今日を含む 7 暦日。1 か月 / 3 か月 = 1 / 3 か月前の同じ日の翌日から（その日が無ければ末日の翌日から）。
 //   任意 = 開始日の 0 時から終了日の翌日の 0 時まで（開始日 ≦ 終了日、長さ 366 日まで）。終了は含まない
@@ -17,7 +18,8 @@ export const PERIOD_LABEL: Readonly<Record<PeriodKey, string>> = {
   '7d': '7日',
   '1m': '1か月',
   '3m': '3か月',
-  custom: '任意',
+  // 設計書 9.2・モックの言葉（#128。押すと期間を指定する。U3（#129） で期間のシートにする）
+  custom: '指定',
 };
 
 /** 任意の期間の長さの上限（暦日） */
@@ -230,12 +232,21 @@ export function periodActions(
   };
 }
 
-/** 選択 → ホームの URL（パス + 検索部分） */
-export function homeHref(sel: PeriodSelection): string {
-  return `/${periodSearch(sel)}`;
-}
-
-/** 選択 → 振り返りのタブの URL（パス + 検索部分。U1（#127） の `/review` はホームと同じ部品をそのまま出す） */
+/** 選択 → 振り返りのタブの URL（パス + 検索部分） */
 export function reviewHref(sel: PeriodSelection): string {
   return `/review${periodSearch(sel)}`;
+}
+
+/** 選択 → 「数で見る」（振り返りの次の画面。#128）の URL。振り返りのタブと同じ検索部分 */
+export function reviewTableHref(sel: PeriodSelection): string {
+  return `/review/table${periodSearch(sel)}`;
+}
+
+/**
+ * 今月（今月 1 日〜今日。取り込みを外す）の期間（#128。ホームの今月の規律。設計書 9.2・ui-guidelines 9.4）。期間の選択肢に
+ * 「今月」は無いので、振り返りのタブでは指定の期間として開く（`/review?period=custom&from=<1 日>&to=<今日>`）
+ */
+export function monthSelection(now: number): PeriodSelection {
+  const t = ymdOf(now);
+  return { key: 'custom', from: ymdText({ y: t.y, m: t.m, d: 1 }), to: ymdText(t), imports: false };
 }

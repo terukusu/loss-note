@@ -1,25 +1,29 @@
-/* ホームと一覧の「直近の流れ」の段（Issue #35。components/StreakStrip.tsx が読み込む）。
+/* ホームの主役「直近の流れ」のカード（Issue #35・#128。components/StreakStrip.tsx が読み込む。押せるカードの形は home.css）。
    色は判定の段のトークン（点の地・線・記号、見出しの記号）と文字・線のトークンだけ（P2）。
-   点は段の色に段の記号を重ね、色だけに頼らない（P5）。点 10 個は幅 360px のカードに 1 行で入る（P7） */
-
-.streak {
-  gap: var(--sp-3);
-}
+   点は段の色に段の記号を重ね、色だけに頼らない（P5）。点 10 個はカードの全幅に 1 行で並ぶ（10 等分。幅 360px でも P7） */
 
 .streak__headline {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   color: var(--ink);
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
+  /* 主役の文は段 2（9.4） */
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
+}
+
+/* 文節の塊の間（<wbr>）と空白でだけ折る。1 つの塊が列より広いとき（文字の拡大）だけ塊の中で折る（横スクロールを出さない） */
+.streak__headtext {
+  min-width: 0;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .streak__headmark.icon {
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   stroke-width: 2.6;
 }
 
@@ -39,19 +43,11 @@
   color: var(--tier-neutral-ink);
 }
 
-/* 点の並びと目盛りは点の幅だけ（目盛りの「新しい」を最後の点の下にそろえる） */
-.streak__strip {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  align-self: flex-start;
-  min-width: 8em;
-  max-width: 100%;
-}
-
-/* 点の間は li の左右の余白で空け、連続の線（li の下の線）が点の間で切れないようにする */
+/* 点の並びは全幅を 10 等分（件数が少なければ左から。左 = 古い）。点の間は li の左右の余白で空け、連続の線（li の下の線）が
+   点の間で切れないようにする */
 .streak__dots {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   margin: 0;
   padding: 0;
   list-style: none;
@@ -59,7 +55,8 @@
 
 .streak__item {
   display: flex;
-  padding: 0 3px var(--sp-1);
+  justify-content: center;
+  padding: 0 2px var(--sp-1);
   border-bottom: 2px solid transparent;
 }
 
@@ -71,15 +68,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 100%;
+  max-width: 2.25rem;
+  aspect-ratio: 1;
   border: 1px solid transparent;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
 }
 
 .streak__mark.icon {
-  width: 14px;
-  height: 14px;
+  width: 55%;
+  max-width: 18px;
+  height: auto;
   stroke-width: 2.6;
 }
 
@@ -107,11 +106,28 @@
   border-color: var(--tier-neutral-line);
 }
 
-.streak__axis {
+/* 2 行目（「直近 10 件のうち計画どおり 6 件」）と目盛り（古い → 新しい）。カードが狭い（幅 360 の窓）ときは 2 行目を段 6 にして
+   1 行に収める（文字の拡大では折り返す） */
+.streak {
+  container-type: inline-size;
+}
+
+.streak__foot {
   display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
   justify-content: space-between;
-  padding: 0 3px;
-  color: var(--ink-2);
+  gap: 0 var(--sp-3);
+}
+
+@container (max-width: 340px) {
+  .streak__foot .streak__sub {
+    font-size: var(--fs-xs);
+  }
+}
+
+.streak__axis {
+  color: var(--ink-3);
   font-size: var(--fs-xs);
 }
 

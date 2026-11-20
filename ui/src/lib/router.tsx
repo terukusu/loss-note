@@ -310,12 +310,17 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
     run();
   };
 
-  /** タブを替える（記憶の画面を積み直す。root = 記憶を捨てて根で開く） */
-  const switchTab = (target: Tab, root: boolean) => {
+  /**
+   * タブを替える（記憶の画面を積み直す。root = 記憶を捨てて根で開く。rootHref = 根の URL（検索部分つき。ホームの今月の規律の
+   * カード → 振り返りのタブを今月で。#128）
+   */
+  const switchTab = (target: Tab, root: boolean, rootHref?: string) => {
     afterUnwind(() => {
       keepScroll();
       memory.set(mark.tab, memoryOf(mark, scrolls, opts));
       if (root) memory.delete(target);
+      if (root && rootHref !== undefined && rootHref !== tabRoot(target))
+        memory.set(target, { hrefs: [rootHref], scrolls: [0] });
       const mem = memory.get(target) ?? null;
       const plan = planTabSwitch(mark, target, mem);
       goThen(plan.go, () => {
@@ -361,13 +366,14 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
       refresh();
       const path = href.split(/[?#]/)[0] ?? '';
       const r = resolveNavigation(path, opts);
-      // ほかのタブの根へ: そのタブへ根で替える（積まない。9.4 の「すべて ›」）。今のタブの根へ（次の画面から）: 根まで戻る
+      // ほかのタブの根へ: そのタブへ根で替える（積まない。9.4 の「すべて ›」。検索部分つきの根 = 今月の規律のカードの
+      // `/review?period=…` も、その URL を根にして替える。#128）。今のタブの根へ（次の画面から）: 根まで戻る
       const rootTab = r.replace === undefined ? rootTabOf(r.route) : null;
+      if (rootTab && rootTab !== mark.tab && path === tabRoot(rootTab) && href !== at) {
+        switchTab(rootTab, true, href);
+        return;
+      }
       if (rootTab && href === tabRoot(rootTab) && href !== at) {
-        if (rootTab !== mark.tab) {
-          switchTab(rootTab, true);
-          return;
-        }
         if (planRetap(mark) !== 'top') {
           retap();
           return;

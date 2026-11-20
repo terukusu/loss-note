@@ -1,0 +1,34 @@
+/* 振り返りのタブの画面の面（#128。pages/Review.tsx が読み込む）。カードの中の図と数は review.css（判定の段・文字・線の
+   トークンだけ）で、ここはカードの外の面（貼り付く期間の帯・「数で見る ›」の行）だけ */
+
+/* 期間の 5 つの選択肢の行はスクロールしても上に残す（上の帯の下。設計書 9.2 の振り返りの行）。画面の端まで敷き、上の帯と同じ面
+   （半透明 + ぼかし + 下の細い線）にして、上の帯の続きとして読ませる（止まっている間も角丸の板に見せない。#128 デザイン a5） */
+.review__period-bar {
+  position: sticky;
+  top: var(--above);
+  z-index: 5;
+  margin-inline: calc(-1 * (var(--gutter) + var(--safe-left)))
+    calc(-1 * (var(--gutter) + var(--safe-right)));
+  padding: var(--sp-2) calc(var(--gutter) + var(--safe-right)) var(--sp-2)
+    calc(var(--gutter) + var(--safe-left));
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 720px) {
+  /* 幅 720 以上の上の帯（行き先の帯）は中身の幅の外まで広がるので、期間の帯も中身の列の幅のまま敷く */
+  .review__period-bar {
+    margin-inline: 0;
+    padding-inline: 0;
+  }
+}
+
+/* 「数で見る ›」（次の画面へ。まとめた一覧の 1 行） */
+.review__more .rowlink {
+  padding-inline: var(--sp-4);
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+  box-shadow: var(--shadow-card);
+}

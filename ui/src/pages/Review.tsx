@@ -1,28 +1,33 @@
-// 振り返りのタブ（`/review`。#127 = U1）。U1 の時点では、ホームの規律の振り返りの部品（Issue #88）をそのまま出す（ホームにも
-// 残る。ADR-0021 の決定 11・ui-guidelines 9.11）。作り直してホームから外すのは U2（#128）。期間は URL の検索部分（置き換え。履歴を
-// 積まない）で、ホームは `/?period=…`、振り返りのタブは `/review?period=…`。
-// 銘柄の値と消した印は、直近の判定と同じ読み込み（決済の新しい順の先頭 10 件）から取る（ホームと同じ）
+// 振り返りのタブ（タブ 3。`/review`。#128 = U2。設計書 9.2 の振り返りの行・ui-guidelines 9.3・9.11）と、次の画面
+// 「数で見る」（`/review/table`）。規律の振り返り（#88・C44）をホームから移して作り直した: 期間（上に貼り付く）→ 範囲と件数 →
+// 1 枚目（規律コストの見出しと曲線）→ 2 枚目（計画どおり率と内訳）→「数で見る ›」。期間は URL の検索部分（置き換え。履歴を積まない。
+// `/review?period=…`）で、「数で見る」も同じ検索部分（`/review/table?period=…`。戻ると同じ期間の振り返り）。
+// 銘柄の値と消した印は、直近の取引と同じ読み込み（決済の新しい順の先頭 10 件）から取る（#88 のまま）。
+// 3 層: 純関数（lib/period.ts・lib/review-view.ts）→ 通信と状態（lib/review-controller.ts）→ hook を持たない View
 import type { JSX } from 'preact';
 import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { InstrumentRecord } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
+import { type BackTarget, TopBar } from '../components/AppBar';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
-import { ReviewSection, type ReviewSlot } from '../components/ReviewSummary';
+import { ReviewSection, type ReviewSlot, ReviewTable } from '../components/ReviewSummary';
 import {
-  homeHref,
   type PeriodSelection,
   parsePeriod,
   periodActions,
   periodRange,
   reviewHref,
+  reviewTableHref,
 } from '../lib/period';
 import { createReviewController, type ReviewState } from '../lib/review-controller';
-import { type ReviewModel, reviewModelFor } from '../lib/review-view';
+import { NO_CURVE, type ReviewModel, reviewModelFor } from '../lib/review-view';
 import { type Navigator, NavigatorContext } from '../lib/router';
 import { HOME_LIMIT } from '../lib/trade-pages';
 import { visibleTrades } from '../lib/trade-view';
 import type { TradesState } from '../lib/trades-controller';
+import '../styles/review-tab.css';
+import { backTargetOf } from './TradeDetail';
 import { LoadState, useTrades } from './Trades';
 
 /** 今の URL の検索部分（置き換えで変わると描き直す） */
@@ -33,13 +38,13 @@ function useSearch(nav: Navigator | null): string {
 }
 
 /**
- * 振り返りの期間（URL）・範囲・読み込み・表示の形（hook の層。「今」はここで読む）。instruments と hidden は直近の判定の
- * 読み込みと消した印から。hrefOf は期間 → 置き換える URL（ホーム / 振り返りのタブ）
+ * 振り返りの期間（URL）・範囲・読み込み・表示の形（hook の層。「今」はここで読む）。instruments と hidden は直近の取引の
+ * 読み込みと消した印から。hrefOf は期間 → 置き換える URL（振り返りのタブ / 数で見る）
  */
 export function useReview(
   instruments: readonly InstrumentRecord[],
   hidden: ReadonlySet<string>,
-  hrefOf: (sel: PeriodSelection) => string = homeHref,
+  hrefOf: (sel: PeriodSelection) => string = reviewHref,
 ): ReviewSlot {
   const nav = useContext(NavigatorContext);
   const search = useSearch(nav);
@@ -89,6 +94,7 @@ export function useReview(
     state,
     model,
     previous: model ? null : last.current,
+    tableHref: reviewTableHref(selection),
     ...periodActions(selection, Date.now, (next) => nav?.replace(hrefOf(next))),
     onReload: () => {
       void controller.reload();
@@ -120,11 +126,7 @@ export function Review() {
 
 function ReviewScreen({ empty }: { readonly empty: JSX.Element }) {
   const { state, controller, hidden } = useTrades({ pageSize: HOME_LIMIT });
-  const review = useReview(
-    state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS,
-    hidden,
-    reviewHref,
-  );
+  const review = useReview(state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS, hidden);
   return (
     <ReviewView
       state={state}
@@ -156,4 +158,62 @@ export function ReviewView(p: ReviewViewProps) {
   if (state.phase !== 'ready') return <LoadState {...p} />;
   if (visibleTrades(state.trades, p.hidden).length === 0) return p.empty;
   return <ReviewSection {...p.review} />;
+}
+
+/** 次の画面「数で見る」（`/review/table?period=…`。上の帯「‹ 振り返り」。戻ると同じ期間の振り返り） */
+export function ReviewTablePage() {
+  const nav = useContext(NavigatorContext);
+  const { state, hidden } = useTrades({ pageSize: HOME_LIMIT });
+  const review = useReview(
+    state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS,
+    hidden,
+    reviewTableHref,
+  );
+  return <ReviewTableView review={review} back={backTargetOf(nav, reviewHref(review.selection))} />;
+}
+
+export interface ReviewTableViewProps {
+  readonly review: ReviewSlot;
+  readonly back?: BackTarget;
+}
+
+/** 数で見る（hook を持たない）: 範囲と件数・表（R の出た取引。決済の古い順）。読み込み中・失敗・0 件は短い文 */
+export function ReviewTableView(p: ReviewTableViewProps) {
+  const r = p.review;
+  const back: BackTarget = p.back ?? { label: '振り返り', href: reviewHref(r.selection) };
+  const m = r.model;
+  const s = r.state;
+  let body: JSX.Element;
+  if (!r.range.ok) body = <p class="review__note">{r.range.error}</p>;
+  else if (s.phase === 'failed') {
+    body = (
+      <LoadState
+        state={{ phase: 'loadFailed', error: s.error, errorKind: s.errorKind }}
+        onReload={r.onReload}
+        onRelogin={r.onRelogin}
+      />
+    );
+  } else if (!m) {
+    body = (
+      <p class="loading" role="status">
+        読み込んでいます…
+      </p>
+    );
+  } else if (m.empty) body = <p class="review__empty">{m.emptyText}</p>;
+  else if (m.rows.length === 0) body = <p class="review__note">{NO_CURVE}</p>;
+  else body = <ReviewTable m={m} />;
+  return (
+    <>
+      <TopBar back={back} title="数で見る" />
+      <div class="review review--table">
+        {r.range.ok ? (
+          <p class="review__meta" aria-live="polite">
+            {r.range.label}
+            {m ? ` · ${m.countText}` : ''}
+          </p>
+        ) : null}
+        <section class="card section review__card">{body}</section>
+      </div>
+    </>
+  );
 }

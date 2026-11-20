@@ -1,17 +1,16 @@
-// ホームと一覧の「直近の流れ」（Issue #35 AC-2〜AC-6）。表示の形 streakModel と、部品を関数として展開した木を見る
+// ホームの「直近の流れ」（Issue #35 AC-2〜AC-6。#128 で一覧の上から外した）。表示の形 streakModel と、部品を関数として展開した木を見る
 // （DOM を使わない）。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
 import { StreakSection } from '../../ui/src/components/StreakStrip';
-import { parsePeriod, periodRange } from '../../ui/src/lib/period';
 import { Link } from '../../ui/src/lib/router';
 import { STREAK_TITLE, STREAK_WINDOW, streakModel } from '../../ui/src/lib/streak';
 import type { TradesState } from '../../ui/src/lib/trades-controller';
 import { HomeView } from '../../ui/src/pages/Home';
 import { TradesView } from '../../ui/src/pages/Trades';
 import { closedInfoTip } from './helpers/info-tip';
-import { exitAt, REVIEW_NOW, S1, S4_IMPORTS } from './helpers/review-examples';
+import { exitAt, S1, S4_IMPORTS } from './helpers/review-examples';
 import { INSTRUMENTS, L1, stored } from './helpers/trade-examples';
 
 interface El {
@@ -242,19 +241,21 @@ describe('AC-5: 色だけに頼らない', () => {
       true,
       true,
     ]);
-    // 見出しと文は文字で読める。点は押せない（リンク・ボタンが無い）
+    // 見出しと文は文字で読める。点は押せない（押せるのはカードの全面に広げた取引のタブへのリンク 1 つだけ。#128）
     expect(text(tree)).toContain(STREAK_TITLE);
     expect(text(tree)).toContain('計画どおりが 2 件続いています');
     expect(text(tree)).toContain('直近 7 件のうち計画どおり 4 件');
-    expect(all(tree, (e) => e.type === 'a' || e.type === 'button')).toEqual([]);
+    expect(
+      all(tree, (e) => e.type === 'a' || e.type === 'button').map((e) => e.props.href),
+    ).toEqual(['/trades']);
+    expect(all(ol ? [ol] : [], (e) => e.type === 'a' || e.type === 'button')).toEqual([]);
     // 目盛り（古い / 新しい）は読み上げから外す
     expect(all(tree, hasClass('streak__axis'))[0]?.props['aria-hidden']).toBe('true');
   });
 });
 
-describe('AC-6: ホームと一覧に出す場所', () => {
-  it('ホーム: 先頭（規律の振り返りの前。直近の判定はその後。[記録する] は置かない = #127）', () => {
-    const sel = parsePeriod('');
+describe('AC-6: ホームだけに出す（#128。設計書 9.2・9.3）', () => {
+  it('ホーム: 見出しの次（今月の規律・直近の取引の前）。押すと取引のタブ', () => {
     const tree = expand(
       <HomeView
         state={ready([...S1])}
@@ -262,35 +263,26 @@ describe('AC-6: ホームと一覧に出す場所', () => {
         empty={<p>空</p>}
         onReload={noop}
         onRelogin={noop}
-        review={{
-          selection: sel,
-          range: periodRange(sel, REVIEW_NOW),
-          state: { phase: 'idle' },
-          model: null,
-          onKey: noop,
-          onDates: noop,
-          onImports: noop,
-          onReload: noop,
-          onRelogin: noop,
-        }}
       />,
     );
     const kind = (e: El) =>
-      hasClass('home__record')(e)
-        ? 'record'
+      hasClass('homehead')(e)
+        ? 'head'
         : hasClass('streak')(e)
           ? 'streak'
-          : hasClass('review')(e)
-            ? 'review'
-            : e.props['aria-labelledby'] === 'home-recent-title'
-              ? 'recent'
-              : null;
+          : hasClass('homerecent')(e)
+            ? 'recent'
+            : null;
     const order = all(tree, (e) => kind(e) !== null).map(kind);
-    expect(order).toEqual(['streak', 'review', 'recent']);
-    expect(all(tree, hasClass('streak'))[0]?.props['aria-labelledby']).toBe('home-streak-title');
+    expect(order).toEqual(['head', 'streak', 'recent']);
+    const card = all(tree, hasClass('streak'))[0] as El;
+    expect(card.props['aria-labelledby']).toBe('home-streak-title');
+    const link = all([card], (e) => e.type === 'a')[0] as El;
+    expect(link.props.href).toBe('/trades');
+    expect(text(link)).toBe('直近の流れを取引で見る');
   });
 
-  it('一覧: 一覧のカードの前', () => {
+  it('一覧: 直近の流れのカードを置かない（月の区切りは U7）', () => {
     const tree = expand(
       <TradesView
         state={ready([...S1])}
@@ -300,10 +292,8 @@ describe('AC-6: ホームと一覧に出す場所', () => {
         onRelogin={noop}
       />,
     );
-    const order = all(tree, (e) => hasClass('streak')(e) || hasClass('tradelist-card')(e)).map(
-      (e) => (hasClass('streak')(e) ? 'streak' : 'list'),
-    );
-    expect(order).toEqual(['streak', 'list']);
+    expect(all(tree, hasClass('streak'))).toEqual([]);
+    expect(all(tree, hasClass('tradelist-card')).length).toBe(1);
   });
 
   it('並べる取引が無ければ出さない（取り込みだけの一覧）', () => {

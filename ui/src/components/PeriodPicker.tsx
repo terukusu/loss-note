@@ -21,9 +21,8 @@ export interface PeriodPickerProps {
 
 const OPTIONS = PERIOD_KEYS.map((k) => ({ value: k, label: PERIOD_LABEL[k] }));
 
-export function PeriodPicker(p: PeriodPickerProps) {
-  const sel = p.selection;
-  const error = p.range.ok ? undefined : p.range.error;
+/** 期間の 5 つの選択肢（振り返りのタブでは上に貼り付く帯の中。#128） */
+export function PeriodSegment(p: PeriodPickerProps) {
   return (
     <div class="review__period">
       <Segment
@@ -31,28 +30,38 @@ export function PeriodPicker(p: PeriodPickerProps) {
         name="review-period"
         showLabel={false}
         options={OPTIONS}
-        value={sel.key}
+        value={p.selection.key}
         onChange={p.onKey}
       />
-      {sel.key === 'custom' ? (
-        <div class="review__dates">
-          <TextField
-            id="review-from"
-            label="開始日"
-            type="date"
-            value={sel.from ?? ''}
-            onInput={(v) => p.onDates(v, sel.to ?? '')}
-          />
-          <TextField
-            id="review-to"
-            label="終了日"
-            type="date"
-            value={sel.to ?? ''}
-            onInput={(v) => p.onDates(sel.from ?? '', v)}
-            {...(error === undefined ? {} : { error })}
-          />
-        </div>
-      ) : null}
+    </div>
+  );
+}
+
+/**
+ * 指定の期間の開始日・終了日の欄（指定のときだけ）。貼り付く帯の外に置き、スクロールで流れる（帯が窓の 3 割を取らないように。
+ * デザイン a5（#128）。期間のシートへ移すのは U3（#129））
+ */
+export function PeriodDates(p: PeriodPickerProps) {
+  const sel = p.selection;
+  if (sel.key !== 'custom') return null;
+  const error = p.range.ok ? undefined : p.range.error;
+  return (
+    <div class="review__dates">
+      <TextField
+        id="review-from"
+        label="開始日"
+        type="date"
+        value={sel.from ?? ''}
+        onInput={(v) => p.onDates(v, sel.to ?? '')}
+      />
+      <TextField
+        id="review-to"
+        label="終了日"
+        type="date"
+        value={sel.to ?? ''}
+        onInput={(v) => p.onDates(sel.from ?? '', v)}
+        {...(error === undefined ? {} : { error })}
+      />
     </div>
   );
 }

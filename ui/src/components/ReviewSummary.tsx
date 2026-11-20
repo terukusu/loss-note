@@ -1,19 +1,22 @@
-// ホームの「規律の振り返り」の段（Issue #88 契約 U-1。設計書 6.1・6.2・6.3・9.2・C44）。hook を持たない。
-// 縦の順は 期間 → 範囲と件数（・取り込みの切り替え）→ 一言の見出し（守っていれば +0.9R（実際 +0.3R）・規律コスト）→
-// 規律コストの曲線（主役）→ 計画どおり率と判定の内訳 →「数で見る」。
+// 振り返りのタブ（`/review`）の規律の振り返り（Issue #88 契約 U-1。#128 でホームから移して作り直した。設計書 6.1・6.2・6.3・
+// 9.2 の振り返りの行・C44・ui-guidelines 9.3・9.11）。hook を持たない。
+// 縦の順は 期間（上に貼り付く）→ 範囲と件数（・取り込みの切り替え）→ 1 枚目（一言の見出し = 規律コスト・守っていれば · 実際 →
+// 規律コストの曲線と凡例）→ 2 枚目（計画どおり率の主役の数字・判定の内訳の帯と凡例・運と R が出ない件数）→「数で見る ›」
+// （次の画面 `/review/table`。表）。指定の日付の欄と取り込みの切り替えは、期間のシート（U3（#129） の下のシート）ができるまで期間の下。
 // 成績は R だけ（円を出さない）。R・% は無色の .num（P3）。色は判定の段（内訳の帯・凡例の記号・差の面・崩れの印）と文字・線だけ（P2）。
 // 図（内訳の帯・曲線）は読み上げから外し、同じ中身を文字（見出しの文・凡例・「数で見る」の表）で読ませる（P5）。
 // 表示の形（model）は hook の層が作って渡す（描画のたびに集計しない。読み終えた範囲が今の期間と違えば null = 読み込み中）
+import { splitUnit } from '../lib/home-view';
 import type { PeriodKey, PeriodRange, PeriodSelection } from '../lib/period';
 import type { ReviewState } from '../lib/review-controller';
-import { NO_CURVE, REVIEW_TITLE, type ReviewModel, ROWS_CAPTION } from '../lib/review-view';
+import { NO_CURVE, type ReviewModel, ROWS_CAPTION } from '../lib/review-view';
 import '../styles/review.css';
 import { DENSE_NARROW, DENSE_WIDE } from '../lib/review-chart';
-import { Button } from './Button';
+import { Button, RowLink } from './Button';
 import { CurveLegend, DisciplineCurve } from './DisciplineCurve';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
-import { PeriodPicker } from './PeriodPicker';
+import { PeriodDates, PeriodSegment } from './PeriodPicker';
 
 export interface ReviewSlot {
   readonly selection: PeriodSelection;
@@ -26,14 +29,14 @@ export interface ReviewSlot {
    * 範囲の行の件数には使わない（新しい範囲に前の件数を出さない）
    */
   readonly previous?: ReviewModel | null;
+  /** 「数で見る ›」の行き先（同じ期間の `/review/table?…`） */
+  readonly tableHref: string;
   readonly onKey: (key: PeriodKey) => void;
   readonly onDates: (from: string, to: string) => void;
   readonly onImports: (include: boolean) => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
 }
-
-const TITLE_ID = 'home-review-title';
 
 /** 見出しの前の記号（差あり = 崩れの △、差 0 = 計画どおりの ○、差 0 だが曲線の外の取引あり = 極悪の ×） */
 const HEADLINE_SYMBOL = { gap: 'triangle', none: 'circle', measured: 'cross' } as const;
@@ -42,46 +45,73 @@ const HEADLINE_SYMBOL = { gap: 'triangle', none: 'circle', measured: 'cross' } a
 function curveDense(n: number) {
   return { narrow: n > DENSE_NARROW, wide: n > DENSE_WIDE };
 }
-const TABLE_ID = 'home-review-table';
+
+export const TABLE_ID = 'review-table';
+
+/** 主役の数字（44px）と小さな単位（%・R）。ホームの今月の規律と同じ形（#128 デザインの細かい点） */
+function BigNum({ text }: { readonly text: string }) {
+  const n = splitUnit(text);
+  return (
+    <span class="review__big">
+      <span class="num num--xl">{n.value}</span>
+      <span class="review__unit">{n.unit}</span>
+    </span>
+  );
+}
 
 export function ReviewSection(p: ReviewSlot) {
   const m = p.model;
   return (
-    <section class="card section review" aria-labelledby={TITLE_ID}>
-      <h2 class="section__title" id={TITLE_ID}>
-        {REVIEW_TITLE}
-      </h2>
-      <PeriodPicker selection={p.selection} range={p.range} onKey={p.onKey} onDates={p.onDates} />
+    <div class="review">
+      {/* 貼り付くのは 5 つの選択肢の行だけ。指定の日付の欄は流れる（デザイン a5） */}
+      <div class="review__period-bar">
+        <PeriodSegment
+          selection={p.selection}
+          range={p.range}
+          onKey={p.onKey}
+          onDates={p.onDates}
+        />
+      </div>
+      <PeriodDates selection={p.selection} range={p.range} onKey={p.onKey} onDates={p.onDates} />
       {p.range.ok ? (
         <p class="review__meta" aria-live="polite">
           {p.range.label}
           {m ? ` · ${m.countText}` : ''}
         </p>
       ) : null}
-      {m?.imports ? (
-        <label class="review__toggle">
-          {/* checkbox は行の全面に透明で重ね（当たり = 行。44px 以上）、見た目は SVG の四角とチェックの記号 */}
-          <input
-            type="checkbox"
-            class="review__check"
-            checked={m.imports.include}
-            onChange={(e) => p.onImports(e.currentTarget.checked)}
-          />
-          <svg class="review__box" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-            <rect class="review__box-frame" x="1" y="1" width="18" height="18" rx="4" />
-            {m.imports.include ? (
-              <path class="review__box-check" d="M5 10.5l3.2 3.2L15 6.8" />
-            ) : null}
-          </svg>
-          <span class="review__toggle-text">
-            <span>含めて集計する</span>
-            <span class="review__sub">{m.imports.stateText}</span>
-          </span>
-        </label>
-      ) : null}
+      {m?.imports ? <ImportsToggle m={m} onImports={p.onImports} /> : null}
       {m?.truncatedText ? <p class="review__note">{m.truncatedText}</p> : null}
       <ReviewBody {...p} />
-    </section>
+    </div>
+  );
+}
+
+function ImportsToggle({
+  m,
+  onImports,
+}: {
+  readonly m: ReviewModel;
+  readonly onImports: (include: boolean) => void;
+}) {
+  if (!m.imports) return null;
+  return (
+    <label class="review__toggle">
+      {/* checkbox は行の全面に透明で重ね（当たり = 行。44px 以上）、見た目は SVG の四角とチェックの記号 */}
+      <input
+        type="checkbox"
+        class="review__check"
+        checked={m.imports.include}
+        onChange={(e) => onImports(e.currentTarget.checked)}
+      />
+      <svg class="review__box" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+        <rect class="review__box-frame" x="1" y="1" width="18" height="18" rx="4" />
+        {m.imports.include ? <path class="review__box-check" d="M5 10.5l3.2 3.2L15 6.8" /> : null}
+      </svg>
+      <span class="review__toggle-text">
+        <span>含めて集計する</span>
+        <span class="review__sub">{m.imports.stateText}</span>
+      </span>
+    </label>
   );
 }
 
@@ -90,7 +120,7 @@ function ReviewBody(p: ReviewSlot) {
   if (!p.range.ok || s.phase === 'idle') return null;
   if (s.phase === 'failed') {
     return (
-      <>
+      <section class="card section review__card">
         <p class="notice notice--error" role="alert">
           {s.error}
         </p>
@@ -105,7 +135,7 @@ function ReviewBody(p: ReviewSlot) {
             </Button>
           )}
         </div>
-      </>
+      </section>
     );
   }
   const loading = s.phase === 'loading' || !p.model;
@@ -113,7 +143,7 @@ function ReviewBody(p: ReviewSlot) {
   if (loading && (!shown || shown.empty)) {
     // 最初の読み込み: 中身の形の高さを先に取る骨組み（読み終えて中身が出てもカードの高さが大きく跳ばない）
     return (
-      <div class="review__skeleton" aria-busy="true">
+      <div class="card review__skeleton" aria-busy="true">
         <p class="loading" role="status">
           読み込んでいます…
         </p>
@@ -128,20 +158,24 @@ function ReviewBody(p: ReviewSlot) {
         <p class="sr-only" role="status">
           読み込んでいます…
         </p>
-        <div aria-hidden="true" inert>
+        <div class="review__cards" aria-hidden="true" inert>
           <ReviewContent {...p} m={shown} />
         </div>
       </div>
     );
   }
-  return <ReviewContent {...p} m={shown} />;
+  return (
+    <div class="review__cards">
+      <ReviewContent {...p} m={shown} />
+    </div>
+  );
 }
 
 function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
   const m = p.m;
   if (m.empty) {
     return (
-      <div class="review__empty-box">
+      <section class="card section review__card review__empty-box">
         <p class="review__empty">{m.emptyText}</p>
         {p.selection.key !== '3m' && p.selection.key !== 'custom' && !m.imports ? (
           <div>
@@ -150,7 +184,7 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
             </Button>
           </div>
         ) : null}
-      </div>
+      </section>
     );
   }
   const gap = m.review.cost < 0;
@@ -158,58 +192,63 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
   const dense = curveDense(m.curve.length);
   return (
     <>
-      <div class="review__head">
-        <h3 class="sr-only">規律コストの曲線</h3>
-        {h ? (
-          // 主役は崩れで失った R（規律コスト）。数は無色、状態は前の記号の形（○ △ ×）と段の色で
-          <p class={`review__headline review__headline--${h.kind}`}>
-            <Icon name={HEADLINE_SYMBOL[h.kind]} class="review__headmark" />
-            <span class="review__lead">{h.lead}</span> <span class="num num--xl">{h.value}</span>
-            <InfoTip term="disciplineCost" size="sm" />
-          </p>
-        ) : null}
-        <p class="review__subline">{m.subline}</p>
-      </div>
-      <div class="review__curve">
-        {m.curve.length === 0 || !m.curveDates ? (
-          <p class="review__note">{NO_CURVE}</p>
-        ) : (
-          <>
-            <DisciplineCurve
-              curve={m.curve}
-              firstDate={m.curveDates.first}
-              lastDate={m.curveDates.last}
-            />
-            <div aria-hidden="true">
-              <CurveLegend gap={gap} dense={dense} />
-            </div>
-          </>
-        )}
-        {m.noGapText || m.luckText || m.noRText ? (
-          <ul class="review__notes">
-            {m.noGapText ? <li>{m.noGapText}</li> : null}
-            {m.luckText ? <li>{m.luckText}</li> : null}
-            {m.noRText ? <li>{m.noRText}</li> : null}
-          </ul>
-        ) : null}
-      </div>
-      <div class="review__grid">
-        <div class="review__stat">
-          <p class="review__label">
+      <section
+        class="card section review__card review__costcard"
+        aria-labelledby="review-cost-title"
+      >
+        <h2 class="sr-only" id="review-cost-title">
+          規律コスト
+        </h2>
+        <div class="review__head">
+          {h ? (
+            // 主役は崩れで失った R（規律コスト）。数は無色、状態は前の記号の形（○ △ ×）と段の色で
+            <p class={`review__headline review__headline--${h.kind}`}>
+              <Icon name={HEADLINE_SYMBOL[h.kind]} class="review__headmark" />
+              <span class="review__lead">{h.lead}</span> <BigNum text={h.value} />
+              <InfoTip term="disciplineCost" size="sm" />
+            </p>
+          ) : null}
+          <p class="review__subline">{m.subline}</p>
+        </div>
+        <div class="review__curve">
+          {m.curve.length === 0 || !m.curveDates ? (
+            <p class="review__note">{NO_CURVE}</p>
+          ) : (
+            <>
+              <DisciplineCurve
+                curve={m.curve}
+                firstDate={m.curveDates.first}
+                lastDate={m.curveDates.last}
+              />
+              <div aria-hidden="true">
+                <CurveLegend gap={gap} dense={dense} />
+              </div>
+            </>
+          )}
+          {m.noGapText ? <p class="review__note">{m.noGapText}</p> : null}
+        </div>
+      </section>
+      <section
+        class="card section review__card review__ratecard"
+        aria-labelledby="review-rate-title"
+      >
+        <div class="review__ratehead">
+          <h2 class="review__label" id="review-rate-title">
             計画どおり率
             <InfoTip term="planRate" size="sm" />
-          </p>
-          <p class="review__value">
-            {m.rateText === null ? (
-              <span class="review__missing">{m.rateMissingText}</span>
-            ) : (
-              <span class="num num--lg">{m.rateText}</span>
-            )}
-            <span class="review__sub review__nowrap">{m.rateCountText}</span>
-          </p>
+          </h2>
+          {m.rateText === null ? null : <p class="review__sub review__nowrap">{m.rateCountText}</p>}
         </div>
+        <p class="review__value">
+          {m.rateText === null ? (
+            <span class="review__missing">{m.rateMissingText}</span>
+          ) : (
+            <BigNum text={m.rateText} />
+          )}
+        </p>
+        {m.rateText === null ? <p class="review__sub">{m.rateCountText}</p> : null}
         <div class="review__mix">
-          <h3 class="review__heading">判定の内訳</h3>
+          <h3 class="sr-only">判定の内訳</h3>
           <svg class="review__bar" aria-hidden="true" focusable="false">
             {m.bar.map((b) => (
               <rect
@@ -233,57 +272,71 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
             ))}
           </ul>
         </div>
-      </div>
+        {m.luckText || m.noRText ? (
+          <ul class="review__notes">
+            {m.luckText ? <li>{m.luckText}</li> : null}
+            {m.noRText ? <li>{m.noRText}</li> : null}
+          </ul>
+        ) : null}
+      </section>
       {m.rows.length > 0 ? (
-        <details class="review__table">
-          <summary>数で見る</summary>
-          {/* 狭い幅では表を横に送る。キーボード（Safari）でも送れるよう、名前つきの区切り（section）にフォーカスを置ける */}
-          <section
-            class="review__scroll"
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: 横に送る箱をキーボードで送れるようにする（WCAG 2.1.1。Safari は自動でフォーカスしない）
-            tabIndex={0}
-            aria-labelledby={`${TABLE_ID}-caption`}
-          >
-            <table>
-              <caption class="sr-only" id={`${TABLE_ID}-caption`}>
-                {ROWS_CAPTION}
-              </caption>
-              <thead>
-                <tr>
-                  <th scope="col">日付</th>
-                  <th scope="col">銘柄</th>
-                  <th scope="col">判定</th>
-                  <th scope="col" class="num">
-                    R
-                  </th>
-                  <th scope="col" class="num">
-                    実際の累積
-                  </th>
-                  <th scope="col" class="num">
-                    計画どおりの累積
-                  </th>
-                  <th scope="col" class="num">
-                    差
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {m.rows.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.dateText}</td>
-                    <td>{r.instrumentName}</td>
-                    <td>{r.gradeLabel}</td>
-                    <td class="num">{r.rText}</td>
-                    <td class="num">{r.actualCumText}</td>
-                    <td class="num">{r.plannedCumText}</td>
-                    <td class="num">{r.gapText}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        </details>
+        <div class="review__more">
+          <RowLink href={p.tableHref}>数で見る</RowLink>
+        </div>
       ) : null}
     </>
+  );
+}
+
+/** 「数で見る」の表（取引ごとの R と累積。決済の古い順）。狭い幅は累積の 2 列を外す（CSS） */
+export function ReviewTable({ m }: { readonly m: ReviewModel }) {
+  return (
+    <div class="review__table">
+      {/* 狭い幅では表を横に送る。キーボード（Safari）でも送れるよう、名前つきの区切り（section）にフォーカスを置ける */}
+      <section
+        class="review__scroll"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: 横に送る箱をキーボードで送れるようにする（WCAG 2.1.1。Safari は自動でフォーカスしない）
+        tabIndex={0}
+        aria-labelledby={`${TABLE_ID}-caption`}
+      >
+        <table>
+          <caption class="sr-only" id={`${TABLE_ID}-caption`}>
+            {ROWS_CAPTION}
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">日付</th>
+              <th scope="col">銘柄</th>
+              <th scope="col">判定</th>
+              <th scope="col" class="num">
+                R
+              </th>
+              <th scope="col" class="num">
+                実際の累積
+              </th>
+              <th scope="col" class="num">
+                計画どおりの累積
+              </th>
+              <th scope="col" class="num">
+                差
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {m.rows.map((r) => (
+              <tr key={r.id}>
+                <td>{r.dateText}</td>
+                <td>{r.instrumentName}</td>
+                <td>{r.gradeLabel}</td>
+                <td class="num">{r.rText}</td>
+                <td class="num">{r.actualCumText}</td>
+                <td class="num">{r.plannedCumText}</td>
+                <td class="num">{r.gapText}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+    </div>
   );
 }

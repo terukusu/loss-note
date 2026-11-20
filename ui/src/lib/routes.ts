@@ -8,6 +8,8 @@ export type Route =
   | { readonly name: 'record' }
   | { readonly name: 'trades' }
   | { readonly name: 'review' }
+  /** 振り返りの次の画面「数で見る」（#128。ui-guidelines 9.3・9.11） */
+  | { readonly name: 'reviewTable' }
   | { readonly name: 'trade'; readonly id: string }
   | { readonly name: 'tradeEdit'; readonly id: string }
   | { readonly name: 'settings' }
@@ -30,6 +32,7 @@ const FIXED: Readonly<Record<string, Route>> = {
   '/record': { name: 'record' },
   '/trades': { name: 'trades' },
   '/review': { name: 'review' },
+  '/review/table': { name: 'reviewTable' },
   '/settings': { name: 'settings' },
   '/glossary': { name: 'glossary' },
 };
@@ -62,6 +65,8 @@ export function hrefOf(route: Route): string {
       return '/trades';
     case 'review':
       return '/review';
+    case 'reviewTable':
+      return '/review/table';
     case 'trade':
       return `/trades/${route.id}`;
     case 'tradeEdit':
@@ -81,6 +86,7 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   record: '記録する',
   trades: '取引',
   review: '振り返り',
+  reviewTable: '数で見る',
   trade: '取引の詳細',
   tradeEdit: '取引を編集',
   settings: '設定',
@@ -152,6 +158,7 @@ export function tabOfRoute(route: Route): Tab {
     case 'tradeEdit':
       return 'trades';
     case 'review':
+    case 'reviewTable':
       return 'review';
     case 'settings':
     case 'glossary':

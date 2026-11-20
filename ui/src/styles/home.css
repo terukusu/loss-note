@@ -1,0 +1,499 @@
+/* ホームの 1 画面（Issue #128。components/HomeCards.tsx が読み込む。ui-guidelines 9.4・9.9・9.12）。
+   色は判定の段のトークン（記号の札・曲線の差の面と計画の線）と文字・面・線のトークンだけ（P2）。R・% の数字（.num）は無色（P3）。
+   等倍の文字の縦の形 390×844 で縦のスクロール 0px。窓に入らない高さでは直近の 3 件目の行から隠す（下の @media の 1 段）。
+   文字の拡大では縦に伸びる（高さを固定しない・overflow で切らない。P8・WCAG 1.4.4）。横は折り返す（横スクロール 0。P7） */
+
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 小さな見出し: 印 + 「損失ノート」と今日の日付（大きな題「ホーム」は置かない） */
+.homehead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-3);
+}
+
+.homehead__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-tight);
+}
+
+.homehead__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--fs-lg) * 1.6);
+  height: calc(var(--fs-lg) * 1.6);
+  border-radius: var(--radius-sm);
+  color: var(--on-accent);
+  background: linear-gradient(135deg, var(--mark-from), var(--mark-to));
+}
+
+.homehead__mark .icon {
+  width: 62%;
+  height: 62%;
+}
+
+.homehead__date {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 押せるカード（直近の流れ・今月の規律）: 見出しの行の右のリンクの当たりを ::before でカードの全面に広げる */
+.homecard {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.homecard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-height: var(--tap);
+  margin-block: calc(var(--sp-2) * -1) calc(var(--sp-1) * -1);
+}
+
+.homecard__head .section__title {
+  min-width: 0;
+}
+
+.homecard__link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  margin-inline-end: calc(var(--sp-2) * -1);
+  padding-inline: var(--sp-2) var(--sp-1);
+  border-radius: var(--radius-sm);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+}
+
+.homecard__link::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.homecard:has(.homecard__link:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.homecard__link:focus-visible {
+  outline: none;
+}
+
+.homecard:has(.homecard__link:active) {
+  background: var(--s2);
+}
+
+@media (hover: hover) {
+  .homecard:has(.homecard__link:hover) {
+    background: var(--s2);
+  }
+}
+
+.homecard__chev.icon {
+  width: 18px;
+  height: 18px;
+}
+
+/* カードの中の再読み込みのボタンは、全面に広げたリンクより上 */
+.homemonth__failed {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 今月の規律: 2 つの主役の数字（狭い・文字の拡大では縦に並ぶ）と小さな曲線 */
+.homemonth {
+  container-type: inline-size;
+}
+
+/* カードが狭い（幅 360 の窓）ときは見出しの範囲を外し、件数だけ（「今月」で範囲が分かる。見出しを 1 行に収める） */
+@container (max-width: 340px) {
+  .homemonth__range {
+    display: none;
+  }
+}
+
+.homemonth__meta {
+  font-weight: var(--fw-regular);
+  font-variant-numeric: tabular-nums;
+}
+
+.homemonth__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+}
+
+.homemonth__stat {
+  display: flex;
+  /* 等倍の幅 360 で 2 つが横に並び（1 つ 132px）、文字の拡大では 1 つずつ縦に並ぶ */
+  flex: 1 1 calc(var(--fs-num-xl) * 3);
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.homemonth__label {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.homemonth__value {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  min-width: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.homemonth__unit {
+  color: var(--ink);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+}
+
+.homemonth__missing {
+  color: var(--ink-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+/* 規律コストの下: 語の塊（「守っていれば −3.1R」「実際 −3.7R」）ごとに 1 行。塊の中は空白でだけ折り、塊が列より広いとき
+   （文字の拡大）だけ中で折る（デザイン a3） */
+.homemonth__lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.homemonth__lines > span {
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* R で測れない取引がある月の規律コストの前の ×（振り返りの見出しと同じ段の記号。N6） */
+.homemonth__measured.icon {
+  flex: none;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  margin-inline-end: var(--sp-1);
+  color: var(--tier-worst-ink);
+  stroke-width: 2.6;
+}
+
+.homemonth__sub,
+.homemonth__empty {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.homemonth__empty {
+  color: var(--ink);
+  font-size: var(--fs-md);
+}
+
+/* 読み込み中は数字の段のおよその高さを先に取る（読み終えてカードの高さが跳ばない） */
+.homemonth__skeleton {
+  min-height: calc(var(--fs-num-xl) + var(--fs-sm) * 3);
+}
+
+.minicurve {
+  display: block;
+  width: 100%;
+  height: 40px;
+  overflow: visible;
+}
+
+.minicurve__zero {
+  stroke: var(--line-2);
+  stroke-width: 1;
+}
+
+.minicurve__gap {
+  fill: var(--tier-break-ink);
+  fill-opacity: 0.24;
+  stroke: none;
+}
+
+.minicurve__planned {
+  fill: none;
+  stroke: var(--tier-plan-ink);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+  stroke-linejoin: round;
+}
+
+.minicurve__actual {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+/* 直近の取引: 小見出しと、まとめた一覧（角丸 18 の 1 枚の面。区切りは文字の左端から）と「すべての取引 ›」 */
+.homerecent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.homerecent__title {
+  padding-inline: var(--sp-1);
+}
+
+.homerecent__group {
+  container-type: inline-size;
+  font-size: var(--fs-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.homerecent__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.homerecent__item + .homerecent__item .homerow::before,
+.homerecent__group > .rowlink::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--sp-4) + var(--sp-3) + 2.25rem);
+  border-top: 1px solid var(--line);
+}
+
+.homerecent__group > .rowlink {
+  position: relative;
+  padding-inline: var(--sp-4);
+  border-radius: 0;
+  background: transparent;
+  font-size: var(--fs-sm);
+}
+
+.homerecent__group > .rowlink::before {
+  left: var(--sp-4);
+}
+
+.homerow {
+  position: relative;
+  display: grid;
+  grid-template-areas: "mark main nums chev";
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0 var(--sp-3);
+  min-height: var(--tap);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.homerow::after {
+  content: "›";
+  grid-area: chev;
+  color: var(--ink-3);
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.homerow:active {
+  background: var(--s2);
+}
+
+@media (hover: hover) {
+  .homerow:hover,
+  .homerecent__group > .rowlink:hover {
+    background: var(--s2);
+  }
+}
+
+.homerow__mark {
+  grid-area: mark;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.homerow__mark .icon {
+  width: 18px;
+  height: 18px;
+  stroke-width: 2.4;
+}
+
+.homerow__mark--plan {
+  color: var(--tier-plan-ink);
+  background: var(--tier-plan-bg);
+  border-color: var(--tier-plan-line);
+}
+
+.homerow__mark--break {
+  color: var(--tier-break-ink);
+  background: var(--tier-break-bg);
+  border-color: var(--tier-break-line);
+}
+
+.homerow__mark--worst {
+  color: var(--tier-worst-ink);
+  background: var(--tier-worst-bg);
+  border-color: var(--tier-worst-line);
+}
+
+.homerow__mark--neutral {
+  color: var(--tier-neutral-ink);
+  background: var(--tier-neutral-bg);
+  border-color: var(--tier-neutral-line);
+}
+
+.homerow__main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.homerow__title {
+  display: flex;
+  gap: var(--sp-1);
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-tight);
+}
+
+.homerow__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homerow__side {
+  flex: none;
+  color: var(--ink-2);
+}
+
+.homerow__side::before {
+  content: "· ";
+}
+
+.homerow__sub {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homerow__nums {
+  grid-area: nums;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.homerow__r {
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+.homerow__risk {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-body);
+  white-space: nowrap;
+}
+
+.homerow__none {
+  color: var(--ink-3);
+}
+
+/* 文字の拡大（列が文字の 18 字分より狭い）: R とリスクを 2 段目に回し、銘柄と 2 行目を折り返す（「…」で潰さない） */
+@container (max-width: 18em) {
+  .homerow {
+    grid-template-areas:
+      "mark main chev"
+      "mark nums chev";
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .homerow__nums {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--sp-2);
+  }
+
+  .homerow__name,
+  .homerow__sub {
+    white-space: normal;
+  }
+}
+
+/* 等倍の文字で窓に入らない高さ（360×780 など）では、直近の取引を下の行から隠す（9.4。最低 1 行。高さの段はこの 1 つだけ）:
+   3 件目から隠し、書きかけの行（44px）があるときは 2 件目から（#128 デザイン AC-2）。境の 820px は、390×844 で 3 件と
+   書きかけの行が入る（中身の下端 674px・下のタブと ［＋ 記録］ の浮きを除いた余り）ことと、360×780 では 3 件目の行（55px）が
+   入らないことから決めた。iPhone SE（375×667）や Safari のツールバーで窓が 650〜700px になるときは縦に送る（9.4 の目標の外。
+   コードレビュー N5） */
+@media (max-height: 819.98px) {
+  .homerecent__item:nth-child(n + 3),
+  .home:has(.homedraft) .homerecent__item:nth-child(n + 2) {
+    display: none;
+  }
+}
+
+/* 幅 720px 以上は上の帯に印と名前があるので、ホームの見出しの印と名前は見せず、日付だけを見せる（2 回出さない。画面の 3 つの形 =
+   U9（#134）でレールとサイドバーに替わるまでの手当て。デザイン a6）。h1 は読み上げの「（ホーム）」を持ったまま残す（見出しへの
+   フォーカスの先。中身が読み上げだけになっても箱が 0 にならないよう 1px の幅と高さを持たせる） */
+@media (min-width: 720px) {
+  .homehead__mark,
+  .homehead__name {
+    display: none;
+  }
+
+  .homehead__title {
+    min-block-size: 1px;
+    min-inline-size: 1px;
+  }
+}

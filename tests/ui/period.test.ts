@@ -4,12 +4,16 @@ import { describe, expect, it } from 'vitest';
 import {
   customDefaults,
   inRange,
+  monthSelection,
   PERIOD_ERROR,
   PERIOD_KEYS,
+  PERIOD_LABEL,
   type PeriodSelection,
   parsePeriod,
   periodRange,
   periodSearch,
+  reviewHref,
+  reviewTableHref,
 } from '../../ui/src/lib/period';
 import { forAll } from '../core/helpers/prng';
 
@@ -200,5 +204,39 @@ describe('periodRange: 性質', () => {
         expect(days['3m']).toBeLessThanOrEqual(92);
       },
     );
+  });
+});
+
+describe('振り返りのタブとホームの今月（#128。設計書 9.2・ui-guidelines 9.4）', () => {
+  it('期間の選択肢は 1日・7日・1か月・3か月・指定（モックと設計書 9.2 の言葉）', () => {
+    expect(PERIOD_KEYS.map((k) => PERIOD_LABEL[k])).toEqual([
+      '1日',
+      '7日',
+      '1か月',
+      '3か月',
+      '指定',
+    ]);
+  });
+
+  it('今月 = 今月 1 日 0:00〜明日 0:00 の指定の期間（取り込みを外す）。1 日なら 1 日だけ', () => {
+    const sel = monthSelection(NOW);
+    expect(sel).toEqual({ key: 'custom', from: '2026-11-01', to: '2026-11-19', imports: false });
+    const r = ok(sel);
+    expect(r.from).toBe(at(2026, 11, 1));
+    expect(r.to).toBe(at(2026, 11, 20));
+    expect(r.days).toBe(19);
+    expect(monthSelection(at(2027, 1, 1, 9))).toEqual({
+      key: 'custom',
+      from: '2027-01-01',
+      to: '2027-01-01',
+      imports: false,
+    });
+  });
+
+  it('振り返りのタブと「数で見る」の URL は同じ検索部分（往復で同じ期間）', () => {
+    const sel = monthSelection(NOW);
+    expect(reviewHref(sel)).toBe('/review?period=custom&from=2026-11-01&to=2026-11-19');
+    expect(reviewTableHref(sel)).toBe('/review/table?period=custom&from=2026-11-01&to=2026-11-19');
+    expect(parsePeriod(reviewTableHref(sel).slice('/review/table'.length))).toEqual(sel);
   });
 });

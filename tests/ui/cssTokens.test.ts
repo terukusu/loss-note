@@ -463,12 +463,16 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
         );
       }
     }
-    // 主役の数字は 36px（9.9 の案の 44px は、判定の枠を組み直す U4・U6 で。#127）
+    // 主役の数字は 44px（9.9。#128）。判定の枠の R は U4・U6 まで枠の中だけ 36px（44 の 9 / 11。トークンを通す）
     const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
-    expect(root.get('--fs-num-xl')).toBe('36px');
+    expect(root.get('--fs-num-xl')).toBe('44px');
+    const verdictXl = Object.values(files)
+      .flatMap((raw) => blocks(stripComments(raw)))
+      .find((b) => b.selector === '.verdict .num--xl');
+    expect(decls(verdictXl?.body ?? '').get('font-size')).toBe('calc(var(--fs-num-xl) * 9 / 11)');
   });
 
-  it('#127 A7: 文字の大きさのトークンは 6 段（30 / 20 / 17 / 16 / 14 / 12）と数字の 2 段（36 / 24）だけ', () => {
+  it('#127 A7: 文字の大きさのトークンは 6 段（30 / 20 / 17 / 16 / 14 / 12）と数字の 2 段（44 / 24。#128）だけ', () => {
     const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
     const fs = [...root].filter(([k]) => k.startsWith('--fs-'));
     expect(Object.fromEntries(fs)).toEqual({
@@ -479,7 +483,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       '--fs-sm': '14px',
       '--fs-xs': '12px',
       '--fs-num-lg': '24px',
-      '--fs-num-xl': '36px',
+      '--fs-num-xl': '44px',
     });
     // 本文の行の高さは 1.5（9.9）
     expect(root.get('--lh-body')).toBe('1.5');

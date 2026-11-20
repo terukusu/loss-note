@@ -36,6 +36,11 @@ export interface StreakModel {
   readonly symbol: TierSymbol;
   /** 1 行目「計画どおりが 3 件続いています」 */
   readonly headline: string;
+  /**
+   * 1 行目を文節の塊に分けたもの（「計画どおりが 3 件」「続いています」。#128 デザイン a2）。画面は塊の間でだけ折る
+   * （語の途中で折らない。文字は小さくしない）。つなぐと headline と同じ
+   */
+  readonly headlineParts: readonly string[];
   /** 2 行目「直近 10 件のうち計画どおり 6 件」 */
   readonly subline: string;
   /** 並びの名前（読み上げ）「直近 10 件の判定（古い順）」 */
@@ -44,11 +49,11 @@ export interface StreakModel {
   readonly importsNote: string | null;
 }
 
-function headlineOf(run: RecentRun, latestLabel: string): string {
-  if (run.count === 1) return `直近の取引は ${latestLabel}`;
-  if (run.kind === 'plan') return `計画どおりが ${run.count} 件続いています`;
-  if (run.kind === 'off') return `崩れが ${run.count} 件続いています`;
-  return `直近の ${run.count} 件は判定なし`;
+function headlinePartsOf(run: RecentRun, latestLabel: string): string[] {
+  if (run.count === 1) return ['直近の取引は ', latestLabel];
+  if (run.kind === 'plan') return [`計画どおりが ${run.count} 件`, '続いています'];
+  if (run.kind === 'off') return [`崩れが ${run.count} 件`, '続いています'];
+  return [`直近の ${run.count} 件は`, '判定なし'];
 }
 
 /** 取引（読み込み済みの分）→ 直近の流れ。並べる取引が無ければ null（段を出さない） */
@@ -89,7 +94,8 @@ export function streakModelOfSorted(sorted: readonly StoredTrade[]): StreakModel
     run,
     tier: latest.tier,
     symbol: latest.symbol,
-    headline: headlineOf(run, latest.label),
+    headline: headlinePartsOf(run, latest.label).join(''),
+    headlineParts: headlinePartsOf(run, latest.label),
     subline: `直近 ${n} 件のうち計画どおり ${planned} 件`,
     listLabel: `直近 ${n} 件の判定（古い順）`,
     importsNote: excluded > 0 ? `取り込んだ取引 ${excluded} 件は並べていません` : null,

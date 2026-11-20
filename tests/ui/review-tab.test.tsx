@@ -1,16 +1,18 @@
-// ホームの規律の振り返りの段（Issue #88 AC-7・AC-8・AC-10・KEEP-4）。部品は関数として展開する（DOM を使わない）。
-// 値はすべて架空
+// 振り返りのタブの規律の振り返り（Issue #88 AC-7・AC-8・AC-10・KEEP-4。#128 でホームから `/review` へ移して作り直した =
+// AC-7・AC-8）と、次の画面「数で見る」。部品は関数として展開する（DOM を使わない）。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
 import type { ReviewSlot } from '../../ui/src/components/ReviewSummary';
 import {
-  homeHref,
+  monthSelection,
   type PeriodKey,
   type PeriodSelection,
   parsePeriod,
   periodActions,
   periodRange,
+  reviewHref,
+  reviewTableHref,
 } from '../../ui/src/lib/period';
 import {
   createReviewController,
@@ -22,6 +24,7 @@ import { createNavigator, Link, type NavEnv } from '../../ui/src/lib/router';
 import { HOME_LIMIT } from '../../ui/src/lib/trade-pages';
 import { createTradesController, type TradesState } from '../../ui/src/lib/trades-controller';
 import { HomeView } from '../../ui/src/pages/Home';
+import { ReviewTableView, ReviewView } from '../../ui/src/pages/Review';
 import { createFakeApi } from './helpers/fake-api';
 import { closedInfoTip } from './helpers/info-tip';
 import { REVIEW_NOW, S1, S4_IMPORTS } from './helpers/review-examples';
@@ -88,6 +91,7 @@ function slot(sel: PeriodSelection, state: ReviewState): ReviewSlot {
       instruments: INSTRUMENTS,
       now: REVIEW_NOW,
     }),
+    tableHref: reviewTableHref(sel),
     onKey: noop,
     onDates: noop,
     onImports: noop,
@@ -102,7 +106,7 @@ const R7 = range7.ok ? { from: range7.from, to: range7.to } : { from: 0, to: 1 }
 
 function home(review: ReviewSlot, recent: TradesState = tradesReady(H1)) {
   return expand(
-    <HomeView
+    <ReviewView
       state={recent}
       hidden={NONE}
       empty={emptyEl}
@@ -119,17 +123,23 @@ describe('振り返りの段の並びと中身（S1）', () => {
   const tree = home(slot(SEVEN, { phase: 'ready', range: R7, trades: S1, truncated: false }));
   const r = reviewOf(tree);
 
-  it('振り返り → 直近の判定の順（ホームに [記録する] を置かない。下のタブの ［＋ 記録］ の 1 か所。#127）', () => {
-    const order = all(
-      tree,
-      (e) =>
-        hasClass('home__record')(e) ||
-        hasClass('review')(e) ||
-        e.props['aria-labelledby'] === 'home-recent-title',
-    ).map((e) =>
-      hasClass('home__record')(e) ? 'record' : hasClass('review')(e) ? 'review' : 'recent',
+  it('期間 → 範囲と件数 → 1 枚目（規律コスト）→ 2 枚目（計画どおり率）→「数で見る ›」（#128。設計書 9.2）', () => {
+    const KINDS = [
+      'review__period-bar',
+      'review__meta',
+      'review__costcard',
+      'review__ratecard',
+      'review__more',
+    ] as const;
+    const order = all([r], (e) => KINDS.some((k) => hasClass(k)(e))).map((e) =>
+      KINDS.find((k) => hasClass(k)(e)),
     );
-    expect(order).toEqual(['review', 'recent']);
+    expect(order).toEqual([...KINDS]);
+    // 期間の選択肢の最後は「指定」（設計書 9.2）
+    expect(text(all([r], hasClass('review__period-bar')))).toContain('指定');
+    // ホームの部品（直近の取引・直近の流れ）は置かない
+    expect(all(tree, hasClass('traderow'))).toEqual([]);
+    expect(all(tree, hasClass('streak'))).toEqual([]);
   });
 
   it('期間の 5 つの選択肢（radio）・範囲と件数の行（aria-live）・数字の段', () => {
@@ -176,32 +186,65 @@ describe('振り返りの段の並びと中身（S1）', () => {
     ]);
   });
 
-  it('AC-10: 曲線は読み上げから外し、「数で見る」の表は R の出た 6 行（日付・銘柄・判定・R・2 つの累積 + 差）', () => {
+  it('AC-10: 曲線は読み上げから外し、「数で見る ›」は同じ期間の次の画面（押せる行。その場で開く表は置かない）', () => {
     const curve = all([r], hasClass('curve'))[0] as El;
     expect(curve.props['aria-hidden']).toBe('true');
     for (const svg of all([r], (e) => e.type === 'svg')) {
       // 図の SVG は自分か祖先で aria-hidden（読み上げの名前を持たない）
       expect(svg.props['aria-label']).toBeUndefined();
     }
-    const details = all([r], (e) => e.type === 'details')[0] as El;
-    expect(details.props.open).toBeUndefined();
-    expect(text(all([details], (e) => e.type === 'summary'))).toBe('数で見る');
-    const head = all([details], (e) => e.type === 'th').map(text);
+    expect(all([r], (e) => e.type === 'details' || e.type === 'table')).toEqual([]);
+    const more = all([r], (e) => e.type === 'a' && hasClass('rowlink')(e));
+    expect(more.map((a) => [a.props.href, text(a)])).toEqual([
+      ['/review/table?period=7d', '数で見る'],
+    ]);
+    const s = text(r);
+    expect(s).toContain('危ない勝ち 1 件 +0.5R は運です');
+    expect(s).toContain('LC が無い 1 件は曲線に入れていません');
+  });
+
+  it('AC-10: 「数で見る」の画面の表は R の出た 6 行（日付・銘柄・判定・R・2 つの累積 + 差）。上の帯は「‹ 振り返り」', () => {
+    const t = expand(
+      <ReviewTableView
+        review={slot(SEVEN, { phase: 'ready', range: R7, trades: S1, truncated: false })}
+      />,
+    );
+    expect(text(all(t, (e) => e.type === 'h1'))).toBe('数で見る');
+    expect(text(all(t, hasClass('appbar__back')))).toContain('振り返り');
+    expect(all(t, hasClass('appbar__back'))[0]?.props.href).toBe('/review?period=7d');
+    expect(text(all(t, hasClass('review__meta')))).toBe('11/13〜11/19 · 7 件');
+    const head = all(t, (e) => e.type === 'th').map(text);
     expect(head).toEqual(['日付', '銘柄', '判定', 'R', '実際の累積', '計画どおりの累積', '差']);
-    const rows = all([details], (e) => e.type === 'tbody')
+    const rows = all(t, (e) => e.type === 'tbody')
       .flatMap((b) => all([b], (e) => e.type === 'tr'))
       .map((tr) => all([tr], (e) => e.type === 'td').map(text));
     expect(rows).toHaveLength(6);
     expect(rows.every((cells) => cells.length === 7)).toBe(true);
     expect(rows[2]).toEqual(['11/15', 'US30', 'B 悪い損失', '−1.6R', '−0.6R', '±0.0R', '−0.6R']);
     // 横に送る箱はキーボードでも送れる（tabindex・名前つきの region）
-    const box = all([details], hasClass('review__scroll'))[0] as El;
+    const box = all(t, hasClass('review__scroll'))[0] as El;
     expect([box.type, box.props.tabIndex]).toEqual(['section', 0]);
-    expect(box.props['aria-labelledby']).toBe('home-review-table-caption');
-    expect(text(all([details], (e) => e.type === 'caption'))).toContain('決済の古い順');
-    const s = text(r);
-    expect(s).toContain('危ない勝ち 1 件 +0.5R は運です');
-    expect(s).toContain('LC が無い 1 件は曲線に入れていません');
+    expect(box.props['aria-labelledby']).toBe('review-table-caption');
+    expect(text(all(t, (e) => e.type === 'caption'))).toContain('決済の古い順');
+    // 0 件・読み込み中・失敗は短い文
+    const empty = expand(
+      <ReviewTableView
+        review={slot(SEVEN, { phase: 'ready', range: R7, trades: [], truncated: false })}
+      />,
+    );
+    expect(text(empty)).toContain('この期間に決済した取引はありません');
+    const failed = expand(
+      <ReviewTableView
+        review={slot(SEVEN, {
+          phase: 'failed',
+          range: R7,
+          error: REVIEW_LOAD_FAILED,
+          errorKind: 'network',
+        })}
+      />,
+    );
+    expect(text(failed)).toContain(REVIEW_LOAD_FAILED);
+    expect(text(failed)).toContain('再読み込み');
   });
 });
 
@@ -265,8 +308,8 @@ describe('件数が少ない・0 件・期間の誤り', () => {
   });
 });
 
-describe('KEEP-4: 振り返りだけ失敗しても直近の判定は出る', () => {
-  it('偽の API で範囲つきの GET だけ 503 → 直近 5 件は読め、振り返りは決まった文言と [再読み込み]', async () => {
+describe('KEEP-4: 振り返りだけ失敗しても直近の取引は出る', () => {
+  it('偽の API で範囲つきの GET だけ 503 → 振り返りのタブは決まった文言と [再読み込み]、ホームは直近 3 件と今月の規律の失敗', async () => {
     const fake = createFakeApi({
       trades: H1,
       instruments: [US30],
@@ -277,13 +320,26 @@ describe('KEEP-4: 振り返りだけ失敗しても直近の判定は出る', ()
     await Promise.all([recent.load(), review.load(R7)]);
     expect(recent.getState().phase).toBe('ready');
     const tree = home(slot(SEVEN, review.getState()), recent.getState());
-    expect(all(tree, hasClass('home__record'))).toHaveLength(0);
-    expect(all(tree, hasClass('traderow'))).toHaveLength(5);
     const r = reviewOf(tree);
     expect(text(r)).toContain(REVIEW_LOAD_FAILED);
     expect(text(all([r], (e) => e.type === 'button'))).toContain('再読み込み');
     // 応答の本文を出さない
     expect(text(r)).not.toContain('偽物');
+    // ホーム: 今月の規律だけ失敗し、直近の取引は出る
+    const month = monthSelection(REVIEW_NOW);
+    const homeTree = expand(
+      <HomeView
+        state={recent.getState()}
+        hidden={NONE}
+        empty={emptyEl}
+        onReload={noop}
+        onRelogin={noop}
+        month={{ state: review.getState(), card: null, onReload: noop, onRelogin: noop }}
+        monthHref={reviewHref(month)}
+      />,
+    );
+    expect(all(homeTree, hasClass('homerow'))).toHaveLength(3);
+    expect(text(all(homeTree, hasClass('homemonth')))).toContain(REVIEW_LOAD_FAILED);
   });
 });
 
@@ -319,19 +375,19 @@ describe('AC-8: 期間と取り込みの切り替えは URL の置き換え（�
   for (const key of keys) {
     for (const imports of [false, true]) {
       it(`${key} × 取り込み ${imports ? '含める' : '外す'}`, () => {
-        const env = new FakeEnv('/');
+        const env = new FakeEnv('/review');
         const nav = createNavigator(env, { dev: false });
         const act = () =>
           periodActions(
             parsePeriod(nav.current.search),
             () => REVIEW_NOW,
-            (n) => nav.replace(homeHref(n)),
+            (n) => nav.replace(reviewHref(n)),
           );
         if (key !== '7d') act().onKey(key);
         if (imports) act().onImports(true);
         expect(env.pushes).toEqual([]);
         expect(env.replaces.length).toBe((key !== '7d' ? 1 : 0) + (imports ? 1 : 0));
-        expect(nav.current.route).toEqual({ name: 'home' });
+        expect(nav.current.route).toEqual({ name: 'review' });
         expect(nav.current.via).toBe(env.replaces.length > 0 ? 'replace' : 'init');
         const shown = parsePeriod(nav.current.search);
         expect(shown.key).toBe(key);
@@ -351,26 +407,26 @@ describe('AC-8: 期間と取り込みの切り替えは URL の置き換え（�
   }
 
   it('任意の日付を変えると URL の from / to が変わる', () => {
-    const env = new FakeEnv('/?period=custom&from=2026-11-13&to=2026-11-19');
+    const env = new FakeEnv('/review?period=custom&from=2026-11-13&to=2026-11-19');
     const nav = createNavigator(env, { dev: false });
     periodActions(
       parsePeriod(nav.current.search),
       () => REVIEW_NOW,
-      (n) => nav.replace(homeHref(n)),
+      (n) => nav.replace(reviewHref(n)),
     ).onDates('2026-11-01', '2026-11-10');
-    expect(env.url).toBe('/?period=custom&from=2026-11-01&to=2026-11-10');
+    expect(env.url).toBe('/review?period=custom&from=2026-11-01&to=2026-11-10');
     const r = periodRange(parsePeriod(nav.current.search), REVIEW_NOW);
     expect(r.ok && r.label).toBe('11/1〜11/10');
     expect(env.pushes).toEqual([]);
   });
 
   it('同じ期間を押しても URL を変えない', () => {
-    const env = new FakeEnv('/?period=1d');
+    const env = new FakeEnv('/review?period=1d');
     const nav = createNavigator(env, { dev: false });
     periodActions(
       parsePeriod(nav.current.search),
       () => REVIEW_NOW,
-      (n) => nav.replace(homeHref(n)),
+      (n) => nav.replace(reviewHref(n)),
     ).onKey('1d');
     expect(env.replaces).toEqual([]);
   });
@@ -413,20 +469,22 @@ describe('レビュー後の修正（#88 Phase 4・4b）', () => {
     expect(text(r)).toContain('期間の取引が多いので先頭の 2,000 件で集計しています');
   });
 
-  it('並び: 一言の見出し → 曲線 → 計画どおり率と内訳 →「数で見る」', () => {
+  it('並び: 1 枚目（一言の見出し → 曲線）→ 2 枚目（計画どおり率 → 内訳）→「数で見る ›」。主役の数字（num--xl）は規律コストと率', () => {
     const r = reviewOf(home(slot(SEVEN, ready(S1))));
-    const order = all([r], (e) =>
-      ['review__head', 'curve', 'review__grid', 'review__table'].some((c) => hasClass(c)(e)),
-    ).map((e) => String(e.props.class).split(' ')[0]);
-    expect(order).toEqual(['review__head', 'curve', 'review__grid', 'review__table']);
-    // 主役は崩れで失った R（num--xl）。2 行目に守っていれば · 実際、計画どおり率は num--lg（見出しより小さく）
+    const cost = all([r], hasClass('review__costcard'))[0] as El;
+    const order = all([cost], (e) => ['review__head', 'curve'].some((c) => hasClass(c)(e))).map(
+      (e) => String(e.props.class).split(' ')[0],
+    );
+    expect(order).toEqual(['review__head', 'curve']);
     const head = all([r], hasClass('review__headline'))[0] as El;
     expect(text(head)).toBe('崩れで −0.6R');
     expect(all([head], hasClass('num--xl'))).toHaveLength(1);
     expect(text(all([r], hasClass('review__subline')))).toBe('守っていれば +0.9R · 実際 +0.3R');
-    const rate = all([r], hasClass('review__grid'))[0] as El;
-    expect(all([rate], hasClass('num--lg')).map(text)).toEqual(['57%']);
-    expect(all([rate], hasClass('num--xl'))).toEqual([]);
+    const rate = all([r], hasClass('review__ratecard'))[0] as El;
+    // 主役の数字は 44px・単位は小さく（ホームと同じ形。デザインの細かい点）
+    expect(all([rate], hasClass('num--xl')).map(text)).toEqual(['57']);
+    expect(all([rate], hasClass('review__unit')).map(text)).toEqual(['%']);
+    expect(text(rate)).toContain('4 / 7 件');
   });
 
   it('0 件の期間は「3か月で見る」で次の 1 手（押すと 3 か月）', () => {

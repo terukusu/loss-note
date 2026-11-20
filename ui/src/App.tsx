@@ -23,7 +23,7 @@ import { Glossary } from './pages/Glossary';
 import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Record } from './pages/Record';
-import { Review } from './pages/Review';
+import { Review, ReviewTablePage } from './pages/Review';
 import { Settings } from './pages/Settings';
 import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
@@ -68,6 +68,8 @@ export function Page(p: PageProps) {
       return <Trades />;
     case 'review':
       return <Review />;
+    case 'reviewTable':
+      return <ReviewTablePage />;
     case 'trade':
       return <TradeDetail id={route.id} />;
     case 'tradeEdit':
@@ -141,7 +143,7 @@ export function App(props: AppProps) {
   const [signOutError, setSignOutError] = useState<string | null>(null);
   const [Parts, setParts] = useState<ComponentType | null>(null);
   const first = useRef(true);
-  /** 前の画面のパス（同じ画面の検索部分だけの置き換え = ホームの期間（#88）ではフォーカスを動かさない） */
+  /** 前の画面のパス（同じ画面の検索部分だけの置き換え = 振り返りの期間（#88・#128）ではフォーカスを動かさない） */
   const lastHref = useRef(hrefOf(route));
   // 取引を消す + [元に戻す]（Issue #9。ADR-0007）: アプリの殻に 1 つ。画面を移っても取り消せる
   // 書きかけの置き場（Issue #75。ADR-0019）: 記録する画面・編集の画面の書きかけを、画面を移っても同じタブの記憶に残す
@@ -312,7 +314,7 @@ export function App(props: AppProps) {
       first.current = false;
       return;
     }
-    // 同じ画面の中で検索部分だけを置き換えた（ホームの期間を選んだ。#88）: 押した部品にフォーカスを残し、スクロールもしない
+    // 同じ画面の中で検索部分だけを置き換えた（振り返りの期間を選んだ。#88・#128）: 押した部品にフォーカスを残し、スクロールもしない
     if (via === 'replace' && samePage) return;
     const undo = focusUndo.current ? document.getElementById(focusUndo.current) : null;
     focusUndo.current = null;

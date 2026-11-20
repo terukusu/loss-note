@@ -195,8 +195,8 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
   });
 });
 
-describe('AC-7: ホーム（例 H1）', () => {
-  it('新しい順の 5 件と「すべての取引」の押せる行（[記録する] は下のタブだけ。#127）。2 件目は危ない勝ちで B と同じ段', () => {
+describe('AC-7: ホーム（例 H1。#128 で直近 3 件の詰めた行）', () => {
+  it('新しい順の 3 件と「すべての取引」の押せる行（[記録する] は下のタブだけ。#127）。2 件目は危ない勝ちで B と同じ段', () => {
     const tree = expand(
       <HomeView
         state={ready([...H1].reverse())}
@@ -206,15 +206,11 @@ describe('AC-7: ホーム（例 H1）', () => {
         onRelogin={noop}
       />,
     );
-    const rows = rowsOf(tree);
-    expect(rows.map((r) => r.href)).toEqual([
-      '/trades/h0',
-      '/trades/h1',
-      '/trades/h2',
-      '/trades/h3',
-      '/trades/h4',
-    ]);
-    expect(rows[1]?.badge).toBe('危ない勝ち');
+    const rows = all(tree, hasClass('homerow'));
+    expect(rows.map((r) => r.props.href)).toEqual(['/trades/h0', '/trades/h1', '/trades/h2']);
+    const sub = text(all(rows[1]?.children ?? [], hasClass('homerow__sub')));
+    expect(sub.startsWith('危ない勝ち · ')).toBe(true);
+    const mark = cls(all(rows[1]?.children ?? [], hasClass('homerow__mark'))[0] as El);
     const bTree = expand(
       <TradesView
         state={ready([D1])}
@@ -226,18 +222,21 @@ describe('AC-7: ホーム（例 H1）', () => {
     );
     const b = rowsOf(bTree)[0];
     expect(b?.badge).toBe('B 悪い損失');
-    expect(rows[1]?.badgeClass).toBe(b?.badgeClass);
-    // 勝ちの色（計画どおりの段）を付けない
-    expect(rows[1]?.badgeClass).not.toContain('badge--plan');
+    // 危ない勝ちは B と同じ崩れの段（勝ちの色 = 計画どおりの段を付けない）
+    expect(b?.badgeClass).toContain('badge--break');
+    expect(mark).toContain('homerow__mark--break');
+    expect(mark).not.toContain('homerow__mark--plan');
     const links = all(tree, (e) => e.type === 'a').map((a) => a.props.href);
     expect(links).not.toContain('/record');
-    expect(links).toContain('/trades');
-    const all_ = all(tree, (e) => e.type === 'a' && e.props.href === '/trades')[0] as El;
-    expect(all_.props.class).toBe('rowlink');
-    expect(text(tree)).toContain('直近の判定');
+    const more = all(
+      tree,
+      (e) => e.type === 'a' && e.props.href === '/trades' && hasClass('rowlink')(e),
+    );
+    expect(more.map(text)).toEqual(['すべての取引']);
+    expect(text(tree)).toContain('直近の取引');
   });
 
-  it('取引が無ければ空の状態（下の ［＋ 記録］ を指す一言。ボタンは足さない）', () => {
+  it('取引が無ければ見出しと空の状態（下の ［＋ 記録］ を指す一言。ボタンは足さない）', () => {
     const tree = expand(
       <HomeView
         state={ready([])}
@@ -247,7 +246,8 @@ describe('AC-7: ホーム（例 H1）', () => {
         onRelogin={noop}
       />,
     );
-    expect(text(tree)).toBe('空');
+    expect(text(tree).endsWith('空')).toBe(true);
+    expect(all(tree, (e) => e.type === 'a')).toEqual([]);
     const home = JSON.stringify(Home());
     expect(home).toContain('最初の取引を記録しましょう');
     expect(home).not.toContain('"href":"/record"');
@@ -834,7 +834,8 @@ describe('口座（#47 D1・U16〜U19）', () => {
         onRelogin={noop}
       />,
     );
-    expect(all(tree, hasClass('traderow__account')).map(text)).toEqual(['口座 B']);
+    // ホームの詰めた行は 2 行目に「判定の名前 · 口座 · 日付」（#128）
+    expect(all(tree, hasClass('homerow__sub')).map(text)[0]).toContain(' · 口座 B · ');
   });
 
   it('U17: 詳細の見出しの下「決済 … · 口座 B」と判定の枠の「口座 B の資金 1,000,000円（記録したとき）に対して」', () => {

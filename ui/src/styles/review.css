@@ -1,6 +1,22 @@
-/* ホームの規律の振り返りの段（Issue #88。components/ReviewSummary.tsx・DisciplineCurve.tsx・PeriodPicker.tsx が読み込む）。
-   色は判定の段のトークン（内訳の帯・凡例の記号・計画どおりの線・差の面）と、文字・線のトークンだけ（P2・AC-11）。
-   R・% の数字（.num）には色を付けない（P3）。カードの中に内枠を作らない（区切りは 1 辺の線と余白。P7） */
+/* 振り返りのタブの規律の振り返り（Issue #88・#128。components/ReviewSummary.tsx・DisciplineCurve.tsx・PeriodPicker.tsx と
+   「数で見る」の画面が読み込む）。色は判定の段のトークン（内訳の帯・凡例の記号・計画どおりの線・差の面）と、文字・面・線の
+   トークンだけ（P2・AC-11）。R・% の数字（.num）には色を付けない（P3）。カードの中に内枠を作らない（区切りは余白。P7） */
+
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.review__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.review__card {
+  gap: var(--sp-3);
+}
 
 /* 期間の 5 つの項目を幅 360px でも 1 行に入れる（項目の左右の余白を詰める） */
 .review__period {
@@ -45,7 +61,7 @@
 }
 
 .review__meta {
-  margin-top: calc(var(--sp-2) * -1);
+  padding-inline: var(--sp-1);
   color: var(--ink-2);
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
@@ -128,6 +144,7 @@
 /* 最初の読み込みの骨組み: 中身（見出し・曲線・率と内訳）のおよその高さを先に取る */
 .review__skeleton {
   min-height: 420px;
+  padding: var(--sp-4);
 }
 
 /* 期間の切り替えの途中: 前の図を薄く残す */
@@ -147,8 +164,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  padding-top: var(--sp-4);
-  border-top: 1px solid var(--line);
 }
 
 .review__headline {
@@ -180,6 +195,18 @@
   color: var(--tier-worst-ink);
 }
 
+.review__big {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.review__unit {
+  color: var(--ink);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+}
+
 .review__lead {
   color: var(--ink);
   font-size: var(--fs-lg);
@@ -192,20 +219,13 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 計画どおり率と内訳: 狭い幅は縦、720px 以上は 2 列 */
-.review__grid {
+/* 2 枚目: 計画どおり率（主役の数字）・件数・内訳 */
+.review__ratehead {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  padding-top: var(--sp-4);
-  border-top: 1px solid var(--line);
-}
-
-.review__stat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 var(--sp-3);
 }
 
 .review__label {
@@ -240,12 +260,6 @@
 
 .review__nowrap {
   white-space: nowrap;
-}
-
-.review__heading {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  line-height: var(--lh-tight);
 }
 
 .review__mix {
@@ -531,18 +545,7 @@
   list-style: disc;
 }
 
-/* 「数で見る」（既定で畳む）。表は枠を持たない（行の下の 1 辺の線だけ） */
-.review__table summary {
-  /* 開閉の印（▸ / ▾）を残す（list-item）。行の高さで当たり 44px */
-  display: list-item;
-  min-height: var(--tap);
-  line-height: var(--tap);
-  color: var(--ink);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  cursor: pointer;
-}
-
+/* 「数で見る」の画面の表。表は枠を持たない（行の下の 1 辺の線だけ） */
 .review__scroll {
   overflow-x: auto;
 }
@@ -594,12 +597,6 @@
 }
 
 @media (min-width: 720px) {
-  .review__grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
-    align-items: start;
-  }
-
   .curve {
     grid-template-columns: 3rem minmax(0, 1fr) 8rem;
     grid-template-rows: 250px auto;

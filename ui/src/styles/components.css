@@ -762,6 +762,12 @@
   letter-spacing: -0.02em;
 }
 
+/* 判定の枠の R は U4（#130）・U6（#131）で枠を組み直すまで 36px（主役の数字 44px の 9 / 11。文字の拡大ではトークンと一緒に
+   大きくなる。#128） */
+.verdict .num--xl {
+  font-size: calc(var(--fs-num-xl) * 9 / 11);
+}
+
 /* 外貨の金額（#47 PR-2・U29）: 数は .num、通貨の 3 文字は .num の外で小さく */
 .num-money {
   white-space: nowrap;

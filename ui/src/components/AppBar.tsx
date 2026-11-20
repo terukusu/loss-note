@@ -66,8 +66,10 @@ export interface SheetBarProps {
   readonly cancelHref?: string;
   /** 保存中など、✕ を押せない */
   readonly cancelDisabled?: boolean;
-  /** 帯の右（進み具合など） */
+  /** 帯の右（進み具合・段を戻すボタンなど） */
   readonly end?: ComponentChildren;
+  /** 題の下の小さな行（記録するの明細の行の進み具合「1 / 2 行目」。2026-11-21）。省けば題だけ（今の DOM のまま） */
+  readonly sub?: ComponentChildren;
 }
 
 /** 全画面のシートの帯（左上の ✕ = キャンセル。広い形でも同じ左上） */
@@ -84,9 +86,18 @@ export function SheetBar(p: SheetBarProps) {
             : { href: p.cancelHref })}
         />
       </div>
-      <h1 class="appbar__title" tabIndex={-1}>
-        {p.title}
-      </h1>
+      {p.sub ? (
+        <div class="appbar__titles">
+          <h1 class="appbar__title" tabIndex={-1}>
+            {p.title}
+          </h1>
+          <p class="appbar__sub">{p.sub}</p>
+        </div>
+      ) : (
+        <h1 class="appbar__title" tabIndex={-1}>
+          {p.title}
+        </h1>
+      )}
       <div class="appbar__end">{p.end ?? null}</div>
     </header>
   );

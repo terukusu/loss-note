@@ -1,11 +1,12 @@
 // 記録する（Issue #13。手で入れて記録する。設計書 7.5 の流れ 3〜7・9.2、契約 R-4）。
-// 1 画面の形（#130。設計書 0.4 K17・9.2 の記録するの行・docs/ui-guidelines.md 9.4）: 全画面のシートの中に、上から
-// 明細の場所（選ぶ前・読み取り中・読み取りの後の 3 つの状態が同じ場所で入れ替わる）・チャートの 2 枠と注意（C38）・
-// 入る前に決めた LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。LC・一言・3 つのタップは開いた直後から入れられ
-// （C23）、読み取りの結果は要約の 2 行に流れ込むだけ。取引の欄・ほかの欄・タイムゾーン・判定・チャートの詳細は下のシート。
+// 2 つの段（2026-11-21。設計書 0.4 K17・9.2 の記録するの行・docs/ui-guidelines.md 9.4）: 同じ全画面のシートの中で、
+// 1 段目「スクショを入れる」= 決済明細とチャートの絵つきの大きな枠と ［明細なしで手入力］、2 段目「振り返る」= 入れたものの
+// カード（明細の要約の行・口座・チャートの行）・入る前に決めた LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。
+// ［次へ］ は置かず、明細を選ぶと読み取りを待たずに 2 段目へ移る（C23。LC へフォーカス）。読み取りの結果は要約の 2 行に
+// 流れ込むだけ。2 段目の上の帯の ［スクショ］ で 1 段目へ戻る。取引の欄・ほかの欄・タイムゾーン・判定・チャートの詳細は下のシート。
 // 決済明細のスクショ（Issue #15）: 貼った・選んだ画像をすぐ読み取りへ送り、読み取りの値を同じ欄に印つきで入れる。
-// 送る前の注意は選ぶ前の明細の場所に常に出す（ダイアログにしない）。プレビューは送るものと同じ画像を canvas に描く。
-// 根拠の足のチャート（Issue #12）: エントリー時・決済時の 2 枠。枠を選んで（フォーカスして）貼る・枠を押して選ぶと
+// 送る前の注意は 1 段目の明細の枠の下に常に出す（ダイアログにしない。C38）。プレビューは送るものと同じ画像を canvas に描く。
+// 根拠の足のチャート（Issue #12）: 1 段目の絵の枠・2 段目のチャートの行から 1 タップで選ぶ。枠を選んで（フォーカスして）貼ると
 // その枠に入り、明細の読み取りには送らない（枠の外の貼り付けは今までどおり明細へ。R1）。チャートは [記録する] で取引と一緒に送る。
 // 3 層: 純関数（lib/record-form.ts・lib/record-screen.ts）→ 通信と状態（lib/record-controller.ts）→ この画面（薄い）。
 // Record は hook を持たない（App のテストが 1 段だけ呼ぶ）。RecordScreen が controller を購読し、開いているシートを持つ。
@@ -29,7 +30,8 @@ import { Button, RowLink } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
-import { MiniCharts, SummaryCard, VerdictLineButton } from '../components/RecordParts';
+import { CandleArt, StatementArt } from '../components/RecordArt';
+import { MiniChart, SummaryCard, VerdictLineButton } from '../components/RecordParts';
 import { Segment } from '../components/Segment';
 import { Sheet } from '../components/Sheet';
 import {
@@ -49,10 +51,14 @@ import {
   verdictAsideText,
 } from '../lib/accounts';
 import { backLayers } from '../lib/back-layers';
-import { timeframeConflict } from '../lib/chart-read';
+import { CHART_READ_NOTICE, timeframeConflict } from '../lib/chart-read';
+import type { ChartState } from '../lib/chart-slots';
 import {
   type AnySlot,
+  CHART_SLOT_TEXT,
+  CHART_SLOTS,
   CHART_TIMEFRAME_FIELD,
+  type ChartSlot,
   chartSlotOf,
   type ExtraSlot,
   isMainSlot,
@@ -68,6 +74,7 @@ import {
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
 import { formatPrice, formatQuantity } from '../lib/format';
+import { TIMEFRAME_NAME } from '../lib/reasons';
 import {
   createRecordController,
   enterRecordScreen,
@@ -78,11 +85,18 @@ import {
 } from '../lib/record-controller';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import {
+  type ChartLike,
+  chartRow,
   FIELD_INPUT_ID,
   focusLcAfterRead,
+  miniChartId,
   type RecordSheet,
+  type RecordStage,
   SHEET_ID,
-  statementArea,
+  showProceed,
+  stage1Statement,
+  stageOf,
+  statementRow,
   TZ_PENDING,
   timeZoneNeed,
   tradeSummary,
@@ -183,15 +197,39 @@ export function RecordBar({ title }: { readonly title: string }) {
   const draft = useRecordDraft();
   const saving = useSaving(draft?.controller);
   const rows = useRowText(draft?.controller);
+  const stage = useStage(draft?.controller);
   if (!ctx || !draft) return <RecordBarView title={title} saving={false} />;
+  const c = draft.controller;
   return (
     <RecordBarView
       title={title}
       saving={saving}
       rows={rows}
+      stage={stage}
       onCancel={() => ctx.cancel(recordKey(), '/')}
+      onInput={() => {
+        c.setStage('input');
+        focusSoonId(STAGE1_TITLE_ID);
+      }}
     />
   );
+}
+
+/** 今の段（読み込み・保存の後は出さない = 上の帯の ［スクショ］ は振り返る段の入力中だけ） */
+function stageNow(s: RecordState | undefined): RecordStage | null {
+  if (!s || (s.phase !== 'editing' && s.phase !== 'saving')) return null;
+  return stageOf(s);
+}
+
+function useStage(c: RecordController | undefined): RecordStage | null {
+  const [stage, setStage] = useState(stageNow(c?.getState()));
+  useEffect(() => c?.subscribe((s) => setStage(stageNow(s))), [c]);
+  return stage;
+}
+
+/** 押すと消える・段が替わるボタンの後に、次に触る所へフォーカスを移す（描き直しの後） */
+function focusSoonId(id: string) {
+  setTimeout(() => document.getElementById(id)?.focus({ preventScroll: true }), 0);
 }
 
 /** 明細の行の進み具合（「1 / 2 行目」。行が 2 つ以上のときだけ。上の帯の右。9.3） */
@@ -210,15 +248,37 @@ function useRowText(c: RecordController | undefined): string | null {
 export function RecordBarView(p: {
   readonly title: string;
   readonly saving: boolean;
-  /** 明細の行の進み具合（「1 / 2 行目」） */
+  /** 明細の行の進み具合（「1 / 2 行目」。題の下の小さな行。右は ［スクショ］ が使う） */
   readonly rows?: string | null;
+  /** 今の段（振り返る段なら右に ［スクショ］。2026-11-21） */
+  readonly stage?: RecordStage | null;
   readonly onCancel?: () => void;
+  /** ［スクショ］（1 段目へ戻る） */
+  readonly onInput?: () => void;
 }) {
   return (
     <SheetBar
       title={p.title}
       {...(p.onCancel ? { onCancel: p.onCancel, cancelDisabled: p.saving } : { cancelHref: '/' })}
-      {...(p.rows ? { end: <span class="appbar__meta num">{p.rows}</span> } : {})}
+      {...(p.rows ? { sub: <span class="appbar__meta num">{p.rows}</span> } : {})}
+      {...(p.stage === 'review' && p.onInput
+        ? {
+            end: (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon="image"
+                id={TO_INPUT_ID}
+                class="record__toinput"
+                label="スクショを入れる画面へ戻る"
+                disabled={p.saving}
+                onClick={p.onInput}
+              >
+                スクショ
+              </Button>
+            ),
+          }
+        : {})}
     />
   );
 }
@@ -240,6 +300,8 @@ export function RecordScreen() {
   const prevPhase = useRef(state.phase);
   // 開いているシート（取引の欄・ほかの欄・タイムゾーン・判定・チャート。#130。書きかけには残さない）
   const [sheet, setSheet] = useState<RecordSheet | null>(null);
+  // 枠・行に貼ってチャートを差し替えた知らせ（段が替わる・チャートを選ぶ・消すと消す）
+  const [replaced, setReplaced] = useState<string | null>(null);
 
   useEffect(() => {
     const off = controller.subscribe((s) => {
@@ -268,6 +330,9 @@ export function RecordScreen() {
       // 枠そのもの（エントリー時 / 決済時。輪と「ここに貼れます」が出ている状態）にフォーカスがあるときだけチャート。
       // 枠の中の時間足の欄・ボタンを含め、ほかは決済明細の読み取りへ（#12 R1。目印と行き先を一致させる）
       const slot = chartSlotOf(e.target as Element | null);
+      // 入っているチャートを貼って差し替えたときは 1 行で知らせる（黙って差し替えない。2026-11-21 のレビュー N5）
+      const had = slot !== null && controller.getState().charts?.[slot]?.phase === 'ready';
+      setReplaced(had && slot ? replacedText(slot) : null);
       if (slot) void controller.setChart(slot, file);
       else void controller.readImage(file);
     };
@@ -296,7 +361,7 @@ export function RecordScreen() {
       window.scrollTo({ top: 0 });
     } else if (before === 'saved' && state.phase === 'editing') {
       window.scrollTo({ top: 0 });
-      document.getElementById(STATEMENT_TITLE_ID)?.focus({ preventScroll: true });
+      document.getElementById(STAGE1_TITLE_ID)?.focus({ preventScroll: true });
     } else if (before === 'saving' && state.phase === 'editing' && state.error) {
       // 保存に失敗して戻った: 保存中は欄とボタンが無効でフォーカスが外れるので、押した [記録する] へ戻す
       // （失敗の文言は role="alert" で読み上げる。#5 のレビュー指摘 6）
@@ -319,6 +384,23 @@ export function RecordScreen() {
       document.getElementById(LC_ID)?.focus({ preventScroll: true });
     }
   }, [state.statement?.phase]);
+
+  // 段の移り（2026-11-21）: 1 段目 → 2 段目は LC へ（明細を選んだ・［振り返りへ進む］。シートを開いた ［明細なしで手入力］ は
+  // シートが見出しへ移す）。2 段目 → 1 段目は 1 段目の見出しへ。どちらも上の端から見せる
+  const stage = state.phase === 'editing' || state.phase === 'saving' ? stageOf(state) : null;
+  const prevStage = useRef(stage);
+  useEffect(() => {
+    const before = prevStage.current;
+    prevStage.current = stage;
+    if (before === stage || before === null || stage === null) return;
+    window.scrollTo({ top: 0 });
+    setReplaced(null);
+    if (stage === 'review') {
+      if (sheet === null) document.getElementById(LC_ID)?.focus({ preventScroll: true });
+    } else {
+      document.getElementById(STAGE1_TITLE_ID)?.focus({ preventScroll: true });
+    }
+  }, [stage, sheet]);
 
   // 明細の 1 行を保存して次の行へ移ったら、明細の場所へフォーカスを移す
   // （知らせ「i / N 行目を記録しました。次の行（…）です」は role="status" で読み上げる）
@@ -401,9 +483,10 @@ export function RecordScreen() {
       sheet={sheet}
       onSheet={onSheet}
       onManual={() => {
-        controller.startManual();
         onSheet({ kind: 'fields', step: 'main', focus: 'instrumentName' });
+        controller.startManual();
       }}
+      onStage={controller.setStage}
       onUpdate={onUpdate}
       onSave={() => {
         void controller.save();
@@ -411,6 +494,7 @@ export function RecordScreen() {
       onNext={controller.next}
       {...(ctx ? { onCancel: () => ctx.cancel(recordKey(), '/') } : {})}
       resumedAt={resumedAt}
+      chartReplaced={replaced}
       onReload={() => {
         void controller.load();
       }}
@@ -433,6 +517,7 @@ export function RecordScreen() {
       // フォーカスは radio に残す（矢印キーで行き来できる。一覧は次の Tab）
       onOpenOtherZones={controller.openOtherZones}
       onPickChart={(slot, file) => {
+        setReplaced(null);
         void controller.setChart(slot, file);
       }}
       onAcceptChartTimeframe={(slot) => {
@@ -441,6 +526,7 @@ export function RecordScreen() {
         focusSoon(`${chartBoxId(slot)}-tf`);
       }}
       onRemoveChart={(slot) => {
+        setReplaced(null);
         controller.removeChart(slot);
         // [削除] の後は枠へフォーカスを戻す（ボタンは消える）。付属の枠は枠ごと消えるので [＋ チャートを追加] へ
         focusSoon(isMainSlot(slot) ? chartBoxId(slot) : addExtraId('record'));
@@ -471,7 +557,8 @@ export function RecordScreen() {
         // 最後の行を飛ばすとボタンは消える（読み取りを終えて空の下書き）。枠の見出しへ
         const st = controller.getState().statement;
         if (st?.phase !== 'ready') setSheet(null);
-        focusSoon(st?.phase === 'ready' ? STATEMENT_ROW_ID : STATEMENT_TITLE_ID);
+        // 最後の行を飛ばすと 1 段目（見出しへのフォーカスは段の移りが移す）
+        if (st?.phase === 'ready') focusSoon(STATEMENT_ROW_ID);
       }}
     />
   );
@@ -483,8 +570,10 @@ export interface RecordViewProps {
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
   readonly onSheet?: (sheet: RecordSheet | null) => void;
-  /** ［明細なしで手入力］ */
+  /** ［明細なしで手入力］・［手入力で続ける］ */
   readonly onManual?: () => void;
+  /** 段を替える（［振り返りへ進む］・［スクショを選ぶ］。2026-11-21） */
+  readonly onStage?: (stage: RecordStage) => void;
   readonly onUpdate: (action: DraftAction) => void;
   readonly onSave: () => void;
   readonly onNext: () => void;
@@ -492,6 +581,8 @@ export interface RecordViewProps {
   readonly onCancel?: () => void;
   /** 離れていた書きかけを借り直した: 離れた時刻（見出しの下の「前の入力の続きです」。#75 デザイン 1）。省けば出さない */
   readonly resumedAt?: number | null;
+  /** チャートを差し替えた知らせ（枠・行にフォーカスして貼った。省けば出さない） */
+  readonly chartReplaced?: string | null;
   /** 今の時刻（「N 分前」。省けば Date.now） */
   readonly now?: number;
   readonly onReload: () => void;
@@ -540,6 +631,13 @@ const STATEMENT_FILE_ID = 'record-statement-file';
 const STATEMENT_NOTICE_ID = 'record-statement-notice';
 const VERDICT_HINT_ID = 'record-verdict-hint';
 const STATEMENT_TITLE_ID = 'record-statement-title';
+/** 1 段目の見出し（段の移り・次の取引のフォーカスの行き先） */
+const STAGE1_TITLE_ID = 'record-stage1-title';
+/** 上の帯の ［スクショ］・1 段目の ［振り返りへ進む］・2 段目の ［スクショを選ぶ］ */
+const TO_INPUT_ID = 'record-to-input';
+const PROCEED_ID = 'record-proceed';
+const REPICK_ID = 'record-repick';
+const CHART_NOTICE_ID = 'record-chart-notice';
 const STATEMENT_ROW_ID = 'record-statement-row';
 const TZ_NAME = 'record-tz';
 const TZ_OTHER_ID = 'record-tz-other';
@@ -561,7 +659,12 @@ export const STATEMENT_NOTICE_MORE =
 
 /** 注意の「i」の言葉（ボタンの名前「「明細の送り方」の説明」） */
 export const STATEMENT_INFO_LABEL = '明細の送り方';
-const STATEMENT_INFO_ID = 'record-statement-info';
+/**
+ * 明細の注意の「i」の説明のシートの ID（InfoTip の panelId になる）。説明のシートは記録する画面のシート（`record-` で始まる
+ * 取引の欄・判定など）と別の層なので、`record-` で始めない（ui:check は `record-` のシートを説明のシートとして数えない。
+ * Issue 130 の版では「説明（明細）」の状態が全部の窓で開けなかった）
+ */
+const STATEMENT_INFO_ID = 'statement-info';
 
 export function RecordView(p: RecordViewProps) {
   const { state } = p;
@@ -702,10 +805,12 @@ function RecordForm(p: RecordViewProps) {
   };
   const choice = accountChoiceKind(state.accounts.length);
   const add = state.addAccount;
+  const stage = stageOf(state);
 
   return (
     <form
-      class="record record--one"
+      class={`record record--one record--${stage}`}
+      data-stage={stage}
       noValidate
       onSubmit={(ev) => {
         ev.preventDefault();
@@ -721,50 +826,51 @@ function RecordForm(p: RecordViewProps) {
           </p>
         ) : null}
 
-        <StatementArea
-          {...p}
-          tzNeed={tzNeed}
-          accountField={
-            choice === 'segment' && !add ? (
-              <AccountField
-                accounts={state.accounts}
-                value={accountId}
-                onChange={set('accountId')}
-                {...(accountHint ? { hint: accountHint } : {})}
-                {...(marks.accountId ? { mark: MARK_LABEL[marks.accountId] } : {})}
+        {stage === 'input' ? (
+          <StageInput {...p} />
+        ) : (
+          <>
+            {/* 入れたもののカード（明細の要約の行・口座・チャートの行。#117 のレッグの欄は取引の欄のシートの中に置く） */}
+            <div class="rinput">
+              <StatementArea
+                {...p}
+                tzNeed={tzNeed}
+                accountField={
+                  choice === 'segment' && !add ? (
+                    <AccountField
+                      accounts={state.accounts}
+                      value={accountId}
+                      onChange={set('accountId')}
+                      {...(accountHint ? { hint: accountHint } : {})}
+                      {...(marks.accountId ? { mark: MARK_LABEL[marks.accountId] } : {})}
+                    />
+                  ) : null
+                }
+                accountChip={choice === 'select' && account ? account.name : null}
               />
-            ) : null
-          }
-          accountChip={choice === 'select' && account ? account.name : null}
-        />
+              <ChartRowView {...p} />
+            </div>
 
-        <MiniCharts
-          prefix="record"
-          charts={state.charts}
-          timeframes={{ entry: d.entryChartTimeframe, exit: d.exitChartTimeframe }}
-          blocked={state.chartBlocked}
-          onPick={(slot, f) => p.onPickChart?.(slot, f)}
-          onOpen={() => openSheet({ kind: 'chart' })}
-        />
+            <div class="record__lc">
+              <LcFields {...fields} />
+            </div>
 
-        <div class="record__lc">
-          <LcFields {...fields} />
-        </div>
-
-        <div class="record__taps">
-          <TapFields {...fields} timeframeHint={conflict?.tapHint ?? null} moveHintInInfo />
-          {read.preview.showGapSlip ? (
-            <Segment
-              label="窓・滑りでしたか"
-              value={d.gapSlip === 'unanswered' ? null : d.gapSlip}
-              onChange={set('gapSlip')}
-              options={[
-                { value: 'yes', label: 'はい' },
-                { value: 'no', label: 'いいえ' },
-              ]}
-            />
-          ) : null}
-        </div>
+            <div class="record__taps">
+              <TapFields {...fields} timeframeHint={conflict?.tapHint ?? null} moveHintInInfo />
+              {read.preview.showGapSlip ? (
+                <Segment
+                  label="窓・滑りでしたか"
+                  value={d.gapSlip === 'unanswered' ? null : d.gapSlip}
+                  onChange={set('gapSlip')}
+                  options={[
+                    { value: 'yes', label: 'はい' },
+                    { value: 'no', label: 'いいえ' },
+                  ]}
+                />
+              ) : null}
+            </div>
+          </>
+        )}
 
         {/* 取引の欄（要約の ［編集］・名指しの欄・［明細なしで手入力］）。段 2 = ほかの欄（任意） */}
         <Sheet
@@ -905,39 +1011,43 @@ function RecordForm(p: RecordViewProps) {
         </Sheet>
       </fieldset>
 
-      <div class="record__submit record__submit--bar">
-        {state.error ? (
-          <div class="notice notice--error" role="alert">
-            <p>{state.error}</p>
-            {state.errorKind === 'auth' ? (
-              <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-                もう一度ログイン
-              </Button>
-            ) : null}
-          </div>
-        ) : null}
-        <VerdictLineButton
-          id={VERDICT_LINE_ID}
-          line={line}
-          status={line.kind === 'status' ? line.text : submitStatus(read, errorLabels)}
-          disabled={saving}
-          onOpen={() => openSheet({ kind: 'verdict' })}
-        />
-        <Button
-          type="submit"
-          id={SUBMIT_ID}
-          icon="record"
-          block
-          disabled={!read.canSave || saving}
-          {...(describe ? { describedBy: describe } : {})}
-        >
-          {saving
-            ? Object.values(state.charts ?? {}).some((c) => c?.phase === 'ready')
-              ? 'チャートを送っています…'
-              : '記録しています…'
-            : '記録する'}
-        </Button>
-      </div>
+      {stage === 'input' ? (
+        <StageInputFoot {...p} />
+      ) : (
+        <div class="record__submit record__submit--bar">
+          {state.error ? (
+            <div class="notice notice--error" role="alert">
+              <p>{state.error}</p>
+              {state.errorKind === 'auth' ? (
+                <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
+                  もう一度ログイン
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+          <VerdictLineButton
+            id={VERDICT_LINE_ID}
+            line={line}
+            status={line.kind === 'status' ? line.text : submitStatus(read, errorLabels)}
+            disabled={saving}
+            onOpen={() => openSheet({ kind: 'verdict' })}
+          />
+          <Button
+            type="submit"
+            id={SUBMIT_ID}
+            icon="record"
+            block
+            disabled={!read.canSave || saving}
+            {...(describe ? { describedBy: describe } : {})}
+          >
+            {saving
+              ? Object.values(state.charts ?? {}).some((c) => c?.phase === 'ready')
+                ? 'チャートを送っています…'
+                : '記録しています…'
+              : '記録する'}
+          </Button>
+        </div>
+      )}
     </form>
   );
 }
@@ -955,8 +1065,9 @@ function moreMeta(
 }
 
 /**
- * 明細の場所（同じ要素の中で 3 つの状態が入れ替わる。9.4）: 選ぶ前 = 注意と ［スクショを選ぶ］ ［明細なしで手入力］、
- * 読み取り中 = 要約の骨組みと ［読み取りをキャンセル］、読み取りの後 = 要約 2 行と ［編集］・名指し・タイムゾーン・口座
+ * 2 段目の明細の行（同じ要素の中で 3 つの状態が入れ替わる。9.4）: 読み取り中 = 要約の骨組みと ［キャンセル］、読み取りの後 =
+ * 要約 2 行と ［編集］・名指し・タイムゾーン・口座、やり直し = 読み取りの失敗・キャンセルで取引の値が無い（理由と
+ * ［スクショを選ぶ］（1 段目へ）・［手入力で続ける］。選ぶ枠は 1 段目だけ。要約を通らずに記録できる経路は無い = 7.5）
  */
 function StatementArea(
   p: RecordViewProps & {
@@ -967,7 +1078,7 @@ function StatementArea(
 ) {
   const { state } = p;
   const st = state.statement;
-  const area = statementArea({ statement: st, manual: state.manual, draft: state.draft });
+  const area = statementRow({ statement: st, manual: state.manual, draft: state.draft });
   const marks = st?.marks ?? {};
   const open = (s: RecordSheet) => p.onSheet?.(s);
   const message =
@@ -976,51 +1087,28 @@ function StatementArea(
         {st.message}
       </p>
     ) : null;
-  const notices = (
-    <>
-      {state.readBlocked ? (
-        <p class="statement__text" role="status">
-          {state.readBlocked}
-        </p>
-      ) : null}
-      {st?.notice ? (
-        <p class="statement__text" role="status">
-          {st.notice}
-        </p>
-      ) : null}
-    </>
-  );
+  const notices = <StatementNotices state={state} />;
   return (
     <section class="rstmt" data-area={area} aria-labelledby={STATEMENT_TITLE_ID}>
       <h2 class="sr-only" id={STATEMENT_TITLE_ID} tabIndex={-1}>
         決済明細
       </h2>
-      {area === 'pick' ? (
-        <div class="rstmt__card rstmt__card--pick">
-          {/* 送る前の注意（畳まない・3 行以下。7.5・C38）。補足は末尾の「i」 */}
-          <p class="statement__notice rstmt__notice">
-            <span id={STATEMENT_NOTICE_ID}>{STATEMENT_NOTICE.join('')}</span>
-            <InfoTip
-              label={STATEMENT_INFO_LABEL}
-              body={STATEMENT_NOTICE_MORE}
-              id={STATEMENT_INFO_ID}
-            />
-          </p>
+      {area === 'retry' ? (
+        <div class="rstmt__card rstmt__card--retry">
+          {message ?? <p class="rsum__l1">明細がありません</p>}
           <div class="rstmt__actions">
-            <StatementPick primary onPickFile={p.onPickFile} />
             <Button
               variant="secondary"
-              class="rstmt__manual"
-              id={MANUAL_ID}
-              onClick={() => {
-                p.onManual?.();
-              }}
+              id={REPICK_ID}
+              icon="image"
+              onClick={() => p.onStage?.('input')}
             >
-              明細なしで手入力
+              スクショを選ぶ
+            </Button>
+            <Button variant="secondary" id={MANUAL_ID} onClick={() => p.onManual?.()}>
+              手入力で続ける
             </Button>
           </div>
-          <p class="field__hint statement__pastehint">PC はこの画面に貼り付けることもできます。</p>
-          {message}
           {notices}
         </div>
       ) : area === 'reading' ? (
@@ -1046,6 +1134,25 @@ function StatementArea(
         <RecordSummary {...p} marks={marks} message={message} notices={notices} onOpen={open} />
       )}
     </section>
+  );
+}
+
+/** 画像を受けられなかった知らせと、明細の知らせ（「1 / 3 行目を記録しました」など） */
+function StatementNotices({ state }: { readonly state: RecordState }) {
+  const st = state.statement;
+  return (
+    <>
+      {state.readBlocked ? (
+        <p class="statement__text" role="status">
+          {state.readBlocked}
+        </p>
+      ) : null}
+      {st?.notice ? (
+        <p class="statement__text" role="status">
+          {st.notice}
+        </p>
+      ) : null}
+    </>
   );
 }
 
@@ -1094,18 +1201,22 @@ function RecordSummary(
   );
 }
 
-/** ［スクショを選ぶ］（label + 画像だけのファイルの欄。選ぶと読み取りへ。同じファイルを選び直せるよう空に戻す） */
+/**
+ * ［スクショを選ぶ］・［スクショを変更］（label + 画像だけのファイルの欄。選ぶと読み取りへ = 2 段目。同じファイルを選び直せるよう
+ * 空に戻す）。1 段目の明細の枠だけに置く（明細を送る入口は 1 つ）
+ */
 function StatementPick(p: {
   readonly primary?: boolean;
+  readonly text: string;
   readonly onPickFile?: ((file: File) => void) | undefined;
 }) {
   return (
     <label
-      class={`btn ${p.primary ? 'btn--secondary rstmt__pick' : 'btn--secondary btn--sm'} statement__file`}
+      class={`btn ${p.primary ? 'btn--primary' : 'btn--secondary'} rin__btn statement__file`}
       for={STATEMENT_FILE_ID}
     >
       <Icon name="image" />
-      <span>スクショを選ぶ</span>
+      <span>{p.text}</span>
       <input
         id={STATEMENT_FILE_ID}
         class="statement__input"
@@ -1125,26 +1236,15 @@ function StatementPick(p: {
 }
 
 /**
- * 取引の欄のシートの先頭の明細（読み取りの後・手入力の後）: 送る前の注意と ［スクショを選ぶ］（もう 1 枚で読み直す）、
- * プレビュー、複数行の ［この行をスキップ］
+ * 取引の欄のシートの先頭の明細: プレビュー、複数行の ［この行をスキップ］（もう 1 枚を選ぶのは 1 段目の ［スクショを変更］。
+ * シートは欄だけ。2026-11-21）
  */
 function StatementDetails(p: RecordViewProps) {
   const st = p.state.statement;
   const rows = st?.phase === 'ready' ? st.rows.length : 0;
   const preview = st?.preview ?? null;
-  const area = statementArea({ statement: st, manual: p.state.manual, draft: p.state.draft });
   return (
     <div class="statement rstmt__details">
-      {area === 'summary' ? (
-        <>
-          <p class="statement__notice">
-            <span id={STATEMENT_NOTICE_ID}>{STATEMENT_NOTICE.join('')}</span>
-          </p>
-          <div class="statement__pick">
-            <StatementPick onPickFile={p.onPickFile} />
-          </div>
-        </>
-      ) : null}
       {preview ? (
         <canvas
           class="statement__preview"
@@ -1168,6 +1268,340 @@ function StatementDetails(p: RecordViewProps) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** チャートの枠の状態を、行・枠の文の入力に写す */
+function chartLike(c: ChartState | undefined, timeframe: Timeframe | null): ChartLike {
+  return {
+    hasChart: c?.phase === 'ready',
+    preparing: c?.phase === 'preparing',
+    reading: c?.read === 'reading',
+    failed: c?.phase === 'failed',
+    timeframe: timeframe ? TIMEFRAME_NAME[timeframe] : null,
+    suggest: c?.readSuggest ? TIMEFRAME_NAME[c.readSuggest] : null,
+  };
+}
+
+/** チャートを差し替えた知らせの文 */
+export const replacedText = (slot: AnySlot) =>
+  `${isMainSlot(slot) ? CHART_SLOT_TEXT[slot].name : '追加'}のチャートを差し替えました。`;
+
+/** 1 段目の見出しの下の案内（明細が入る前 / 入った後。デザインレビュー a1） */
+export const STAGE1_LEAD = '決済明細を選ぶと、読み取りを待たずに振り返りへ進みます。';
+export const STAGE1_LEAD_FILLED = '明細は入っています。チャートは振り返りの画面でも追加できます。';
+
+/**
+ * 1 段目「スクショを入れる」（2026-11-21。K17・ui-guidelines 9.4）: 絵つきの大きな枠 2 つ（決済明細・チャート）と、その下に
+ * 常に出す注意（C38）、［明細なしで手入力］（2 段目に見せるものがあれば ［振り返りへ進む］）。判定の帯・［記録する］ は置かない
+ */
+function StageInput(p: RecordViewProps) {
+  const { state } = p;
+  const d = state.draft;
+  const st = state.statement;
+  const s1 = stage1Statement(st);
+  const filled = s1.kind === 'filled';
+  const preview = filled ? (st?.preview ?? null) : null;
+  const charts = state.charts ?? {};
+  const anyChart = charts.entry !== undefined || charts.exit !== undefined;
+  const message =
+    st?.phase === 'failed' && st.message ? (
+      <p class="notice notice--error" role="alert">
+        {st.message}
+      </p>
+    ) : null;
+  return (
+    <section class="rin" aria-labelledby={STAGE1_TITLE_ID}>
+      <div class="rin__head">
+        <h2 class="rin__title" id={STAGE1_TITLE_ID} tabIndex={-1}>
+          スクショを入れる
+        </h2>
+        <p class="rin__lead">{filled ? STAGE1_LEAD_FILLED : STAGE1_LEAD}</p>
+      </div>
+
+      <div class={filled ? 'rin__card rin__card--filled' : 'rin__card'}>
+        <div class="rin__body">
+          <div class="rin__artwrap" aria-hidden="true">
+            <div class="rin__art">
+              {preview ? (
+                <canvas
+                  class="rin__preview"
+                  width={preview.width}
+                  height={preview.height}
+                  ref={(el: HTMLCanvasElement | null) => {
+                    if (el) preview.draw(el);
+                  }}
+                />
+              ) : (
+                <StatementArt />
+              )}
+            </div>
+            {filled ? (
+              <span class="rin__check">
+                <Icon name="check" />
+              </span>
+            ) : null}
+          </div>
+          <div class="rin__text">
+            <h3 class="rin__name">決済明細のスクショ</h3>
+            <p class="rin__desc" {...(filled ? { role: 'status' } : {})}>
+              {filled ? s1.text : '決済した後の、約定と損益が載っている画面'}
+            </p>
+            <StatementPick
+              primary={!filled}
+              text={filled ? 'スクショを変更' : 'スクショを選ぶ'}
+              onPickFile={p.onPickFile}
+            />
+          </div>
+        </div>
+        {/* 送る前の注意（畳まない・3 行以下。7.5・C38）。補足は末尾の「i」 */}
+        <p class="statement__notice rin__notice">
+          <span id={STATEMENT_NOTICE_ID}>{STATEMENT_NOTICE.join('')}</span>
+          <InfoTip
+            label={STATEMENT_INFO_LABEL}
+            body={STATEMENT_NOTICE_MORE}
+            id={STATEMENT_INFO_ID}
+          />
+        </p>
+        {message}
+        <StatementNotices state={state} />
+      </div>
+
+      <div class={anyChart ? 'rin__card rin__card--bare' : 'rin__card'}>
+        {anyChart ? (
+          <div class="rin__charts">
+            <h3 class="rin__name">
+              <ChartTitle />
+            </h3>
+            <div class="rcharts__grid">
+              {CHART_SLOTS.map((slot) => (
+                <MiniChart
+                  key={slot}
+                  prefix="record"
+                  slot={slot}
+                  chart={charts[slot]}
+                  timeframe={slot === 'entry' ? d.entryChartTimeframe : d.exitChartTimeframe}
+                  onPick={(f) => p.onPickChart?.(slot, f)}
+                  markChanges={false}
+                  onOpen={() => p.onSheet?.({ kind: 'chart' })}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div class="rin__body">
+            <div class="rin__artwrap" aria-hidden="true">
+              <div class="rin__art rin__art--chart">
+                <CandleArt />
+              </div>
+            </div>
+            <div class="rin__text">
+              <h3 class="rin__name">
+                <ChartTitle />
+                <span class="field__optional">（任意）</span>
+              </h3>
+              <p class="rin__desc">根拠にした時間足のまま撮ったもの</p>
+              <label
+                class="btn btn--tonal rin__btn"
+                id={miniChartId('entry')}
+                for={`${miniChartId('entry')}-file`}
+              >
+                <Icon name="plus" />
+                <span>チャートを選ぶ</span>
+                <ChartFileInput
+                  slot="entry"
+                  describedBy={CHART_NOTICE_ID}
+                  onPick={(f) => p.onPickChart?.('entry', f)}
+                />
+              </label>
+            </div>
+          </div>
+        )}
+        <p class="charts__notice rin__notice" id={CHART_NOTICE_ID}>
+          {CHART_READ_NOTICE}
+        </p>
+        {state.chartBlocked ? (
+          <p class="statement__text" role="status">
+            {state.chartBlocked}
+          </p>
+        ) : null}
+        <ChartReplaced text={p.chartReplaced} />
+      </div>
+
+      <p class="field__hint statement__pastehint">PC はこの画面に貼り付けることもできます。</p>
+    </section>
+  );
+}
+
+/** チャートの枠の題（「エントリーした足の / チャート」の語の切れ目でだけ折る。デザインレビュー a2） */
+function ChartTitle() {
+  return (
+    <>
+      <span class="rin__chunk">エントリーした足の</span>
+      <span class="rin__chunk">チャート</span>
+    </>
+  );
+}
+
+/** 枠・行にフォーカスして貼り、チャートを差し替えた知らせ（黙って差し替えない。#130 の R1 の振る舞いはそのまま） */
+function ChartReplaced({ text }: { readonly text?: string | null | undefined }) {
+  return text ? (
+    <p class="statement__text rchart__replaced" role="status">
+      {text}
+    </p>
+  ) : null;
+}
+
+/**
+ * 1 段目の下の端のボタン（フォームの下の端 = 2 段目の ［記録する］ と同じ所。デザインレビュー a3）。2 段目に見せる要約が
+ * あれば ［振り返りへ進む］、無ければ ［明細なしで手入力］
+ */
+function StageInputFoot(p: RecordViewProps) {
+  const { state } = p;
+  const st = state.statement;
+  const filled = stage1Statement(st).kind === 'filled';
+  const proceed = showProceed({ statement: st, manual: state.manual, draft: state.draft });
+  return (
+    <div class="rin__foot">
+      {proceed ? (
+        <Button
+          id={PROCEED_ID}
+          block
+          variant={filled ? 'primary' : 'secondary'}
+          onClick={() => p.onStage?.('review')}
+        >
+          振り返りへ進む
+        </Button>
+      ) : (
+        <>
+          <p class="rin__footlead">スクショが無いとき</p>
+          <Button
+            variant="secondary"
+            block
+            class="rstmt__manual"
+            id={MANUAL_ID}
+            onClick={() => p.onManual?.()}
+          >
+            明細なしで手入力
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** チャートを選ぶファイルの欄（画像だけ。フォーカスして貼るとこの枠へ = data-chart-slot。R1） */
+function ChartFileInput(p: {
+  readonly slot: ChartSlot;
+  readonly describedBy?: string;
+  readonly onPick: (file: File) => void;
+}) {
+  const id = miniChartId(p.slot);
+  return (
+    <input
+      id={`${id}-file`}
+      class="statement__input"
+      type="file"
+      data-chart-slot={p.slot}
+      aria-label={`${CHART_SLOT_TEXT[p.slot].name}のチャートを選ぶ`}
+      {...(p.describedBy ? { 'aria-describedby': p.describedBy } : {})}
+      accept="image/png,image/jpeg,image/*"
+      onChange={(ev) => {
+        const input = ev.currentTarget;
+        const file = input.files?.[0];
+        input.value = '';
+        if (file) p.onPick(file);
+      }}
+    />
+  );
+}
+
+/**
+ * 2 段目のチャートの行（入れたもののカードの 2 行目。2026-11-21）: 空 = 小さなローソク足の絵と題とチャートの注意（C38）。
+ * 行全体が押せて 1 タップでエントリー時のチャートを選ぶ。入った = 小さな写し・「エントリー時 · 時間足」・決済時の 1 行・›、
+ * 押すとチャートのシート（時間足・差し替え・削除・決済時・追加のチャート）
+ */
+function ChartRowView(p: RecordViewProps) {
+  const { state } = p;
+  const d = state.draft;
+  const charts = state.charts ?? {};
+  const row = chartRow({
+    entry: chartLike(charts.entry, d.entryChartTimeframe),
+    exit: chartLike(charts.exit, d.exitChartTimeframe),
+    extras: (state.extras ?? []).length,
+  });
+  const id = miniChartId('entry');
+  const blocked = (
+    <>
+      {state.chartBlocked ? (
+        <p class="statement__text rchartrow__blocked" role="status">
+          {state.chartBlocked}
+        </p>
+      ) : null}
+      <ChartReplaced text={p.chartReplaced} />
+    </>
+  );
+  if (row.kind === 'full') {
+    const c = charts.entry?.phase === 'ready' ? charts.entry : charts.exit;
+    const preview = c?.phase === 'ready' ? c.preview : null;
+    return (
+      <>
+        <button
+          type="button"
+          id={id}
+          class="rchartrow rchartrow--full"
+          data-chart-slot="entry"
+          aria-haspopup="dialog"
+          aria-label={`チャート: ${row.line1}。${row.line2}（チャートを開く）`}
+          onClick={() => p.onSheet?.({ kind: 'chart' })}
+        >
+          <span class="rchartrow__thumb" aria-hidden="true">
+            {preview ? (
+              <canvas
+                class="rchart__canvas"
+                width={preview.width}
+                height={preview.height}
+                ref={(el: HTMLCanvasElement | null) => {
+                  if (el) preview.draw(el);
+                }}
+              />
+            ) : (
+              <CandleArt small />
+            )}
+          </span>
+          <span class="rchartrow__text">
+            <span class="rchartrow__l1">{row.line1}</span>
+            <span class="rchartrow__l2">{row.line2}</span>
+          </span>
+          <Icon name="chevron" class="rchartrow__chev" />
+        </button>
+        {blocked}
+      </>
+    );
+  }
+  return (
+    <>
+      <label class="rchartrow" id={id} for={`${id}-file`}>
+        <span class="rchartrow__thumb rchartrow__thumb--empty" aria-hidden="true">
+          <CandleArt small />
+          <span class="rchartrow__plus">
+            <Icon name="plus" />
+          </span>
+        </span>
+        <span class="rchartrow__text">
+          <span class="rchartrow__l1">{row.status ?? 'エントリーした足のチャート'}</span>
+          <span class="charts__notice rchartrow__notice" id={CHART_NOTICE_ID}>
+            {CHART_READ_NOTICE}
+          </span>
+        </span>
+        <ChartFileInput
+          slot="entry"
+          describedBy={CHART_NOTICE_ID}
+          onPick={(f) => p.onPickChart?.('entry', f)}
+        />
+      </label>
+      {blocked}
+    </>
   );
 }
 

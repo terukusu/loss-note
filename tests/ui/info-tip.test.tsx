@@ -243,7 +243,7 @@ describe('InfoSheetBody（説明のシートの中身。#129）', () => {
   });
 
   it('AC-9: 明細の補足は文だけ（用語集の項目へのつなぎは無い）', () => {
-    const src = { label: '明細の送り方', body: STATEMENT_NOTICE_MORE, id: 'record-statement-info' };
+    const src = { label: '明細の送り方', body: STATEMENT_NOTICE_MORE, id: 'statement-info' };
     const t = expand(<InfoSheetBody content={infoContent(src)} />);
     expect(text(t)).toContain(STATEMENT_NOTICE_MORE);
     expect(text(t)).not.toContain('用語集で見る');

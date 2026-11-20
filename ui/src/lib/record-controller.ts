@@ -97,6 +97,7 @@ import {
   type Summary,
   summarize,
 } from './record-form';
+import type { RecordStage } from './record-screen';
 import {
   type ApiFn,
   AUTH_EXPIRED,
@@ -315,6 +316,12 @@ export interface RecordState {
    * 判定（draft-status.ts）には数えない（押しただけでは入力ではない）
    */
   readonly manual?: boolean;
+  /**
+   * 段（2026-11-21。設計書 K17）: input = 1 段目「スクショを入れる」、review = 2 段目「振り返る」。開いたとき・次の取引・最後の
+   * 行のスキップは input、明細を選ぶ（読み取りを待たない。C23）・［明細なしで手入力］ は review。書きかけと一緒に預かるので、
+   * 戻ったときも同じ段。書きかけの判定には数えない
+   */
+  readonly stage?: RecordStage;
 }
 
 export interface RecordController {
@@ -338,6 +345,8 @@ export interface RecordController {
   skipRow(): void;
   /** ［明細なしで手入力］: 明細の場所を要約の状態にする（取引の欄のシートを開くのは画面。#130） */
   startManual(): void;
+  /** 段を替える（2 段目の上の帯の ［スクショ］ = input、1 段目の ［振り返りへ進む］ = review。値はそのまま） */
+  setStage(stage: RecordStage): void;
   /** チャートを 1 枚、枠に入れる（描き直してプレビューを出すだけ。送るのは [記録する]。同じ枠なら置き換え） */
   setChart(slot: AnySlot, file: Blob): Promise<void>;
   /** [削除]: 枠の画像と時間足を消す（付属の枠は行ごと） */
@@ -631,6 +640,7 @@ export function createRecordController(deps: {
       state = rest;
       set({
         phase: 'editing',
+        stage: 'input',
         instruments: i.items,
         accounts,
         ...withBaseline(applyDraft(EMPTY_DRAFT, { type: 'reset', values: defaults })),
@@ -845,6 +855,8 @@ export function createRecordController(deps: {
     set({
       error: null,
       readBlocked: null,
+      // 明細を選んだら読み取りを待たずに 2 段目へ（C23。2026-11-21）
+      stage: 'review',
       draft,
       statement: {
         phase: 'preparing',
@@ -1009,6 +1021,7 @@ export function createRecordController(deps: {
     set(
       {
         phase: 'editing',
+        stage: 'input',
         error: null,
         manual: false,
         ...withBaseline(
@@ -1428,6 +1441,7 @@ export function createRecordController(deps: {
       set({
         error: null,
         manual: false,
+        stage: 'input',
         ...withBaseline(
           applyDraft(EMPTY_DRAFT, {
             type: 'reset',
@@ -1446,8 +1460,13 @@ export function createRecordController(deps: {
       });
     },
     startManual() {
-      if (state.phase !== 'editing' || state.manual === true) return;
-      set({ manual: true });
+      if (state.phase !== 'editing') return;
+      if (state.manual === true && state.stage === 'review') return;
+      set({ manual: true, stage: 'review' });
+    },
+    setStage(stage) {
+      if (state.phase !== 'editing' || state.stage === stage) return;
+      set({ stage });
     },
     refreshWarm() {
       if (!warmMissed && warmSentAt !== null && now() - warmSentAt < WARM_REFRESH_MS) return;

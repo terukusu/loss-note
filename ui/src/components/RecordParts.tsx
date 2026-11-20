@@ -144,7 +144,8 @@ export function MiniCharts(p: MiniChartsProps) {
   );
 }
 
-function MiniChart(p: {
+/** チャートの 1 枠（2 枠の並び `MiniCharts` の中と、記録する画面の 1 段目のチャートの枠の中。2026-11-21） */
+export function MiniChart(p: {
   readonly prefix: string;
   readonly slot: ChartSlot;
   readonly chart: ChartState | undefined;

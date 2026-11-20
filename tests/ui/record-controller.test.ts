@@ -2289,3 +2289,85 @@ describe('#130 のレビュー B1: 2 枚目の読み取りが失敗・キャン�
     await p;
   });
 });
+
+describe('記録する画面の 2 段（入れる → 振り返る。設計書 K17・2026-11-21）', () => {
+  it('開いた直後は 1 段目。明細を選ぶと読み取りを待たずに 2 段目（C23）', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1])]);
+    expect(c.getState().stage).toBe('input');
+    fake.holdReads();
+    const p = c.readImage(img());
+    // 描き直しを待たずに 2 段目
+    expect(c.getState().stage).toBe('review');
+    await until(() => c.getState().statement?.phase === 'reading');
+    expect(c.getState().stage).toBe('review');
+    fake.releaseReads();
+    await p;
+    expect(c.getState().stage).toBe('review');
+  });
+
+  it('チャートを先に選んでも 1 段目のまま。［明細なしで手入力］ で 2 段目', async () => {
+    const { c } = await openedForRead([]);
+    await c.setChart('entry', img());
+    expect(c.getState().stage).toBe('input');
+    c.startManual();
+    expect(c.getState().stage).toBe('review');
+  });
+
+  it('上の帯の ［スクショ］ で 1 段目へ、［振り返りへ進む］ で 2 段目へ。入力の値は残る（段は中身の入れ替えだけ）', async () => {
+    const { c } = await openedForRead([ok([ROW_E1])]);
+    await c.readImage(img());
+    c.update({ type: 'set', field: 'lc', value: '99' });
+    c.setStage('input');
+    expect(c.getState().stage).toBe('input');
+    expect(c.getState().draft.lc).toBe('99');
+    expect(c.getState().statement?.phase).toBe('ready');
+    c.setStage('review');
+    expect(c.getState().stage).toBe('review');
+    expect(c.getState().draft.lc).toBe('99');
+  });
+
+  it('読み取りの失敗・キャンセルは 2 段目のまま（入力中の欄を奪わない）', async () => {
+    const { fake, c } = await openedForRead([
+      { status: 503, body: { error: 'read_unavailable' } },
+      ok([ROW_E1]),
+    ]);
+    await c.readImage(img());
+    expect(c.getState().statement?.phase).toBe('failed');
+    expect(c.getState().stage).toBe('review');
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => c.getState().statement?.phase === 'reading');
+    c.cancelRead();
+    expect(c.getState().stage).toBe('review');
+    fake.releaseReads();
+    await p;
+  });
+
+  it('複数行: 次の行も 2 段目。最後の行を飛ばす・次の取引は 1 段目', async () => {
+    const { c } = await openedForRead([ok(ROWS_E10.slice(0, 2))]);
+    await c.readImage(img());
+    c.skipRow();
+    expect(c.getState().statement?.index).toBe(1);
+    expect(c.getState().stage).toBe('review');
+    c.skipRow();
+    expect(c.getState().stage).toBe('input');
+  });
+
+  it('保存の後の ［次の取引を記録］ は 1 段目', async () => {
+    const fake = createFakeApi({ instruments: [US30] });
+    const c = await opened(fake);
+    c.startManual();
+    fillFrom(c, E1);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    c.next();
+    expect(c.getState().stage).toBe('input');
+  });
+
+  it('段を替えただけでは書きかけに数えない', async () => {
+    const fake = createFakeApi({ instruments: [US30] });
+    const c = await opened(fake);
+    c.setStage('review');
+    expect(recordDraftStatus(c.getState())).toBe('empty');
+  });
+});

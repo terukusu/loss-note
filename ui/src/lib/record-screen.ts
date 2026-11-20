@@ -1,4 +1,6 @@
-// 記録する画面の 1 画面の形（#130。設計書 0.4 K17・9.2 の記録するの行・docs/ui-guidelines.md 9.4）の純関数。DOM なし。
+// 記録する画面の形（#130。2026-11-21 に 2 段へ。設計書 0.4 K17・9.2 の記録するの行・docs/ui-guidelines.md 9.4）の純関数。DOM なし。
+// - 同じ全画面のシートの中の 2 つの段: 1 段目「スクショを入れる」（明細・チャートの絵の枠）→ 2 段目「振り返る」（要約・LC 以下）。
+//   ［次へ］ は置かず、明細を選ぶ・［明細なしで手入力］ が段を進める（読み取りを待たない。C23）
 // - 明細の場所は同じ場所で 3 つの状態が入れ替わる: 選ぶ前（pick）・読み取り中（reading）・読み取りの後（summary）
 // - 読み取りの後（と ［明細なしで手入力］ の後）は、取引の欄を 2 行の要約に畳み、読めなかった・未入力・誤りの欄を名指す
 //   （7.5 の「確かめずに記録へ入る経路は無い」を、要約が常に見えていることと名指しで守る。K17）
@@ -280,3 +282,75 @@ export function chartSlotLine(c: {
 
 /** 小さなチャートの枠の id（シートの中の今の枠 `record-chart-<slot>` とは別。編集の画面は接頭辞 edit。#131） */
 export const miniChartId = (slot: AnySlot, prefix = 'record') => `${prefix}-mini-${slot}`;
+/** 記録する画面の段: input = 1 段目「スクショを入れる」、review = 2 段目「振り返る」（2026-11-21。K17） */
+export type RecordStage = 'input' | 'review';
+
+/** 今の段（controller が持つ。省けば振り返る段 = 状態だけを描くテスト） */
+export function stageOf(s: { readonly stage?: RecordStage | undefined }): RecordStage {
+  return s.stage ?? 'review';
+}
+
+/**
+ * 2 段目の明細の行の状態: 読み取り中 / 要約 / やり直し（失敗・キャンセルで取引の値が無い。選ぶ枠は 1 段目だけなので、
+ * 理由と ［スクショを選ぶ］・［手入力で続ける］ を出す。要約を通らずに記録できる経路は作らない = 7.5）
+ */
+export type StatementRow = 'reading' | 'summary' | 'retry';
+
+export function statementRow(s: Parameters<typeof statementArea>[0]): StatementRow {
+  const a = statementArea(s);
+  return a === 'pick' ? 'retry' : a;
+}
+
+/** 1 段目の明細の枠: 空（絵と ［スクショを選ぶ］）か、入った（実物の写しと状態の文と ［スクショを変更］） */
+export type Stage1Statement =
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'filled'; readonly text: string };
+
+export function stage1Statement(
+  st:
+    | { readonly phase: StatementPhaseLike; readonly rows: { readonly length: number } }
+    | undefined,
+): Stage1Statement {
+  if (!st || st.phase === 'done' || st.phase === 'failed') return { kind: 'empty' };
+  if (st.phase === 'preparing' || st.phase === 'reading')
+    return { kind: 'filled', text: '読み取り中…' };
+  return {
+    kind: 'filled',
+    text: st.rows.length >= 2 ? `${st.rows.length} 行を読み取りました` : '読み取りました',
+  };
+}
+
+/** 1 段目の下に ［振り返りへ進む］ を出すか（2 段目に見せる要約があるとき。無ければ ［明細なしで手入力］） */
+export function showProceed(s: Parameters<typeof statementArea>[0]): boolean {
+  return statementArea(s) !== 'pick';
+}
+
+/** チャートの枠の状態（chartSlotLine の入力と同じ形） */
+export type ChartLike = Parameters<typeof chartSlotLine>[0];
+
+/**
+ * 2 段目のチャートの行: 空 = 押すとエントリー時のチャートを選ぶ（1 タップ。準備中・失敗は状態の文）、
+ * 入った = 「エントリー時 · 時間足」と決済時の 1 行（押すとチャートのシート）
+ */
+export type ChartRow =
+  | { readonly kind: 'empty'; readonly status: string | null }
+  | { readonly kind: 'full'; readonly line1: string; readonly line2: string };
+
+export function chartRow(c: {
+  readonly entry: ChartLike;
+  readonly exit: ChartLike;
+  readonly extras: number;
+}): ChartRow {
+  const { entry, exit } = c;
+  if (!entry.hasChart && !exit.hasChart && c.extras === 0) {
+    const status = entry.preparing || entry.failed ? chartSlotLine(entry) : null;
+    return { kind: 'empty', status };
+  }
+  const line1 = `エントリー時 · ${entry.hasChart ? chartSlotLine(entry) : '未選択'}`;
+  const exitText =
+    exit.hasChart || exit.preparing
+      ? `決済時 · ${chartSlotLine(exit)}`
+      : '決済時のチャートも追加できます';
+  const line2 = c.extras > 0 ? `${exitText} · 追加 ${c.extras} 枚` : exitText;
+  return { kind: 'full', line1, line2 };
+}

@@ -141,12 +141,18 @@ def read_trade_multipart(
 
     外す枠（部分 ``removeChart`` = 枠の名前。枠ごとに 1 つ）は取引の直し（allow_remove）だけ。同じ枠に画像と外すの
     両方は 400 conflict。上限: 本文全体・部分の数・文字の部分の大きさ（超えたら RequestEntityTooLarge → アプリの処理で
-    400 tooLarge）。issues は既知の名前と種類だけ（送った部分の名前・値を返さない）。画像の中身の検査は呼び出し側
+    400 tooLarge）。record の 64 KiB はここで UTF-8 のバイト数で数える（Werkzeug の max_form_memory_size はファイルの
+    部分の読み込みにも掛かるので、塊より大きい MAX_FORM_MEMORY にする。#151）。issues は既知の名前と種類だけ（送った
+    部分の名前・値を返さない）。画像の中身の検査は呼び出し側
     """
     request.max_content_length = charts.MAX_MULTIPART_BYTES
     request.max_form_parts = charts.MAX_PARTS
-    request.max_form_memory_size = charts.MAX_RECORD_PART
+    request.max_form_memory_size = charts.MAX_FORM_MEMORY
     form, files = request.form, request.files
+    # schema.parse_json_body も MAX_BODY_BYTES（64 KiB）で見ているが、ここでも見る: unknownPart・duplicate・required
+    # より先に tooLarge を返す（#151 の前の Werkzeug の 413 と同じ順）。消さない
+    if any(len(v.encode("utf-8")) > charts.MAX_RECORD_PART for v in form.getlist("record")):
+        return None, {}, set(), invalid([{"field": "", "kind": "tooLarge"}])
     known_files = {charts.PART[s]: s for s in charts.SLOTS}
     known_form = ("record", charts.REMOVE_PART) if allow_remove else ("record",)
     if any(k not in known_form for k in form) or any(k not in known_files for k in files):

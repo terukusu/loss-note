@@ -252,6 +252,55 @@ def test_multipart_shape_is_checked(api, iid):
     assert chart_count(api, A) == 0
 
 
+def test_crlf_in_image_is_accepted(api, iid):
+    """#151: 画像の中の CR / LF の近くに読み込みの塊（64 KiB）の境目があっても、作成の multipart は通る（文字の部分の
+    上限をファイルの部分に当てない）。詰め物は CR / LF だけ。途中の大きさと上限ちょうど"""
+    for size in (70_000, 131_073, 300_000, charts.MAX_BYTES):
+        img = png(1200, 800, size=size, filler=b"\r\n")
+        other = chart_jpeg(filler=b"\n\r", size=size)
+        res = post_with_charts(api, A, e1(iid), {"entry": (img, "image/png"), "exit": (other, "image/jpeg")})
+        assert res.status_code == 201, (size, res.get_json())
+        tid = res.get_json()["id"]
+        assert api.get(chart_url(tid, "entry"), A).data == img
+        assert api.get(chart_url(tid, "exit"), A).data == other
+
+
+def test_record_part_limit_is_kept(api, iid):
+    """#151: record の部分は 64 KiB まで（ちょうどは JSON の検査へ・1 B 超えは tooLarge。画像と一緒でも同じ）"""
+
+    def rec_of(n: int) -> str:
+        head = '{"a":"'
+        return head + "x" * (n - len(head) - 2) + '"}'
+
+    img = {"entry": (png(1200, 800, size=200_000, filler=b"\r\n"), "image/png")}
+    res = post_multipart(api, A, chart_parts(rec_of(charts.MAX_RECORD_PART), img))
+    assert res.status_code == 400
+    assert {"field": "", "kind": "unknownField"} in res.get_json()["issues"]
+    assert {"field": "", "kind": "tooLarge"} not in res.get_json()["issues"]
+    for n in (charts.MAX_RECORD_PART + 1, charts.MAX_FORM_MEMORY):
+        res = post_multipart(api, A, chart_parts(rec_of(n), img))
+        assert res.status_code == 400, n
+        assert res.get_json() == {"error": "invalid", "issues": [{"field": "", "kind": "tooLarge"}]}, n
+    # 多バイトの文字は字数でなく UTF-8 のバイト数で数える（8 + 3 × 21,842 = 65,534 B は通る・21,843 字 = 65,537 B は
+    # tooLarge。どちらも字数は 64 Ki より少ない）
+    res = post_multipart(api, A, chart_parts('{"a":"' + "あ" * 21_842 + '"}'))
+    assert {"field": "", "kind": "tooLarge"} not in res.get_json()["issues"]
+    assert {"field": "", "kind": "unknownField"} in res.get_json()["issues"]
+    res = post_multipart(api, A, chart_parts('{"a":"' + "あ" * 21_843 + '"}'))
+    assert res.get_json() == {"error": "invalid", "issues": [{"field": "", "kind": "tooLarge"}]}
+    assert api.trades(A) == []
+    assert chart_count(api, A) == 0
+
+
+def test_image_over_limit_with_crlf_is_rejected(api, iid):
+    """#151: 1 枚の画像の上限（500,000 B）は今までどおり（CR / LF の詰め物でも 1 B 超えで imageBytes）"""
+    img = png(1200, 800, size=charts.MAX_BYTES + 1, filler=b"\r\n")
+    res = post_with_charts(api, A, e1(iid), {"entry": (img, "image/png")})
+    assert res.status_code == 400
+    assert res.get_json()["issues"] == [{"field": "entryChart", "kind": "imageBytes"}]
+    assert chart_count(api, A) == 0
+
+
 def test_record_issues_are_returned_from_multipart(api, iid):
     """record の検査は JSON と同じ（知らない項目 → unknownField。送った名前は返さない）"""
     res = post_with_charts(api, A, {**t1(iid), "charts": {"entry": "x"}}, {"entry": (chart_png(), "image/png")})

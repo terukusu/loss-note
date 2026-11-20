@@ -311,3 +311,41 @@ def test_seven_near_limit_charts_create_replace_delete(api, iid):
     assert chart_count(api, A) == 0
     for s in charts.SLOTS:
         assert stored_chart(api, A, f"{tid}-{s}") is None
+
+
+def test_large_remove_chart_value(api, iid):
+    """#151: 文字の部分の上限（MAX_FORM_MEMORY = 128 KiB）は removeChart にも効く。128 KiB までは列挙の検査で 400
+    enum、1 B 超えは 400 tooLarge。取引とチャートは変わらない"""
+    tid = created_with(api, iid)["id"]
+    rec = t1(iid, entryChartTimeframe="4h")
+    for size, issues in (
+        (charts.MAX_RECORD_PART + 1, [{"field": charts.REMOVE_PART, "kind": "enum"}]),
+        (charts.MAX_FORM_MEMORY, [{"field": charts.REMOVE_PART, "kind": "enum"}]),
+        (charts.MAX_FORM_MEMORY + 1, [{"field": "", "kind": "tooLarge"}]),
+    ):
+        parts = chart_parts(rec) + [(charts.REMOVE_PART, "x" * size, None, None)]
+        res = put_multipart(api, A, tid, parts)
+        assert res.status_code == 400, size
+        assert res.get_json() == {"error": "invalid", "issues": issues}, size
+    assert api.get(f"/api/trades/{tid}/charts/exit", A).status_code == 200
+    assert chart_count(api, A) == 2
+
+
+def test_crlf_in_image_put_with_remove(api, iid):
+    """#151: 直しの multipart（画像の差し替え + removeChart）でも、CR / LF の詰め物の画像が通る。単体の差し替え（生の
+    バイト）も同じ画像で通る"""
+    tid = created_with(api, iid)["id"]
+    rec = t1(iid, entryChartTimeframe="4h")
+    first = chart_png(filler=b"\r\n", size=70_000)
+    res = put_multipart(api, A, tid, put_parts(rec, {"entry": (first, "image/png")}, removes=("exit",)))
+    assert res.status_code == 200, res.get_json()
+    assert api.get(f"/api/trades/{tid}/charts/entry", A).data == first
+    assert api.get(f"/api/trades/{tid}/charts/exit", A).status_code == 404
+    for size in (300_000, charts.MAX_BYTES):
+        img = chart_png(filler=b"\r\n", size=size)
+        res = put_multipart(api, A, tid, put_parts(rec, {"entry": (img, "image/png")}))
+        assert res.status_code == 200, (size, res.get_json())
+        assert api.get(f"/api/trades/{tid}/charts/entry", A).data == img
+    img = chart_png(filler=b"\n\r", size=charts.MAX_BYTES)
+    assert api.put(f"/api/trades/{tid}/charts/exit", A, raw=img, content_type="image/png").status_code == 200
+    assert api.get(f"/api/trades/{tid}/charts/exit", A).data == img

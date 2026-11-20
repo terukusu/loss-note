@@ -32,6 +32,13 @@ MAX_BYTES = image.MAX_BYTES
 # multipart の入口（作成・取引の直し）だけの上限: 記録（64 KiB）+ 画像 7 枚 + 枠の分（境界・見出し）
 MAX_RECORD_PART = 64 * 1024
 MAX_MULTIPART_BYTES = MAX_RECORD_PART + len(SLOTS) * MAX_BYTES + 16 * 1024
+# Werkzeug の max_form_memory_size に渡す値（#151）。Werkzeug（3.1.9）の解析は部分がファイルかを見ずに「解析の残り +
+# 読んだ塊（64 KiB）」をこの値と比べるので、記録の上限（64 KiB）を渡すと画像の CR / LF の近くに塊の境目が来たとき
+# 超える。塊の 2 倍にして、記録の 64 KiB は read_trade_multipart が自分で数える（画像の上限 500,000 B より小さい）。
+# 根拠: 部分の中身の途中で buffer に残るのは境界の取りかけだけで、最大 len(boundary) + 4 B
+# （multipart.py の _last_partial_boundary_index。ブラウザの境界は 70 字以下 = 74 B）。64 KiB + 74 B < 128 KiB。
+# Werkzeug を上げるときは、塊の大きさ（MultiPartParser の buffer_size）とこの残りの決め方を見直す
+MAX_FORM_MEMORY = 2 * 64 * 1024
 # 記録 + 枠ごとに 1 つ（画像か外す印。同じ枠に両方は 400）
 MAX_PARTS = 1 + len(SLOTS)
 

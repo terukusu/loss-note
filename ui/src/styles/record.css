@@ -1,0 +1,452 @@
+/* 記録する画面の 1 画面の形（#130。設計書 K17・9.2・docs/ui-guidelines.md 9.4）。部品 pages/Record.tsx が読み込む。
+   等倍の文字の 390×844 で、明細の場所の 3 つの状態とも縦のスクロール 0px（ui:check の「1 画面に収まる」）。
+   上から 明細の場所・チャートの 2 枠と注意・LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。
+   色はトークンだけ（tokens.css）。形（縦・横・広い）で DOM を替えない（9.5）。文字の拡大では縦に伸びてよい */
+
+/* 全画面のシートの中身: 下の余白（--sp-8）と段の間を詰め、下の帯を下の端に付ける */
+.content--sheet:has(.record--one) {
+  gap: 0;
+  padding-bottom: 0;
+}
+
+.record--one {
+  gap: 0;
+}
+
+/* 幅 720px 未満は上の帯が貼り付き、下の帯を窓の下の端に付ける（中身が短くても帯は下。幅 720 以上の帯は浮かせた形のまま） */
+@media (max-width: 719.98px) {
+  .record--one {
+    min-height: calc(100dvh - var(--safe-top) - var(--topbar-h));
+  }
+}
+
+.record--one > .record__fields {
+  flex: 1 0 auto;
+  /* 390×844 の選ぶ前の状態を 1 画面に収める段の間（10px。#130 の高さの測り） */
+  gap: calc(var(--sp-2) + 2px);
+  padding: var(--sp-1) 0 var(--sp-2);
+}
+
+/* ── 明細の場所（3 つの状態が同じ場所で入れ替わる） */
+.rstmt__card {
+  display: grid;
+  gap: 6px;
+  padding: calc(var(--sp-2) + 2px) var(--sp-3);
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+}
+
+.rstmt__card--pick {
+  /* 安全域を入れた 390×844 の選ぶ前を 40px 以内に（ui-guidelines 9.4） */
+  gap: var(--sp-1);
+  padding-block: var(--sp-2);
+  border: 1.5px dashed var(--line-2);
+}
+
+.rstmt__notice {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.rstmt__actions {
+  display: grid;
+  /* 最初の一手（［スクショを選ぶ］）を広く。幅 360 でも ［明細なしで手入力］ が 1 行に入る比（#130 のデザインレビュー a3） */
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+
+.rstmt__actions .btn {
+  min-width: 0;
+  padding-inline: var(--sp-2);
+  /* 幅 360px でも 1 行に収まる大きさ（2 つを 1 段に並べる。文字の拡大では折り返してよい） */
+  font-size: var(--fs-sm);
+}
+
+/* 読み取り中と読み取りの後は同じ高さの 2 行 + 右の 2 番目の重さのボタン（流れ込んでも下の欄が動かない。AC-3） */
+.rstmt__card--sum {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+}
+
+.rstmt__card--sum > :not(.rsum__text, .btn, .rsum__account) {
+  grid-column: 1 / -1;
+}
+
+.rstmt__manual {
+  font-weight: var(--fw-medium);
+}
+
+.rsum__account {
+  grid-column: 1 / -1;
+  justify-self: start;
+  gap: var(--sp-1);
+  font-size: var(--fs-sm);
+}
+
+.rsum__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rsum__l1,
+.rsum__l2 {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rsum__l1 {
+  height: 1.4em;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.rsum__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rsum__mark {
+  flex: none;
+}
+
+.rsum__l1.statement__reading {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.rsum__l2 {
+  height: 1.4em;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+
+.rsum__l1.statement__reading::before {
+  /* 明滅は骨組みの 2 行目に任せ、文の左端を要約の 1 行目とそろえる（流れ込んでも文字が動かない。#130 のデザインレビュー a2） */
+  display: none;
+}
+
+.rsum__skeleton {
+  animation: statement-pulse 1.2s var(--ease) infinite;
+  width: 75%;
+  height: calc(var(--fs-sm) * 1.4);
+  border-radius: var(--radius-sm);
+  background: var(--s3);
+}
+
+.rsum__named {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rstmt .rsum__chip {
+  gap: var(--sp-1);
+  border: 1px solid var(--line-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+.rsum__chiplead {
+  color: var(--ink-2);
+  font-weight: var(--fw-regular);
+}
+
+.rsum__chip--error,
+.rsum__chip--error .rsum__chiplead {
+  color: var(--danger);
+}
+
+.rsum__tz {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.rsum__tzmark {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rsum__tz .btn {
+  flex: none;
+  padding-inline: 10px;
+}
+
+.rsum__accounts .field {
+  gap: var(--sp-1);
+}
+
+/* ── チャートの 2 枠（横に並べる）と注意 */
+.rcharts {
+  display: grid;
+  gap: 2px;
+}
+
+.rcharts__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--sp-2);
+}
+
+.rcharts .rcharts__notice {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.rchart {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  min-height: 52px;
+  padding: 6px var(--sp-2);
+  border: 1.5px dashed var(--line-2);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.rchart--full {
+  border-style: solid;
+  background: var(--s1);
+}
+
+.rchart:focus-within,
+.rchart:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rchart__thumb {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--s3);
+  color: var(--ink-3);
+}
+
+/* チャートのある枠: 小さな絵は枠の中の 1 段（面を重ねない。入れ子の段を増やさない） */
+.rchart__thumb:has(.rchart__canvas) {
+  background: none;
+}
+
+.rchart__canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rchart__text {
+  display: grid;
+  min-width: 0;
+}
+
+.rchart__name {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.rchart__line {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ── LC: 欄の名前の行の右に添え書き（「思惑が外れたと確認できる価格」）。「なし」は欄と同じ段 */
+.record__lc {
+  display: grid;
+  gap: 6px;
+}
+
+/* 一言の欄は数の欄より低く（46px。モックの文字の欄と同じ） */
+.record__lc .textfield {
+  min-height: 46px;
+}
+
+.record__lc .lcrow {
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+  align-items: end;
+  column-gap: var(--sp-2);
+  row-gap: 6px;
+}
+
+/* 欄の名前・添え書き・欄・「なし」を 1 つの格子に並べる（添え書きは「なし」の上まで使う） */
+.record__lc .lcrow > .field {
+  display: contents;
+}
+
+.record__lc .lcrow > .field > :is(.field__label, .field__head) {
+  grid-row: 1;
+  grid-column: 1;
+}
+
+.record__lc .lcrow > .field > .field__hint {
+  grid-row: 1;
+  grid-column: 2 / 4;
+  justify-self: end;
+  align-self: center;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.record__lc .lcrow > .field > .numfield {
+  grid-row: 2;
+  grid-column: 1 / 3;
+}
+
+.record__lc .lcrow > .lcnone {
+  grid-row: 2;
+  grid-column: 3;
+  /* 欄の名前の行は格子の 1 行目が持つので、名前の分の上の余白は要らない */
+  margin-top: 0;
+}
+
+.record__lc .lcrow > .field > .field__error {
+  grid-row: 3;
+  grid-column: 1 / -1;
+}
+
+.record--one .record__lc .field {
+  gap: 6px;
+}
+
+/* ── 3 つのタップ */
+.record__taps {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+.record--one .record__taps .field {
+  gap: var(--sp-1);
+}
+
+.record__taps .record__movehint {
+  margin-top: calc(-1 * var(--sp-1));
+  font-size: var(--fs-xs);
+}
+
+/* ── 下の帯: 判定の 1 行（押すと判定のシート）と [記録する] */
+.record--one .record__submit--bar {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  gap: var(--sp-1);
+  margin-top: auto;
+}
+
+.vline {
+  display: flex;
+  /* 文字の拡大・大きな数のリスクで幅が足りなければ次の行へ（横にはみ出さない） */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--tap);
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.vline .record__status:not(.sr-only) {
+  flex: 1 1 auto;
+}
+
+.vline__risk {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.vline__chev {
+  flex: none;
+  /* 「押すと開く」の印は判定の前も後も右端（#130 のデザインレビュー a4） */
+  margin-left: auto;
+  color: var(--ink-3);
+  transform: rotate(-90deg);
+}
+
+/* 上の帯の右の進み具合（「1 / 2 行目」） */
+.appbar__meta {
+  padding-right: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+/* ── シートの中 */
+.record__sheetbody {
+  display: grid;
+  gap: var(--sp-4);
+}
+
+.record__accounthead {
+  margin: 0;
+}
+
+.rstmt__details:empty {
+  display: none;
+}
+
+.rstmt__details {
+  display: grid;
+  gap: var(--sp-2);
+}
+
+/* チャートのシートは縦の形で窓の 86% の高さに固定する（枠を足す・枠を選ぶと中身の高さが変わり、下から出たシートの上端と
+   見出しの行の ［＋ 追加］ が押す間に動かないように。中はスクロール） */
+:root:not([data-form="landscape"], [data-form="wide"]) #record-chart-sheet.sheet,
+:root:not([data-form="landscape"], [data-form="wide"]) #record-chart-sheet .sheet__panel {
+  block-size: 86dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rsum__skeleton {
+    animation: none;
+  }
+}
+
+/* チャートのシートの枠の右上の ［削除］ を枠の角から離す（#130 のデザインレビュー a7） */
+#record-chart-sheet .chart__remove {
+  top: 6px;
+  right: var(--sp-3);
+}

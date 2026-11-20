@@ -310,6 +310,11 @@ export interface RecordState {
    * draft-status.ts）
    */
   readonly baseline?: Draft;
+  /**
+   * ［明細なしで手入力］ を押した（#130。明細の場所を要約の状態にする。次の取引・最後の行のスキップで戻す）。書きかけの
+   * 判定（draft-status.ts）には数えない（押しただけでは入力ではない）
+   */
+  readonly manual?: boolean;
 }
 
 export interface RecordController {
@@ -331,6 +336,8 @@ export interface RecordController {
   openOtherZones(): void;
   /** [この行を飛ばす] */
   skipRow(): void;
+  /** ［明細なしで手入力］: 明細の場所を要約の状態にする（取引の欄のシートを開くのは画面。#130） */
+  startManual(): void;
   /** チャートを 1 枚、枠に入れる（描き直してプレビューを出すだけ。送るのは [記録する]。同じ枠なら置き換え） */
   setChart(slot: AnySlot, file: Blob): Promise<void>;
   /** [削除]: 枠の画像と時間足を消す（付属の枠は行ごと） */
@@ -1003,6 +1010,7 @@ export function createRecordController(deps: {
       {
         phase: 'editing',
         error: null,
+        manual: false,
         ...withBaseline(
           applyDraft(EMPTY_DRAFT, {
             type: 'reset',
@@ -1419,6 +1427,7 @@ export function createRecordController(deps: {
       clearCharts();
       set({
         error: null,
+        manual: false,
         ...withBaseline(
           applyDraft(EMPTY_DRAFT, {
             type: 'reset',
@@ -1435,6 +1444,10 @@ export function createRecordController(deps: {
           preview: null,
         },
       });
+    },
+    startManual() {
+      if (state.phase !== 'editing' || state.manual === true) return;
+      set({ manual: true });
     },
     refreshWarm() {
       if (!warmMissed && warmSentAt !== null && now() - warmSentAt < WARM_REFRESH_MS) return;

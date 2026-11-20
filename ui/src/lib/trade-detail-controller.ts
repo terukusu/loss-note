@@ -88,6 +88,8 @@ export function createTradeDetailController(deps: {
   readonly id: string;
   readonly preview: (bytes: Uint8Array, type: ImageType) => Promise<PreviewHandle>;
   readonly timeoutMs?: number;
+  /** チャートを読み戻すか（詳細の次の画面「すべての欄」「総評」は読まない。#131。既定 true） */
+  readonly charts?: boolean;
 }): DetailController {
   const { id } = deps;
   const request = createRequest(deps.api, deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
@@ -163,7 +165,7 @@ export function createTradeDetailController(deps: {
           throw new Failed('other');
         }
         if (my !== gen || disposed) return;
-        const has = (slot: AnySlot) => trade.charts?.[slot] !== undefined;
+        const has = (slot: AnySlot) => deps.charts !== false && trade.charts?.[slot] !== undefined;
         set({
           phase: 'ready',
           trade,
@@ -187,6 +189,7 @@ export function createTradeDetailController(deps: {
       }
     },
     async reloadChart(slot) {
+      if (deps.charts === false) return;
       if (state.phase !== 'ready' || state.trade.charts?.[slot] === undefined) return;
       const c = state.charts[slot];
       if (c?.phase === 'ready' || c?.phase === 'loading') return;

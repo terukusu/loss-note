@@ -16,6 +16,7 @@ import { TRADES_MORE_FAILED, type TradesState } from '../../ui/src/lib/trades-co
 import { Home, HomeView } from '../../ui/src/pages/Home';
 import { notFoundState, TradeDetail, TradeDetailView } from '../../ui/src/pages/TradeDetail';
 import { TradeEdit, TradeEditView } from '../../ui/src/pages/TradeEdit';
+import { TradeNotesView } from '../../ui/src/pages/TradeNotes';
 import { TRADES_MORE_ID, Trades, TradesView } from '../../ui/src/pages/Trades';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
@@ -88,8 +89,9 @@ const EMPTY = new Set<string>();
 const emptyEl = <p class="empty-marker">空</p>;
 
 /** 確認の画面（ダイアログ）が木に無い */
+/** 確認のダイアログを出さない（下のシート = class sheet の dialog は重ね方の部品なので数えない。#131） */
 function noDialog(tree: Node[]) {
-  expect(all(tree, (e) => e.type === 'dialog')).toEqual([]);
+  expect(all(tree, (e) => e.type === 'dialog' && !hasClass('sheet')(e))).toEqual([]);
   expect(all(tree, (e) => e.props.role === 'dialog' || e.props.role === 'alertdialog')).toEqual([]);
 }
 
@@ -378,20 +380,34 @@ function detailTree(t: StoredTrade, over: Partial<Parameters<typeof TradeDetailV
   );
 }
 
+/** 詳細の次の画面「すべての欄」（#131。詳細と同じ状態で描く） */
+function fieldsTree(t: StoredTrade, over: Partial<Parameters<typeof TradeDetailView>[0]> = {}) {
+  return expand(
+    <TradeNotesView
+      id={t.id}
+      kind="fields"
+      state={over.state ?? detailState(t)}
+      hidden={over.hidden ?? EMPTY}
+      notFound={notFoundState()}
+      onReload={noop}
+      onRelogin={noop}
+    />,
+  );
+}
+
+/** 詳細と「すべての欄」の 2 画面の木（判定の枠の 1 行と「すべての欄」の行を並べて見るテスト） */
+const fullTree = (t: StoredTrade, over: Partial<Parameters<typeof TradeDetailView>[0]> = {}) => [
+  ...detailTree(t, over),
+  ...fieldsTree(t, over),
+];
+
 describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
-  it('#57 AC-2・例 I10: 詳細の判定の枠に「判定」「R」「LC の物差し」の「i」と、決済までの行動の答えの札の「i」（デザインレビュー 8）', () => {
+  it('#57 AC-2・例 I10: 詳細の判定の枠に「判定」「R」「LC の物差し」の「i」。答えの札の「i」は置かない（#131 のデザインレビュー a1 で #57 のデザインレビュー 8 を取り下げた。問いの説明は記録する・編集の画面）', () => {
     const names = all(detailTree(D1), (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
       String(e.props['aria-label']),
     );
     expect([...names].sort()).toEqual(
-      [
-        '「判定」の説明',
-        '「R」の説明',
-        '「LC の物差し」の説明',
-        '「LC を入る前に決めていたか」の説明',
-        '「LC を動かしたか」の説明',
-        '「時間足を変えたか」の説明',
-      ].sort(),
+      ['「判定」の説明', '「R」の説明', '「LC の物差し」の説明'].sort(),
     );
   });
 
@@ -407,17 +423,29 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     expect(reasons).toContain('時間足を変えた（4 時間足 → 日足・チャートから）');
   });
 
-  it('AC-3: D1 は 2 枠とも canvas（画像）と時間足', () => {
-    const tree = detailTree(D1);
-    const canvases = all(tree, (e) => e.type === 'canvas');
-    expect(canvases.map((c) => c.props['aria-label'])).toEqual([
-      'エントリー時のチャート（4 時間足）',
-      '決済時のチャート（日足）',
+  it('AC-3（#131 AC-5）: D1 は 2 枠を横に並べ、押すと全画面で見る層（canvas と名前 · 時間足）', () => {
+    const opened: unknown[] = [];
+    const tree = detailTree(D1, { onSheet: (x) => opened.push(x) });
+    const tiles = all(tree, (e) => e.type === 'button' && hasClass('dchart')(e));
+    expect(tiles.map((b) => b.props['aria-label'])).toEqual([
+      'エントリー時のチャート（4 時間足）を大きく見る',
+      '決済時のチャート（日足）を大きく見る',
     ]);
-    expect(canvases.every((c) => c.props.role === 'img')).toBe(true);
-    const figs = all(tree, hasClass('chartview')).map(text);
-    expect(figs[0]).toContain('時間足: 4 時間足');
-    expect(figs[1]).toContain('時間足: 日足');
+    expect(all(tree, hasClass('dchart__cap')).map(text)).toEqual([
+      'エントリー時 · 4 時間足',
+      '決済時 · 日足',
+    ]);
+    // サムネイルの canvas は読み上げから外し、層の canvas が画像（role=img）
+    expect(all(tree, (e) => e.type === 'canvas' && hasClass('dchart__canvas')(e))).toHaveLength(2);
+    ((tiles[1] as El).props.onClick as () => void)();
+    expect(opened).toEqual([{ kind: 'chart', slot: 'exit' }]);
+    const viewer = detailTree(D1, { sheet: { kind: 'chart', slot: 'exit' } });
+    const layer = all(viewer, (e) => e.props['data-sheet'] === 'detail-chart-viewer')[0] as El;
+    expect(layer.props['data-open']).toBe('true');
+    const big = all([layer], (e) => e.type === 'canvas')[0] as El;
+    expect(big.props.role).toBe('img');
+    expect(big.props['aria-label']).toBe('決済時のチャート（日足）');
+    expect(text(all([layer], (e) => e.type === 'h2')[0] as El)).toBe('決済時 · 日足');
     expect(text(tree)).not.toContain('チャートなし');
     // img・object URL を使わない
     expect(all(tree, (e) => e.type === 'img')).toEqual([]);
@@ -425,7 +453,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
 
   it('AC-3: D2 は決済時の枠が「チャートなし」', () => {
     const tree = detailTree(D2);
-    const figs = all(tree, hasClass('chartview'));
+    const figs = all(tree, hasClass('dchart'));
     expect(all([figs[0] as El], (e) => e.type === 'canvas')).toHaveLength(1);
     expect(text(figs[1] as El)).toContain('チャートなし');
     expect(all([figs[1] as El], (e) => e.type === 'canvas')).toHaveLength(0);
@@ -447,21 +475,68 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
         onRelogin={noop}
       />,
     );
-    const figs = all(tree, hasClass('chartview'));
+    const figs = all(tree, hasClass('dchart'));
     expect(text(figs[1] as El)).toContain('チャートを読み込めませんでした');
     const btn = all([figs[1] as El], (e) => e.type === 'button')[0] as El;
     (btn.props.onClick as () => void)();
     expect(seen).toEqual(['exit']);
   });
 
-  it('[直す] は /trades/<id>/edit、[消す] は確認なしで onDelete', () => {
+  it('[編集] は /trades/<id>/edit、「…」の操作のシートの「削除」は確認なしで onDelete（#131 AC-2）', () => {
     let deleted = 0;
-    const tree = detailTree(D1, { onDelete: () => deleted++ });
+    const opened: unknown[] = [];
+    const tree = detailTree(D1, { onDelete: () => deleted++, onSheet: (x) => opened.push(x) });
     expect(all(tree, (e) => e.type === 'a').map((a) => a.props.href)).toContain('/trades/d1/edit');
-    const del = all(tree, (e) => e.type === 'button' && text(e) === '削除')[0] as El;
-    (del.props.onClick as () => void)();
+    // 本文に [削除] は無い（上の帯の「…」の操作のシートの中だけ）
+    const more = all(tree, (e) => e.type === 'button' && e.props['aria-label'] === '操作')[0] as El;
+    (more.props.onClick as () => void)();
+    expect(opened).toEqual([{ kind: 'actions' }]);
+    const sheet = all(tree, (e) => e.props['data-sheet'] === 'detail-actions-sheet')[0] as El;
+    expect(sheet.props['data-open']).toBe('false');
+    const open = detailTree(D1, { onDelete: () => deleted++, sheet: { kind: 'actions' } });
+    const actions = all(open, (e) => e.props['data-sheet'] === 'detail-actions-sheet')[0] as El;
+    expect(actions.props['data-open']).toBe('true');
+    // D1 は記録したときの値と今の銘柄の値が違う（「今の値と比べる」→「削除」の順。違わない取引は「削除」だけ = detail-view のテスト）
+    const rows = all([actions], (e) => e.type === 'button' && hasClass('rowlink')(e));
+    expect(rows.map(text)).toEqual(['今の値と比べる1 か所違います', '削除8 秒は元に戻せます']);
+    ((rows[1] as El).props.onClick as () => void)();
     expect(deleted).toBe(1);
     noDialog(tree);
+  });
+
+  it('#131 AC-6: 「すべての欄」「総評」は次の画面への押せる行（その場で開かない）', () => {
+    const tree = detailTree(D1);
+    expect(all(tree, (e) => e.type === 'details')).toEqual([]);
+    const links = all(tree, (e) => e.type === 'a' && hasClass('rowlink')(e));
+    expect(links.map((a) => [a.props.href, text(a)])).toEqual([
+      ['/trades/d1/fields', 'すべての欄'],
+    ]);
+    const withComment: StoredTrade = {
+      ...D1,
+      record: { ...D1.record, exit: { ...D1.record.exit, review: '【取り込み】元の判定 B' } },
+    };
+    const t2 = detailTree(withComment);
+    expect(
+      all(t2, (e) => e.type === 'a' && hasClass('rowlink')(e)).map((a) => a.props.href),
+    ).toEqual(['/trades/d1/fields', '/trades/d1/comment']);
+    const comment = expand(
+      <TradeNotesView
+        id="d1"
+        kind="comment"
+        state={detailState(withComment)}
+        hidden={EMPTY}
+        notFound={notFoundState()}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    expect(text(all(comment, (e) => e.type === 'h1')[0] as El)).toBe('総評');
+    expect(text(all(comment, hasClass('notes__text'))[0] as El)).toBe('【取り込み】元の判定 B');
+    const fields = fieldsTree(D1);
+    expect(text(all(fields, (e) => e.type === 'h1')[0] as El)).toBe('すべての欄');
+    // 上の帯の戻るは詳細（殻の無い描画では詳細へのリンク）
+    expect(all(fields, (e) => e.type === 'a').map((a) => a.props.href)).toEqual(['/trades/d1']);
+    expect(all(fields, hasClass('fields__row')).length).toBeGreaterThan(10);
   });
 
   it('建てが複数の取引は [直す] を出さず、直せない旨', () => {
@@ -495,6 +570,7 @@ describe('AC-4: 直す（例 E1・E2）', () => {
   async function editTree(
     t: StoredTrade,
     act?: (c: ReturnType<typeof createEditController>) => void,
+    sheet?: Parameters<typeof TradeEditView>[0]['sheet'],
   ) {
     const fake = createFakeApi({ trades: [t], instruments: [US30], capitalYen: CAPITAL_NOW });
     const c = createEditController({ api: fake.api, id: t.id });
@@ -510,22 +586,26 @@ describe('AC-4: 直す（例 E1・E2）', () => {
         onSave={noop}
         onReload={noop}
         onRelogin={noop}
+        sheet={sheet ?? null}
       />,
     );
   }
   const verdictText = (tree: Node[]) => text(all(tree, hasClass('verdict'))[0] as El);
+  const sheetOf = (tree: Node[], id: string) =>
+    all(tree, (e) => e.props['data-sheet'] === id)[0] as El;
 
-  it('#58 AC-2・KEEP-4: 直す画面でも「取引」の枠にエントリーの時刻（任意）が決済の時刻の前にあり、「ほかの欄」に無い。時刻の無い取引は空の欄', async () => {
+  it('#58 AC-2・KEEP-4: 直す画面でも取引の欄のシートにエントリーの時刻（任意）が決済の時刻の前にあり、「ほかの欄」に無い。時刻の無い取引は空の欄', async () => {
     const tree = await editTree(E1);
     const inputs = (n: El) => all([n], (e) => e.type === 'input').map((e) => String(e.props.id));
-    const section = all(
-      tree,
-      (e) => e.type === 'section' && e.props['aria-labelledby'] === 'record-trade-title',
-    )[0] as El;
+    const section = sheetOf(tree, 'edit-fields-sheet');
     const ids = inputs(section);
     expect(ids.indexOf('record-entry-time')).toBeGreaterThanOrEqual(0);
     expect(ids.indexOf('record-entry-time')).toBeLessThan(ids.indexOf('record-exit-time'));
-    const more = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
+    const more = sheetOf(
+      await editTree(E1, undefined, { kind: 'fields', step: 'more' }),
+      'edit-fields-sheet',
+    );
+    expect(inputs(more)).toContain('record-pnl');
     expect(inputs(more)).not.toContain('record-entry-time');
     expect(text(all(tree, (e) => e.type === 'label' && e.props.for === 'record-entry-time'))).toBe(
       'エントリーの時刻（任意）',
@@ -537,6 +617,42 @@ describe('AC-4: 直す（例 E1・E2）', () => {
       (e) => e.type === 'input' && e.props.id === 'record-entry-time',
     )[0] as El;
     expect(entry.props.value).toBe('');
+  });
+
+  it('#131 AC-7: 記録する画面と同じ形（要約 + ［編集］・チャートの 2 枠・LC・3 つのタップ・下の帯に判定の 1 行と ［保存］）。折りたたみは無い', async () => {
+    const opened: unknown[] = [];
+    const fake = createFakeApi({ trades: [E1], instruments: [US30], capitalYen: CAPITAL_NOW });
+    const c = createEditController({ api: fake.api, id: E1.id });
+    await c.load();
+    const tree = expand(
+      <TradeEditView
+        id={E1.id}
+        state={c.getState()}
+        hidden={EMPTY}
+        notFound={notFoundState()}
+        onUpdate={c.update}
+        onSave={noop}
+        onReload={noop}
+        onRelogin={noop}
+        onSheet={(x) => opened.push(x)}
+      />,
+    );
+    expect(all(tree, (e) => e.type === 'details')).toEqual([]);
+    expect(text(all(tree, (e) => e.props.id === 'edit-summary')[0] as El)).toContain('US30 · L');
+    const edit = all(tree, (e) => e.props.id === 'edit-edit-fields')[0] as El;
+    (edit.props.onClick as () => void)();
+    expect(all(tree, (e) => e.props.id === 'edit-mini-entry')).toHaveLength(1);
+    expect(all(tree, (e) => e.props.id === 'edit-mini-exit')).toHaveLength(1);
+    expect(all(tree, (e) => e.props.id === 'record-lc')).toHaveLength(1);
+    const bar = all(tree, hasClass('record__submit--bar'))[0] as El;
+    const buttons = all([bar], (e) => e.type === 'button');
+    expect(buttons.map((b) => b.props.id)).toEqual(['edit-verdict-line', 'edit-submit']);
+    ((buttons[0] as El).props.onClick as () => void)();
+    expect(opened).toEqual([{ kind: 'fields', step: 'main' }, { kind: 'verdict' }]);
+    // 判定の枠は判定のシートの中（閉じていても木にある）
+    const verdict = sheetOf(tree, 'edit-verdict-sheet');
+    expect(verdict.props['data-open']).toBe('false');
+    expect(all([verdict], hasClass('verdict'))).toHaveLength(1);
   });
 
   it('#127（#75 AC-4 の置き換え）: キャンセルは上の帯の左上の ✕（読み上げ「キャンセル」）。保存中は押せない', async () => {
@@ -561,11 +677,12 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     const cancelOf = (tree: Node[]) =>
       all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'キャンセル')[0] as El;
     const tree = draw(c.getState());
-    // キャンセルは上の帯の左上の ✕（#127。9.3・9.12）。[保存] の帯には置かない
-    const actions = all(tree, hasClass('edit__actions'))[0] as El;
+    // キャンセルは上の帯の左上の ✕（#127。9.3・9.12）。[保存] の帯には置かない（帯は判定の 1 行と [保存] だけ）
+    const actions = all(tree, hasClass('edit__submit'))[0] as El;
     const buttons = all([actions], (e) => e.type === 'button');
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0]?.props.type).toBe('submit');
+    expect(buttons).toHaveLength(2);
+    expect(buttons[1]?.props.type).toBe('submit');
+    expect(all([actions], (e) => e.props['aria-label'] === 'キャンセル')).toEqual([]);
     const bar = all(tree, hasClass('appbar--sheet'))[0] as El;
     expect(all([bar], (e) => e.type === 'button')[0]).toBe(cancelOf(tree));
     expect(text(all([bar], (e) => e.type === 'h1')[0] as El)).toBe('取引を編集');
@@ -770,7 +887,7 @@ describe('AC-5・AC-6: 消す + [元に戻す]（トーストと画面）', () =
 });
 
 describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 直した後', () => {
-  it('詳細の上の帯は「‹ 取引」・題「銘柄 · L / S」・[編集]（#127）。その下の行に決済の日時と [削除]', () => {
+  it('詳細の上の帯は「‹ 取引」・題「銘柄 · L / S」・[編集]・「…」（#127・#131）。その下の行は決済の日時だけ', () => {
     const tree = detailTree(D1);
     const h1 = all(tree, (e) => e.type === 'h1')[0] as El;
     expect(text(h1)).toBe('US30 · L ロング');
@@ -780,9 +897,12 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
       '/trades/d1/edit',
     ]);
     expect(all([bar], (e) => e.type === 'a').map(text)).toEqual(['取引', '編集']);
+    expect(
+      all([bar], (e) => e.type === 'button').map((b) => b.props['aria-label'] ?? text(b)),
+    ).toEqual(['操作']);
     const head = all(tree, hasClass('detail__head'))[0] as El;
     expect(text(head)).toMatch(/決済 2026\/11\/1[01] /);
-    expect(all([head], (e) => e.type === 'button').map(text)).toEqual(['削除']);
+    expect(all([head], (e) => e.type === 'button')).toEqual([]);
     // 判定の枠の脚注（銘柄・L / S・決済）は出さない
     expect(all(tree, hasClass('verdict__caption'))).toEqual([]);
     // 読めるまで・見つからないときは「取引の詳細」
@@ -791,7 +911,7 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
   });
 
   it('時間足の行は申告とチャートを並べ、判定に使った方に印（理由と食い違わない）', () => {
-    const tree = detailTree(D1);
+    const tree = fieldsTree(D1);
     const rows = all(tree, hasClass('fields__row')).map(text);
     expect(rows).toContain(
       '時間足を変えたかそのまま（あなたの答え） / 4 時間足 → 日足（チャートから・判定に使用）',
@@ -935,7 +1055,7 @@ describe('口座（#47 D1・U16〜U19）', () => {
   });
 
   it('U17・U18: 口座 1 個 → 見出し・判定の枠は今のまま。「すべての欄」には口座と記録したときの資金・許容リスク', () => {
-    const tree = detailTree(D1, { state: detailWith(D1, [defaultAccount(5)]) });
+    const tree = fullTree(D1, { state: detailWith(D1, [defaultAccount(5)]) });
     expect(text(all(tree, hasClass('detail__when')))).not.toContain('口座');
     expect(all(tree, hasClass('verdict__account'))).toEqual([]);
     const rows = all(tree, hasClass('fields__row')).map(text);
@@ -998,7 +1118,7 @@ describe('口座（#47 D1・U16〜U19）', () => {
 describe('詳細の数量の比と提案の数量（#67）', () => {
   it('L1（1R 5,000・資金 1,000,000・1%）: 判定の枠に 1 行、「すべての欄」に 2 行。口座 2 つなら口座の 1 行の前', () => {
     const TWO = [defaultAccount(1_000_000), account('accB', '口座 B', 200_000)];
-    const tree = detailTree(L1, { state: detailWith(L1, TWO) });
+    const tree = fullTree(L1, { state: detailWith(L1, TWO) });
     expect(all(tree, hasClass('verdict__sizing')).map(text)).toEqual([
       '数量 10,000 · 適正の数量 20,000（実際は 0.5 倍）',
     ]);
@@ -1019,7 +1139,7 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
 
   it('資金が未設定の取引は 1 行も 2 行も出さない', () => {
     const t = { ...L1, snapshot: { ...L1.snapshot, capitalYen: null } };
-    const tree = detailTree(t);
+    const tree = fullTree(t);
     expect(all(tree, hasClass('verdict__sizing'))).toEqual([]);
     expect(all(tree, hasClass('fields__row')).map(text).join('')).not.toContain(
       '許容リスクに対する数量',
@@ -1028,7 +1148,7 @@ describe('詳細の数量の比と提案の数量（#67）', () => {
 });
 
 describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
-  it('U33: 直す画面で通貨の違う口座へ替えると、1 行に「通貨が違うので…」と出て「ほかの欄」が開き、損益・手数料の欄が空', async () => {
+  it('U33: 直す画面で通貨の違う口座へ替えると、1 行に「通貨が違うので…」と出て「ほかの欄 ›」の添えが「空に戻しました」、損益・手数料の欄が空（#131: その場で開かない）', async () => {
     const t = {
       ...L1,
       snapshot: { ...L1.snapshot, accountCurrency: 'JPY' },
@@ -1055,23 +1175,34 @@ describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
           onSave={noop}
           onReload={noop}
           onRelogin={noop}
+          sheet={{ kind: 'fields', step: more ? 'more' : 'main' }}
         />,
       );
-    expect(all(tree(), hasClass('more'))[0]?.props.open).toBeUndefined();
+    const meta = (t: Node[]) =>
+      text(
+        all(t, (e) => e.props.id === 'edit-more').flatMap((e) =>
+          all([e], hasClass('rowlink__meta')),
+        ),
+      );
+    let more = false;
+    expect(meta(tree())).toBe('2 欄');
     c.update({ type: 'set', field: 'accountId', value: 'accD' });
     const t1 = tree();
     expect(text(all(t1, (e) => e.props.id === 'record-account-hint'))).toBe(
       '口座 D の今の資金 10,000.00 USD で再計算します。通貨が違うので、損益と手数料を空に戻しました',
     );
-    expect(all(t1, hasClass('more'))[0]?.props.open).toBe(true);
+    expect(meta(t1)).toBe('空に戻しました');
+    more = true;
+    const t1m = tree();
     const value = (id: string) =>
-      all(t1, (e) => e.type === 'input' && e.props.id === id)[0]?.props.value;
+      all(t1m, (e) => e.type === 'input' && e.props.id === id)[0]?.props.value;
     expect(value('record-pnl')).toBe('');
     expect(value('record-fee')).toBe('');
     // 元の口座へ戻すと値が戻り、1 行も消える
     c.update({ type: 'set', field: 'accountId', value: 'default' });
     const t2 = tree();
     expect(all(t2, (e) => e.props.id === 'record-account-hint')).toEqual([]);
+    expect(meta(t2)).not.toBe('空に戻しました');
     expect(all(t2, (e) => e.type === 'input' && e.props.id === 'record-pnl')[0]?.props.value).toBe(
       '-5000',
     );
@@ -1092,7 +1223,7 @@ describe('通貨と為替の画面（#47 PR-2・U32・U33・D2）', () => {
         exit: { ...rec.exit, fxRate: 150 },
       },
     } as StoredTrade;
-    const rows = all(detailTree(f1), hasClass('fields__row')).map(text);
+    const rows = all(fieldsTree(f1), hasClass('fields__row')).map(text);
     expect(rows).toContain('価格の通貨USD');
     expect(rows).toContain('為替1 USD = 150円');
     expect(rows).toContain('1R7,500円');

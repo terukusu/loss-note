@@ -18,6 +18,17 @@ export function sheetCancel(cancelable: boolean): 'handle' | 'native' {
 }
 
 /**
+ * dialog の close の出来事をどう扱うか。close の出来事は close() の後に非同期で届くので、こちらが close() を呼んだ分（own = まだ
+ * 届いていない自分の close の数）と、もう閉じた（呼ぶ側が open を false にした）シートに届いた close は無視する（ignore）。
+ * 無視しないと、あるシートから別のシートへ替えたとき（操作のシート → 比較のシート。#131）や、同じシートを閉じてすぐ開き直した
+ * とき（#131 のレビュー N7）、遅れて届いた close が「利用者が閉じた」と読まれ、開いたばかりのシートを閉じてしまう。
+ * 開いているシートに届いた、こちらが頼んでいない close（取り消せない close watcher など）だけ native
+ */
+export function sheetCloseEvent(own: number, open: boolean): 'ignore' | 'native' {
+  return own > 0 || !open ? 'ignore' : 'native';
+}
+
+/**
  * 閉じ方と、シートの中でたどった段数（0 = 開いたときの中身）から、シートを閉じるか 1 つ前へ戻るか。Esc（取り消せる close
  * watcher を含む）は 1 つ前へ、✕・外・取り消せない close watcher はシートごと閉じる。戻る（back）はシート自身の段から下りた
  * ときに来るのでシートごと閉じる（たどった段は段ごとに層を積み、その段の戻るは呼ぶ側の閉じ方が 1 つ前へ戻す）

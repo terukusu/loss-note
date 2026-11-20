@@ -16,14 +16,18 @@ import {
   isBackdropHit,
   type SheetDismiss,
   sheetCancel,
+  sheetCloseEvent,
   sheetEscapeKey,
   sheetReturnFocus,
 } from '../lib/sheet';
 import { SheetsContext } from '../lib/sheets-context';
 import { IconButton } from './Button';
 
-/** info = 説明と小さな操作（広い形は押した所の吹き出し）、form = 入力のあるもの（広い形は中央のダイアログ） */
-export type SheetKind = 'info' | 'form';
+/**
+ * info = 説明と小さな操作（広い形は押した所の吹き出し）、form = 入力のあるもの（広い形は中央のダイアログ）、
+ * viewer = 画像を全画面で見る層（黒い面・✕。どの形でも窓いっぱい。#131・ui-guidelines 9.3）
+ */
+export type SheetKind = 'info' | 'form' | 'viewer';
 
 export interface SheetViewProps {
   /** dialog の id（開いたボタンの aria-controls） */
@@ -101,8 +105,8 @@ export function Sheet(p: SheetProps) {
   const idNow = useRef(p.id);
   idNow.current = p.id;
   const opener = useRef<HTMLElement | null>(null);
-  /** こちらが close() を呼んでいる最中（その close の出来事は利用者の閉じではない） */
-  const closing = useRef(false);
+  /** こちらが呼んだ close() のうち、close の出来事がまだ届いていない数（届いた close は利用者の閉じではない。#131 のレビュー N7） */
+  const ownCloses = useRef(0);
   /** 押し始めの的（外を押したかの判定） */
   const downAt = useRef<EventTarget | null>(null);
   const sheets = useContext(SheetsContext);
@@ -110,6 +114,9 @@ export function Sheet(p: SheetProps) {
   const told = useRef<string | null>(null);
   const dismiss = useRef(p.onDismiss);
   dismiss.current = p.onDismiss;
+  /** 今開いているはずか（遅れて届いた close の出来事を見分ける。lib/sheet.ts の sheetCloseEvent） */
+  const openNow = useRef(p.open);
+  openNow.current = p.open;
 
   // 戻るで閉じる（層の段から下りた）
   useBackLayer(p.id, p.open, () => dismiss.current('back'));
@@ -135,9 +142,8 @@ export function Sheet(p: SheetProps) {
       return;
     }
     if (d.open) {
-      closing.current = true;
+      ownCloses.current += 1;
       d.close();
-      closing.current = false;
     }
     if (told.current !== null) sheets?.closed(told.current);
     told.current = null;
@@ -159,9 +165,8 @@ export function Sheet(p: SheetProps) {
     () => () => {
       const d = dialog.current;
       if (d?.open) {
-        closing.current = true;
+        ownCloses.current += 1;
         d.close();
-        closing.current = false;
       }
       if (told.current !== null) sheets?.closed(told.current);
       told.current = null;
@@ -179,7 +184,9 @@ export function Sheet(p: SheetProps) {
       dismiss.current('escape');
     };
     const onClose = () => {
-      if (closing.current) return;
+      const own = ownCloses.current;
+      if (own > 0) ownCloses.current = own - 1;
+      if (sheetCloseEvent(own, openNow.current) === 'ignore') return;
       // こちらが頼んでいない close（取り消せない close watcher）: UI で閉じたのと同じ。呼ぶ側を待たずに、殻の記録（トーストの
       // 時間）とシート自身の戻るの層を外す（呼ぶ側が open を false にし忘れても止まったままにしない。#129 のレビュー N3）
       if (told.current !== null) sheets?.closed(told.current);

@@ -264,13 +264,19 @@ export function chartSlotLine(c: {
   readonly failed: boolean;
   readonly timeframe: string | null;
   readonly suggest: string | null;
+  /**
+   * 編集の画面の変えた枠の印（「差し替え済み」「追加（未保存）」「削除（未保存）」。ChartPanel の changeMark。#131）。
+   * あれば読み取りの途中・案より先に出す（保存で何が変わるかを 2 枠の上で言う）
+   */
+  readonly change?: string | null;
 }): string {
   if (c.preparing) return '準備しています…';
+  if (c.change) return c.change;
   if (!c.hasChart) return c.failed ? '使えない画像です' : 'チャートを選ぶ';
   if (c.reading) return '時間足を読み取り中…';
   if (c.suggest) return `チャートからは ${c.suggest}`;
   return c.timeframe ?? '時間足 指定なし';
 }
 
-/** 小さなチャートの枠の id（シートの中の今の枠 `record-chart-<slot>` とは別） */
-export const miniChartId = (slot: AnySlot) => `record-mini-${slot}`;
+/** 小さなチャートの枠の id（シートの中の今の枠 `record-chart-<slot>` とは別。編集の画面は接頭辞 edit。#131） */
+export const miniChartId = (slot: AnySlot, prefix = 'record') => `${prefix}-mini-${slot}`;

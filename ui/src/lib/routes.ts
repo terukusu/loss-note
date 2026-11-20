@@ -12,6 +12,9 @@ export type Route =
   | { readonly name: 'reviewTable' }
   | { readonly name: 'trade'; readonly id: string }
   | { readonly name: 'tradeEdit'; readonly id: string }
+  /** 詳細の次の画面「すべての欄」と「総評」（#131。設計書 9.2・ui-guidelines 9.3） */
+  | { readonly name: 'tradeFields'; readonly id: string }
+  | { readonly name: 'tradeComment'; readonly id: string }
   | { readonly name: 'settings' }
   /** 設定の次の画面（#133。ui-guidelines 9.3・9.7）: 口座・銘柄・AI の利用状況 */
   | { readonly name: 'settingsAccounts' }
@@ -57,6 +60,11 @@ export function parseRoute(pathname: string, opts: RouteOptions): Route | null {
   // 直す（Issue #9。URL を持つ = 再読み込みで同じ取引の直しが開く。P6）
   const e = /^\/trades\/([^/]+)\/edit$/.exec(path);
   if (e && TRADE_ID.test(e[1] ?? '')) return { name: 'tradeEdit', id: e[1] ?? '' };
+  // 詳細の次の画面（#131）
+  const n = /^\/trades\/([^/]+)\/(fields|comment)$/.exec(path);
+  if (n && TRADE_ID.test(n[1] ?? '')) {
+    return { name: n[2] === 'fields' ? 'tradeFields' : 'tradeComment', id: n[1] ?? '' };
+  }
   return null;
 }
 
@@ -78,6 +86,10 @@ export function hrefOf(route: Route): string {
       return `/trades/${route.id}`;
     case 'tradeEdit':
       return `/trades/${route.id}/edit`;
+    case 'tradeFields':
+      return `/trades/${route.id}/fields`;
+    case 'tradeComment':
+      return `/trades/${route.id}/comment`;
     case 'settings':
       return '/settings';
     case 'settingsAccounts':
@@ -102,6 +114,8 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   reviewTable: '数で見る',
   trade: '取引の詳細',
   tradeEdit: '取引を編集',
+  tradeFields: 'すべての欄',
+  tradeComment: '総評',
   settings: '設定',
   settingsAccounts: '口座',
   settingsInstruments: '銘柄',
@@ -172,6 +186,8 @@ export function tabOfRoute(route: Route): Tab {
     case 'trades':
     case 'trade':
     case 'tradeEdit':
+    case 'tradeFields':
+    case 'tradeComment':
       return 'trades';
     case 'review':
     case 'reviewTable':

@@ -57,8 +57,10 @@ import {
   draftFromStored,
   editBlock,
   editContext,
+  editFxOpts,
   editPreview,
   editSnapshot,
+  mergedOf,
   mergeEdit,
   type OrphanTimeframe,
   orphanTimeframes,
@@ -75,7 +77,6 @@ import {
   type FxPair,
   fxPairOf,
   fxStale,
-  fxVisibleOf,
   type Preview,
   readDraft,
   refineFxBasis,
@@ -186,35 +187,6 @@ export interface EditController {
 }
 
 const EMPTY_CTX: DraftContext = { instruments: [], accounts: [] };
-
-/** 保存する記録（足りない欄・誤りがあれば undefined）。銘柄の ID は決まっていなければ仮の値 */
-function mergedOf(
-  trade: StoredTrade,
-  initial: Draft,
-  draft: Draft,
-  read: DraftReading,
-  instrumentId: string,
-  ctx: DraftContext,
-): TradeRecord | undefined {
-  return read.body === undefined
-    ? undefined
-    : mergeEdit(
-        trade.record,
-        initial,
-        draft,
-        read.body,
-        instrumentId,
-        fxOpts(read, ctx, initial, draft),
-      );
-}
-
-/** 為替の保ち方: 欄が出ていれば下書き、出ていなければ為替が意味を失っていないとき（fxStale でない）だけ元の為替を保つ */
-function fxOpts(read: DraftReading, ctx: DraftContext, initial: Draft, draft: Draft) {
-  return {
-    fxShown: fxVisibleOf(editSnapshot(read, ctx, draft)),
-    keepOriginalFx: !fxStale(fxPairOf(initial, ctx), fxPairOf(draft, ctx)),
-  };
-}
 
 /** 2 つの組が同じか（価格の通貨と口座の通貨） */
 const samePair = (a: FxPair, b: FxPair) => a.price === b.price && a.account === b.account;
@@ -547,7 +519,7 @@ export function createEditController(deps: {
         draft,
         body,
         inst.id,
-        fxOpts(read, ctx, initial, draft),
+        editFxOpts(read, ctx, initial, draft),
       );
       // 今の値で写し直す（#31）とき、通貨の組が変わるなら為替を外して送る（#47 PR-2。為替は組に縛られた値）
       const offer = state.offer;

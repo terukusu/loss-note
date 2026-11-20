@@ -359,13 +359,21 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
     expect(tapAnswers(D1, summarize(D1).judgment)).toEqual([
       {
         label: 'LC を入る前に決めていたか',
+        short: 'LC',
         value: '決めていた',
         offPlan: false,
         term: 'lcDecided',
       },
-      { label: 'LC を動かしたか', value: '広げた（99.2）', offPlan: true, term: 'lcMove' },
+      {
+        label: 'LC を動かしたか',
+        short: 'LC',
+        value: '広げた（99.2）',
+        offPlan: true,
+        term: 'lcMove',
+      },
       {
         label: '時間足を変えたか',
+        short: '時間足',
         value: '4 時間足 → 日足',
         offPlan: true,
         term: 'timeframeChange',
@@ -390,16 +398,24 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
     expect(tapAnswers(t, summarize(t).judgment)).toEqual([
       {
         label: 'LC を入る前に決めていたか',
+        short: 'LC',
         value: '決めていない',
         offPlan: true,
         term: 'lcDecided',
       },
-      { label: 'LC を動かしたか', value: '狭めた', offPlan: false, term: 'lcMove' },
-      { label: '時間足を変えたか', value: '長い足へ', offPlan: true, term: 'timeframeChange' },
+      { label: 'LC を動かしたか', short: 'LC', value: '狭めた', offPlan: false, term: 'lcMove' },
+      {
+        label: '時間足を変えたか',
+        short: '時間足',
+        value: '長い足へ',
+        offPlan: true,
+        term: 'timeframeChange',
+      },
     ]);
     const u = stored('tap2', { timeframeChange: 'shorter' });
     expect(tapAnswers(u, summarize(u).judgment).at(-1)).toEqual({
       label: '時間足を変えたか',
+      short: '時間足',
       value: '短い足へ',
       offPlan: false,
       term: 'timeframeChange',
@@ -416,6 +432,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
     });
     expect(tapAnswers(t)[1]).toEqual({
       label: 'LC を動かしたか',
+      short: 'LC',
       value: '広げた',
       offPlan: true,
       term: 'lcMove',
@@ -442,7 +459,8 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
   });
 
   it('timeframeNote: あなたの答えとチャートが食い違うときだけ 1 行（D1）。そろう・チャートが足りないときは null', () => {
-    expect(timeframeNote(D1)).toBe('あなたの答え: そのまま ／ チャート: 4 時間足 → 日足');
+    // チャートの足は札が言うので、1 行はあなたの答えだけ（#131 のデザインレビュー a2）
+    expect(timeframeNote(D1)).toBe('あなたの答え: そのまま');
     const agree = stored(
       'tfa',
       { ...D1.record, timeframeChange: 'longer' },
@@ -454,7 +472,7 @@ describe('tapAnswers（詳細の 決済までの行動の答え。Issue #34 AC-7
       { ...D1.record, timeframeChange: 'longer', exitChartTimeframe: '4h' },
       { charts: D1.charts ?? {} },
     );
-    expect(timeframeNote(denied)).toBe('あなたの答え: 長い足へ ／ チャート: 4 時間足 → 4 時間足');
+    expect(timeframeNote(denied)).toBe('あなたの答え: 長い足へ');
     expect(timeframeNote(D2)).toBeNull();
     expect(timeframeNote(E2)).toBeNull();
   });

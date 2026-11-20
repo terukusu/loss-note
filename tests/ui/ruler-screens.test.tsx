@@ -26,6 +26,7 @@ import type { DetailState } from '../../ui/src/lib/trade-detail-controller';
 import { recordFields } from '../../ui/src/lib/trade-view';
 import { RecordView } from '../../ui/src/pages/Record';
 import { notFoundState, TradeDetailView } from '../../ui/src/pages/TradeDetail';
+import { TradeNotesView } from '../../ui/src/pages/TradeNotes';
 import { closedInfoTip } from './helpers/info-tip';
 import { CAPITAL_1M, E1 as DRAFT_E2, E16 as DRAFT_NO_LC, draft } from './helpers/record-drafts';
 import { exitAt, N1, N2, N3, RULER_EXAMPLES } from './helpers/ruler-examples';
@@ -387,14 +388,22 @@ describe('AC-7: 詳細の 決済までの行動の答え（判定の枠の中、
     expect(at).toBeGreaterThan(childIndex(v, 'ruler'));
     return all([ul], (e) => e.type === 'li');
   }
+  /** 札に見える文字（短い問い。#131 のデザインレビュー a1）と、読み上げの文字（問いの全文 + 外れの印） */
+  const shown = (e: El) => text(all([e], hasClass('taps__text')));
+  const spoken = (e: El) => all([e], hasClass('sr-only')).map(text).join('');
 
-  it('E2: 3 項目、札の名前は問いの名前、「広げた」だけに印・読み上げの「計画から外れた」（「外れ」の字は出さない）', () => {
+  it('E2: 3 項目、札は短い問い（読み上げは問いの全文）、「広げた」だけに印・読み上げの「計画から外れた」（「外れ」の字は出さない）', () => {
     const li = taps(must('E2'));
-    expect(li.map(text)).toEqual([
+    expect(li.map(shown)).toEqual(['LC: 決めていた', 'LC: 広げた（99.2）', '時間足: そのまま']);
+    expect(li.map(spoken)).toEqual([
       'LC を入る前に決めていたか: 決めていた',
       'LC を動かしたか: 広げた（99.2）計画から外れた',
       '時間足を変えたか: そのまま',
     ]);
+    // 見える短い問いは読み上げから外す（二重に読ませない）
+    expect(all([li[0] as El], hasClass('taps__text'))[0]?.props['aria-hidden']).toBe('true');
+    // 札ごとの「i」は置かない（#131 のデザインレビュー a1）
+    expect(li.flatMap((e) => all([e], hasClass('info')))).toEqual([]);
     expect(li.map((e) => hasClass('taps__item--off')(e))).toEqual([false, true, false]);
     // 答えは語の途中で折らない塊（#58 デザインレビュー 2）
     expect(li.map((e) => text(all([e], hasClass('taps__a'))))).toEqual([
@@ -406,28 +415,32 @@ describe('AC-7: 詳細の 決済までの行動の答え（判定の枠の中、
     expect(all([off], hasClass('icon'))[0]?.props['aria-hidden']).toBe('true');
     // 「外れ」の字は出さない（記号と枠の太さで示す。#74 デザインレビュー）
     expect(all([off], hasClass('taps__off'))).toEqual([]);
-    expect(text(one([off], hasClass('sr-only')))).toBe('計画から外れた');
+    expect(all([off], hasClass('sr-only')).map(text).at(-1)).toBe('計画から外れた');
     // 外れの印の形は外れた札だけ（問いの説明の「i」の記号は数えない。#57）
     const shapes = (e: El) => all([e], (x) => hasClass('icon')(x) && !hasClass('info__icon')(x));
     expect([...shapes(li[0] as El), ...shapes(li[2] as El)]).toEqual([]);
   });
 
   it('E3（S）: L と同じ「広げた（150.8）」（#56）', () => {
-    expect(taps(must('E3')).map(text)[1]).toBe('LC を動かしたか: 広げた（150.8）計画から外れた');
+    const li = taps(must('E3'));
+    expect(shown(li[1] as El)).toBe('LC: 広げた（150.8）');
+    expect(spoken(li[1] as El)).toBe('LC を動かしたか: 広げた（150.8）計画から外れた');
   });
 
   it('N1（LC なし）: 時間足の答えだけ', () => {
-    expect(taps(N1).map(text)).toEqual(['時間足を変えたか: そのまま']);
+    expect(taps(N1).map(shown)).toEqual(['時間足: そのまま']);
   });
 
   it('チャートから時間足を変えたと判定された取引は、答えが「そのまま」でも印（D1。AC-7）', () => {
     expect(D1.record.timeframeChange).toBe('none');
     const li = taps(D1);
-    expect(text(li[2] as El)).toBe('時間足を変えたか: 4 時間足 → 日足計画から外れた');
+    expect(shown(li[2] as El)).toBe('時間足: 4 時間足 → 日足');
+    expect(spoken(li[2] as El)).toBe('時間足を変えたか: 4 時間足 → 日足計画から外れた');
     expect(hasClass('taps__item--off')(li[2] as El)).toBe(true);
-    // あなたの答えとの食い違いを 1 行で添える（「申告」「判定に使用」の言い方は使わない）
+    // あなたの答えとの食い違いを 1 行で添える（チャートの足は札が言う。#131 のデザインレビュー a2。「申告」「判定に使用」の言い方は使わない）
     const v = verdictOf(detailTree(D1));
-    expect(text(v)).toContain('あなたの答え: そのまま ／ チャート: 4 時間足 → 日足');
+    expect(text(v)).toContain('あなたの答え: そのまま');
+    expect(text(v)).not.toContain('／ チャート:');
     expect(text(v)).not.toContain('申告');
   });
 
@@ -494,20 +507,33 @@ describe('広げた後の LC は線の上側・広げた区間は破線の太線
   });
 });
 
-describe('AC-8: 「すべての欄」は既定で閉じ、行は今と同じ', () => {
+describe('AC-8（#131 で次の画面に）: 「すべての欄」は押せる行 → 次の画面。行は今と同じ', () => {
   it.each([
     ['E2', must('E2')],
     ['N1', N1],
     ['D1', D1],
   ] as const)('%s', (_id, t) => {
     const tree = detailTree(t);
-    const d = one(tree, (e) => e.type === 'details' && hasClass('more')(e));
-    expect(d.props.open).toBeUndefined();
-    expect(hasClass('card')(d)).toBe(true);
-    const summary = one([d], (e) => e.type === 'summary');
-    expect(text(summary)).toBe('すべての欄');
-    expect(hasClass('more__summary')(summary)).toBe(true);
-    const rows = all([d], hasClass('fields__row')).map((r) => ({
+    // 詳細ではその場で開かない（折りたたみが無い）。押せる行で次の画面へ
+    expect(all(tree, (e) => e.type === 'details')).toEqual([]);
+    const row = one(
+      tree,
+      (e) => e.type === 'a' && hasClass('rowlink')(e) && text(e) === 'すべての欄',
+    );
+    expect(row.props.href).toBe(`/trades/${t.id}/fields`);
+    expect(all(tree, hasClass('fields__row'))).toEqual([]);
+    const page = expand(
+      <TradeNotesView
+        id={t.id}
+        kind="fields"
+        state={detailState(t)}
+        hidden={EMPTY}
+        notFound={notFoundState()}
+        onReload={noop}
+        onRelogin={noop}
+      />,
+    );
+    const rows = all(page, hasClass('fields__row')).map((r) => ({
       label: text(one([r], hasClass('fields__label'))),
       value: text(one([r], hasClass('fields__value'))),
     }));
@@ -518,7 +544,7 @@ describe('AC-8: 「すべての欄」は既定で閉じ、行は今と同じ', (
       })),
     );
     // 「記録した欄」の見出しは残さない
-    expect(text(tree)).not.toContain('記録した欄');
+    expect(text(page)).not.toContain('記録した欄');
   });
 });
 

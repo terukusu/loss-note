@@ -29,8 +29,7 @@ import { Button, RowLink } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
-import { JudgeBadge } from '../components/JudgeBadge';
-import { RNum } from '../components/Num';
+import { MiniCharts, SummaryCard, VerdictLineButton } from '../components/RecordParts';
 import { Segment } from '../components/Segment';
 import { Sheet } from '../components/Sheet';
 import {
@@ -50,14 +49,10 @@ import {
   verdictAsideText,
 } from '../lib/accounts';
 import { backLayers } from '../lib/back-layers';
-import { CHART_READ_NOTICE, timeframeConflict } from '../lib/chart-read';
-import type { ChartState } from '../lib/chart-slots';
+import { timeframeConflict } from '../lib/chart-read';
 import {
   type AnySlot,
-  CHART_SLOT_TEXT,
-  CHART_SLOTS,
   CHART_TIMEFRAME_FIELD,
-  type ChartSlot,
   chartSlotOf,
   type ExtraSlot,
   isMainSlot,
@@ -72,8 +67,7 @@ import {
 } from '../lib/draft-status';
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
-import { formatPct, formatPrice, formatQuantity } from '../lib/format';
-import { TIMEFRAME_NAME } from '../lib/reasons';
+import { formatPrice, formatQuantity } from '../lib/format';
 import {
   createRecordController,
   enterRecordScreen,
@@ -84,19 +78,14 @@ import {
 } from '../lib/record-controller';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import {
-  chartSlotLine,
   FIELD_INPUT_ID,
   focusLcAfterRead,
-  miniChartId,
-  NAMED_LEAD,
-  namedLabel,
   type RecordSheet,
   SHEET_ID,
   statementArea,
   TZ_PENDING,
   timeZoneNeed,
   tradeSummary,
-  type VerdictLine,
   verdictLine,
 } from '../lib/record-screen';
 import { sheetDismiss } from '../lib/sheet';
@@ -538,13 +527,10 @@ export interface RecordViewProps {
 /** 入る前に決めた LC の欄（読み取りの後・読み取りのキャンセルの後のフォーカスの行き先） */
 const LC_ID = 'record-lc';
 const MANUAL_ID = 'record-manual';
-const EDIT_FIELDS_ID = 'record-edit-fields';
-const SUMMARY_ID = 'record-summary';
 const MORE_ROW_ID = 'record-more';
 const TZ_OPEN_ID = 'record-tz-open';
 const TZ_MARK_ID = 'record-tz-mark';
 const VERDICT_LINE_ID = 'record-verdict-line';
-const CHARTS_TITLE_ID = 'record-mini-charts-title';
 /** 取引の欄のシートの段 2（ほかの欄）の戻るの層 */
 const MORE_LAYER = `${SHEET_ID.fields}~more`;
 /** 借り直した書きかけの 1 行（#75） */
@@ -752,7 +738,14 @@ function RecordForm(p: RecordViewProps) {
           accountChip={choice === 'select' && account ? account.name : null}
         />
 
-        <MiniCharts {...p} />
+        <MiniCharts
+          prefix="record"
+          charts={state.charts}
+          timeframes={{ entry: d.entryChartTimeframe, exit: d.exitChartTimeframe }}
+          blocked={state.chartBlocked}
+          onPick={(slot, f) => p.onPickChart?.(slot, f)}
+          onOpen={() => openSheet({ kind: 'chart' })}
+        />
 
         <div class="record__lc">
           <LcFields {...fields} />
@@ -924,6 +917,7 @@ function RecordForm(p: RecordViewProps) {
           </div>
         ) : null}
         <VerdictLineButton
+          id={VERDICT_LINE_ID}
           line={line}
           status={line.kind === 'status' ? line.text : submitStatus(read, errorLabels)}
           disabled={saving}
@@ -958,49 +952,6 @@ function moreMeta(
   if (marks.pnlYen || marks.feeYen || marks.exitReason) return '読み取りあり';
   const filled = [d.pnlYen, d.feeYen].filter((v) => v.trim() !== '').length;
   return filled > 0 ? `${filled} 欄` : null;
-}
-
-/**
- * 下の帯の判定の 1 行（押すと判定のシート。9.3）。判定が出ていればバッジ・R・リスク、出ていなければ状態の文（「あと n 欄」
- * 「タイムゾーンが未選択」など）。状態の文は常に読み上げの live region に入れる
- */
-function VerdictLineButton(p: {
-  readonly line: VerdictLine;
-  readonly status: string;
-  readonly disabled: boolean;
-  readonly onOpen: () => void;
-}) {
-  const { line } = p;
-  return (
-    <button
-      type="button"
-      id={VERDICT_LINE_ID}
-      class={line.kind === 'judged' ? 'vline vline--judged' : 'vline'}
-      aria-haspopup="dialog"
-      aria-label={`判定を開く: ${p.status}`}
-      disabled={p.disabled}
-      onClick={p.onOpen}
-    >
-      {line.kind === 'judged' ? (
-        <>
-          <JudgeBadge grade={line.grade} />
-          {line.r !== undefined ? <RNum value={line.r} size="lg" /> : null}
-          {line.riskPct !== undefined ? (
-            <span class="vline__risk">
-              リスク <span class="num">{formatPct(line.riskPct)}</span>
-            </span>
-          ) : null}
-        </>
-      ) : null}
-      <span
-        class={line.kind === 'judged' ? 'record__status sr-only' : 'record__status'}
-        aria-live="polite"
-      >
-        {p.status}
-      </span>
-      <Icon name="chevron" class="vline__chev" />
-    </button>
-  );
 }
 
 /**
@@ -1092,13 +1043,13 @@ function StatementArea(
           {notices}
         </div>
       ) : (
-        <SummaryCard {...p} marks={marks} message={message} notices={notices} onOpen={open} />
+        <RecordSummary {...p} marks={marks} message={message} notices={notices} onOpen={open} />
       )}
     </section>
   );
 }
 
-function SummaryCard(
+function RecordSummary(
   p: RecordViewProps & {
     readonly tzNeed: 'choose' | 'chosen' | null;
     readonly accountField: ComponentChildren;
@@ -1112,51 +1063,12 @@ function SummaryCard(
   const { state } = p;
   const sum = tradeSummary(state.draft, state.read.errors, p.marks);
   return (
-    <div class="rstmt__card rstmt__card--sum">
-      {p.accountChip ? (
-        <button
-          type="button"
-          class="chip rsum__account"
-          aria-label={`口座: ${p.accountChip}（口座を選ぶ）`}
-          onClick={() => p.onOpen({ kind: 'fields', step: 'main', focus: 'accountId' })}
-        >
-          {p.accountChip}
-          <Icon name="chevron" />
-        </button>
-      ) : null}
-      <div class="rsum__text" id={SUMMARY_ID}>
-        <p class="rsum__l1">
-          <span class="rsum__value">{sum.line1}</span>
-          {sum.read ? <span class="field__mark rsum__mark">読み取り</span> : null}
-        </p>
-        <p class="rsum__l2">{sum.line2}</p>
-      </div>
-      <Button
-        variant="secondary"
-        size="sm"
-        id={EDIT_FIELDS_ID}
-        label="取引の欄を編集"
-        onClick={() => p.onOpen({ kind: 'fields', step: 'main' })}
-      >
-        編集
-      </Button>
-      {sum.named.length > 0 ? (
-        <ul class="rsum__named" aria-label="入力が必要な欄">
-          {sum.named.map((n) => (
-            <li key={n.field}>
-              <button
-                type="button"
-                class={`chip rsum__chip rsum__chip--${n.kind}`}
-                aria-label={namedLabel(n)}
-                onClick={() => p.onOpen({ kind: 'fields', step: 'main', focus: n.field })}
-              >
-                <span class="rsum__chiplead">{NAMED_LEAD[n.kind]}</span>
-                <span>{n.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+    <SummaryCard
+      prefix="record"
+      summary={sum}
+      accountChip={p.accountChip}
+      onFields={(focus) => p.onOpen({ kind: 'fields', step: 'main', ...(focus ? { focus } : {}) })}
+    >
       {p.tzNeed ? (
         <div class="rsum__tz">
           {p.tzNeed === 'choose' ? (
@@ -1178,7 +1090,7 @@ function SummaryCard(
       {p.accountField ? <div class="rsum__accounts">{p.accountField}</div> : null}
       {p.message}
       {p.notices}
-    </div>
+    </SummaryCard>
   );
 }
 
@@ -1256,119 +1168,6 @@ function StatementDetails(p: RecordViewProps) {
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** チャートの 2 枠（横に並べる）と、その下のチャートの注意（常に出す。C38）。詳細はチャートのシート */
-function MiniCharts(p: RecordViewProps) {
-  const { state } = p;
-  const d = state.draft;
-  return (
-    <section class="rcharts" aria-labelledby={CHARTS_TITLE_ID}>
-      <h2 class="sr-only" id={CHARTS_TITLE_ID}>
-        チャート（任意）
-      </h2>
-      <div class="rcharts__grid">
-        {CHART_SLOTS.map((slot) => (
-          <MiniChart
-            key={slot}
-            slot={slot}
-            chart={state.charts?.[slot]}
-            timeframe={slot === 'entry' ? d.entryChartTimeframe : d.exitChartTimeframe}
-            onPick={(f) => p.onPickChart?.(slot, f)}
-            onOpen={() => p.onSheet?.({ kind: 'chart' })}
-          />
-        ))}
-      </div>
-      <p class="charts__notice rcharts__notice">{CHART_READ_NOTICE}</p>
-      {state.chartBlocked ? (
-        <p class="statement__text" role="status">
-          {state.chartBlocked}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-function MiniChart(p: {
-  readonly slot: ChartSlot;
-  readonly chart: ChartState | undefined;
-  readonly timeframe: Timeframe | null;
-  readonly onPick: (file: File) => void;
-  readonly onOpen: () => void;
-}) {
-  const c = p.chart;
-  const name = CHART_SLOT_TEXT[p.slot].name;
-  const preview = c?.phase === 'ready' ? c.preview : null;
-  const hasChart = c?.phase === 'ready';
-  const lineText = chartSlotLine({
-    hasChart,
-    preparing: c?.phase === 'preparing',
-    reading: c?.read === 'reading',
-    failed: c?.phase === 'failed',
-    timeframe: p.timeframe ? TIMEFRAME_NAME[p.timeframe] : null,
-    suggest: c?.readSuggest ? TIMEFRAME_NAME[c.readSuggest] : null,
-  });
-  const id = miniChartId(p.slot);
-  const body = (
-    <>
-      {preview ? (
-        <span class="rchart__thumb" aria-hidden="true">
-          <canvas
-            class="rchart__canvas"
-            width={preview.width}
-            height={preview.height}
-            ref={(el: HTMLCanvasElement | null) => {
-              if (el) preview.draw(el);
-            }}
-          />
-        </span>
-      ) : (
-        <span class="rchart__thumb rchart__thumb--empty" aria-hidden="true">
-          <Icon name="plus" />
-        </span>
-      )}
-      <span class="rchart__text">
-        <span class="rchart__name">{name}</span>
-        <span class="rchart__line">{lineText}</span>
-      </span>
-    </>
-  );
-  if (hasChart) {
-    // チャートがある枠: 押すとチャートのシート（時間足・差し替え・削除・追加）。フォーカスして貼ると差し替え（R1）
-    return (
-      <button
-        type="button"
-        id={id}
-        class="rchart rchart--full"
-        data-chart-slot={p.slot}
-        aria-haspopup="dialog"
-        aria-label={`${name}のチャート: ${lineText}（チャートを開く）`}
-        onClick={p.onOpen}
-      >
-        {body}
-      </button>
-    );
-  }
-  // 空の枠: 押すとファイルを選ぶ（1 タップ）。フォーカスして貼るとこの枠へ（data-chart-slot。R1）
-  return (
-    <label class="rchart" id={id} for={`${id}-file`}>
-      {body}
-      <input
-        id={`${id}-file`}
-        class="statement__input"
-        type="file"
-        data-chart-slot={p.slot}
-        aria-label={`${name}のチャートを選ぶ`}
-        accept="image/png,image/jpeg,image/*"
-        onChange={(ev) => {
-          const input = ev.currentTarget;
-          const file = input.files?.[0];
-          input.value = '';
-          if (file) p.onPick(file);
-        }}
-      />
-    </label>
   );
 }
 

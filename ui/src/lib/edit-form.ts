@@ -35,6 +35,9 @@ import {
   type DraftContext,
   type DraftReading,
   EMPTY_DRAFT,
+  fxPairOf,
+  fxStale,
+  fxVisibleOf,
   type Preview,
   type Summary,
   snapshotOf,
@@ -303,4 +306,36 @@ export function bandText(change: string, chartChanges: number): string {
   const same = /^判定は変わりません: (.*)$/.exec(change);
   const head = same ? `判定は同じ（${same[1]}）` : change;
   return `${head}・チャート ${chartChanges} か所を変更`;
+}
+
+/** 為替の保ち方: 欄が出ていれば下書き、出ていなければ為替が意味を失っていないとき（fxStale でない）だけ元の為替を保つ */
+export function editFxOpts(read: DraftReading, ctx: DraftContext, initial: Draft, draft: Draft) {
+  return {
+    fxShown: fxVisibleOf(editSnapshot(read, ctx, draft)),
+    keepOriginalFx: !fxStale(fxPairOf(initial, ctx), fxPairOf(draft, ctx)),
+  };
+}
+
+/**
+ * 保存する記録（足りない欄・誤りがあれば undefined）。銘柄の ID は決まっていなければ仮の値。編集の controller と、詳細の
+ * 比較のシート（#131。開いたときの下書きのまま）が同じものを使う
+ */
+export function mergedOf(
+  trade: StoredTrade,
+  initial: Draft,
+  draft: Draft,
+  read: DraftReading,
+  instrumentId: string,
+  ctx: DraftContext,
+): TradeRecord | undefined {
+  return read.body === undefined
+    ? undefined
+    : mergeEdit(
+        trade.record,
+        initial,
+        draft,
+        read.body,
+        instrumentId,
+        editFxOpts(read, ctx, initial, draft),
+      );
 }

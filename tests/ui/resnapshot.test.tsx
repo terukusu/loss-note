@@ -10,16 +10,21 @@ import { createEditController, EDIT_VALUES_CHANGED } from '../../ui/src/lib/edit
 import { type Summary, summarize } from '../../ui/src/lib/record-form';
 import {
   CHOICE_NAME,
+  compareRowMeta,
+  detailOffer,
+  editCurrentHref,
   gradeChangeText,
   NO_OUTCOME_CHANGE,
   outcomeRows,
   RESNAPSHOT_LABEL,
   resnapshotOffer,
   snapshotDiffs,
+  wantsCurrentValues,
   withoutStaleFx,
 } from '../../ui/src/lib/resnapshot';
 import { Link } from '../../ui/src/lib/router';
-import { notFoundState } from '../../ui/src/pages/TradeDetail';
+import { createTradeDetailController } from '../../ui/src/lib/trade-detail-controller';
+import { notFoundState, TradeDetailView } from '../../ui/src/pages/TradeDetail';
 import { TradeEditView } from '../../ui/src/pages/TradeEdit';
 import { account } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
@@ -116,7 +121,7 @@ describe('純関数: snapshotDiffs・resnapshotOffer・outcomeRows', () => {
     expect(offer?.after?.riskPct).toBeCloseTo(4, 9);
     expect(offer?.after?.judgment?.reasons.some((r) => r.kind === 'overRisk')).toBe(true);
     expect(gradeChangeText(offer?.before as Summary, offer?.after as Summary)).toBe(
-      '今の値で再計算すると、判定が「A いい損失」から「B 悪い損失」に変わります。',
+      '判定が「A いい損失」から「B 悪い損失」に変わります。',
     );
   });
 
@@ -129,7 +134,7 @@ describe('純関数: snapshotDiffs・resnapshotOffer・outcomeRows', () => {
     expect(offer?.before?.judgment?.grade).toBe('B');
     expect(offer?.after?.judgment?.grade).toBe('A');
     expect(gradeChangeText(offer?.before as Summary, offer?.after as Summary)).toBe(
-      '今の値で再計算すると、判定が「B 悪い損失」から「A いい損失」に変わります。',
+      '判定が「B 悪い損失」から「A いい損失」に変わります。',
     );
   });
 
@@ -463,11 +468,14 @@ function view(c: ReturnType<typeof createEditController>, id: string) {
 }
 
 describe('画面: 枠と、判定の枠の注記のそばのボタン', () => {
-  it('AC-1・AC-6: E1 は目立つ枠（未設定 → 1,000,000円・— → 2.0%）と、注記のすぐ後のボタン', async () => {
+  it('AC-1・AC-6: E1 は「今の値と比べる」の行 → 比較のシート（未設定 → 1,000,000円・— → 2.0%）と、判定の注記のすぐ後のボタン（#131）', async () => {
     const { c } = await open(X1, 1_000_000);
     const tree = view(c, 'x1');
-    const panel = all(tree, hasClass('resnap'))[0] as El;
-    expect(panel.type).toBe('section');
+    const row = all(tree, (e) => e.props.id === 'edit-compare')[0] as El;
+    expect(text(row)).toBe('今の値と比べる1 か所違います');
+    const sheet = all(tree, (e) => e.props['data-sheet'] === 'edit-compare-sheet')[0] as El;
+    const panel = all([sheet], hasClass('resnap'))[0] as El;
+    expect(panel.type).toBe('div');
     const t = text(panel);
     expect(t).toContain('この取引には資金が保存されていないため、過剰リスクを判定していません。');
     expect(t).toContain('未設定');
@@ -526,14 +534,15 @@ describe('画面: 枠と、判定の枠の注記のそばのボタン', () => {
     expect(choices(tree)).toEqual([]);
   });
 
-  it('E8・N-5: 資金が入っていた取引は折りたたみ「記録したときの値」の中（勧めない）。注記のそばのボタンは無い', async () => {
+  it('E8・N-5: 資金が入っていた取引も行「今の値と比べる」→ 比較のシート（勧めない文）。注記のそばのボタンは無い（#131: 折りたたみをやめた）', async () => {
     const { c } = await open(X6, null);
     const tree = view(c, 'x6');
+    expect(all(tree, (e) => e.type === 'details')).toEqual([]);
+    expect(text(all(tree, (e) => e.props.id === 'edit-compare')[0] as El)).toBe(
+      '今の値と比べる1 か所違います',
+    );
     const fold = all(tree, hasClass('resnap'))[0] as El;
-    expect(fold.type).toBe('details');
-    expect(fold.props.open).toBeUndefined();
-    expect(text(fold)).toContain('記録したときの値');
-    expect(text(fold)).toContain('今の値と 1 か所違います');
+    expect(text(fold)).toContain('記録したときの口座・銘柄の値と、今の値が違います。');
     // 開けば違いと判定・R・リスクの 前 → 後 が必ずある
     expect(text(fold)).toContain('1,000,000円');
     expect(text(fold)).toContain('2.0%');
@@ -658,5 +667,95 @@ describe('再計算で為替を外すのは意味を失う移りだけ（#47 PR-
     if (call === undefined) throw new Error('PUT が無い');
     expect(call.path.endsWith('?snapshot=current')).toBe(true);
     expect((call.body as { exit: { fxRate?: number } }).exit.fxRate).toBe(150);
+  });
+});
+
+// ---- 詳細の比較のシート（#131 AC-3。#31 の P4: 見るだけ・写し直すのは編集の保存のときだけ）。値は架空 ----
+
+describe('詳細の比較（#131）: detailOffer・?values=current', () => {
+  it('detailOffer は開いた編集の画面の提案と同じ（違う値・前 → 後）。違わなければ null', async () => {
+    for (const [t, capital] of [
+      [X1, 1_000_000],
+      [X6, 500_000],
+      [X6, 1_000_000],
+    ] as const) {
+      const { fake, c } = await open(t, capital);
+      const d = createTradeDetailController({
+        api: fake.api,
+        id: t.id,
+        preview: async () => fakePreview(),
+      });
+      await d.load();
+      const s = d.getState();
+      if (s.phase !== 'ready') throw new Error('読めない');
+      const offer = detailOffer(s.trade, s.instruments, s.accounts);
+      expect(offer).toEqual(c.getState().offer);
+      // 詳細を開いて比べても、要求は GET だけ（保存しない）
+      expect(fake.calls.filter((x) => x.method !== 'GET')).toEqual([]);
+    }
+  });
+
+  it('直せない取引（建てが 2 つ）は比べない', () => {
+    const multi: StoredTrade = {
+      ...X1,
+      record: { ...X1.record, entries: [X1.record.entries[0], X1.record.entries[0]] },
+    };
+    expect(detailOffer(multi, [IDX], [account('default', '口座 1', 1_000_000)])).toBeNull();
+  });
+
+  it('レッグを持つ取引は比べない（下書きがレッグを写さず、前 → 後 がレッグ抜きの値になるため。#131 のレビュー N3）', () => {
+    const withLegs = {
+      ...X1,
+      record: { ...X1.record, legs: [{}] },
+    } as unknown as StoredTrade;
+    const accounts = [account('default', '口座 1', 1_000_000)];
+    expect(detailOffer(X1, [IDX], accounts)).not.toBeNull();
+    expect(detailOffer(withLegs, [IDX], accounts)).toBeNull();
+  });
+
+  it('［編集で今の値にする］ の URL と印の読み取り', () => {
+    expect(editCurrentHref('x1')).toBe('/trades/x1/edit?values=current');
+    expect(wantsCurrentValues('?values=current')).toBe(true);
+    expect(wantsCurrentValues('values=current')).toBe(true);
+    expect(wantsCurrentValues('')).toBe(false);
+    expect(wantsCurrentValues('?values=recorded')).toBe(false);
+    expect(wantsCurrentValues('?other=current')).toBe(false);
+  });
+
+  it('「今の値と比べる」の行の添え: 違う値の数、今の値を選んでいればそのこと', () => {
+    const offer = resnapshotOffer(SNAP, { ...SNAP, capitalYen: 1_000_000 }, X1.record);
+    if (!offer) throw new Error('提案なし');
+    expect(compareRowMeta(offer)).toBe('1 か所違います');
+    expect(compareRowMeta(offer, true)).toBe('今の値で計算中');
+  });
+
+  it('詳細の比較のシートは 2 択を持たず、［編集で今の値にする］ は編集の URL（?values=current）', async () => {
+    const { fake } = await open(X1, 1_000_000);
+    const d = createTradeDetailController({
+      api: fake.api,
+      id: 'x1',
+      preview: async () => fakePreview(),
+    });
+    await d.load();
+    const tree = expand(
+      <TradeDetailView
+        id="x1"
+        state={d.getState()}
+        hidden={new Set()}
+        notFound={notFoundState()}
+        onDelete={noop}
+        onReloadChart={noop}
+        onReload={noop}
+        onRelogin={noop}
+        sheet={{ kind: 'compare' }}
+      />,
+    );
+    const sheet = all(tree, (e) => e.props['data-sheet'] === 'detail-compare-sheet')[0] as El;
+    expect(sheet.props['data-open']).toBe('true');
+    expect(choices([sheet])).toEqual([]);
+    expect(text(sheet)).toContain('1,000,000円');
+    const link = all([sheet], (e) => e.type === 'a')[0] as El;
+    expect(link.props.href).toBe('/trades/x1/edit?values=current');
+    expect(text(link)).toBe('編集で今の値にする');
   });
 });

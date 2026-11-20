@@ -27,7 +27,8 @@ export type IconName =
   | 'review'
   | 'plus'
   | 'close'
-  | 'chevron';
+  | 'chevron'
+  | 'more';
 
 const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   home: () => (
@@ -124,6 +125,8 @@ const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
       <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
     </>
   ),
+  // 「…」（操作のシート。#131）。点は線の太さの丸（線だけで描く記号と同じ重さ）
+  more: () => <path d="M5.5 12h.01M12 12h.01M18.5 12h.01" stroke-width="3" />,
   // アプリの印: 下げたあと、決めた所で止まって上を向く線
   mark: () => (
     <>

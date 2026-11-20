@@ -150,6 +150,26 @@ describe('置き場の規則（R1・R2・R5・R7・R8）', () => {
     expect(f.log).toEqual(['stop', 'dispose']);
   });
 
+  it('#129 AC-4: シートを開いている間（hold("sheet")）は知らせの時間を止め、閉じたら 8 秒を置き直す。トーストの hold と別に数える', () => {
+    const { t, d } = setup();
+    const f = fakeEntry('record', '/record', 'input');
+    d.acquire(recordKey(), () => f.entry);
+    d.hold('sheet');
+    d.cancel(recordKey());
+    t.advance(DRAFT_UNDO_MS * 3);
+    expect(f.log).toEqual(['stop']);
+    d.hold();
+    d.resume();
+    t.advance(DRAFT_UNDO_MS * 3);
+    expect(f.log).toEqual(['stop']);
+    d.resume('sheet');
+    t.advance(DRAFT_UNDO_MS - 1);
+    expect(f.log).toEqual(['stop']);
+    t.advance(1);
+    expect(f.log).toEqual(['stop', 'dispose']);
+    expect(d.getState().toast).toBeNull();
+  });
+
   it('R2: 取り消し待ちの画面を開き直した・次の破棄・閉じる → 前の取り消し待ちは確定して捨てる', () => {
     const { d } = setup();
     const a = fakeEntry('record', '/record', 'input');

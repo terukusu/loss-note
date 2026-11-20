@@ -385,15 +385,19 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
         });
         return;
       }
-      // 知らない画面へは積まずに置き換える（戻るで知らない URL に戻らない）
-      hooks.onNavigate?.();
-      if (r.replace !== undefined) env.replaceState(r.replace, replaceMark(mark, r.replace));
-      else {
-        keepScroll();
-        env.pushState(href, pushMark(mark, href));
-      }
-      sync('push');
-      notify();
+      // 知らない画面へは積まずに置き換える（戻るで知らない URL に戻らない）。開いて閉じる層の段（説明のシートの中の ［用語集で
+      // 見る］ で移る）があれば巻き戻してから積む（層の段の上に積むと、履歴が印の深さより多くなり、タブの切り替えの go がホームの
+      // 段に届かない。#129 のレビュー N6）
+      afterUnwind(() => {
+        hooks.onNavigate?.();
+        if (r.replace !== undefined) env.replaceState(r.replace, replaceMark(mark, r.replace));
+        else {
+          keepScroll();
+          env.pushState(href, pushMark(mark, href));
+        }
+        sync('push');
+        notify();
+      });
     },
     replace(href) {
       // 利用者の操作の前の置き換え（ログインの門）: 組み直しは捨て、今の 1 段のまま

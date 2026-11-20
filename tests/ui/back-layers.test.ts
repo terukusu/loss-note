@@ -226,6 +226,43 @@ describe('back-layers と router（偽の履歴）', () => {
     expect(layers.top()).toBeNull();
   });
 
+  it('#129（9.3 の close watcher）: シートとたどった 2 段が開いている間に、Android の戻るで dialog が閉じた（popstate は出ない）= UI の閉じ → 3 段を go で戻す。閉じ方は呼ばない・画面は移らない・次の戻るは画面の行き来', () => {
+    const { h, layers, nav, screens } = setup('/trades/t1');
+    let closedBy = 0;
+    layers.open('info-r', () => closedBy++);
+    layers.open('info-r~1', () => closedBy++);
+    layers.open('info-r~2', () => closedBy++);
+    h.flush();
+    expect(h.index).toBe(3);
+    // dialog の close（取り消せない cancel の後）: 部品が層を上から外す（popstate は無い）
+    layers.close('info-r~2');
+    layers.close('info-r~1');
+    layers.close('info-r');
+    h.flush();
+    expect(h.index).toBe(0);
+    expect(layers.depth()).toBe(0);
+    expect(closedBy).toBe(0);
+    expect(screens()).toBe(0);
+    expect(nav.current.route.name).toBe('trade');
+    expect(h.sr).toBe('auto');
+  });
+
+  it('#129: 取り消せる close watcher（Esc と同じ）でたどった 1 段だけ外す → go(−1)。シートの段は残り、その後の戻るでシートが閉じる', () => {
+    const { h, layers } = setup();
+    let sheetClosed = 0;
+    layers.open('info-r', () => sheetClosed++);
+    layers.open('info-r~1', () => {});
+    h.flush();
+    layers.close('info-r~1');
+    h.flush();
+    expect(h.index).toBe(1);
+    expect(layers.top()).toBe('info-r');
+    h.back();
+    h.flush();
+    expect(sheetClosed).toBe(1);
+    expect(h.index).toBe(0);
+  });
+
   it('ほかの「i」に替える（前を閉じて次を開く）は 1 段のまま', () => {
     const { h, layers } = setup();
     layers.open('a', () => {});
@@ -309,8 +346,34 @@ describe('back-layers と router（偽の履歴）', () => {
     layers.open('a', () => {});
     h.flush();
     nav.push('/trades/t1');
+    // 層の段を巻き戻してから積む（#129 のレビュー N6）
+    h.flush();
     expect(h.sr).toBe('auto');
-    expect(h.entries().at(-1)?.url).toBe('/trades/t1');
+    expect(h.entries().map((e) => e.url)).toEqual(['/record', '/trades/t1']);
+  });
+
+  it('#129 のレビュー N6: 説明のシート（層 1 段）の ［用語集で見る］ で移る → 層の段を巻き戻してから積む。戻る 1 回で詳細', () => {
+    const { h, layers, nav } = setup('/');
+    nav.push('/trades');
+    nav.push('/trades/t1');
+    h.flush();
+    layers.open('info-judgment', () => {});
+    h.flush();
+    expect(h.entries().map((e) => e.url)).toEqual(['/', '/trades', '/trades/t1', '/trades/t1']);
+    nav.push('/glossary?from=%2Ftrades%2Ft1');
+    h.flush();
+    expect(h.entries().map((e) => e.url)).toEqual([
+      '/',
+      '/trades',
+      '/trades/t1',
+      '/glossary?from=%2Ftrades%2Ft1',
+    ]);
+    expect(nav.current.route.name).toBe('glossary');
+    // 戻る 1 回で詳細（層の段を通らない）。タブの切り替えの go の数え（印の深さ = 実際の段）は ui:check の V7 で見る
+    h.back();
+    h.flush();
+    expect(nav.current.route.name).toBe('trade');
+    expect(h.index).toBe(2);
   });
 
   it('#127（9.7 の 5）: 説明のシートを開いたまま再読み込み（層 1 段）→ 層は開かず、画面に出さずに 1 段戻って画面の段へ', () => {

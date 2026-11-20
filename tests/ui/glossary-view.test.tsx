@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { GLOSSARY, GLOSSARY_GROUPS } from '../../ui/src/lib/glossary';
 import { glossaryAnchor, plainText, relatedIds } from '../../ui/src/lib/glossary-text';
 import { Link } from '../../ui/src/lib/router';
-import { glossaryBack, hrefOf, NAV_ITEMS, parseRoute, titleOf } from '../../ui/src/lib/routes';
+import { glossaryBack, hrefOf, parseRoute, tabOfRoute, titleOf } from '../../ui/src/lib/routes';
 import { GlossaryView } from '../../ui/src/pages/Glossary';
 
 interface El {
@@ -92,16 +92,20 @@ describe('用語集の画面', () => {
     expect(all(tree, (e) => e.type === 'h2').map(text)).toEqual(GLOSSARY_GROUPS.map((g) => g.name));
   });
 
-  it('上の戻るリンク: 来た画面が無ければ「‹ 設定」（/settings）、来た画面があればその名前のボタン', () => {
-    const toSettings = all(tree, hasClass('detail__back'))[0] as El;
+  it('上の帯の戻るのボタン（‹ のアイコンと名前。#127）: 来た画面が無ければ「設定」（/settings）、来た画面があればその名前のボタン', () => {
+    const toSettings = all(tree, hasClass('appbar__back'))[0] as El;
     expect(toSettings.type).toBe('a');
     expect(toSettings.props.href).toBe('/settings');
-    expect(text(toSettings)).toBe('‹ 設定');
+    expect(text(toSettings)).toBe('設定');
+    expect(toSettings.props['aria-label']).toBe('設定へ戻る');
+    // 題は上の帯の h1
+    expect(all(tree, (e) => e.type === 'h1').map(text)).toEqual(['用語集']);
     let back = 0;
     const t2 = expand(<GlossaryView backLabel="記録する" onBack={() => back++} />);
-    const b = all(t2, hasClass('detail__back'))[0] as El;
+    const b = all(t2, hasClass('appbar__back'))[0] as El;
     expect(b.type).toBe('button');
-    expect(text(b)).toBe('‹ 記録する');
+    expect(text(b)).toBe('記録する');
+    expect(b.props['aria-label']).toBe('記録するへ戻る');
     (b.props.onClick as () => void)();
     expect(back).toBe(1);
   });
@@ -129,8 +133,8 @@ describe('用語集の経路', () => {
     expect(parseRoute('/glossary/', { dev: false })).toEqual({ name: 'glossary' });
     expect(hrefOf({ name: 'glossary' })).toBe('/glossary');
     expect(titleOf({ name: 'glossary' })).toBe('用語集 — 損失ノート');
-    const settings = NAV_ITEMS.find((n) => n.route.name === 'settings');
-    expect(settings?.current).toContain('glossary');
+    // 用語集は設定のタブ（直接開いたときの組み直しの先。#127）
+    expect(tabOfRoute({ name: 'glossary' })).toBe('settings');
   });
 
   it('glossaryBack: ?from= が自分の画面ならその名前、外の URL・知らない画面・用語集・ログインは null', () => {

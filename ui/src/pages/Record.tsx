@@ -21,11 +21,11 @@ import {
   NEW_ACCOUNT_NAME_ID,
 } from '../components/AccountAdd';
 import { ACCOUNT_FIELD_ID } from '../components/AccountField';
+import { SheetBar } from '../components/AppBar';
 import { Button } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
-import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
 import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
 import { VERDICT_TITLE_ID, Verdict } from '../components/Verdict';
@@ -93,7 +93,7 @@ import { deviceZoneMemory } from '../lib/zone-memory';
 export function Record() {
   return (
     <>
-      <PageHeader title="記録する" actions={<RecordCancel />} />
+      <RecordBar title="記録する" />
       <RecordScreen />
     </>
   );
@@ -148,30 +148,31 @@ function useSaving(c: RecordController | undefined): boolean {
 }
 
 /**
- * 見出しの右の [キャンセル]（#75）。下の帯は 1 段・文 1 行（#33）で 360px に入らないので、フォームの標準の置き場（見出しの右）に
- * 置く（幅 720 以上は帯の [記録する] の左にも出す）。最初の描画から出す（置き場から借りる。#75 N7）。置き場が無い（テストで
- * 画面だけ）なら出さない
+ * 記録するの全画面のシートの上の帯（#127。9.3・9.12）: 左上の ✕（読み上げの名前「キャンセル」。どの形でも同じ左上。保存中は
+ * 押せない = #75 R4）と題「記録する」。最初の描画から出す（置き場から借りる。#75 N7）。置き場が無い（テストで画面だけ）なら
+ * ホームへのリンク
  */
-export function RecordCancel() {
+export function RecordBar({ title }: { readonly title: string }) {
   const ctx = useContext(DraftsContext);
   const draft = useRecordDraft();
   const saving = useSaving(draft?.controller);
-  if (!ctx || !draft) return null;
-  return <RecordCancelView saving={saving} onCancel={() => ctx.cancel(recordKey(), '/')} />;
+  if (!ctx || !draft) return <RecordBarView title={title} saving={false} />;
+  return (
+    <RecordBarView title={title} saving={saving} onCancel={() => ctx.cancel(recordKey(), '/')} />
+  );
 }
 
-export function RecordCancelView(p: {
+export function RecordBarView(p: {
+  readonly title: string;
   readonly saving: boolean;
-  readonly onCancel: () => void;
-  /** 帯の中の [キャンセル]（幅 720 以上だけ出す） */
-  readonly inBar?: boolean;
+  readonly onCancel?: () => void;
 }) {
-  const btn = (
-    <Button variant="ghost" label="記録をキャンセル" disabled={p.saving} onClick={p.onCancel}>
-      キャンセル
-    </Button>
+  return (
+    <SheetBar
+      title={p.title}
+      {...(p.onCancel ? { onCancel: p.onCancel, cancelDisabled: p.saving } : { cancelHref: '/' })}
+    />
   );
-  return p.inBar ? <span class="record__barcancel">{btn}</span> : btn;
 }
 
 /**
@@ -695,7 +696,6 @@ function RecordForm(p: RecordViewProps) {
         <p class="record__status" aria-live="polite">
           {submitStatus(read, errorLabels)}
         </p>
-        {p.onCancel ? <RecordCancelView saving={saving} onCancel={p.onCancel} inBar /> : null}
         <Button
           type="submit"
           id={SUBMIT_ID}
@@ -765,7 +765,7 @@ function StatementPanel(p: RecordViewProps) {
             明細を読み取っています…
           </p>
           <Button
-            variant="ghost"
+            variant="secondary"
             label="明細の読み取りをキャンセル"
             onClick={() => p.onCancelRead?.()}
           >

@@ -13,14 +13,17 @@
   /* 等幅は ID・コードだけ。R・円・割合の数字は本文の書体の桁の揃う数字（.num の tabular-nums。Issue #33） */
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  --fs-xs: 12px;
-  --fs-sm: 14px;
+  /* 文字は 6 段（ui-guidelines 9.9・A7。#127）: 1 大きな題（タブの根）/ 2 主役の文・シートの題 / 3 帯の題・行の R /
+     4 本文・欄 / 5 補助 / 6 注記・小見出し・タブのラベル。数字は別の 2 段（主役の数字・記録する画面の下の帯の R） */
+  --fs-title: 30px;
+  --fs-lg: 20px;
+  --fs-nav: 17px;
   --fs-md: 16px;
-  --fs-lg: 18px;
-  --fs-xl: 22px;
-  --fs-2xl: 28px;
-  --fs-3xl: 34px;
-  --fs-num-lg: 22px;
+  --fs-sm: 14px;
+  --fs-xs: 12px;
+  --fs-num-lg: 24px;
+  /* 主役の数字は 9.9 の案では 44px。今の判定の枠（R・リスク・損益を 1 行に並べる）は幅 360 で 44px だと 2 段に折れるので、
+     判定の枠を組み直す U4（#130）・U6（#131）まで 36px のまま（#127 の handoff） */
   --fs-num-xl: 36px;
 
   --fw-regular: 400;
@@ -29,7 +32,8 @@
   --fw-heavy: 750;
 
   --lh-tight: 1.2;
-  --lh-body: 1.65;
+  /* 本文の行の高さ（読み物の 1.65 から、アプリの 1.5 へ。9.9） */
+  --lh-body: 1.5;
 
   --sp-1: 4px;
   --sp-2: 8px;
@@ -40,22 +44,38 @@
   --sp-7: 32px;
   --sp-8: 48px;
 
-  /* 角丸は 3 つと丸だけ（部品の CSS に px の角丸を書かない。Issue #33 AC-6） */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  /* 角丸は 3 つとシートの上の角と丸だけ（部品の CSS に px の角丸を書かない。Issue #33 AC-6。9.9 で 10 / 14 / 18・28） */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-sheet: 28px;
   --radius-pill: 999px;
 
   --dur-fast: 120ms;
   --dur-base: 200ms;
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* シートの出入り（下のシート・全画面のシート。U3 #129・U4 #130 で使う） */
+  --dur-sheet: 320ms;
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* 安全域（ノッチ・ホームの線。9.6）。env() を受けるのはここだけで、部品は --safe-* を通す（検査から値を差し替えられる） */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
 
   /* 押せるものの当たりの最小（Apple HIG の 44pt。AC-10） */
   --tap: 44px;
-  /* 下部の行き先と上の帯の高さ（64px・60px）は文字の大きさから決める。端末で文字を大きくしたとき、ラベルが帯に
-     入りきらずに重ならないよう、帯も一緒に高くなる（#79） */
-  --nav-h: calc(40px + 2 * var(--fs-xs));
-  --topbar-h: calc(42px + var(--fs-lg));
+  /* 下のタブ（56px）と上の帯（48px）の高さ。安全域は含まない（使う側で --safe-* を足す）。文字の大きさから決める: 端末で
+     文字を大きくしたとき、ラベルが帯に入りきらずに重ならないよう、帯も一緒に高くなる（#79。9.9） */
+  --tabbar-h: calc(32px + 2 * var(--fs-xs));
+  --topbar-h: calc(31px + var(--fs-nav));
+  /* 真ん中の ［＋ 記録］ の丸の大きさと、下のタブの上端から浮く量（輪を含む）。タブの上に物を置く所（トースト・後の下の
+     シート）はこの分だけ上げる（#127 デザイン a1） */
+  --fab-size: 56px;
+  --fab-lift: 28px;
+  /* 幅 720px 以上の上の帯（印と横並びの行き先。60px。画面の 3 つの形は U9 #134） */
+  --apphead-h: calc(40px + var(--fs-lg));
   /* 記録する画面の貼り付きの帯の高さの上限（1 段。判定の枠を寄せるときの下の空き。Issue #33 AC-1） */
   --submitbar-h: 64px;
   --content-max: 880px;
@@ -119,6 +139,15 @@
   --shadow-1: 0 1px 0 #ffffff08 inset, 0 1px 2px #00000066;
   --shadow-2: 0 1px 0 #ffffff0a inset, 0 12px 32px #00000080;
   --scrim: #0a0c10cc;
+
+  /* 主のボタン・真ん中の ［＋ 記録］ の面（藍のグラデーション + 白い文字。両端で 4.5:1 以上。9.9。#127） */
+  --primary-from: #4f5ee8;
+  --primary-to: #3d4fd6;
+  --on-primary: #ffffff;
+  /* カードは面だけ（ダークは線も影も無し。区切りは面の色の差。9.9） */
+  --shadow-card: none;
+  /* 上の安全域の面に重ねる色（ダークは透明 = 下の画面の背景がそのまま続く。ライトは暗い面。9.6・#127 デザイン a3） */
+  --statusbar-bg: #0a0c1000;
 }
 
 :root[data-theme="light"] {
@@ -171,4 +200,11 @@
   --shadow-1: 0 1px 2px #0f12180f, 0 1px 1px #0f12180a;
   --shadow-2: 0 2px 4px #0f12180d, 0 16px 40px #0f121814;
   --scrim: #0f121866;
+
+  --primary-from: #4f5ee8;
+  --primary-to: #3d4fd6;
+  --on-primary: #ffffff;
+  /* ライトは薄い影 1 つ */
+  --shadow-card: 0 1px 3px #0f121814;
+  --statusbar-bg: #11141a;
 }

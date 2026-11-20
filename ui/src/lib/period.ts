@@ -234,3 +234,8 @@ export function periodActions(
 export function homeHref(sel: PeriodSelection): string {
   return `/${periodSearch(sel)}`;
 }
+
+/** 選択 → 振り返りのタブの URL（パス + 検索部分。U1（#127） の `/review` はホームと同じ部品をそのまま出す） */
+export function reviewHref(sel: PeriodSelection): string {
+  return `/review${periodSearch(sel)}`;
+}

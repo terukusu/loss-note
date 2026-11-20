@@ -308,15 +308,56 @@ describe('back-layers と router（偽の履歴）', () => {
     const { h, layers, nav } = setup();
     layers.open('a', () => {});
     h.flush();
-    nav.push('/trades');
+    nav.push('/trades/t1');
     expect(h.sr).toBe('auto');
-    expect(h.entries().at(-1)?.url).toBe('/trades');
+    expect(h.entries().at(-1)?.url).toBe('/trades/t1');
   });
 
-  it('N3 a: 層の段（back > 0）の項目で起動・再読み込みしたら、その印を外す（後の戻るが空振りしない）', () => {
-    const { h, layers } = setup('/record', { back: 1 });
-    expect(h.state()).toEqual({ back: 0 });
+  it('#127（9.7 の 5）: 説明のシートを開いたまま再読み込み（層 1 段）→ 層は開かず、画面に出さずに 1 段戻って画面の段へ', () => {
+    const h = fakeHistory('/trades/t1', { appDepth: 0 });
+    h.back_.pushState({ appDepth: 0, back: 1 });
+    const layers = createBackLayers(h.back_);
+    let screens = 0;
+    const nav = createNavigator(
+      h.nav,
+      { dev: false },
+      { onNavigate: () => layers.reset(), unwind: (done) => layers.unwind(done) },
+    );
+    nav.subscribe(() => screens++);
+    h.flush();
+    expect(h.index).toBe(0);
+    expect(backOf(h.state())).toBe(0);
     expect(layers.depth()).toBe(0);
+    expect(layers.top()).toBeNull();
+    // 画面は描き直さない（URL が同じ）。次の戻るは 1 回で画面が替わる（ここでは下に項目が無いので動かない）
+    expect(screens).toBe(0);
+    expect(nav.current.route).toEqual({ name: 'trade', id: 't1' });
+  });
+
+  it('#127: 説明の中で言葉をたどった 2 段のまま再読み込み → 2 つ戻って画面の段へ', () => {
+    const h = fakeHistory('/trades/t1', { appDepth: 0 });
+    h.back_.pushState({ appDepth: 0, back: 1 });
+    h.back_.pushState({ appDepth: 0, back: 2 });
+    const layers = createBackLayers(h.back_);
+    createNavigator(h.nav, { dev: false }, { onNavigate: () => layers.reset() });
+    h.flush();
+    expect(h.index).toBe(0);
+    expect(layers.depth()).toBe(0);
+  });
+
+  it('#127: 「進む」で層の印を持つ段に入った（シートは開いていない）→ 開いていない層の段と見て、画面に出さずに画面の段へ戻す', () => {
+    const { h, layers, screens } = setup('/trades/t1');
+    layers.open('a', () => {});
+    h.flush();
+    layers.close('a');
+    h.flush();
+    expect(h.index).toBe(0);
+    expect(h.length).toBe(2);
+    h.back_.go(1);
+    h.flush();
+    expect(h.index).toBe(0);
+    expect(layers.top()).toBeNull();
+    expect(screens()).toBe(0);
   });
 
   it('B2（再レビュー）: 層を開いたまま画面を移って戻ると、元の画面の項目は auto に戻る（以後の戻るで位置が復元される）', () => {
@@ -353,15 +394,12 @@ describe('back-layers と router（偽の履歴）', () => {
     expect(h.sr).toBe('auto');
   });
 
-  it('B2: 層の段（back > 0）の項目で再読み込み → 印を外し、その項目も下の元の項目も、戻った後は auto', () => {
+  it('B2: 層の段（back > 0）の項目で再読み込み → 画面の段へ戻り、その項目は auto', () => {
     const h = fakeHistory('/record', null);
     h.back_.setScrollRestoration('manual');
     h.back_.pushState({ back: 1 });
     const layers = createBackLayers(h.back_);
     createNavigator(h.nav, { dev: false }, { onNavigate: () => layers.reset() });
-    expect(h.state()).toEqual({ back: 0 });
-    expect(h.sr).toBe('auto');
-    h.back();
     h.flush();
     expect(h.index).toBe(0);
     expect(h.srAt(0)).toBe('auto');

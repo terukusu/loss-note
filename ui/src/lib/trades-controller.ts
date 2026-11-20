@@ -54,6 +54,8 @@ export interface TradesController {
   getState(): TradesState;
   subscribe(fn: (s: TradesState) => void): () => void;
   load(): Promise<void>;
+  /** 読み直す（読めていれば出している分のまま裏で差し替える。読めていなければ load と同じ。タブの押し直し。#127） */
+  reload(): Promise<void>;
   /** 次のページを読む（まだあって、読んでいないときだけ。失敗の後はもう一度） */
   loadMore(): Promise<void>;
   /** 画面を離れた（後で届いた応答を捨てる） */
@@ -151,7 +153,7 @@ export function createTradesController(deps: {
     }
   };
 
-  return {
+  const self: TradesController = {
     getState: () => state,
     subscribe(fn) {
       listeners.add(fn);
@@ -188,6 +190,10 @@ export function createTradesController(deps: {
         });
       }
     },
+    reload() {
+      if (state.phase === 'ready') pendingRefresh = true;
+      return self.load();
+    },
     async loadMore() {
       const s = state;
       // 戻った直後の読み直しの前・間は読まない（読み直しが同じ分を読む。むだな要求を送らない）
@@ -220,4 +226,5 @@ export function createTradesController(deps: {
       listeners.clear();
     },
   };
+  return self;
 }

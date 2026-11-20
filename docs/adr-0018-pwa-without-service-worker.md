@@ -39,3 +39,7 @@
 - iPhone のホーム画面から開いた窓は Safari と保存先が分かれるので、その窓で 1 回ログインする。Google ログインのポップアップがその窓で動かなければ、別の Issue でその窓のログインの方式を替えるか、display を戻す（manifest の 1 行）
 - それまでの逃げ道: ホーム画面の窓でログインできない・ポップアップが戻ってこないときは、窓を一度閉じ、Safari（Android は Chrome）のタブで開けば今までどおり使える。ポップアップがブロックされたときの文言にも、ホーム画面から開いたときはブラウザで開いてログインする案内を入れた（`ui/src/auth/errors.ts`）
 - 画面のテーマをライトにしても theme-color はダークのまま（端末の状態バーの色）
+
+## 追記（2026-11-20。#127・ADR-0021）
+
+- 決定 3 の「`apple-mobile-web-app-status-bar-style` は置かない」は、`docs/ui-guidelines.md` 9.6 で置き換えた。index.html に `black-translucent` を置き、上の安全域まで画面の面を敷く（viewport の `viewport-fit=cover` と組み）。上の安全域の面は殻（`.statusbar-bg`）が描き、ダークは画面の背景をそのまま続け、ライトは状態のバーの白い文字が読めるよう暗い面にする。`apple-mobile-web-app-capable` などの全画面の meta は今までどおり置かない（manifest の display を使う）

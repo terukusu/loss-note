@@ -1,51 +1,106 @@
 /*
- * アプリの枠と幅の段（docs/ui-guidelines.md P1・P7）。
- * 幅 720px 未満 = 行き先を下部に固定（親指で届く）、720px 以上 = 上の帯の中に横並び
+ * アプリの殻と幅の段（docs/ui-guidelines.md 9.2・9.6・P7。Issue #127）。
+ * 幅 720px 未満 = 下のタブ（ホーム・取引・［＋ 記録］・振り返り・設定）と、画面ごとの上の帯（.appbar）。全画面のシート（記録する・
+ * 編集）の間は下のタブを隠す。幅 720px 以上 = 上の帯の中に印と横並びの行き先（画面の 3 つの形は U9 #134 で入れる）。
+ * 安全域は --safe-*（tokens.css）を通す。面は端まで敷き、押せるものは安全域の内側に寄せる（9.6）
  */
+
+/* 引っ張って再読み込み（書きかけが消える）とスクロールの連鎖を止める（9.3） */
+html,
+body {
+  overscroll-behavior-y: contain;
+}
+
 .shell {
   min-height: 100dvh;
+  /* 下に固定した帯（下のタブ）の高さと、下の端に付く帯が足す下の安全域。上に貼り付く帯の高さ（scroll-margin に使う） */
+  --below: calc(var(--tabbar-h) + var(--safe-bottom));
+  --below-pad: 0px;
+  --above: calc(var(--safe-top) + var(--topbar-h));
 }
 
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  min-height: var(--topbar-h);
+/* 全画面のシートの間は下のタブが無い（下の帯は 1 段。9.2） */
+.shell--sheet {
+  --below: 0px;
+  --below-pad: var(--safe-bottom);
 }
 
-/* 帯のすりガラスは疑似要素に置く（祖先に backdrop-filter があると、固定配置の下部ナビの基準が帯になるため） */
-.topbar::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  /* ぼかしが効かない環境でも下の文字が透けないよう、面はほぼ不透明にする（#9 のデザインレビュー） */
+/* 入口の画面（ログイン・読み込み中・使えないアカウント）も下のタブが無い（中央に寄せる位置をずらさない。#127 N5） */
+.shell--bare {
+  --below: 0px;
+  --below-pad: var(--safe-bottom);
+}
+
+/* 上の安全域の面（ライトのテーマでも状態のバーの白い文字が読めるよう暗い。9.6）。高さは安全域だけ（Chromium では 0） */
+.statusbar-bg {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 40;
+  height: var(--safe-top);
+  /* 下の画面の背景（body の光）を同じ位置に描き、その上に --statusbar-bg を重ねる。ダークは透明（光が継ぎ目なく続く）、
+     ライトは暗い面（状態のバーの白い文字のため）。スクロールした中身は下に隠れる（#127 デザイン a3） */
+  background:
+    linear-gradient(var(--statusbar-bg), var(--statusbar-bg)),
+    radial-gradient(900px 520px at 0% -10%, var(--glow), transparent 70%),
+    radial-gradient(700px 480px at 100% 0%, var(--glow-2), transparent 70%), var(--bg);
+  background-attachment: fixed;
+  pointer-events: none;
+}
+
+/* 上の帯のある画面（次の画面・全画面のシート）: 帯の面が上の安全域まで敷かれているので、重ねる色だけにする（ダークは
+   帯の面がそのまま続く） */
+.shell--push .statusbar-bg,
+.shell--sheet .statusbar-bg {
+  background: linear-gradient(var(--statusbar-bg), var(--statusbar-bg));
+}
+
+.shell--bare .statusbar-bg {
+  background:
+    linear-gradient(var(--statusbar-bg), var(--statusbar-bg)),
+    radial-gradient(720px 440px at 50% 0%, var(--mark-glow), transparent 72%), var(--bg);
+  background-attachment: fixed;
+}
+
+/* タブの根の小さな題（大きな題がスクロールで流れたら出す。9.2）。読み上げからは隠す */
+.rootbar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 15;
+  display: grid;
+  place-items: center;
+  height: calc(var(--safe-top) + var(--topbar-h));
+  padding: var(--safe-top) calc(var(--gutter) + var(--safe-right)) 0
+    calc(var(--gutter) + var(--safe-left));
   background: color-mix(in srgb, var(--bg) 94%, transparent);
   backdrop-filter: saturate(160%) blur(16px);
   -webkit-backdrop-filter: saturate(160%) blur(16px);
   border-bottom: 1px solid var(--line);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity var(--dur-fast) var(--ease),
+    visibility var(--dur-fast) var(--ease);
+  pointer-events: none;
 }
 
-.topbar__inner {
-  position: relative;
-  display: flex;
-  /* 入りきらないとき（文字を大きくした端末の開発の印など）は次の行へ（横にはみ出さない。#79） */
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-2) var(--sp-4);
-  min-height: var(--topbar-h);
-  max-width: var(--content-max);
-  margin: 0 auto;
-  padding: 0 var(--gutter);
+.rootbar--shown {
+  opacity: 1;
+  visibility: visible;
 }
 
-.topbar__brand {
-  display: flex;
-  /* 開発の印（envchip）は入りきらないときだけ次の行へ（#79） */
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-1) var(--sp-3);
-  min-width: 0;
+.rootbar__title {
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-bold);
+}
+
+/* 幅 720px 未満: 上の帯（印 + 損失ノート）は置かず、行き先だけを下のタブにする */
+.apphead,
+.apphead__inner {
+  display: contents;
+}
+
+.apphead__brand {
+  display: none;
 }
 
 .brand {
@@ -63,7 +118,7 @@
   place-items: center;
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   /* 印はテーマに依らず藍の地に白い線（favicon と同じ。#52） */
   color: var(--mark-ink);
   background: linear-gradient(135deg, var(--mark-from), var(--mark-to));
@@ -81,10 +136,17 @@
 .content {
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--sp-6) var(--gutter) var(--sp-8);
+  padding: calc(var(--safe-top) + var(--sp-4)) calc(var(--gutter) + var(--safe-right))
+    calc(var(--below) + var(--below-pad) + var(--sp-8)) calc(var(--gutter) + var(--safe-left));
   display: flex;
   flex-direction: column;
   gap: var(--sp-5);
+}
+
+/* 次の画面・全画面のシート: 先頭は上の帯（上の安全域を含む） */
+.content--push,
+.content--sheet {
+  padding-top: 0;
 }
 
 .content--center {
@@ -100,14 +162,98 @@ body:has(.shell--bare) {
   background-attachment: fixed;
 }
 
-/* 行き先（スマホ: 下部に固定） */
+/* 画面ごとの上の帯（次の画面・全画面のシート。AppBar.tsx）: 48px + 上の安全域。面は端まで敷く */
+.appbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: grid;
+  /* 左右（戻る・操作）は中身の幅を保ち、題が縮んで「…」で省く（操作のボタンを 2 行に折らない） */
+  grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr);
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: calc(var(--safe-top) + var(--topbar-h));
+  margin-inline: calc(-1 * (var(--gutter) + var(--safe-left)))
+    calc(-1 * (var(--gutter) + var(--safe-right)));
+  padding: var(--safe-top) calc(var(--sp-2) + var(--safe-right)) 0
+    calc(var(--sp-2) + var(--safe-left));
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: saturate(160%) blur(16px);
+  -webkit-backdrop-filter: saturate(160%) blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+
+.appbar__start {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.appbar__end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.appbar__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+}
+
+/* 「‹ 前の画面の名前」（3 番目の重さ: アイコンと名前。9.12） */
+.appbar__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  max-width: 100%;
+  padding: 0 var(--sp-2) 0 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+}
+
+.appbar__back .icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.appbar__backlabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.appbar__back:hover {
+  background: var(--s2);
+}
+
+.appbar__end {
+  padding-inline-end: calc(var(--gutter) - var(--sp-2));
+}
+
+/* 行き先（幅 720px 未満: 下のタブ。56px + 下の安全域。面は端まで、押せるものは安全域の内側） */
 .appnav {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
   z-index: 20;
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
 }
 
 .appnav::before {
@@ -123,13 +269,14 @@ body:has(.shell--bare) {
 .appnav__list {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  height: var(--nav-h);
+  grid-template-columns: repeat(5, 1fr);
+  height: var(--tabbar-h);
   max-width: 560px;
   margin: 0 auto;
 }
 
 .appnav__link {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -138,7 +285,8 @@ body:has(.shell--bare) {
   height: 100%;
   min-width: var(--tap);
   min-height: var(--tap);
-  font-size: var(--fs-xs);
+  /* タブのラベルは 11px（段 6 の 12px より 1 段小さく。文字の拡大ではトークンと一緒に大きくなる。9.9） */
+  font-size: calc(var(--fs-xs) * 11 / 12);
   font-weight: var(--fw-medium);
   /* ラベルは折り返さない（列は 1fr でも、ラベルの幅より狭くならない。#79） */
   white-space: nowrap;
@@ -146,44 +294,119 @@ body:has(.shell--bare) {
   transition: color var(--dur-fast) var(--ease);
 }
 
-/* アイコンの箱は全項目で同じ大きさ（今いる画面は面を足すだけ。ラベルが上下に揺れない） */
 .appnav__icon {
-  width: 56px;
-  height: 30px;
-  padding: 3px 16px;
-  border-radius: var(--radius-pill);
-  transition: background-color var(--dur-base) var(--ease);
-}
-
-/* 書きかけの印の点（#75）: アイコンの箱の右上に重ねる */
-.appnav__link {
-  position: relative;
-}
-
-.appnav__link .draftdot {
-  position: absolute;
-  top: calc(50% - 22px);
-  left: calc(50% + 14px);
+  width: 26px;
+  height: 26px;
 }
 
 .appnav__link[aria-current="page"] {
-  color: var(--ink);
+  color: var(--accent);
   font-weight: var(--fw-bold);
 }
 
 .appnav__link[aria-current="page"] .appnav__icon {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
+  stroke-width: 2.2;
 }
 
-/* 下部の行き先の分だけ中身の下を空ける */
-.shell:not(.shell--bare) .content {
-  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--sp-8));
+/* 真ん中の ［＋ 記録］: 丸いボタン（56px・帯から浮かせる・主のボタンと同じ藍のグラデーション。9.2） */
+.appnav__fab {
+  display: grid;
+  place-items: center;
+  width: var(--fab-size);
+  height: var(--fab-size);
+  /* 流れの中の高さをほかのタブのアイコン（26px）と同じにして、ラベルの基線を揃える（はみ出す分が帯から浮く） */
+  margin-top: calc(26px - var(--fab-size));
+  border-radius: var(--radius-pill);
+  color: var(--on-primary);
+  background: linear-gradient(135deg, var(--primary-from), var(--primary-to));
+  box-shadow:
+    0 0 0 4px var(--bg),
+    var(--shadow-2);
+}
+
+.appnav__fab .icon {
+  width: 28px;
+  height: 28px;
+  stroke-width: 2.4;
+}
+
+.appnav__record {
+  color: var(--ink-2);
+}
+
+/* 書きかけの印の点（#75）: 丸いボタンの右上に重ねる */
+.appnav__record .draftdot {
+  position: absolute;
+  top: -20px;
+  left: calc(50% + 20px);
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* 全画面のシートの間は下のタブを隠す（下の帯は 1 段。9.2） */
+.shell--sheet .appnav {
+  display: none;
 }
 
 @media (min-width: 720px) {
   :root {
     --gutter: 32px;
+  }
+
+  .shell {
+    --below: 0px;
+    --below-pad: 0px;
+    --above: var(--apphead-h);
+  }
+
+  /* 上の帯（印と横並びの行き先） */
+  .apphead {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: block;
+    min-height: var(--apphead-h);
+    padding-top: var(--safe-top);
+  }
+
+  /* 帯のすりガラスは疑似要素に置く（祖先に backdrop-filter があると、固定配置の子の基準が帯になるため） */
+  .apphead::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    /* ぼかしが効かない環境でも下の文字が透けないよう、面はほぼ不透明にする（#9 のデザインレビュー） */
+    background: color-mix(in srgb, var(--bg) 94%, transparent);
+    backdrop-filter: saturate(160%) blur(16px);
+    -webkit-backdrop-filter: saturate(160%) blur(16px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .apphead__inner {
+    position: relative;
+    display: flex;
+    /* 入りきらないとき（文字を大きくした端末の開発の印など）は次の行へ（横にはみ出さない。#79） */
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2) var(--sp-4);
+    min-height: var(--apphead-h);
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: 0 calc(var(--gutter) + var(--safe-right)) 0 calc(var(--gutter) + var(--safe-left));
+  }
+
+  .apphead__brand {
+    display: flex;
+    /* 開発の印（envchip）は入りきらないときだけ次の行へ（#79） */
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--sp-1) var(--sp-3);
+    min-width: 0;
+  }
+
+  .rootbar {
+    display: none;
   }
 
   .appnav {
@@ -195,11 +418,22 @@ body:has(.shell--bare) {
     content: none;
   }
 
+  .shell--sheet .appnav {
+    display: block;
+  }
+
   .appnav__list {
     display: flex;
+    align-items: center;
     gap: var(--sp-1);
     height: auto;
     max-width: none;
+  }
+
+  /* ［＋ 記録］ は右端（行き先の後ろ） */
+  .appnav__item--record {
+    order: 1;
+    margin-inline-start: var(--sp-2);
   }
 
   .appnav__link {
@@ -217,38 +451,118 @@ body:has(.shell--bare) {
     background: var(--s2);
   }
 
-  .appnav__icon,
-  .appnav__link[aria-current="page"] .appnav__icon {
+  .appnav__icon {
     width: 18px;
     height: 18px;
-    padding: 0;
-    background: none;
-    color: inherit;
   }
 
   .appnav__link[aria-current="page"] {
-    background: var(--s3);
-    box-shadow: inset 0 0 0 1px var(--line-2);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
 
-  .shell:not(.shell--bare) .content {
+  .appnav__record,
+  .appnav__record[aria-current="page"] {
+    color: var(--on-primary);
+    background: linear-gradient(135deg, var(--primary-from), var(--primary-to));
+  }
+
+  .appnav__record:hover {
+    color: var(--on-primary);
+    background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
+  }
+
+  .appnav__fab {
+    width: auto;
+    height: auto;
+    margin: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .appnav__fab .icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  .appnav__record .draftdot {
+    position: static;
+    width: 6px;
+    height: 6px;
+    box-shadow: none;
+    background: var(--on-primary);
+  }
+
+  .content {
     padding-top: var(--sp-8);
     padding-bottom: var(--sp-8);
     gap: var(--sp-6);
   }
+
+  .content--push,
+  .content--sheet {
+    padding-top: var(--sp-6);
+  }
+
+  /* 幅 720px 以上の画面ごとの帯は、中身の先頭の題の行（貼り付けない・面を敷かない） */
+  .appbar {
+    position: static;
+    grid-template-columns: max-content minmax(0, 1fr) max-content;
+    min-height: 0;
+    margin-inline: 0;
+    padding: 0;
+    background: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border-bottom: 0;
+  }
+
+  .appbar__end {
+    padding-inline-end: 0;
+  }
+
+  .appbar__title {
+    text-align: start;
+    white-space: normal;
+    font-size: var(--fs-title);
+    font-weight: var(--fw-heavy);
+    letter-spacing: -0.01em;
+  }
 }
 
-/* トースト（#9）: 幅 720px 未満は下部の行き先のすぐ上、それ以上は右下。画面の幅を超えない */
+/* 幅 720〜1023px（タブレットの縦など）: 上の帯を 1 行に収める（名前を隠して印だけ・行き先の余白を詰める。画面の 3 つの形を
+   入れる U9（#134）までの手当て。#127 デザイン a2） */
+@media (min-width: 720px) and (max-width: 1023.98px) {
+  .brand__name {
+    display: none;
+  }
+
+  .apphead__inner {
+    flex-wrap: nowrap;
+  }
+
+  .appnav__link {
+    gap: var(--sp-1);
+    padding: 0 var(--sp-3);
+  }
+}
+
+/* トースト（#9）: 幅 720px 未満は下のタブ（全画面のシートの間は下の帯）のすぐ上、それ以上は右下。画面の幅を超えない */
 .toast-region {
   position: fixed;
-  left: var(--gutter);
-  right: var(--gutter);
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--sp-3));
+  left: calc(var(--gutter) + var(--safe-left));
+  right: calc(var(--gutter) + var(--safe-right));
+  /* 下のタブがあるときは、浮いた ［＋ 記録］ の上に出す（重ねない。#127 デザイン a1） */
+  bottom: calc(var(--below) + var(--fab-lift) + var(--sp-3));
   z-index: 30;
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
   pointer-events: none;
+}
+
+.shell--sheet .toast-region {
+  bottom: calc(var(--submitbar-h) + var(--below-pad) + var(--sp-3));
 }
 
 .toast-region .toast {
@@ -263,17 +577,11 @@ body:has(.shell--bare) {
 }
 
 @media (min-width: 720px) {
-  .toast-region {
+  .toast-region,
+  .shell--sheet .toast-region {
     left: auto;
-    right: var(--sp-6);
-    bottom: var(--sp-6);
+    right: calc(var(--sp-6) + var(--safe-right));
+    bottom: calc(var(--sp-6) + var(--safe-bottom));
     width: min(420px, calc(100vw - 2 * var(--sp-6)));
-  }
-}
-
-/* 幅 720 以上の横並びの行き先では、印の点は文字の後ろに並べる（#75） */
-@media (min-width: 720px) {
-  .appnav__link .draftdot {
-    position: static;
   }
 }

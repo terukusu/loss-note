@@ -3,6 +3,10 @@
 // 幅 360px の押せるものの当たりが 44×44px 未満の件数、折り返さない部品（ボタン・セグメント・バッジなど）の中の
 // はみ出しの件数を数値で出す。行き来（例の表 V1〜V6）とテーマ（T2〜T4）も実ブラウザで流す。
 // 戻るでスクロールの位置が戻ること（S1）、ログインの門（例の表 L1〜L7）と、使えないアカウントの画面（Issue #43 の例 L3・L4 = F1・F2。偽の /api がすべて 403）も見る。1 つでも外れれば終了コード 1。CI には入れない（手元で流し、出力の要約を PR に貼る）。
+// アプリの殻（#127。ui-guidelines 9.2・9.6・9.7・9.12）: 全状態で文字のリンクの見た目の操作（9.12 の数え方。.glink を除く）と、縦の形で
+// ［記録する］ が 2 か所以上の状態を数え（どちらも 0 件が期待）、V6 は下のタブ 4 つ + ［＋ 記録］ と全画面のシートで下のタブを隠すこと、
+// V7 は 9.7 の表（タブごとの積み重ね・押し直し・戻る・印の無い起動の組み直し・層の段の再読み込み・広い形のタブの切り替え）、
+// SA1 は安全域の差し替え（上 47・下 34。トークン --safe-* を差し替える）で押せるものが安全域の内側にあることを見る。
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
 // 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（タイムゾーンの確認）・読み取りの失敗の状態を同じ幅とテーマで
@@ -125,7 +129,9 @@ const PAGES = [
   { path: '/login', h1: 'ログイン' },
   { path: '/', h1: 'ホーム', wait: '.traderow' },
   { path: '/record', h1: '記録する' },
-  { path: '/trades', h1: '取引の一覧', wait: '.traderow' },
+  { path: '/trades', h1: '取引', wait: '.traderow' },
+  // 振り返りのタブ（#127。U1 の時点ではホームの規律の振り返りの部品をそのまま出す）
+  { path: '/review', h1: '振り返り', wait: '.review' },
   { path: '/trades/no-such-trade', h1: '取引の詳細' },
   { path: '/trades/x-d1', h1: 'US30 · L', wait: 'canvas.chartview__canvas >> nth=1' },
   { path: '/trades/x-e1/edit', h1: '取引を編集', wait: '#edit-submit' },
@@ -194,7 +200,10 @@ const ZOOM_KNOWN = {
     why: '説明の吹き出しが窓より高い（吹き出しの作りの変更が要る。ガイドライン 5 章 #6）',
   },
 };
-const NAV_HREFS = ['/', '/record', '/trades', '/settings'];
+/** 下のタブ 4 つと真ん中の ［＋ 記録］（V6。ui-guidelines 9.2・#127） */
+const NAV_HREFS = ['/', '/trades', '/record', '/review', '/settings'];
+/** 全画面のシートの画面（下のタブを隠す。9.2・A2） */
+const SHEET_PATHS = (path) => path === '/record' || path.endsWith('/edit');
 const AUTH_EMULATOR = 'http://127.0.0.1:9099';
 
 /** エミュレーターのログインの画面（ポップアップ）で、架空のアカウントを自動生成してログインする */
@@ -1351,10 +1360,20 @@ async function verdictInView(page, withR) {
   return page.evaluate((withR) => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+    const top = Math.max(
+      0,
+      ...[...document.querySelectorAll('.apphead, .appbar')]
+        .filter((e) => ['sticky', 'fixed'].includes(getComputedStyle(e).position))
+        .map((e) => e.getBoundingClientRect())
+        .filter((r) => r.height > 0)
+        .map((r) => r.bottom),
+    );
     const nav = document.querySelector('.appnav');
+    // 下のタブ（全画面のシートの間は隠れる = 高さ 0）
     const navTop =
-      nav && getComputedStyle(nav).position === 'fixed' ? nav.getBoundingClientRect().top : vh;
+      nav && getComputedStyle(nav).position === 'fixed' && nav.getBoundingClientRect().height > 0
+        ? nav.getBoundingClientRect().top
+        : vh;
     const bar = document.querySelector('.record__submit')?.getBoundingClientRect();
     const bottom = Math.min(navTop, bar ? bar.top : vh, vh);
     const out = [];
@@ -2391,7 +2410,14 @@ async function openInfo(page, name, reopen = false) {
     const pop = document.getElementById(pid);
     if (!pop) return null;
     const pr = pop.getBoundingClientRect();
-    const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+    const top = Math.max(
+      0,
+      ...[...document.querySelectorAll('.apphead, .appbar')]
+        .filter((e) => ['sticky', 'fixed'].includes(getComputedStyle(e).position))
+        .map((e) => e.getBoundingClientRect())
+        .filter((r) => r.height > 0)
+        .map((r) => r.bottom),
+    );
     return {
       left: pr.left,
       right: pr.right,
@@ -2759,206 +2785,283 @@ function freePort() {
 /** 横スクロール（px）と、幅 360 のときは 44×44 未満の押せるもの */
 /** slack = 部品の中の文字のはみ出しの許し（px。小数の丸めの分。文字の拡大では倍率の分だけ広げる） */
 async function measure(page, withTargets, tap, slack = 1) {
-  return page.evaluate(
-    ({ withTargets, tap, slack }) => {
-      const d = document.documentElement;
-      const b = document.body;
-      const h = Math.max(d.scrollWidth - window.innerWidth, b.scrollWidth - b.clientWidth, 0);
-      const small = [];
-      if (withTargets) {
-        const sel =
-          'a[href], button, input, select, textarea, [role="radio"], [role="button"], [tabindex]:not([tabindex="-1"])';
-        for (const el of document.querySelectorAll(sel)) {
+  return page
+    .evaluate(
+      ({ withTargets, tap, slack }) => {
+        const d = document.documentElement;
+        const b = document.body;
+        const h = Math.max(d.scrollWidth - window.innerWidth, b.scrollWidth - b.clientWidth, 0);
+        const small = [];
+        if (withTargets) {
+          const sel =
+            'a[href], button, input, select, textarea, [role="radio"], [role="button"], [tabindex]:not([tabindex="-1"])';
+          for (const el of document.querySelectorAll(sel)) {
+            if (el.closest('[data-ui-check-wide]')) continue;
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+            if (r.width === 0 && r.height === 0) continue;
+            // 文の中の用語集のリンク（.glink）は当たりの 44px の例外（WCAG 2.5.8 の inline。#57・#76）
+            if (el.classList.contains('glink')) continue;
+            if (r.width < tap - 0.5 || r.height < tap - 0.5) {
+              const text = (el.textContent || el.getAttribute('aria-label') || '')
+                .trim()
+                .slice(0, 16);
+              const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+              small.push(
+                `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}「${text}」${Math.round(r.width)}×${Math.round(r.height)}`,
+              );
+            }
+          }
+        }
+        // 部品のはみ出し（折り返さない部品の文字・部品そのものが切れる・隣に重なる）。次の 4 つを数える
+        //   横 / 縦: 部品の中で文字が箱を超える（scrollWidth / scrollHeight > clientWidth / clientHeight）
+        //   親の外: 部品が自分ごと広がり、親の箱の左右を超える（隣との重なり）
+        //   切れ: 部品が、最も近い overflow が visible でない祖先の箱の外に出る（祖先で切られる）
+        const clipped = [];
+        const clipAncestor = (el) => {
+          for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') return a;
+          }
+          return null;
+        };
+        const outside = (r, b) =>
+          r.left < b.left - 1 ||
+          r.right > b.right + 1 ||
+          r.top < b.top - 1 ||
+          r.bottom > b.bottom + 1;
+        for (const el of document.querySelectorAll(
+          '.seg__item, .btn, .badge, .appnav__link, .envchip, .lcnone, .pagehead__title',
+        )) {
           if (el.closest('[data-ui-check-wide]')) continue;
           const cs = getComputedStyle(el);
-          const r = el.getBoundingClientRect();
           if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-          if (r.width === 0 && r.height === 0) continue;
-          // 文の中の用語集のリンク（.glink）は当たりの 44px の例外（WCAG 2.5.8 の inline。#57・#76）
-          if (el.classList.contains('glink')) continue;
-          if (r.width < tap - 0.5 || r.height < tap - 0.5) {
-            const text = (el.textContent || el.getAttribute('aria-label') || '')
-              .trim()
-              .slice(0, 16);
-            const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
-            small.push(
-              `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}「${text}」${Math.round(r.width)}×${Math.round(r.height)}`,
+          const name = `${el.className.split(' ')[0]}「${(el.textContent || '').trim().slice(0, 16)}」`;
+          if (el.scrollWidth > el.clientWidth + slack) {
+            clipped.push(`${name} 横 ${el.scrollWidth}>${el.clientWidth}`);
+          }
+          if (el.scrollHeight > el.clientHeight + slack) {
+            clipped.push(`${name} 縦 ${el.scrollHeight}>${el.clientHeight}`);
+          }
+          // ボタン・バッジは親より広いときだけ折り返す作り（#79）。等倍（slack 1）で 2 行に折れていたら外れ
+          if (slack <= 1 && (el.classList.contains('btn') || el.classList.contains('badge'))) {
+            const tops = [];
+            const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            for (let t = tw.nextNode(); t; t = tw.nextNode()) {
+              if (t.textContent.trim() === '' || t.parentElement?.closest('.sr-only')) continue;
+              const range = document.createRange();
+              range.selectNodeContents(t);
+              for (const rr of range.getClientRects()) {
+                if (rr.width > 1 && !tops.some((y) => Math.abs(y - rr.top) < 4)) tops.push(rr.top);
+              }
+            }
+            if (tops.length > 1) clipped.push(`${name} ${tops.length} 行に折れる`);
+          }
+          const r = el.getBoundingClientRect();
+          // display: contents の親は箱を持たない（子は祖先の並びに入る）ので、箱を持つ祖先と比べる（#47 一覧の 1 行目）
+          let parent = el.parentElement;
+          while (parent && getComputedStyle(parent).display === 'contents')
+            parent = parent.parentElement;
+          if (parent) {
+            const pr = parent.getBoundingClientRect();
+            if (r.left < pr.left - 1 || r.right > pr.right + 1) {
+              clipped.push(
+                `${name} 親の外 ${Math.round(r.width)}px / 親 ${Math.round(pr.width)}px`,
+              );
+            }
+          }
+          const c = clipAncestor(el);
+          if (c && outside(r, c.getBoundingClientRect())) {
+            clipped.push(
+              `${name} 切れ（${c.className.split(' ')[0] || c.tagName.toLowerCase()} の外）`,
             );
           }
         }
-      }
-      // 部品のはみ出し（折り返さない部品の文字・部品そのものが切れる・隣に重なる）。次の 4 つを数える
-      //   横 / 縦: 部品の中で文字が箱を超える（scrollWidth / scrollHeight > clientWidth / clientHeight）
-      //   親の外: 部品が自分ごと広がり、親の箱の左右を超える（隣との重なり）
-      //   切れ: 部品が、最も近い overflow が visible でない祖先の箱の外に出る（祖先で切られる）
-      const clipped = [];
-      const clipAncestor = (el) => {
-        for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
-          const cs = getComputedStyle(a);
-          if (cs.overflowX !== 'visible' || cs.overflowY !== 'visible') return a;
+        // セグメントの選んだ項目のチェックの記号は文字の前で、項目の中に収まる（#5 のレビュー指摘 2・Issue #33 例 13）
+        for (const mark of document.querySelectorAll('.seg__item .seg__check')) {
+          const item = mark.closest('.seg__item');
+          if (!item || item.closest('[data-ui-check-wide]')) continue;
+          // 畳んだ欄（<details>）の中など、描かれていないものは見ない
+          if (typeof mark.checkVisibility === 'function' && !mark.checkVisibility()) continue;
+          const label = [...item.children].find((c) => c.tagName === 'SPAN');
+          if (!label) continue;
+          const range = document.createRange();
+          range.selectNodeContents(label);
+          const t = range.getBoundingClientRect();
+          const m = mark.getBoundingClientRect();
+          if (t.width === 0 || m.width === 0) continue;
+          const name = `seg__check「${(label.textContent || '').trim()}」`;
+          if (m.right > t.left + 0.5) clipped.push(`${name} 記号が文字の前に無い（重なる・後ろ）`);
+          if (outside(m, item.getBoundingClientRect())) clipped.push(`${name} 項目の外`);
         }
-        return null;
-      };
-      const outside = (r, b) =>
-        r.left < b.left - 1 ||
-        r.right > b.right + 1 ||
-        r.top < b.top - 1 ||
-        r.bottom > b.bottom + 1;
-      for (const el of document.querySelectorAll(
-        '.seg__item, .btn, .badge, .appnav__link, .envchip, .lcnone, .pagehead__title',
-      )) {
-        if (el.closest('[data-ui-check-wide]')) continue;
-        const cs = getComputedStyle(el);
-        if (cs.display === 'none' || cs.visibility === 'hidden') continue;
-        const name = `${el.className.split(' ')[0]}「${(el.textContent || '').trim().slice(0, 16)}」`;
-        if (el.scrollWidth > el.clientWidth + slack) {
-          clipped.push(`${name} 横 ${el.scrollWidth}>${el.clientWidth}`);
-        }
-        if (el.scrollHeight > el.clientHeight + slack) {
-          clipped.push(`${name} 縦 ${el.scrollHeight}>${el.clientHeight}`);
-        }
-        // ボタン・バッジは親より広いときだけ折り返す作り（#79）。等倍（slack 1）で 2 行に折れていたら外れ
-        if (slack <= 1 && (el.classList.contains('btn') || el.classList.contains('badge'))) {
-          const tops = [];
-          const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-          for (let t = tw.nextNode(); t; t = tw.nextNode()) {
-            if (t.textContent.trim() === '' || t.parentElement?.closest('.sr-only')) continue;
-            const range = document.createRange();
-            range.selectNodeContents(t);
-            for (const rr of range.getClientRects()) {
-              if (rr.width > 1 && !tops.some((y) => Math.abs(y - rr.top) < 4)) tops.push(rr.top);
+        // 枠の入れ子（Issue #33 AC-5）。枠 = 四辺の線がある / 最も近い面を持つ祖先と違う面の色・背景の画像がある /
+        // img・canvas・video。段 = 自分を含めた枠の祖先の数。段 3 以上の枠を数える（擬似要素・影・輪郭は数えない）
+        const alpha = (c) => {
+          if (!c || c === 'transparent') return 0;
+          const slash = c.match(/\/\s*([\d.]+)(%?)\s*\)$/);
+          if (slash) return Number(slash[1]) / (slash[2] ? 100 : 1);
+          const rgba = c.match(/^rgba\(([^)]*)\)$/);
+          if (rgba) return Number(rgba[1].split(',')[3]);
+          return 1;
+        };
+        const surfaceOf = (el) => {
+          for (let a = el; a; a = a.parentElement) {
+            const bg = getComputedStyle(a).backgroundColor;
+            if (alpha(bg) > 0) return bg;
+          }
+          return getComputedStyle(document.body).backgroundColor;
+        };
+        const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
+        const frameMemo = new Map();
+        const isFrame = (el) => {
+          if (frameMemo.has(el)) return frameMemo.get(el);
+          let f = false;
+          if (el !== document.body && el !== document.documentElement) {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            const drawn =
+              (typeof el.checkVisibility !== 'function' ||
+                el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) &&
+              r.width >= 2 &&
+              r.height >= 2 &&
+              !el.classList.contains('sr-only') &&
+              !el.closest('[data-ui-check-wide]');
+            if (drawn) {
+              if (['IMG', 'CANVAS', 'VIDEO'].includes(el.tagName)) f = true;
+              else if (
+                SIDES.every(
+                  (s) =>
+                    Number.parseFloat(cs[`border${s}Width`]) > 0 &&
+                    !['none', 'hidden'].includes(cs[`border${s}Style`]) &&
+                    alpha(cs[`border${s}Color`]) > 0,
+                )
+              )
+                f = true;
+              else if (cs.backgroundImage !== 'none') f = true;
+              else if (alpha(cs.backgroundColor) > 0) {
+                f = el.parentElement ? cs.backgroundColor !== surfaceOf(el.parentElement) : true;
+              }
             }
           }
-          if (tops.length > 1) clipped.push(`${name} ${tops.length} 行に折れる`);
-        }
-        const r = el.getBoundingClientRect();
-        // display: contents の親は箱を持たない（子は祖先の並びに入る）ので、箱を持つ祖先と比べる（#47 一覧の 1 行目）
-        let parent = el.parentElement;
-        while (parent && getComputedStyle(parent).display === 'contents')
-          parent = parent.parentElement;
-        if (parent) {
-          const pr = parent.getBoundingClientRect();
-          if (r.left < pr.left - 1 || r.right > pr.right + 1) {
-            clipped.push(`${name} 親の外 ${Math.round(r.width)}px / 親 ${Math.round(pr.width)}px`);
+          frameMemo.set(el, f);
+          return f;
+        };
+        const nest = [];
+        const nameOf = (el) => {
+          const c = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+          return c || el.tagName.toLowerCase();
+        };
+        for (const el of document.body.querySelectorAll('*')) {
+          if (!isFrame(el)) continue;
+          const chain = [];
+          for (let a = el; a && a !== document.body; a = a.parentElement) {
+            if (isFrame(a)) chain.unshift(nameOf(a));
           }
+          if (chain.length >= 3)
+            nest.push(`${nameOf(el)}（祖先: ${chain.slice(0, -1).join(' > ')}）`);
         }
-        const c = clipAncestor(el);
-        if (c && outside(r, c.getBoundingClientRect())) {
-          clipped.push(
-            `${name} 切れ（${c.className.split(' ')[0] || c.tagName.toLowerCase()} の外）`,
+        // 貼り付きの帯（記録する画面・直す画面）の高さと、状態の文の行数（Issue #33 AC-1・KEEP-7）
+        let bar = null;
+        const barEl = document.querySelector('.record__submit');
+        if (barEl) {
+          const statusEl = barEl.querySelector('.record__status, .record__missing');
+          let lines = 0;
+          if (statusEl && statusEl.textContent.trim() !== '') {
+            const range = document.createRange();
+            range.selectNodeContents(statusEl);
+            const tops = new Set();
+            for (const rr of range.getClientRects()) if (rr.width > 0) tops.add(Math.round(rr.top));
+            lines = tops.size;
+          }
+          bar = {
+            h: Math.round(barEl.getBoundingClientRect().height * 10) / 10,
+            lines,
+            // 状態の文が切れている（「…」で省かれる。コードレビュー指摘 1）
+            cut: !!statusEl && statusEl.scrollWidth > statusEl.clientWidth + 0.5,
+            text: statusEl?.textContent?.trim() ?? '',
+            error: !!barEl.querySelector('.notice--error'),
+          };
+        }
+        // 文字のリンクの見た目の操作（ui-guidelines 9.12 の数え方。#127）: 押せる要素（a・button・role=button・role=link）の
+        // うち、面の色が親と同じで、枠の線も無く、アイコン（svg・img・canvas・擬似要素の中身）も無い、文字だけのもの。
+        // 文の中の用語集のリンク（.glink）は除く。描かれていないもの・読み上げだけのもの（.sr-only）は見ない
+        const linkish = [];
+        for (const el of document.querySelectorAll('a, button, [role="button"], [role="link"]')) {
+          if (el.closest('[data-ui-check-wide]') || el.classList.contains('glink')) continue;
+          if (el.closest('.sr-only')) continue;
+          if (
+            typeof el.checkVisibility === 'function' &&
+            !el.checkVisibility({ visibilityProperty: true })
+          )
+            continue;
+          const r = el.getBoundingClientRect();
+          if (r.width === 0 || r.height === 0) continue;
+          if (el.querySelector('svg, img, canvas')) continue;
+          // 擬似要素の中身（› の記号）か、擬似要素の面・枠（小さいボタンの見た目の面 = .btn--sm。#127）
+          const pseudo = ['::before', '::after'].some((p) => {
+            const ps = getComputedStyle(el, p);
+            const c = ps.content;
+            if (!c || c === 'none' || c === 'normal') return false;
+            if (c !== '""') return true;
+            return (
+              alpha(ps.backgroundColor) > 0 ||
+              SIDES.some(
+                (s) =>
+                  Number.parseFloat(ps[`border${s}Width`]) > 0 && alpha(ps[`border${s}Color`]) > 0,
+              )
+            );
+          });
+          if (pseudo) continue;
+          const cs = getComputedStyle(el);
+          const lined = SIDES.some(
+            (s) =>
+              Number.parseFloat(cs[`border${s}Width`]) > 0 &&
+              !['none', 'hidden'].includes(cs[`border${s}Style`]) &&
+              alpha(cs[`border${s}Color`]) > 0,
+          );
+          if (lined || cs.boxShadow !== 'none' || cs.backgroundImage !== 'none') continue;
+          if (alpha(cs.backgroundColor) > 0) {
+            const parentSurface = el.parentElement ? surfaceOf(el.parentElement) : '';
+            if (cs.backgroundColor !== parentSurface) continue;
+          }
+          const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
+          linkish.push(
+            `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ''}「${(el.textContent || el.getAttribute('aria-label') || '').trim().slice(0, 16)}」`,
           );
         }
-      }
-      // セグメントの選んだ項目のチェックの記号は文字の前で、項目の中に収まる（#5 のレビュー指摘 2・Issue #33 例 13）
-      for (const mark of document.querySelectorAll('.seg__item .seg__check')) {
-        const item = mark.closest('.seg__item');
-        if (!item || item.closest('[data-ui-check-wide]')) continue;
-        // 畳んだ欄（<details>）の中など、描かれていないものは見ない
-        if (typeof mark.checkVisibility === 'function' && !mark.checkVisibility()) continue;
-        const label = [...item.children].find((c) => c.tagName === 'SPAN');
-        if (!label) continue;
-        const range = document.createRange();
-        range.selectNodeContents(label);
-        const t = range.getBoundingClientRect();
-        const m = mark.getBoundingClientRect();
-        if (t.width === 0 || m.width === 0) continue;
-        const name = `seg__check「${(label.textContent || '').trim()}」`;
-        if (m.right > t.left + 0.5) clipped.push(`${name} 記号が文字の前に無い（重なる・後ろ）`);
-        if (outside(m, item.getBoundingClientRect())) clipped.push(`${name} 項目の外`);
-      }
-      // 枠の入れ子（Issue #33 AC-5）。枠 = 四辺の線がある / 最も近い面を持つ祖先と違う面の色・背景の画像がある /
-      // img・canvas・video。段 = 自分を含めた枠の祖先の数。段 3 以上の枠を数える（擬似要素・影・輪郭は数えない）
-      const alpha = (c) => {
-        if (!c || c === 'transparent') return 0;
-        const slash = c.match(/\/\s*([\d.]+)(%?)\s*\)$/);
-        if (slash) return Number(slash[1]) / (slash[2] ? 100 : 1);
-        const rgba = c.match(/^rgba\(([^)]*)\)$/);
-        if (rgba) return Number(rgba[1].split(',')[3]);
-        return 1;
-      };
-      const surfaceOf = (el) => {
-        for (let a = el; a; a = a.parentElement) {
-          const bg = getComputedStyle(a).backgroundColor;
-          if (alpha(bg) > 0) return bg;
-        }
-        return getComputedStyle(document.body).backgroundColor;
-      };
-      const SIDES = ['Top', 'Right', 'Bottom', 'Left'];
-      const frameMemo = new Map();
-      const isFrame = (el) => {
-        if (frameMemo.has(el)) return frameMemo.get(el);
-        let f = false;
-        if (el !== document.body && el !== document.documentElement) {
-          const cs = getComputedStyle(el);
+        // [記録する] の数（ui-guidelines 9.2・A2。#127）: 見えている押せる要素で、名前が「記録する」「記録」のもの
+        let recordEntries = 0;
+        for (const el of document.querySelectorAll('a, button')) {
+          if (
+            typeof el.checkVisibility === 'function' &&
+            !el.checkVisibility({ visibilityProperty: true })
+          )
+            continue;
           const r = el.getBoundingClientRect();
-          const drawn =
-            (typeof el.checkVisibility !== 'function' ||
-              el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) &&
-            r.width >= 2 &&
-            r.height >= 2 &&
-            !el.classList.contains('sr-only') &&
-            !el.closest('[data-ui-check-wide]');
-          if (drawn) {
-            if (['IMG', 'CANVAS', 'VIDEO'].includes(el.tagName)) f = true;
-            else if (
-              SIDES.every(
-                (s) =>
-                  Number.parseFloat(cs[`border${s}Width`]) > 0 &&
-                  !['none', 'hidden'].includes(cs[`border${s}Style`]) &&
-                  alpha(cs[`border${s}Color`]) > 0,
-              )
-            )
-              f = true;
-            else if (cs.backgroundImage !== 'none') f = true;
-            else if (alpha(cs.backgroundColor) > 0) {
-              f = el.parentElement ? cs.backgroundColor !== surfaceOf(el.parentElement) : true;
-            }
-          }
+          if (r.width === 0 || r.height === 0) continue;
+          const name = (el.getAttribute('aria-label') || el.textContent || '').replace(/\s+/g, '');
+          if (/^(＋)?記録(する)?$/.test(name)) recordEntries++;
         }
-        frameMemo.set(el, f);
-        return f;
-      };
-      const nest = [];
-      const nameOf = (el) => {
-        const c = typeof el.className === 'string' ? el.className.split(' ')[0] : '';
-        return c || el.tagName.toLowerCase();
-      };
-      for (const el of document.body.querySelectorAll('*')) {
-        if (!isFrame(el)) continue;
-        const chain = [];
-        for (let a = el; a && a !== document.body; a = a.parentElement) {
-          if (isFrame(a)) chain.unshift(nameOf(a));
-        }
-        if (chain.length >= 3)
-          nest.push(`${nameOf(el)}（祖先: ${chain.slice(0, -1).join(' > ')}）`);
-      }
-      // 貼り付きの帯（記録する画面・直す画面）の高さと、状態の文の行数（Issue #33 AC-1・KEEP-7）
-      let bar = null;
-      const barEl = document.querySelector('.record__submit');
-      if (barEl) {
-        const statusEl = barEl.querySelector('.record__status, .record__missing');
-        let lines = 0;
-        if (statusEl && statusEl.textContent.trim() !== '') {
-          const range = document.createRange();
-          range.selectNodeContents(statusEl);
-          const tops = new Set();
-          for (const rr of range.getClientRects()) if (rr.width > 0) tops.add(Math.round(rr.top));
-          lines = tops.size;
-        }
-        bar = {
-          h: Math.round(barEl.getBoundingClientRect().height * 10) / 10,
-          lines,
-          // 状態の文が切れている（「…」で省かれる。コードレビュー指摘 1）
-          cut: !!statusEl && statusEl.scrollWidth > statusEl.clientWidth + 0.5,
-          text: statusEl?.textContent?.trim() ?? '',
-          error: !!barEl.querySelector('.notice--error'),
-        };
-      }
-      return { h, small, clipped, nest, bar, scrollH: d.scrollHeight };
-    },
-    { withTargets, tap, slack },
-  );
+        return { h, small, clipped, nest, bar, scrollH: d.scrollHeight, linkish, recordEntries };
+      },
+      { withTargets, tap, slack },
+    )
+    .then((m) => {
+      const at = new URL(page.url()).pathname;
+      const vw = page.viewportSize()?.width ?? 0;
+      for (const d of m.linkish) LINKISH.add(`${at} ${d}`);
+      // ［記録する］ は 1 か所まで（縦の形 = 幅 720 未満。広い形の上の帯の ［＋ 記録］ と画面の主のボタンは U9・U10）
+      if (vw < 720 && m.recordEntries > 1 && !at.startsWith('/dev/'))
+        RECORD_DUP.add(`${vw}px ${at}: ${m.recordEntries} か所`);
+      return m;
+    });
 }
+
+/** 文字のリンクの見た目の操作（9.12。全状態で集める。0 件でなければ外れ。#127） */
+const LINKISH = new Set();
+/** ［記録する］ が 2 か所以上の状態（縦の形。#127） */
+const RECORD_DUP = new Set();
 
 /**
  * 文字の拡大（Issue #79）の測り。拡大の漏れ = 描かれた文字を持つ要素の文字の大きさが minFont 未満（トークンを通らない
@@ -3092,8 +3195,10 @@ async function measureZoom(page, minFont) {
 }
 
 async function waitReady(page, h1) {
+  // 「取引」（取引のタブの根の題）は「取引の詳細」「取引を編集」に部分一致しないよう、題の全体で比べる（#127）
+  const text = h1 === '取引' ? /^\s*取引\s*$/ : h1;
   await page
-    .locator('main h1', { hasText: h1 })
+    .locator('main h1', { hasText: text })
     .first()
     .waitFor({ state: 'visible', timeout: 15000 });
 }
@@ -3294,7 +3399,7 @@ async function main() {
             await tp.goto(`${base}/trades/x-d1`);
             await waitReady(tp, 'US30 · L');
             await tp.getByRole('button', { name: '削除', exact: true }).click();
-            await waitReady(tp, '取引の一覧');
+            await waitReady(tp, '取引');
             await tp.locator('.toast').waitFor({ timeout: 5000 });
             const m = await measure(tp, w === 360, TAP);
             states++;
@@ -3453,7 +3558,7 @@ async function main() {
         // 直す画面は口座を替えて、欄の下の 1 行（今の資金で計算し直す）が出た形を測る
         const ACCOUNT_ROW = '.traderow__account:visible, .traderow__account-top:visible';
         for (const [path, h1, wait, slug, after] of [
-          ['/trades', '取引の一覧', ACCOUNT_ROW, 'trades-accounts'],
+          ['/trades', '取引', ACCOUNT_ROW, 'trades-accounts'],
           ['/', 'ホーム', ACCOUNT_ROW, 'home-accounts'],
           ['/trades/x-d1', 'US30 · L', '.verdict__account', 'trade-x-d1-accounts'],
           // 保有時間と口座が並ぶ見出しの下の行（#58 デザインレビュー: 360 で 1 行に収まるか）
@@ -3621,8 +3726,13 @@ async function main() {
               '.curve',
               'home-review-focus',
               async (pg) => {
-                await pg.locator('.home__record a').first().focus();
-                await pg.keyboard.press('Tab');
+                // 見出しから Tab で期間の選択へ（#127 でホームの [記録する] を無くしたので、見出しを起点にする）
+                await pg.locator('main h1').first().focus();
+                for (let i = 0; i < 8; i++) {
+                  await pg.keyboard.press('Tab');
+                  const at = await pg.evaluate(() => document.activeElement?.getAttribute('name'));
+                  if (at === 'review-period') break;
+                }
                 await pg.waitForFunction(
                   () => document.activeElement?.getAttribute('name') === 'review-period',
                 );
@@ -3780,13 +3890,13 @@ async function main() {
             }
           }
           // ST1（幅 360・ダークで 1 回。Issue #35）: ホームと一覧の直近の流れは点 10 個が 1 行に並び（同じ高さ・カードの中）、
-          // 並びの名前が「直近 10 件の判定（古い順）」、見出しの文が出る。ホームは [記録する] の後・振り返りの前
+          // 並びの名前が「直近 10 件の判定（古い順）」、見出しの文が出る。ホームは先頭（振り返りの前。#127 で [記録する] を無くした）
           if (w === 360 && theme === 'dark') {
             const tp = pageFor.get(false);
             try {
               for (const [at, h1] of [
                 ['/', 'ホーム'],
-                ['/trades', '取引の一覧'],
+                ['/trades', '取引'],
               ]) {
                 await tp.goto(base + at);
                 await waitReady(tp, h1);
@@ -3824,7 +3934,8 @@ async function main() {
                   throw new Error(`${where}: 並びの名前 ${r.label}`);
                 if (!/続いています|直近の取引は/.test(r.headline))
                   throw new Error(`${where}: 見出しの文 ${r.headline}`);
-                if (at === '/' && r.order.join(',') !== 'home__record,streak,review')
+                // ホームに [記録する] を置かない（下のタブの 1 か所。#127）
+                if (at === '/' && r.order.join(',') !== 'streak,review')
                   throw new Error(`${where}: 並び ${r.order.join(',')}`);
               }
               console.log('ST1 直近の流れ（点 10 個が 1 行・名前・見出し・ホームの並び） ok');
@@ -4239,7 +4350,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V6・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R13 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ページ分け TL-P1〜TL-P5',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -4253,6 +4364,16 @@ async function main() {
   }
 
   console.log('');
+  console.log(`文字のリンクの見た目の操作（9.12）: ${LINKISH.size} 件`);
+  for (const d of LINKISH) {
+    console.log(`  ${d}`);
+    problems.push(`文字のリンクの見た目の操作: ${d}`);
+  }
+  console.log(`［記録する］ が 2 か所以上の状態（縦の形）: ${RECORD_DUP.size} 件`);
+  for (const d of RECORD_DUP) {
+    console.log(`  ${d}`);
+    problems.push(`［記録する］ の重複: ${d}`);
+  }
   console.log(
     `要約: ${states} 状態、横スクロールの最大 ${worstH}px、幅 360 の当たり<44 ${smallTotal} 件、部品のはみ出し ${clippedTotal} 件、入れ子 3 段以上 ${nestTotal} 件、帯の外れ ${barTotal} 件、文字の拡大 ${zoomTotal} 状態（拡大の漏れ ${zoomUnscaled} 件・行の重なり ${zoomOverlap} 件・既知 ${zoomKnown} 状態）、外れ ${problems.length} 件`,
   );
@@ -4300,7 +4421,18 @@ async function runFlows(browser, base, signedIn) {
       const detail = await fn();
       out.push([id, true, detail ?? '']);
     } catch (e) {
-      out.push([id, false, e instanceof Error ? e.message.split('\n')[0] : String(e)]);
+      // 待ちの外れは何を待っていたかが 2 行目以降にあるので、3 行まで出す（#127）
+      out.push([
+        id,
+        false,
+        e instanceof Error
+          ? e.message
+              .split('\n')
+              .filter((l) => l.trim() !== '')
+              .slice(0, 3)
+              .join(' | ')
+          : String(e),
+      ]);
     }
   };
   const expectEq = (got, want, what) => {
@@ -4313,17 +4445,19 @@ async function runFlows(browser, base, signedIn) {
     viewport: { width: 390, height: 844 },
     storageState: signedIn,
   });
-  // 行き来の手順は取引 0 件の偽の API で流す（V1 はホームの空の状態の [記録する] を踏む。Issue #9 の後も同じ手順）
+  // 行き来の手順は取引 0 件の偽の API で流す（V1 は下のタブの真ん中の ［＋ 記録］ を踏む。#127 でホームの [記録する] を無くした）
   await installFakeApi(ctx, { trades: [] });
   const page = await ctx.newPage();
 
   await check('V1', async () => {
     await page.goto(`${base}/`);
     await waitReady(page, 'ホーム');
-    await page.locator('main .empty a[href="/record"]').click();
+    // ホームの中身に [記録する] を置かない（下のタブの 1 か所だけ。#127）
+    expectEq(await page.locator('main a[href="/record"]').count(), 0, 'ホームの中の [記録する]');
+    await page.locator('nav a[href="/record"]').click();
     await waitReady(page, '記録する');
     expectEq(path(page), '/record', 'URL');
-    return 'ホーム → [記録する] → /record';
+    return 'ホーム → ［＋ 記録］ → /record';
   });
   await check('V2', async () => {
     await page.goBack();
@@ -4333,9 +4467,9 @@ async function runFlows(browser, base, signedIn) {
   });
   await check('V3', async () => {
     await page.goto(`${base}/trades`);
-    await waitReady(page, '取引の一覧');
+    await waitReady(page, '取引');
     await page.reload();
-    await waitReady(page, '取引の一覧');
+    await waitReady(page, '取引');
     expectEq(path(page), '/trades', 'URL');
     return '直接開く・再読み込み → 一覧';
   });
@@ -4343,20 +4477,21 @@ async function runFlows(browser, base, signedIn) {
     await page.goto(`${base}/trades/no-such-trade`);
     await waitReady(page, '取引の詳細');
     await page.getByText('この取引は見つかりません').waitFor();
-    const link = page.locator('main a[href="/trades"]');
-    if ((await link.count()) !== 1) throw new Error('一覧へのリンクが 1 つでない');
+    // 上の帯の「‹ 取引」と、空の状態の [一覧へ戻る]（#127）
+    const link = page.locator('main .empty a[href="/trades"]');
+    if ((await link.count()) !== 1) throw new Error('一覧へのボタンが 1 つでない');
     await link.click();
-    await waitReady(page, '取引の一覧');
+    await waitReady(page, '取引');
     return '「この取引は見つかりません」→ 一覧へ';
   });
   await check('V5', async () => {
     await page.goto(`${base}/trades`);
-    await waitReady(page, '取引の一覧');
+    await waitReady(page, '取引');
     await page.goto(`${base}/no-such-page`);
     await waitReady(page, 'ホーム');
     expectEq(path(page), '/', 'URL');
     await page.goBack();
-    await waitReady(page, '取引の一覧');
+    await waitReady(page, '取引');
     expectEq(path(page), '/trades', '戻った先');
     return '知らない URL → / に置き換え、戻る → /trades';
   });
@@ -4411,8 +4546,9 @@ async function runFlows(browser, base, signedIn) {
     await page.evaluate(() => window.scrollTo(0, 1200));
     await page.waitForFunction(() => window.scrollY >= 1100);
     const before = await page.evaluate(() => window.scrollY);
-    await page.locator('nav a[href="/trades"]').click();
-    await waitReady(page, '取引の一覧');
+    // 今のタブの中で進む（［＋ 記録］ = push。タブの切り替えは V7 で見る。#127）
+    await page.locator('nav a[href="/record"]').click();
+    await waitReady(page, '記録する');
     expectEq(await page.evaluate(() => window.scrollY), 0, '進んだ先のスクロール');
     await page.goBack();
     await waitReady(page, '部品の見本');
@@ -4427,8 +4563,8 @@ async function runFlows(browser, base, signedIn) {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByRole('button', { name: '「判定」の説明', exact: true }).click();
     await page.locator('#parts-info-judgment').waitFor({ state: 'visible', timeout: 5000 });
-    await page.locator('nav a[href="/trades"]').click();
-    await waitReady(page, '取引の一覧');
+    await page.locator('nav a[href="/record"]').click();
+    await waitReady(page, '記録する');
     await page.goBack();
     await waitReady(page, '部品の見本');
     await page.waitForTimeout(300);
@@ -4437,8 +4573,8 @@ async function runFlows(browser, base, signedIn) {
     await page.evaluate(() => window.scrollTo(0, 1200));
     await page.waitForFunction(() => window.scrollY >= 1100);
     const before2 = await page.evaluate(() => window.scrollY);
-    await page.locator('nav a[href="/trades"]').click();
-    await waitReady(page, '取引の一覧');
+    await page.locator('nav a[href="/record"]').click();
+    await waitReady(page, '記録する');
     await page.goBack();
     await waitReady(page, '部品の見本');
     await page
@@ -4462,7 +4598,19 @@ async function runFlows(browser, base, signedIn) {
     const p = await c.newPage();
     let taps = 0;
     try {
+      let sheets = 0;
       for (const from of PAGES.filter((x) => x.path !== '/login')) {
+        // 全画面のシート（記録する・編集）の間は下のタブを隠し、左上に ✕（キャンセル）を出す（9.2・9.3・A2）
+        if (SHEET_PATHS(from.path)) {
+          await p.goto(base + from.path);
+          await waitReady(p, from.h1);
+          if (await p.locator('nav.appnav').isVisible())
+            throw new Error(`${from.path} で下のタブが出ている`);
+          const x = await p.locator('.appbar--sheet button[aria-label="キャンセル"]').boundingBox();
+          if (!x || x.x > 60 || x.y > 60) throw new Error(`${from.path} の ✕ が左上に無い`);
+          sheets++;
+          continue;
+        }
         for (const href of NAV_HREFS) {
           await p.goto(base + from.path);
           await waitReady(p, from.h1);
@@ -4473,14 +4621,281 @@ async function runFlows(browser, base, signedIn) {
             throw new Error(`${from.path} の ${href} が画面の外`);
           }
           await link.click();
-          await p.waitForURL((u) => u.pathname === href, { timeout: 5000 });
+          await p
+            .waitForURL((u) => u.pathname === href, { timeout: 5000 })
+            .catch(() => {
+              throw new Error(`${from.path} → ${href}: URL が ${new URL(p.url()).pathname} のまま`);
+            });
           taps++;
         }
       }
+      return `幅 360 の ${PAGES.length - 1 - sheets} 画面 × 5 項目（タブ 4 つ + ［＋ 記録］）= ${taps} 回、すべて 1 タップ。全画面のシート ${sheets} 画面は下のタブを隠し、左上に ✕`;
     } finally {
       await c.close();
     }
-    return `幅 360 の ${PAGES.length - 1} 画面 × 4 項目 = ${taps} 回、すべて 1 タップ`;
+  });
+
+  // V7（#127。ui-guidelines 9.7 の表）: タブごとの積み重ねと戻る（縦の形 390×844）。印の無い起動だけ履歴を組み直す
+  // （/trades/x-r1 を直接開く → 戻ると一覧 → もう 1 回でホーム。再読み込みでは積まない）・ホーム → 取引 → 行 → 設定（戻ると
+  // ホーム）→ 取引で詳細が出てスクロールの位置が戻る・同じタブを押し直すと根・詳細で説明を開いたまま再読み込みすると層は
+  // 開かず、戻る 1 回で一覧。広い形（1280×800）では、記録するを開いて書きかけのまま設定のタブへ → 閉じて「記録の入力は残って
+  // います」、取引のタブへ戻ると一覧（記録するは取引の積み重ねに残らない）
+  await check('V7', async () => {
+    const c = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      storageState: signedIn,
+      hasTouch: true,
+    });
+    await installFakeApi(c);
+    const p = await c.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    const at = () => new URL(p.url()).pathname;
+    const steps = [];
+    try {
+      // 印の無い起動（直接開いた）→ [/, /trades, /trades/x-r1]。再読み込みでは組み直さない
+      await p.goto(`${base}/trades/x-r1`);
+      await waitReady(p, 'US30 · L');
+      const len0 = await p.evaluate(() => history.length);
+      await p.reload();
+      await waitReady(p, 'US30 · L');
+      expectEq(await p.evaluate(() => history.length), len0, '再読み込みの後の履歴の数');
+      // 組み直しは利用者の最初の操作で書く（操作の無いまま積んだ段は Chrome が戻るで飛ばす。触らずに戻ればアプリを出る）
+      await p.locator('main h1').first().click();
+      expectEq(await p.evaluate(() => history.length), len0 + 2, '操作の後の組み直し（+2 段）');
+      await p.goBack();
+      await waitReady(p, '取引');
+      expectEq(at(), '/trades', '直接開いた詳細の戻る');
+      await p.goBack();
+      await waitReady(p, 'ホーム');
+      expectEq(at(), '/', 'もう 1 回の戻る');
+      steps.push('直接開いた詳細 → 戻る 2 回でホーム（再読み込みで積まない）');
+      // ホーム → 取引 → 行 → 設定 → 取引（詳細と位置が戻る）
+      await p.locator('nav a[href="/trades"]').click();
+      await waitReady(p, '取引');
+      await p.locator('a.traderow[href="/trades/x-r1"]').click();
+      await waitReady(p, 'US30 · L');
+      await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
+      await p.waitForTimeout(300);
+      const want = await p.evaluate(() =>
+        Math.min(400, document.documentElement.scrollHeight - window.innerHeight),
+      );
+      if (want < 100) throw new Error(`詳細のスクロールできる量 ${want}px（100px 未満）`);
+      await p.evaluate((v) => window.scrollTo(0, v), want);
+      await p.waitForFunction((v) => window.scrollY >= v - 2, want);
+      const y = await p.evaluate(() => window.scrollY);
+      await p.locator('nav a[href="/settings"]').click();
+      await waitReady(p, '設定');
+      expectEq(at(), '/settings', '設定のタブ');
+      await p.goBack();
+      await waitReady(p, 'ホーム');
+      expectEq(at(), '/', '設定の根の戻る');
+      await p.locator('nav a[href="/trades"]').click();
+      await waitReady(p, 'US30 · L');
+      expectEq(at(), '/trades/x-r1', '取引のタブで前に開いていた詳細');
+      await p
+        .waitForFunction((want) => Math.abs(window.scrollY - want) <= 2, y, { timeout: 5000 })
+        .catch(() => {});
+      const y2 = await p.evaluate(() => window.scrollY);
+      if (Math.abs(y2 - y) > 2) throw new Error(`戻した位置 ${y2}px（期待 ${y}px）`);
+      await p.goBack();
+      await waitReady(p, '取引');
+      expectEq(at(), '/trades', '積み直した詳細の戻る');
+      steps.push(`取引 → 詳細 → 設定（戻るとホーム）→ 取引で詳細と位置 ${Math.round(y2)}px が戻る`);
+      // 同じタブを押し直すと根へ
+      await p.locator('a.traderow[href="/trades/x-r1"]').click();
+      await waitReady(p, 'US30 · L');
+      await p.locator('nav a[href="/trades"]').click();
+      await waitReady(p, '取引');
+      expectEq(at(), '/trades', '同じタブの押し直し');
+      await p.goBack();
+      await waitReady(p, 'ホーム');
+      steps.push('同じタブを押し直すと根（戻るとホーム）');
+      // 説明を開いたまま再読み込み → 層は開かず、戻る 1 回で一覧
+      await p.locator('nav a[href="/trades"]').click();
+      await waitReady(p, '取引');
+      await p.locator('a.traderow[href="/trades/x-r1"]').click();
+      await waitReady(p, 'US30 · L');
+      await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
+      await openInfo(p, '「LC の物差し」の説明');
+      await p.waitForTimeout(200);
+      await p.reload();
+      await waitReady(p, 'US30 · L');
+      await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
+      await p.waitForTimeout(300);
+      expectEq(await p.locator('.info__pop').count(), 0, '再読み込みの後の説明');
+      await p.goBack();
+      await waitReady(p, '取引');
+      expectEq(at(), '/trades', '層の段で再読み込みした後の戻る 1 回');
+      steps.push('説明を開いたまま再読み込み → 開かない・戻る 1 回で一覧');
+      // 説明を開いたままタブを替える → 層の段を戻してから替える。[/, /settings]・戻るとホーム（#127 のレビュー N9）
+      await p.locator('a.traderow[href="/trades/x-r1"]').click();
+      await waitReady(p, 'US30 · L');
+      await p.locator('.ruler__plot').first().waitFor({ timeout: 15000 });
+      await openInfo(p, '「LC の物差し」の説明');
+      await p.locator('nav a[href="/settings"]').click();
+      await waitReady(p, '設定');
+      // 戻るは利用者の戻ると同じ history.back（Chrome が操作の無い段を飛ばすかも見る。#127 のレビュー N3）
+      await p.evaluate(() => history.back());
+      await waitReady(p, 'ホーム');
+      expectEq(at(), '/', '説明を開いたまま設定のタブへ移った後の戻る');
+      steps.push('説明を開いたまま設定のタブ → 戻るとホーム');
+      // 用語集の中で言葉を 2 つたどる → 取引のタブ → 戻るとホーム。設定のタブの押し直しは根（#127 のレビュー B1）
+      await p.locator('nav a[href="/settings"]').click();
+      await waitReady(p, '設定');
+      await p.locator('a[href="/glossary"]').first().click();
+      await waitReady(p, '用語集');
+      await p.locator('#glossary-judgment a.glink', { hasText: 'LC' }).first().click();
+      await p.waitForTimeout(200);
+      await p.locator('#glossary-lc a.glink', { hasText: '1R' }).first().click();
+      await p.waitForTimeout(200);
+      expectEq(new URL(p.url()).hash !== '', true, '用語集の中でたどった');
+      // 取引のタブは前に開いていた詳細（記憶）が出る。押し直して根へ、戻るとホーム
+      await p.locator('nav a[href="/trades"]').click();
+      await waitReady(p, 'US30 · L');
+      expectEq(at(), '/trades/x-r1', '用語集でたどった後の取引のタブ（記憶の詳細）');
+      await p.locator('nav a[href="/trades"]').click();
+      await waitReady(p, '取引');
+      await p.evaluate(() => history.back());
+      await waitReady(p, 'ホーム');
+      expectEq(at(), '/', '用語集でたどった後に取引のタブ → 根 → 戻る');
+      // 設定のタブは前に開いていた用語集（記憶。たどった段は 1 段にまとめる）が出る
+      await p.locator('nav a[href="/settings"]').click();
+      await waitReady(p, '用語集');
+      await p.locator('#glossary-judgment a.glink', { hasText: 'LC' }).first().click();
+      await p.waitForTimeout(200);
+      await p.locator('nav a[href="/settings"]').click();
+      await waitReady(p, '設定');
+      expectEq(at(), '/settings', '用語集でたどった後の設定のタブの押し直し');
+      await p.evaluate(() => history.back());
+      await waitReady(p, 'ホーム');
+      steps.push(
+        '用語集で言葉をたどった後: 取引のタブ（記憶の詳細）→ 押し直しで根 → 戻るとホーム・設定のタブの押し直しは根',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } catch (e) {
+      // どの段で外れたか（済んだ段の数・今の URL・ページのエラー）を添える
+      throw new Error(
+        `縦の形の ${steps.length + 1} 段目（URL ${p.url().replace(base, '')}・エラー ${errors.join(' / ') || 'なし'}）: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`,
+      );
+    } finally {
+      await c.close();
+    }
+    // 広い形: 記録するを開いたままタブを替える → 閉じて書きかけを残す
+    const w = await browser.newContext({
+      viewport: { width: 1280, height: 800 },
+      storageState: signedIn,
+    });
+    await installFakeApi(w);
+    const q = await w.newPage();
+    try {
+      await q.goto(`${base}/trades`);
+      await waitReady(q, '取引');
+      await q.locator('nav a[href="/record"]').click();
+      await waitReady(q, '記録する');
+      await q.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      await q.locator('#record-entry').fill('100.5');
+      await q.locator('nav a[href="/settings"]').click();
+      await waitReady(q, '設定');
+      await q.locator('.toast', { hasText: '記録の入力は残っています' }).waitFor({ timeout: 5000 });
+      await q.locator('nav a[href="/trades"]').click();
+      await waitReady(q, '取引');
+      expectEq(new URL(q.url()).pathname, '/trades', '取引のタブに戻った先');
+      await q.locator('nav a[href="/record"]').click();
+      await waitReady(q, '記録する');
+      await q.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      expectEq(await q.locator('#record-entry').inputValue(), '100.5', '残した書きかけ');
+      steps.push('広い形で記録するを開いたまま設定のタブ → 閉じて残す・取引のタブは一覧');
+    } catch (e) {
+      throw new Error(
+        `広い形（URL ${q.url().replace(base, '')}）: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`,
+      );
+    } finally {
+      await w.close();
+    }
+    return steps.join(' / ');
+  });
+
+  // SA1（#127。ui-guidelines 9.6・9.10）: 安全域の差し替え（縦: 上 47・下 34）で、上の帯・下のタブ・記録する画面の下の帯の
+  // 押せるものが安全域の外（内側）にあり、上の安全域に面が敷かれ、タブの根の大きな題が上の安全域の下にある。Chromium では
+  // env() が 0 なので、トークン --safe-* を差し替えて見る（実機の確かめは手で）
+  await check('SA1', async () => {
+    const out = [];
+    for (const theme of THEMES) {
+      const c = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        storageState: signedIn,
+        hasTouch: true,
+      });
+      try {
+        await setupContext(c, theme);
+        await c.addInitScript(() => {
+          const put = () => {
+            const st = document.createElement('style');
+            st.textContent =
+              ':root:root{--safe-top:47px;--safe-bottom:34px;--safe-left:0px;--safe-right:0px}';
+            document.head.append(st);
+          };
+          if (document.head) put();
+          else document.addEventListener('DOMContentLoaded', put);
+        });
+        await installFakeApi(c);
+        const p = await c.newPage();
+        for (const [path, h1, wait] of [
+          ['/', 'ホーム', '.traderow'],
+          ['/trades', '取引', '.traderow'],
+          ['/trades/x-d1', 'US30 · L', 'canvas.chartview__canvas'],
+          ['/record', '記録する', '#record-entry'],
+          ['/review', '振り返り', '.review'],
+          ['/settings', '設定', null],
+        ]) {
+          await p.goto(base + path);
+          await waitReady(p, h1);
+          if (wait) await p.locator(wait).first().waitFor({ timeout: 15000 });
+          const r = await p.evaluate(() => {
+            const vh = window.innerHeight;
+            const bad = [];
+            const sel =
+              '.appnav a, .appbar a, .appbar button, .record__submit--bar button, .rootbar';
+            for (const el of document.querySelectorAll(sel)) {
+              const b = el.getBoundingClientRect();
+              if (b.width === 0 || b.height === 0) continue;
+              if (getComputedStyle(el).visibility === 'hidden') continue;
+              if (b.top < 47 - 0.5 || b.bottom > vh - 34 + 0.5) {
+                const name = (el.getAttribute('aria-label') || el.textContent || '').trim();
+                bad.push(`${name.slice(0, 10)} ${Math.round(b.top)}〜${Math.round(b.bottom)}`);
+              }
+            }
+            const face = document.querySelector('.statusbar-bg')?.getBoundingClientRect();
+            const big = document.querySelector('main .pagehead__title')?.getBoundingClientRect();
+            const bar = document.querySelector('main .appbar')?.getBoundingClientRect();
+            return {
+              bad,
+              face: face ? Math.round(face.height) : 0,
+              titleTop: big ? big.top : bar ? bar.top : -1,
+              barTop: bar ? bar.top : null,
+            };
+          });
+          const where = `${theme} ${path}`;
+          if (r.bad.length > 0) throw new Error(`${where}: 安全域に重なる ${r.bad.join(' / ')}`);
+          expectEq(r.face, 47, `${where} の上の安全域の面`);
+          // 大きな題は上の安全域の下。上の帯は端（0）から敷き、中身（押せるもの）は上の安全域の下（上で見た）
+          if (r.barTop === null && r.titleTop < 47)
+            throw new Error(`${where}: 大きな題 ${Math.round(r.titleTop)}px が上の安全域に重なる`);
+          if (opts.shots)
+            await p.screenshot({
+              path: join(
+                opts.shots,
+                `390x844-${theme}-safe-${path === '/' ? 'home' : path.slice(1).replace(/\//g, '-')}.png`,
+              ),
+            });
+        }
+        out.push(theme);
+      } finally {
+        await c.close();
+      }
+    }
+    return `${out.join('・')} × 6 画面: 押せるものは安全域（上 47・下 34）の内側、上の安全域に面`;
   });
 
   await check('T2', async () => {
@@ -4601,7 +5016,7 @@ async function runFlows(browser, base, signedIn) {
         const u = new URL(p.url());
         expectEq(`${u.pathname}${u.search}`, '/login?next=%2Ftrades', 'URL');
         const s = await seen();
-        if (s.includes('取引の一覧')) throw new Error('一覧の中身が一度描かれた');
+        if (s.includes('取引')) throw new Error('一覧の中身が一度描かれた');
         return '一覧の URL → /login?next=%2Ftrades、一覧の中身は出ない';
       });
       // G1（Issue #52）: Google でログインするボタン。ダーク / ライト × 幅 360 / 1440 で、読み上げの名前で見つかり、
@@ -4682,7 +5097,7 @@ async function runFlows(browser, base, signedIn) {
       });
       await check('L2', async () => {
         await loginViaPopup(p);
-        await waitReady(p, '取引の一覧');
+        await waitReady(p, '取引');
         expectEq(path(p), '/trades', 'URL');
         return 'エミュレーターの架空の利用者でログイン → /trades（開こうとした画面）';
       });
@@ -4699,7 +5114,7 @@ async function runFlows(browser, base, signedIn) {
       });
       await check('L4', async () => {
         await p.reload();
-        await waitReady(p, '取引の一覧');
+        await waitReady(p, '取引');
         expectEq(path(p), '/trades', 'URL');
         const s = await seen();
         if (s.includes('ログイン')) throw new Error('再読み込みでログイン画面が描かれた');
@@ -4716,7 +5131,7 @@ async function runFlows(browser, base, signedIn) {
         await waitReady(p, 'ログイン');
         expectEq(path(p), '/login', '戻るの後');
         const s = await seen();
-        if (s.includes('設定') || s.includes('取引の一覧'))
+        if (s.includes('設定') || s.includes('取引'))
           throw new Error('戻るで前の画面の中身が描かれた');
         return 'ログアウト → /login、戻る → ログイン画面のまま（中身は出ない）';
       });
@@ -5102,7 +5517,7 @@ async function runFlows(browser, base, signedIn) {
           await waitReady(p, 'ホーム');
           await measure(p, w, 'home-empty', '3 つの質問に答えると判定が表示されます');
           await p.goto(`${base}/trades`);
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await measure(p, w, 'trades-empty', 'まだ取引がありません');
         } finally {
           await c.close();
@@ -5195,7 +5610,7 @@ async function runFlows(browser, base, signedIn) {
               : route.fallback(),
           );
           await p.goto(`${base}/trades`);
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await measure(p, w, 'auth-expired', 'もう一度ログイン');
         } finally {
           await c.close();
@@ -5434,7 +5849,15 @@ async function runFlows(browser, base, signedIn) {
         expectEq(JSON.stringify(after[k]), JSON.stringify(before[k]), k);
       }
       expectEq(after.href, before.href, 'URL');
-      expectEq(after.state, before.state, '履歴の state');
+      // 履歴の state は画面の行き来の印（appDepth・appTab・appStack）だけ。印は利用者の最初の操作で書く（#127）ので、前後で
+      // 印の鍵を除いて比べる（記録の中身を書かない）
+      const withoutMark = (raw) => {
+        const v = JSON.parse(raw ?? 'null');
+        if (!v || typeof v !== 'object') return 'null';
+        const { appDepth: _d, appTab: _t, appStack: _s, ...rest } = v;
+        return Object.keys(rest).length === 0 ? 'null' : JSON.stringify(rest);
+      };
+      expectEq(withoutMark(after.state), withoutMark(before.state), '履歴の state（印を除く）');
       for (const v of ['架空指数A', '架空指数D', '押し目の安値']) {
         if (after.values.includes(v)) throw new Error(`Web Storage に ${v}`);
       }
@@ -5578,7 +6001,14 @@ async function runFlows(browser, base, signedIn) {
           // 押したタップは見える範囲に残る（フォーカスも押した radio のまま）
           const kept = await last.evaluate((el) => {
             const r = el.getBoundingClientRect();
-            const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
+            const top = Math.max(
+              0,
+              ...[...document.querySelectorAll('.apphead, .appbar')]
+                .filter((e) => ['sticky', 'fixed'].includes(getComputedStyle(e).position))
+                .map((e) => e.getBoundingClientRect())
+                .filter((r) => r.height > 0)
+                .map((r) => r.bottom),
+            );
             return {
               seen: r.bottom > top + 0.5,
               focus: el.contains(document.activeElement),
@@ -5627,8 +6057,17 @@ async function runFlows(browser, base, signedIn) {
           await openRecord(p, base);
           const m = await p.evaluate(() => {
             const vh = window.innerHeight;
-            const top = document.querySelector('.topbar')?.getBoundingClientRect().bottom ?? 0;
-            const nav = document.querySelector('.appnav')?.getBoundingClientRect().top ?? vh;
+            const top = Math.max(
+              0,
+              ...[...document.querySelectorAll('.apphead, .appbar')]
+                .filter((e) => ['sticky', 'fixed'].includes(getComputedStyle(e).position))
+                .map((e) => e.getBoundingClientRect())
+                .filter((r) => r.height > 0)
+                .map((r) => r.bottom),
+            );
+            const navEl = document.querySelector('.appnav');
+            const navRect = navEl?.getBoundingClientRect();
+            const nav = navRect && navRect.height > 0 ? navRect.top : vh;
             const bar =
               document.querySelector('.record__submit')?.getBoundingClientRect().top ?? vh;
             const bottom = Math.min(nav, bar, vh);
@@ -5850,8 +6289,9 @@ async function runFlows(browser, base, signedIn) {
       // もう 1 枚貼ってから一覧へ移る（保存しないチャートは送らない。E12）
       await pasteChart(p, 'entry');
       const postsBefore = fake.chartPosts.length;
-      await p.locator(`nav a[href="/trades"]`).first().click();
-      await waitReady(p, '取引の一覧');
+      // 記録している間は下のタブが隠れているので、戻るで離れる（#127）
+      await p.goBack();
+      await waitReady(p, 'ホーム');
       expectEq(fake.chartPosts.length, postsBefore, '離れた後のチャートの送信');
       const after = await snap();
       for (const k of ['ls', 'ss', 'idb', 'caches']) {
@@ -6316,14 +6756,15 @@ async function runFlows(browser, base, signedIn) {
       await p.goBack();
       await waitReady(p, 'ホーム');
       expectEq(new URL(p.url()).pathname, '/', 'Esc の後の戻る');
-      // 開いたまま行き先のリンクで画面を移る → 一覧。戻る 1 回で記録する画面（N8 b）
+      // 開いたまま画面のリンクで画面を移る → 用語集。戻る 1 回で記録する画面（N8 b）。記録している間は下のタブが
+      // 隠れているので、吹き出しの中の「用語集で見る」で移る（#127）
       await p.goForward();
       await waitReady(p, '記録する');
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
       await openInfo(p, TF);
-      await p.locator('.appnav a[href="/trades"]').click();
-      await waitReady(p, '取引の一覧');
-      expectEq(new URL(p.url()).pathname, '/trades', '開いたまま移った先');
+      await p.locator('.info__pop .info__glossary').click();
+      await waitReady(p, '用語集');
+      expectEq(new URL(p.url()).pathname, '/glossary', '開いたまま移った先');
       await p.goBack();
       await expectPollAsync(
         async () => new URL(p.url()).pathname === '/record',
@@ -6416,7 +6857,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('#record-submit').click();
       await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('main a[href^="/trades/"]').first().click();
       await waitReady(p, '取引の詳細');
       await openInfo(p, '「時間足を変えたか」の説明');
@@ -6453,7 +6894,7 @@ async function runFlows(browser, base, signedIn) {
       );
       if (opts.shots)
         await p.screenshot({ path: join(opts.shots, '360x780-dark-glossary-from.png') });
-      await p.locator('button.detail__back', { hasText: '‹ 取引の詳細' }).click();
+      await p.locator('button.appbar__back', { hasText: '取引の詳細' }).click();
       await waitReady(p, '取引の詳細');
       expectEq(new URL(p.url()).pathname.startsWith('/trades/'), true, '‹ 取引の詳細 の行き先');
       expectEq(errors.length, 0, 'ページのエラー');
@@ -6470,28 +6911,32 @@ async function runFlows(browser, base, signedIn) {
   await check('DR1', async () => {
     const { c, p, errors } = await recordContext();
     const toast = (t) => p.locator('.toast', { hasText: t });
-    const cancel = p.locator('.pagehead__actions button[aria-label="記録をキャンセル"]');
+    const cancel = p.locator('.appbar--sheet button[aria-label="キャンセル"]');
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('.appnav a[href="/record"]').click();
       await waitReady(p, '記録する');
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
       await p.locator('#record-entry').fill('100.5');
-      // [キャンセル] は見出しの右（下の帯は 1 段・文 1 行のまま。#33）・横スクロール・当たり
+      // キャンセルは全画面のシートの左上の ✕（読み上げの名前「キャンセル」。下の帯は 1 段・文 1 行のまま。#127・#33）・
+      // 横スクロール・当たり
       const bar = await p.evaluate(() => {
-        const cancelBtn = document.querySelector('button[aria-label="記録をキャンセル"]');
+        const cancelBtn = document.querySelector('.appbar--sheet button[aria-label="キャンセル"]');
         const cr = cancelBtn?.getBoundingClientRect();
         return {
-          inHead: !!cancelBtn?.closest('.pagehead__actions'),
-          inBar: !!cancelBtn?.closest('.record__submit'),
+          inHead: !!cancelBtn?.closest('.appbar__start'),
+          inBar: !!document.querySelector('.record__submit button[aria-label*="キャンセル"]'),
+          left: cr ? cr.left : 999,
+          top: cr ? cr.top : 999,
           h: cr ? Math.min(cr.height, cr.width) : 0,
           over: document.documentElement.scrollWidth - window.innerWidth,
         };
       });
-      expectEq(bar.inHead && !bar.inBar, true, '[キャンセル] は見出しの右');
-      expectEq(bar.h >= 44, true, '[キャンセル] の当たり 44 以上');
+      expectEq(bar.inHead && !bar.inBar, true, '✕ は上の帯の左');
+      expectEq(bar.left < 60 && bar.top < 60, true, '✕ は左上');
+      expectEq(bar.h >= 44, true, '✕ の当たり 44 以上');
       expectEq(bar.over <= 0, true, '360 の横スクロール 0');
       if (opts.shots) await p.screenshot({ path: join(opts.shots, '360x780-dark-dr1-bar.png') });
       // 「用語集で見る」で移って戻る → 書きかけが残る
@@ -6504,18 +6949,12 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, '記録する');
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
       expectEq(await p.locator('#record-entry').inputValue(), '100.5', '戻った後の下書き');
-      // 今いる画面のナビ（[記録する]）を押す: 履歴を積まず、見出しへフォーカス（#75 B1・R6）。下書きはそのまま
-      const histLen = await p.evaluate(() => history.length);
-      await p.locator('.appnav a[href="/record"]').click();
-      await expectPollAsync(
-        async () => (await p.evaluate(() => document.activeElement?.tagName)) === 'H1',
-        '今いる画面のナビで見出しへフォーカス',
-      );
-      expectEq(await p.evaluate(() => history.length), histLen, '今いる画面のナビで履歴を積まない');
-      expectEq(await p.locator('#record-entry').inputValue(), '100.5', 'ナビの後の下書き');
+      // 記録している間は下のタブを隠す（下の帯は 1 段。#127・A2。今いる画面のナビを押す #75 B1 は routes.test.ts）
+      expectEq(await p.locator('nav.appnav').isVisible(), false, '記録している間の下のタブ');
+      expectEq(await p.locator('#record-entry').inputValue(), '100.5', '戻った後の下書き（2）');
       // [キャンセル] → 一覧 + 破棄のトースト・[元に戻す] にフォーカス → 押すと同じ値
       await cancel.click();
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await toast('記録の入力を破棄しました').waitFor({ timeout: 5000 });
       await expectPollAsync(
         async () => (await p.evaluate(() => document.activeElement?.id)) === 'toast-draft-undo',
@@ -6540,7 +6979,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
       expectEq(await p.locator('#record-entry').inputValue(), '', '再読み込みの後');
       await cancel.click();
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       expectEq(await p.locator('.toast').count(), 0, '入力が無いキャンセルのトースト');
       // URL を直接開いた記録する画面（アプリの中の前の画面が無い）の [キャンセル] はホームへ置き換える
       await p.goto(`${base}/record`);
@@ -6561,13 +7000,14 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return '入力 → 用語集へ（残っています）→ 戻ると同じ値。[キャンセル] は見出しの右・当たり 44 以上・360 で横スクロール 0。押すと一覧 + 破棄のトースト（[元に戻す] にフォーカス）→ [元に戻す] で同じ値。入力がある再読み込みだけ beforeunload の確認、入力が無い [キャンセル] はトーストなしで一覧・URL を直接開いたときはホーム';
+    return '入力 → 用語集へ（残っています）→ 戻ると同じ値。キャンセルは左上の ✕・当たり 44 以上・360 で横スクロール 0・下のタブを隠す。押すと一覧 + 破棄のトースト（[元に戻す] にフォーカス）→ [元に戻す] で同じ値。入力がある再読み込みだけ beforeunload の確認、入力が無い [キャンセル] はトーストなしで一覧・URL を直接開いたときはホーム';
   });
 
   // DR2（#75 レビュー後）: 書きかけの知らせと戻った後の画面を 360 / 1440 × ダーク / ライトで測って撮る。記録: 入力して離れる
-  // （「残っています」・ナビの印の点）→ 戻る（見出しの下の「前の入力の続きです」）→ 見出しの [キャンセル]（破棄のトースト。
-  // 1440 は帯の [キャンセル] も見える・360 は帯に出さない）→ 入力の無い [キャンセル]（トーストなし）。編集: 変更して離れる
-  // （取引の名前つきの「残っています」）→ 詳細の [編集] の印の点 → 戻る（「前の変更の続きです」）→ [キャンセル]（破棄のトースト）
+  // （「残っています」・［＋ 記録］ の印の点）→ 戻る（見出しの下の「前の入力の続きです」）→ 左上の ✕（破棄のトースト。どの幅でも
+  // 下の帯には置かない）→ 入力の無い ✕（トーストなし）。離れるのは幅 720 未満は戻る（下のタブは隠れている）、それ以上は取引の
+  // タブ（#127）。編集: 変更して離れる（取引の名前つきの「残っています」）→ 詳細の [編集] の印の点 → 戻る（「前の変更の続きです」）
+  // → ✕（破棄のトースト）
   await check('DR2', async () => {
     const out = [];
     for (const theme of THEMES)
@@ -6597,22 +7037,49 @@ async function runFlows(browser, base, signedIn) {
               });
           };
           await p.goto(`${base}/trades`);
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await p.locator('.appnav a[href="/record"]').click();
           await waitReady(p, '記録する');
           await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
           await p.locator('#record-entry').fill('100.5');
-          await p.locator('.appnav a[href="/trades"]').click();
-          await waitReady(p, '取引の一覧');
+          // 離れる: 幅 720 未満は下のタブが隠れているので戻る、それ以上は取引のタブ（同じタブの押し直し = 根へ。#127）
+          if (w >= 720) await p.locator('.appnav a[href="/trades"]').click();
+          else await p.goBack();
+          await waitReady(p, '取引');
           await toast('記録の入力は残っています').waitFor({ timeout: 5000 });
           expectEq(
             await p.locator('.appnav a[href="/record"] .draftdot').count(),
             1,
             'ナビの印の点',
           );
+          // トーストは浮いた ［＋ 記録］ に重ならない（#127 デザイン a1）
+          if (w < 720) {
+            const over = await p.evaluate(() => {
+              const t = document.querySelector('.toast')?.getBoundingClientRect();
+              const f = document.querySelector('.appnav__fab')?.getBoundingClientRect();
+              return t && f ? Math.max(0, t.bottom - f.top) : -1;
+            });
+            expectEq(over, 0, 'トーストと ［＋ 記録］ の重なり（px）');
+          }
           await shot('kept');
           await p.locator('.appnav a[href="/record"]').click();
           await waitReady(p, '記録する');
+          // 幅 720 以上は記録している間も行き先が見える: 今いる画面の ［＋ 記録］ を押すと履歴を積まず、見出しへフォーカス
+          // （#75 B1・R6。#127 のレビュー N10）
+          if (w >= 720) {
+            await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+            const len = await p.evaluate(() => history.length);
+            await p.locator('.appnav a[href="/record"]').click();
+            await expectPollAsync(
+              async () => (await p.evaluate(() => document.activeElement?.tagName)) === 'H1',
+              '今いる画面の ［＋ 記録］ で見出しへフォーカス',
+            );
+            expectEq(
+              await p.evaluate(() => history.length),
+              len,
+              '今いる画面の ［＋ 記録］ で履歴を積まない',
+            );
+          }
           await p
             .locator('#record-resumed', { hasText: '前の入力の続きです' })
             .waitFor({ timeout: 5000 });
@@ -6622,14 +7089,20 @@ async function runFlows(browser, base, signedIn) {
             0,
             '戻った後の印',
           );
+          // キャンセルはどの幅でも左上の ✕ だけ（下の帯に置かない。#127）
           expectEq(
-            await p.locator('.record__barcancel button').isVisible(),
-            w >= 720,
-            '帯の [キャンセル]（720 以上だけ）',
+            await p.locator('.appbar--sheet button[aria-label="キャンセル"]').isVisible(),
+            true,
+            '左上の ✕',
+          );
+          expectEq(
+            await p.locator('.record__submit button[aria-label*="キャンセル"]').count(),
+            0,
+            '下の帯のキャンセル',
           );
           await shot('restored');
-          await p.locator('.pagehead__actions button[aria-label="記録をキャンセル"]').click();
-          await waitReady(p, '取引の一覧');
+          await p.locator('.appbar--sheet button[aria-label="キャンセル"]').click();
+          await waitReady(p, '取引');
           await toast('記録の入力を破棄しました').waitFor({ timeout: 5000 });
           await shot('discarded');
           await p.locator('.toast button[aria-label="通知を閉じる"]').first().click();
@@ -6637,8 +7110,8 @@ async function runFlows(browser, base, signedIn) {
           await waitReady(p, '記録する');
           await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
           expectEq(await p.locator('#record-resumed').count(), 0, '捨てた後は続きの 1 行なし');
-          await p.locator('.pagehead__actions button[aria-label="記録をキャンセル"]').click();
-          await waitReady(p, '取引の一覧');
+          await p.locator('.appbar--sheet button[aria-label="キャンセル"]').click();
+          await waitReady(p, '取引');
           await p.waitForTimeout(200);
           expectEq(await p.locator('.toast').count(), 0, '入力の無い [キャンセル] のトースト');
           await shot('empty-cancel');
@@ -6650,14 +7123,20 @@ async function runFlows(browser, base, signedIn) {
           await p.locator('#edit-submit').waitFor({ state: 'visible', timeout: 15000 });
           const ex = await p.locator('#record-exit').inputValue();
           await p.locator('#record-exit').fill(`${ex}1`);
-          await p.locator('.appnav a[href="/trades"]').click();
-          await waitReady(p, '取引の一覧');
+          // 離れる: 幅 720 未満は戻る（詳細へ）、それ以上は取引のタブ（根の一覧へ）→ 行を押して詳細へ（#127）
+          if (w >= 720) {
+            await p.locator('.appnav a[href="/trades"]').click();
+            await waitReady(p, '取引');
+          } else {
+            await p.goBack();
+            await waitReady(p, '取引の詳細');
+          }
           await toast('の編集の変更は残っています').waitFor({ timeout: 5000 });
           await shot('edit-kept');
-          await p.goBack();
-          await waitReady(p, '取引を編集');
-          await p.goBack();
-          await waitReady(p, '取引の詳細');
+          if (w >= 720) {
+            await p.locator('a.traderow[href="/trades/x-e1"]').click();
+            await waitReady(p, '取引の詳細');
+          }
           // 印は離れた画面（編集）の後始末で付くので、出るのを待つ
           await p
             .locator('a[href="/trades/x-e1/edit"] .draftdot')
@@ -6674,7 +7153,7 @@ async function runFlows(browser, base, signedIn) {
             .locator('.draft__resumed', { hasText: '前の変更の続きです' })
             .waitFor({ timeout: 5000 });
           expectEq(await p.locator('#record-exit').inputValue(), `${ex}1`, '戻った後の編集');
-          await p.locator('button[aria-label="編集をキャンセル"]').click();
+          await p.locator('.appbar--sheet button[aria-label="キャンセル"]').click();
           await waitReady(p, '取引の詳細');
           await toast('の編集の変更を破棄しました').waitFor({ timeout: 5000 });
           await shot('edit-discarded');
@@ -6690,7 +7169,12 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/record`);
       await waitReady(p, '記録する');
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
+      // 押して入れる（利用者の操作で履歴の組み直しが書かれる。#127）
+      await p.locator('#record-entry').click();
       await p.locator('#record-entry').fill('100.5');
+      // 記録している間は下のタブが隠れているので、戻る（ホーム）から設定のタブへ（#127）
+      await p.goBack();
+      await waitReady(p, 'ホーム');
       await p.locator('.appnav a[href="/settings"]').click();
       await waitReady(p, '設定');
       expectEq(
@@ -6707,6 +7191,12 @@ async function runFlows(browser, base, signedIn) {
         0,
         'ログインの後の印',
       );
+      // 設定のタブでログアウトした後のログイン: ホームのタブが選ばれ、履歴はホームの 1 段（#127 のレビュー B2）
+      expectEq(
+        await p.locator('.appnav a[aria-current="page"]').getAttribute('href'),
+        '/',
+        'ログインの後に選ばれたタブ',
+      );
       await p.locator('.appnav a[href="/record"]').click();
       await waitReady(p, '記録する');
       await p.locator('#record-entry').waitFor({ state: 'visible', timeout: 15000 });
@@ -6716,7 +7206,7 @@ async function runFlows(browser, base, signedIn) {
     } finally {
       await c.close();
     }
-    return `${out.join('・')}: 残っています（ナビの点）→ 戻る（続きの 1 行・帯の [キャンセル] は 720 以上だけ）→ 破棄 → 入力なしの [キャンセル] はトーストなし。編集: 取引の名前つきの残っています → 詳細の [編集] の点 → 続きの 1 行 → 破棄。入力したままログアウト → ログイン → 既定の下書き`;
+    return `${out.join('・')}: 残っています（［＋ 記録］ の点）→ 戻る（続きの 1 行・キャンセルは左上の ✕ だけ）→ 破棄 → 入力なしの ✕ はトーストなし。編集: 取引の名前つきの残っています → 詳細の [編集] の点 → 続きの 1 行 → 破棄。入力したままログアウト → ログイン → 既定の下書き`;
   });
 
   // GL2（#76）: 用語集の画面。設定から開く・文の中の言葉で 3 回たどり、戻るで 1 つずつ前の項目・最後に設定へ。
@@ -6782,7 +7272,7 @@ async function runFlows(browser, base, signedIn) {
         await p.locator('#record-submit').click();
         await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
         await p.goto(`${base}/trades`);
-        await waitReady(p, '取引の一覧');
+        await waitReady(p, '取引');
         await p.locator('main a[href^="/trades/"]').first().click();
         await p.locator('.verdict').first().waitFor({ timeout: 15000 });
         const detail = new URL(p.url()).pathname;
@@ -6804,11 +7294,12 @@ async function runFlows(browser, base, signedIn) {
         // 詳細の見出しは取引の名前（読み込み中だけ「取引の詳細」）なので、URL と判定の枠で着いたことを見る
         await expectPollAsync(async () => new URL(p.url()).pathname === detail, '保存の後に詳細へ');
         await p.locator('.verdict').first().waitFor({ timeout: 15000 });
+        // 保存の後は前の画面（詳細）へ戻る（9.7 の 6・#127。置き換えではないので、次の戻るは詳細の前 = 一覧。編集の画面へ戻らない）
         await p.goBack();
         await p.waitForTimeout(500);
         expectEq(
           new URL(p.url()).pathname,
-          detail,
+          '/trades',
           `${how}: 保存の後の戻る（編集の画面へ戻らない）`,
         );
         // 削除: 詳細で「i」を開いたまま [消す] → 一覧 → 戻る → 一覧より前（消した取引の詳細ではない）
@@ -6826,14 +7317,14 @@ async function runFlows(browser, base, signedIn) {
         } else {
           await del.click();
         }
-        await waitReady(p, '取引の一覧');
+        await waitReady(p, '取引');
         await p.goBack();
         await p.waitForTimeout(500);
         const back = new URL(p.url()).pathname;
         if (back === detail)
           throw new Error(`${how}: 削除の後の戻るで消した取引（${back}）へ戻った`);
         expectEq(errors.length, 0, 'ページのエラー');
-        out.push(`${how}: 保存の後の戻る = 詳細・削除の後の戻る = ${back}`);
+        out.push(`${how}: 保存の後の戻る = 一覧（編集へ戻らない）・削除の後の戻る = ${back}`);
       } finally {
         await c.close();
       }
@@ -6863,7 +7354,7 @@ async function runFlows(browser, base, signedIn) {
             .filter({ hasText: '記録しました' })
             .waitFor({ timeout: 10000 });
           await p.goto(`${base}/trades`);
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await p.locator('main a[href^="/trades/"]').first().click();
           await waitReady(p, '取引の詳細');
           const rr = await openInfo(p, '「LC の物差し」の説明');
@@ -7288,7 +7779,7 @@ async function runFlows(browser, base, signedIn) {
     const { c, p, errors } = await recordContext({ trades: [TX_L1, TX_L2, TX_L3] });
     try {
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('a.traderow').nth(2).waitFor();
       const rows = await rowsOf(p);
       expectEq(rows.map((r) => r.href).join(' '), '/trades/x-l2 /trades/x-l3 /trades/x-l1', '並び');
@@ -7331,12 +7822,14 @@ async function runFlows(browser, base, signedIn) {
       );
       expectEq(rows[1].badge, '危ない勝ち', '2 件目の判定');
       if (!rows[1].badgeClass.includes('badge--break')) throw new Error('2 件目の段が崩れでない');
-      await p.locator('main a[href="/record"]').first().waitFor();
+      // ホームの中に [記録する] を置かない（下のタブの ［＋ 記録］ の 1 か所。#127）。「すべての取引」の押せる行
+      expectEq(await p.locator('main a[href="/record"]').count(), 0, 'ホームの中の [記録する]');
+      await p.locator('main a.rowlink[href="/trades"]').first().waitFor();
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return 'ホームに新しい順の 5 件、2 件目の危ない勝ちは B と同じ崩れの段';
+    return 'ホームに新しい順の 5 件、2 件目の危ない勝ちは B と同じ崩れの段。[記録する] は下のタブだけ・「すべての取引」は押せる行';
   });
 
   // ── 一覧のページ分け（Issue #87 の例 #8〜#10・AC-12）。合成の取引 120 件（架空の値）で流す
@@ -7357,7 +7850,7 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('a.traderow').nth(49).waitFor();
       expectEq(await p.locator('a.traderow').count(), 50, '最初の行の数');
       expectEq(
@@ -7404,7 +7897,7 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('a.traderow').nth(49).waitFor();
       await scrollToBottom(p);
       await p.locator('a.traderow').nth(99).waitFor({ timeout: 5000 });
@@ -7418,7 +7911,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'US30 · L');
       fake.tradesPageDelayMs = 1500;
       await p.goBack();
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       // 読み直しを待たせている間も、読み込み済みの行と位置が出ている
       expectEq(await p.locator('a.traderow').count(), rowsBefore, '戻った直後の行の数');
       const after = await p.evaluate(() => window.scrollY);
@@ -7439,7 +7932,7 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('a.traderow').nth(49).waitFor();
       // 続きの読みを失敗させる → 50 行は残り、文言と [再読み込み]
       const nextPage = (url) => url.pathname === '/api/trades' && url.searchParams.has('cursor');
@@ -7477,7 +7970,7 @@ async function runFlows(browser, base, signedIn) {
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('a.traderow').nth(49).waitFor();
       fake.tradesPageDelayMs = 1500;
       const btn = p.locator('#trades-more');
@@ -7541,7 +8034,7 @@ async function runFlows(browser, base, signedIn) {
         };
         try {
           await p.goto(`${base}/trades`);
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await p.locator('a.traderow').nth(49).waitFor();
           await snap('more-many');
           // 続きを読んでいる（応答を待たせる）
@@ -7566,7 +8059,7 @@ async function runFlows(browser, base, signedIn) {
           await row.click();
           await waitReady(p, 'US30 · L');
           await p.goBack();
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await p.waitForTimeout(300);
           await snap('more-restored');
           // 続きの読みの失敗（開き直して 2 ページ目を断る）
@@ -7580,7 +8073,7 @@ async function runFlows(browser, base, signedIn) {
             }),
           );
           await p.goto(`${base}/trades`);
-          await waitReady(p, '取引の一覧');
+          await waitReady(p, '取引');
           await p.locator('a.traderow').nth(49).waitFor();
           await scrollToBottom(p);
           await p.getByText('続きを読み込めませんでした。').waitFor({ timeout: 5000 });
@@ -8042,13 +8535,13 @@ async function runFlows(browser, base, signedIn) {
     });
     try {
       await p.goto(`${base}/trades`);
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.locator('a.traderow').first().waitFor();
       const n = (await rowsOf(p)).length;
       await p.locator('a.traderow[href="/trades/x-d1"]').click();
       await waitReady(p, 'US30 · L');
       await p.getByRole('button', { name: '削除', exact: true }).click();
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       expectEq(path(p), '/trades', '消した後の URL');
       await p
         .locator('.toast')
@@ -8095,7 +8588,7 @@ async function runFlows(browser, base, signedIn) {
       await waitReady(p, 'US30 · L');
       await p.locator('canvas.chartview__canvas').nth(1).waitFor();
       await p.getByRole('button', { name: '削除', exact: true }).click();
-      await waitReady(p, '取引の一覧');
+      await waitReady(p, '取引');
       await p.getByRole('button', { name: '元に戻す' }).click();
       await p.locator('a.traderow[href="/trades/x-d1"]').waitFor();
       await p.waitForTimeout(8500);

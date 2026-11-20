@@ -1,11 +1,11 @@
 /* 部品の見た目（docs/ui-guidelines.md）。色は var(--…) だけ。DOM の形・クラス名・ARIA は部品の側の約束 */
 
 /* ── 面 ─────────────────────────── */
+/* カードは面だけ（ダークは線も影も無し、ライトは薄い影 1 つ。区切りは面の色の差。9.9・A7。#127） */
 .card {
   background: var(--s1);
-  border: 1px solid var(--line);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-1);
+  box-shadow: var(--shadow-card);
 }
 
 .section {
@@ -15,11 +15,13 @@
   padding: var(--sp-4);
 }
 
+/* カードの見出しは段 6 の太字の小見出し（カードの主役は中身の数字と文。9.9） */
 .section__title {
-  font-size: var(--fs-lg);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   line-height: var(--lh-tight);
-  letter-spacing: -0.005em;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
 }
 
 .section__note {
@@ -36,11 +38,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 0 var(--sp-2);
-  margin-block: calc((var(--tap) - var(--fs-lg) * var(--lh-tight)) / -2);
+  /* 見出しの行はボタンの当たり（44px）の高さにして中央に揃え、カードの余白へは 8px だけ食い込ませる（見た目の面 36px が
+     カードの角に接しない。#127 デザイン a5） */
+  min-block-size: var(--tap);
+  margin-block: calc(var(--sp-2) * -1);
 }
 
 .section__action {
-  padding: 0 var(--sp-2);
+  padding: 0 var(--sp-3);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
 }
@@ -72,24 +77,20 @@
   color: var(--ink-3);
 }
 
+/* タブの根の大きな題（段 1。9.9） */
 .pagehead__title {
   text-wrap: balance;
   word-break: auto-phrase;
-  font-size: var(--fs-2xl);
+  font-size: var(--fs-title);
   font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
 }
 
 .pagehead__desc {
   max-width: 56ch;
+  font-size: var(--fs-sm);
   color: var(--ink-2);
-}
-
-@media (min-width: 720px) {
-  .pagehead__title {
-    font-size: var(--fs-3xl);
-  }
 }
 
 /* ── ボタン ─────────────────────── */
@@ -122,7 +123,7 @@
 }
 
 .btn:active:not(:disabled) {
-  transform: scale(0.98);
+  transform: scale(0.97);
 }
 
 .btn:disabled {
@@ -130,14 +131,16 @@
   opacity: 0.45;
 }
 
+/* ボタンの重さは 3 段（9.12）: 1 番目 = 面の塗り（藍のグラデーション + 白い文字。1 画面に 1 つ）/ 2 番目 = 枠と薄い面
+   （secondary）・薄い面だけ（tonal。文字はアクセント）/ 3 番目 = アイコンのボタン（.iconbtn）。文字だけのボタンは置かない */
 .btn--primary {
-  color: var(--on-accent);
-  background: var(--accent);
+  color: var(--on-primary);
+  background: linear-gradient(135deg, var(--primary-from), var(--primary-to));
   box-shadow: var(--shadow-1);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 88%, var(--ink));
+  background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
 }
 
 .btn--secondary {
@@ -150,25 +153,171 @@
   background: color-mix(in srgb, var(--s3) 80%, var(--ink));
 }
 
-.btn--ghost {
-  color: var(--ink-2);
-  background: transparent;
+.btn--tonal {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.btn--ghost:hover:not(:disabled) {
+.btn--tonal:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* 3 番目の重さ: アイコンだけのボタン（当たり 44px。読み上げの名前は aria-label） */
+.iconbtn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.iconbtn .icon {
+  width: 22px;
+  height: 22px;
+}
+
+.iconbtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+
+.iconbtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* 押せる行（9.12）: 行全体が当たり、右に ›（擬似要素。読み上げは行の文字） */
+.rowlink {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  border-radius: var(--radius-md);
   color: var(--ink);
   background: var(--s2);
+  font: inherit;
+  font-weight: var(--fw-medium);
+  text-align: start;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.rowlink::after {
+  content: "›";
+  flex: none;
+  margin-inline-start: auto;
+  font-size: var(--fs-lg);
+  line-height: 1;
+  color: var(--ink-3);
+}
+
+.rowlink__text {
+  min-width: 0;
+}
+
+.rowlink__meta {
+  margin-inline-start: auto;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.rowlink:hover {
+  background: var(--s3);
+}
+
+/* チップ（9.12）: 角の丸い面。選ぶと面 + アクセントの輪 */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 var(--sp-3);
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  background: var(--s3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  text-decoration: none;
+}
+
+.chip:hover {
+  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+}
+
+.chip--selected {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .btn--lg {
   min-height: 52px;
   padding: 0 var(--sp-6);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-nav);
   border-radius: var(--radius-md);
 }
 
 .btn--block {
   width: 100%;
+}
+
+/* 小さいボタン（帯・カードの見出しの行の中）: 見た目の面は高さ 36px（擬似要素）、当たりは 44px のまま（#127 デザイン a4・a5） */
+.btn--sm {
+  position: relative;
+  z-index: 0;
+  padding: 0 var(--sp-3);
+  font-size: var(--fs-sm);
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.btn--sm,
+.btn--sm:hover:not(:disabled) {
+  background: none;
+}
+
+.btn--sm::before {
+  content: "";
+  position: absolute;
+  inset: 4px 0;
+  z-index: -1;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.btn--secondary.btn--sm::before {
+  background: var(--s3);
+  border-color: var(--line-2);
+}
+
+.btn--secondary.btn--sm:hover:not(:disabled)::before {
+  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+}
+
+.btn--tonal.btn--sm::before {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.btn--tonal.btn--sm:hover:not(:disabled)::before {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.btn--sm .icon {
+  width: 18px;
+  height: 18px;
 }
 
 /* ── 入力の欄 ─────────────────────── */
@@ -271,7 +420,7 @@
 }
 
 .numfield--lg .numfield__input {
-  font-size: var(--fs-xl);
+  font-size: var(--fs-num-lg);
   font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
 }
@@ -655,7 +804,7 @@
 .empty__title {
   text-wrap: balance;
   word-break: auto-phrase;
-  font-size: var(--fs-xl);
+  font-size: var(--fs-lg);
   font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
   letter-spacing: -0.01em;
@@ -738,10 +887,10 @@
   line-height: var(--lh-tight);
 }
 
-/* [記録する] は親指の届く所に。スマホでは下部の行き先の上に貼り付ける */
+/* [記録する] は親指の届く所に。スマホでは下の端（下のタブがある画面はその上）に貼り付ける（--below は殻が決める。layout.css） */
 .record__submit {
   position: sticky;
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + var(--sp-3));
+  bottom: calc(var(--below) + var(--below-pad) + var(--sp-3));
   z-index: 5;
   display: flex;
   flex-direction: column;
@@ -769,13 +918,14 @@
    保存の失敗の知らせ（[ログインし直す] を含む）が出ている間だけ折り返して伸びてよい。
    幅 720px 未満は幅いっぱい・不透明で下部の行き先に付ける（下の文字を透かさない。浮かせる余白を取らない） */
 .record__submit--bar {
-  bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
+  bottom: var(--below);
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2) var(--sp-3);
   margin-inline: calc(var(--gutter) * -1);
-  padding: var(--sp-2) var(--gutter);
+  /* 全画面のシートでは下の端に付くので、下の安全域（ホームの線）の分だけ内側に寄せる（9.6） */
+  padding: var(--sp-2) var(--gutter) calc(var(--sp-2) + var(--below-pad));
   border-width: 1px 0 0;
   border-radius: 0;
   background: var(--s1);
@@ -897,20 +1047,8 @@
    （Issue #33 AC-3。帯は下部の行き先に付いている） */
 .verdict,
 .verdict__stats {
-  scroll-margin-top: calc(var(--topbar-h) + var(--sp-3));
-  scroll-margin-bottom: calc(var(--submitbar-h) + var(--nav-h) + var(--sp-3));
-}
-
-@supports (padding: env(safe-area-inset-bottom)) {
-  .verdict,
-  .verdict__stats {
-    scroll-margin-bottom: calc(
-      var(--submitbar-h) +
-      var(--nav-h) +
-      var(--sp-3) +
-      env(safe-area-inset-bottom)
-    );
-  }
+  scroll-margin-top: calc(var(--above) + var(--sp-3));
+  scroll-margin-bottom: calc(var(--submitbar-h) + var(--below) + var(--below-pad) + var(--sp-3));
 }
 
 @media (min-width: 720px) {
@@ -1867,7 +2005,7 @@
   overflow-wrap: anywhere;
   text-wrap: balance;
   word-break: auto-phrase;
-  font-size: var(--fs-3xl);
+  font-size: var(--fs-title);
   font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
   letter-spacing: -0.02em;
@@ -1875,7 +2013,7 @@
 
 /* 状態の画面（使えないアカウント。#43）の見出し: 1 段小さくし、句の中では折り返さない（<wbr> の位置だけ） */
 .login__title--status {
-  font-size: var(--fs-2xl);
+  font-size: var(--fs-num-lg);
   word-break: keep-all;
   overflow-wrap: anywhere;
 }
@@ -2191,7 +2329,10 @@ summary.settings__subtitle {
 /* [＋ 口座を足す] の開閉（開いている間は押した面・＋ を 45° 回して ×。Phase 4b 指摘 5） */
 .accountadd__toggle[aria-expanded="true"] {
   color: var(--ink);
-  background: var(--s2);
+}
+
+.btn--tonal.btn--sm.accountadd__toggle[aria-expanded="true"]::before {
+  background: var(--s3);
 }
 
 .accountadd__plus {
@@ -2337,6 +2478,22 @@ summary.settings__subtitle {
   color: var(--ink);
   text-decoration: none;
   transition: background-color var(--dur-fast) var(--ease);
+}
+
+/* 押せる行の › （9.12。行の右の余白の中に置く。グリッドの項目にしない） */
+.traderow {
+  position: relative;
+}
+
+.traderow::after {
+  content: "›";
+  position: absolute;
+  inset-inline-end: var(--sp-1);
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: var(--fs-md);
+  line-height: 1;
+  color: var(--ink-3);
 }
 
 .traderow:hover {
@@ -2788,16 +2945,13 @@ summary.settings__subtitle {
   color: var(--danger);
 }
 
-/* 詳細の見出しの添え（一覧へ戻る・決済の日時） */
-.detail__back {
-  display: inline-flex;
+/* 詳細の上の帯の下の行（決済の日時・保有・口座と [削除]） */
+.detail__head {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  min-width: var(--tap);
-  min-height: var(--tap);
-  margin-right: var(--sp-3);
-  color: var(--accent);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-3);
 }
 
 .detail__when {
@@ -3101,10 +3255,17 @@ summary.settings__subtitle {
 .info__glossary {
   display: inline-flex;
   align-items: center;
+  gap: 2px;
   min-block-size: var(--tap);
-  margin-block: calc((var(--tap) - 1.6em) / -2);
+  margin-block: calc((var(--tap) - 1.5em) / -2);
   color: var(--accent);
-  text-underline-offset: 3px;
+  font-weight: var(--fw-bold);
+  text-decoration: none;
+}
+
+.info__glossary .icon {
+  inline-size: 18px;
+  block-size: 18px;
 }
 
 /* 文の中の用語集のリンク（吹き出しの中はボタン・用語集の画面はページの中のリンク）。文の中なので当たりの 44px の例外
@@ -3169,12 +3330,11 @@ summary.settings__subtitle {
 .glossary__index ul {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--sp-1) var(--sp-4);
+  gap: var(--sp-2);
   margin: 0;
   padding: 0;
   list-style: none;
   font-size: var(--fs-sm);
-  line-height: 2;
 }
 
 .glossary__item {
@@ -3182,7 +3342,7 @@ summary.settings__subtitle {
   flex-direction: column;
   gap: var(--sp-2);
   /* ページの中のリンクで移ったとき、上の帯に隠れない */
-  scroll-margin-top: calc(var(--topbar-h) + var(--sp-3));
+  scroll-margin-top: calc(var(--above) + var(--sp-3));
   color: var(--ink-2);
   line-height: 1.7;
 }
@@ -3229,13 +3389,6 @@ summary.settings__subtitle {
   gap: var(--sp-1);
 }
 
-.glossary__back {
-  padding: 0;
-  border: 0;
-  background: none;
-  cursor: pointer;
-}
-
 .glossary__lead {
   color: var(--ink-2);
 }
@@ -3251,15 +3404,24 @@ summary.settings__subtitle {
 
 .glossary__example,
 .glossary__related {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
   font-size: var(--fs-sm);
   color: var(--ink-3);
+}
+
+.glossary__related .chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .glossary__related-label {
   font-weight: var(--fw-bold);
 }
 
-/* 直す画面の帯のボタン: [キャンセル]（狭い ghost）と [保存する] を横並びに 1 段（#89 デザインの再レビュー 8） */
+/* 編集の画面の帯のボタン: [保存]（キャンセルは上の帯の左上の ✕。#127） */
 .edit__actions {
   display: flex;
   align-items: center;
@@ -3293,26 +3455,9 @@ summary.settings__subtitle {
   text-wrap: pretty;
 }
 
-/* 帯の [キャンセル] は幅 720 以上だけ（360 は見出しの右。帯 1 段・文 1 行の #33 を守る） */
-.record__barcancel {
-  display: none;
-}
-
-@media (min-width: 720px) {
-  .record__barcancel {
-    display: contents;
-  }
-}
-
-/* 見出しの右の控えめなボタン: 文字の右端をカードの右端に揃える（当たりの 44px は保つ） */
-.pagehead__actions .btn--ghost:last-child {
-  padding-inline-end: 0;
-}
-
-/* トーストの操作（[元に戻す]・[記録に戻る]）は 8 秒で消えるので、押す所が一目で分かる色にし、本文の左端に揃える */
-.toast .btn--ghost {
-  color: var(--accent);
-  padding-inline-start: 0;
+/* トーストの操作（[元に戻す]・[記録に戻る]）は 8 秒で消えるので、押す所が一目で分かる 2 番目の重さ（薄い面とアクセントの文字） */
+.toast .btn--tonal {
+  padding-inline: var(--sp-3);
 }
 
 /* 幅 720 未満のトーストは、本文を 1 行目に独りで置き、操作と閉じるは 2 行目（[元に戻す] の左の余白 0 で細くなっても、

@@ -1,29 +1,25 @@
-// ホーム（Issue #9 契約 U-1。設計書 9.2）: [記録する] と直近の判定（決済の新しい順に 5 件。一覧と同じ行）。
+// ホーム（Issue #9 契約 U-1。設計書 9.2）: 直近の判定（決済の新しい順に 5 件。一覧と同じ行）。
 // 読むのは決済の新しい順の先頭 10 件だけ（Issue #87。全件を読まない）。
 // 危ない勝ちは B と同じ「崩れ」の段で出し、勝ちの色を付けない（5.4・C34）。取引が無ければ空の状態。
 // Home は hook を持たない（App のテストが 1 段だけ呼ぶ）。空の状態は Home が作って渡す
-// 規律の振り返り（Issue #88）: [記録する] の下・直近の判定の上に、期間を選んで計画どおり率・規律コスト・判定の内訳・
+// 規律の振り返り（Issue #88）: 直近の流れの下・直近の判定の上に、期間を選んで計画どおり率・規律コスト・判定の内訳・
 // 規律コストの曲線。期間は URL の検索部分（置き換え。履歴を積まない）。直近の判定とは別に読む（失敗を巻き込まない。KEEP-4）
-// 直近の流れ（Issue #35）: [記録する] の直下に、読んだ 10 件の判定の段の点の並びと「計画どおりが N 件続いています」。
+// 直近の流れ（Issue #35）: 見出しの直下に、読んだ 10 件の判定の段の点の並びと「計画どおりが N 件続いています」。
 // 新しく読まない（直近の判定と同じ読み込み）
 import type { JSX } from 'preact';
-import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { InstrumentRecord } from '../../../core/record';
-import { api, signOutActive } from '../auth/session';
-import { Button } from '../components/Button';
+import { signOutActive } from '../auth/session';
+import { RowLink } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { ReviewSection, type ReviewSlot } from '../components/ReviewSummary';
 import { StreakSection } from '../components/StreakStrip';
 import { TradeList } from '../components/TradeRow';
-import { homeHref, parsePeriod, periodActions, periodRange } from '../lib/period';
-import { createReviewController, type ReviewState } from '../lib/review-controller';
-import { type ReviewModel, reviewModelFor } from '../lib/review-view';
-import { type Navigator, NavigatorContext } from '../lib/router';
 import { streakModel } from '../lib/streak';
 import { HOME_LIMIT } from '../lib/trade-pages';
 import { missingNotes, RECENT_COUNT, recentRows, visibleTrades } from '../lib/trade-view';
 import type { TradesState } from '../lib/trades-controller';
+import { useReview } from './Review';
 import { LoadState, useTrades } from './Trades';
 
 export function Home() {
@@ -35,12 +31,8 @@ export function Home() {
           <EmptyState
             icon="record"
             title="最初の取引を記録しましょう"
-            description="決済したら、その場で 30 秒。決済明細とチャートのスクショを貼り付けて、LC と 3 つの質問に答えると判定が表示されます。"
-          >
-            <Button href="/record" icon="record" size="lg">
-              記録する
-            </Button>
-          </EmptyState>
+            description="決済したら、その場で 30 秒。[記録] を押して、決済明細とチャートのスクショを貼り付け、LC と 3 つの質問に答えると判定が表示されます。"
+          />
         }
       />
     </>
@@ -48,69 +40,6 @@ export function Home() {
 }
 
 const NO_INSTRUMENTS: readonly InstrumentRecord[] = [];
-
-/** 今の URL の検索部分（置き換えで変わると描き直す） */
-function useSearch(nav: Navigator | null): string {
-  const [search, setSearch] = useState(nav?.current.search ?? '');
-  useEffect(() => nav?.subscribe(() => setSearch(nav.current.search)), [nav]);
-  return search;
-}
-
-/** 振り返りの期間（URL）・範囲・読み込み（hook の層。「今」はここで読む） */
-/** 振り返りの期間・読み込み・表示の形（hook の層）。instruments と hidden は直近の判定の読み込みと消した印から */
-function useReview(
-  instruments: readonly InstrumentRecord[],
-  hidden: ReadonlySet<string>,
-): ReviewSlot {
-  const nav = useContext(NavigatorContext);
-  const search = useSearch(nav);
-  const selection = useMemo(() => parsePeriod(search), [search]);
-  // 「今」は期間を変えるたびに読み直す（開いたまま日をまたいでも、次の操作で今日に合う）
-  const now = useMemo(() => Date.now(), [search]);
-  const range = useMemo(() => periodRange(selection, now), [selection, now]);
-  const controller = useMemo(() => createReviewController({ api }), []);
-  const [state, setState] = useState<ReviewState>(controller.getState());
-  useEffect(() => {
-    const off = controller.subscribe(setState);
-    return () => {
-      off();
-      controller.dispose();
-    };
-  }, [controller]);
-  const from = range.ok ? range.from : null;
-  const to = range.ok ? range.to : null;
-  useEffect(() => {
-    void controller.load(from === null || to === null ? null : { from, to });
-  }, [controller, from, to]);
-  // 表示の形は状態・消した印・取り込み・銘柄が変わったときだけ作り直す（描画のたびに期間の全件を集計しない）
-  const model = useMemo(
-    () =>
-      reviewModelFor(state, range, {
-        hidden,
-        includeImports: selection.imports,
-        instruments,
-        now,
-      }),
-    [state, range, hidden, selection.imports, instruments, now],
-  );
-  // 期間を切り替えて読んでいる間は、前の期間の表示を薄く残す（カードの高さを跳ばさない）
-  const last = useRef<ReviewModel | null>(null);
-  if (model) last.current = model;
-  return {
-    selection,
-    range,
-    state,
-    model,
-    previous: model ? null : last.current,
-    ...periodActions(selection, Date.now, (next) => nav?.replace(homeHref(next))),
-    onReload: () => {
-      void controller.reload();
-    },
-    onRelogin: () => {
-      void signOutActive();
-    },
-  };
-}
 
 function HomeScreen({ empty }: { readonly empty: JSX.Element }) {
   const { state, controller, hidden } = useTrades({ pageSize: HOME_LIMIT });
@@ -141,7 +70,7 @@ export interface HomeViewProps {
   readonly review?: ReviewSlot;
 }
 
-/** [記録する]・直近の流れ・規律の振り返り・直近 5 件（hook を持たない） */
+/** 直近の流れ・規律の振り返り・直近 5 件と「すべての取引 ›」（hook を持たない。［記録する］ は下のタブの ［＋ 記録］ だけ。#127） */
 export function HomeView(p: HomeViewProps) {
   const { state } = p;
   if (state.phase !== 'ready') return <LoadState {...p} />;
@@ -151,11 +80,6 @@ export function HomeView(p: HomeViewProps) {
   const streak = streakModel(state.trades, p.hidden);
   return (
     <>
-      <div class="home__record">
-        <Button href="/record" icon="record" size="lg" block>
-          記録する
-        </Button>
-      </div>
       {streak ? <StreakSection model={streak} id="home-streak" /> : null}
       {p.review ? <ReviewSection {...p.review} /> : null}
       <section class="card section" aria-labelledby="home-recent-title">
@@ -163,11 +87,8 @@ export function HomeView(p: HomeViewProps) {
           直近の判定
         </h2>
         <TradeList rows={rows} label="直近の判定" notes={missingNotes(rows)} />
-        <div>
-          <Button href="/trades" variant="secondary" icon="list">
-            一覧を見る
-          </Button>
-        </div>
+        {/* 取引のタブへ（押せる行。9.12。旧の [一覧を見る]） */}
+        <RowLink href="/trades">すべての取引</RowLink>
       </section>
     </>
   );

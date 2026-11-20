@@ -29,18 +29,14 @@ import {
 export function Trades() {
   return (
     <>
-      <PageHeader title="取引の一覧" description="判定・R・リスクで、計画と実行を並べて見ます。" />
+      <PageHeader title="取引" description="判定・R・リスクで、計画と実行を並べて見ます。" />
       <TradesScreen
         empty={
           <EmptyState
             icon="list"
             title="まだ取引がありません"
-            description="記録した取引がここに並びます。"
-          >
-            <Button href="/record" icon="record">
-              記録する
-            </Button>
-          </EmptyState>
+            description="記録した取引がここに並びます。[記録] を押すと記録できます。"
+          />
         }
       />
     </>
@@ -59,7 +55,10 @@ export function useTrades(opts: { readonly pageSize: number; readonly keep?: boo
   const nav = useContext(NavigatorContext);
   const cache = opts.keep ? cacheCtx : null;
   const restored = useMemo(
-    () => cache !== null && nav?.current.via === 'pop' && cache.get() !== null,
+    () =>
+      cache !== null &&
+      (nav?.current.via === 'pop' || nav?.current.via === 'tab') &&
+      cache.get() !== null,
     [],
   );
   const controller = useMemo(
@@ -76,6 +75,14 @@ export function useTrades(opts: { readonly pageSize: number; readonly keep?: boo
       controller.dispose();
     };
   }, [controller]);
+  // 開いているタブの根でタブを押した（retap）: 出している分のまま裏で読み直す（9.7 の 3）
+  useEffect(
+    () =>
+      nav?.subscribe(() => {
+        if (nav.current.via === 'retap') void controller.reload();
+      }),
+    [nav, controller],
+  );
   return { state, controller, hidden: del?.state.hidden ?? NO_HIDDEN, restored };
 }
 

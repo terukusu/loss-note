@@ -121,8 +121,10 @@ export function InfoTipView(p: InfoTipViewProps) {
           {c.example ? <p class="info__example">{c.example}</p> : null}
           {c.glossary ? (
             <p class="info__more">
+              {/* 押せる行の形（文字 + ›。9.12）。吹き出しの面の中に面を重ねない（入れ子 3 段にしない。#33） */}
               <Link class="info__glossary" href={glossaryHref(c.glossary, p.from)}>
-                用語集で見る
+                <span>用語集で見る</span>
+                <Icon name="chevron" />
               </Link>
             </p>
           ) : null}
@@ -156,8 +158,13 @@ let openCloser: (() => void) | null = null;
 function viewBox(button: DOMRect): Box {
   let top = 0;
   let bottom = window.innerHeight;
-  const bar = document.querySelector('.topbar');
-  if (bar) top = Math.max(top, bar.getBoundingClientRect().bottom);
+  // 上に貼り付いた帯（幅 720 以上の上の帯・画面ごとの上の帯・タブの根の小さな題。#127）
+  for (const el of Array.from(document.querySelectorAll('.apphead, .appbar, .rootbar--shown'))) {
+    const pos = getComputedStyle(el).position;
+    const r = el.getBoundingClientRect();
+    if ((pos === 'sticky' || pos === 'fixed') && r.height > 0 && r.top <= 0.5)
+      top = Math.max(top, r.bottom);
+  }
   for (const el of Array.from(document.querySelectorAll('.appnav, .record__submit'))) {
     const r = el.getBoundingClientRect();
     if (r.height > 0 && r.top >= button.bottom && r.top < bottom) bottom = r.top;

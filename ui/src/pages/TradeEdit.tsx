@@ -10,9 +10,9 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { accountIdOf, DEFAULT_ACCOUNT_ID } from '../../../core/record';
 import type { Timeframe } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
+import { SheetBar } from '../components/AppBar';
 import { Button } from '../components/Button';
 import { addExtraId, ChartPanel, chartBoxId, restoreId } from '../components/ChartPanel';
-import { PageHeader } from '../components/PageHeader';
 import { ResnapshotPanel } from '../components/Resnapshot';
 import { Segment } from '../components/Segment';
 import { TradeMainFields, TradeMoreFields } from '../components/TradeFields';
@@ -45,15 +45,7 @@ import { notFoundState } from './TradeDetail';
 import { LoadState } from './Trades';
 
 export function TradeEdit({ id }: { readonly id: string }) {
-  return (
-    <>
-      <PageHeader
-        title="取引を編集"
-        description="資金・許容リスクと銘柄の値は、記録したときの値で計算します。チャートの変更は [保存] で一緒に保存します。"
-      />
-      <TradeEditScreen id={id} notFound={notFoundState()} />
-    </>
-  );
+  return <TradeEditScreen id={id} notFound={notFoundState()} />;
 }
 
 const SUBMIT_ID = 'edit-submit';
@@ -123,8 +115,8 @@ function TradeEditScreen({
     const before = prev.current;
     prev.current = state.phase;
     if (state.phase === 'saved') {
-      // 保存できたら詳細へ（戻るで直しの画面に戻らない）
-      nav?.replace(`/trades/${id}`);
+      // 保存できたら前の画面（詳細）へ戻る（今の積み重ねの 1 つ下。戻るで編集の画面に戻らない。9.7 の 6・ADR-0019 の追記）
+      nav?.back(`/trades/${id}`);
     } else if (before === 'saving' && state.phase === 'editing' && state.error) {
       // 保存に失敗して戻った: 押した [保存する] へフォーカスを戻す（失敗の文言は role="alert"）
       document.getElementById(SUBMIT_ID)?.focus();
@@ -237,8 +229,31 @@ export function orphanNotice(state: Pick<EditState, 'orphans'>): string | null {
   return `チャートが無い時間足（${list}）は、保存時に削除されます。チャートが無いと時間足の違いを確認できないためです。`;
 }
 
-/** 直すの欄・判定の枠・[保存する]（hook を持たない） */
+/**
+ * 編集の全画面のシート（hook を持たない）: 上の帯（左上の ✕ = キャンセル・題「取引を編集」）と、欄・判定の枠・[保存]。
+ * ✕ は保存中は押せない（#75 R4）。置き場の無いテストの描画では詳細へのリンク
+ */
 export function TradeEditView(p: TradeEditViewProps) {
+  const saving = p.state.phase === 'saving' || p.state.phase === 'saved';
+  return (
+    <>
+      <SheetBar
+        title="取引を編集"
+        {...(p.onCancel
+          ? { onCancel: p.onCancel, cancelDisabled: saving }
+          : { cancelHref: `/trades/${p.id}` })}
+      />
+      <p class="pagehead__desc">
+        資金・許容リスクと銘柄の値は、記録したときの値で計算します。チャートの変更は [保存]
+        で一緒に保存します。
+      </p>
+      <TradeEditBody {...p} />
+    </>
+  );
+}
+
+/** 編集の欄・判定の枠・[保存]（hook を持たない） */
+function TradeEditBody(p: TradeEditViewProps) {
   const { state } = p;
   if (p.hidden.has(p.id) || state.phase === 'notFound') return p.notFound;
   if (state.phase === 'blocked') {
@@ -401,22 +416,8 @@ export function TradeEditView(p: TradeEditViewProps) {
             .filter(Boolean)
             .join(' / ')}
         </p>
-        {/* [キャンセル] は [保存] の左に横並び（帯を 1 段減らす。#89 デザインの再レビュー 8） */}
+        {/* キャンセルは上の帯の左上の ✕（9.3・9.12。#127） */}
         <div class="edit__actions">
-          {p.onCancel ? (
-            <Button
-              variant="ghost"
-              label="編集をキャンセル"
-              disabled={saving}
-              onClick={() => p.onCancel?.()}
-            >
-              キャンセル
-            </Button>
-          ) : (
-            <Button href={`/trades/${p.id}`} variant="ghost">
-              キャンセル
-            </Button>
-          )}
           <Button
             type="submit"
             id={SUBMIT_ID}

@@ -187,15 +187,16 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
     expect(text(failed)).toContain('もう一度ログイン');
   });
 
-  it('一覧の空の状態は [記録する]（/record）', () => {
+  it('一覧の空の状態は短い文と下の ［＋ 記録］ を指す一言（ボタンは足さない。#127）', () => {
     const tree = JSON.stringify(Trades());
     expect(tree).toContain('まだ取引がありません');
-    expect(tree).toContain('"href":"/record"');
+    expect(tree).toContain('[記録] を押');
+    expect(tree).not.toContain('"href":"/record"');
   });
 });
 
 describe('AC-7: ホーム（例 H1）', () => {
-  it('[記録する] と新しい順の 5 件。2 件目は危ない勝ちで B と同じ段', () => {
+  it('新しい順の 5 件と「すべての取引」の押せる行（[記録する] は下のタブだけ。#127）。2 件目は危ない勝ちで B と同じ段', () => {
     const tree = expand(
       <HomeView
         state={ready([...H1].reverse())}
@@ -229,12 +230,14 @@ describe('AC-7: ホーム（例 H1）', () => {
     // 勝ちの色（計画どおりの段）を付けない
     expect(rows[1]?.badgeClass).not.toContain('badge--plan');
     const links = all(tree, (e) => e.type === 'a').map((a) => a.props.href);
-    expect(links).toContain('/record');
+    expect(links).not.toContain('/record');
     expect(links).toContain('/trades');
+    const all_ = all(tree, (e) => e.type === 'a' && e.props.href === '/trades')[0] as El;
+    expect(all_.props.class).toBe('rowlink');
     expect(text(tree)).toContain('直近の判定');
   });
 
-  it('取引が無ければ空の状態（[記録する]）', () => {
+  it('取引が無ければ空の状態（下の ［＋ 記録］ を指す一言。ボタンは足さない）', () => {
     const tree = expand(
       <HomeView
         state={ready([])}
@@ -247,7 +250,7 @@ describe('AC-7: ホーム（例 H1）', () => {
     expect(text(tree)).toBe('空');
     const home = JSON.stringify(Home());
     expect(home).toContain('最初の取引を記録しましょう');
-    expect(home).toContain('"href":"/record"');
+    expect(home).not.toContain('"href":"/record"');
   });
 });
 
@@ -391,7 +394,11 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
       detailTree(D1, { hidden: new Set(['d1']) }),
     ]) {
       expect(text(tree)).toContain('この取引は見つかりません');
-      expect(all(tree, (e) => e.type === 'a').map((a) => a.props.href)).toEqual(['/trades']);
+      // 上の帯の「‹ 取引」と、空の状態の [一覧へ戻る]（どちらも一覧へ。#127）
+      expect(all(tree, (e) => e.type === 'a').map((a) => a.props.href)).toEqual([
+        '/trades',
+        '/trades',
+      ]);
     }
     const plain = JSON.stringify(TradeDetail({ id: 'x' }));
     expect(plain).toContain('この取引は見つかりません');
@@ -446,7 +453,7 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     expect(entry.props.value).toBe('');
   });
 
-  it('#75 AC-4: [キャンセル] は [保存] の左のボタン（読み上げ「編集をキャンセル」）。保存中は押せない', async () => {
+  it('#127（#75 AC-4 の置き換え）: キャンセルは上の帯の左上の ✕（読み上げ「キャンセル」）。保存中は押せない', async () => {
     const fake = createFakeApi({ trades: [E1], instruments: [US30], capitalYen: CAPITAL_NOW });
     const c = createEditController({ api: fake.api, id: E1.id });
     await c.load();
@@ -466,21 +473,23 @@ describe('AC-4: 直す（例 E1・E2）', () => {
         />,
       );
     const cancelOf = (tree: Node[]) =>
-      all(
-        tree,
-        (e) => e.type === 'button' && e.props['aria-label'] === '編集をキャンセル',
-      )[0] as El;
+      all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'キャンセル')[0] as El;
     const tree = draw(c.getState());
+    // キャンセルは上の帯の左上の ✕（#127。9.3・9.12）。[保存] の帯には置かない
     const actions = all(tree, hasClass('edit__actions'))[0] as El;
     const buttons = all([actions], (e) => e.type === 'button');
-    expect(buttons[0]).toBe(cancelOf(tree));
-    expect(buttons[1]?.props.type).toBe('submit');
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.props.type).toBe('submit');
+    const bar = all(tree, hasClass('appbar--sheet'))[0] as El;
+    expect(all([bar], (e) => e.type === 'button')[0]).toBe(cancelOf(tree));
+    expect(text(all([bar], (e) => e.type === 'h1')[0] as El)).toBe('取引を編集');
     expect(cancelOf(tree).props.disabled).toBe(false);
     (cancelOf(tree).props.onClick as () => void)();
     expect(cancelled).toBe(1);
     expect(cancelOf(draw({ ...c.getState(), phase: 'saving' })).props.disabled).toBe(true);
-    // 破棄する操作なので「戻る」の山形を付けない（記録する画面の [キャンセル] と同じ見た目。#75 デザイン 3）
-    expect(all([cancelOf(tree)], (e) => e.type === 'svg')).toEqual([]);
+    // 破棄する操作なので「戻る」の山形ではなく ✕（文字は見せず、アイコンだけ）
+    expect(text(cancelOf(tree))).toBe('');
+    expect(all([cancelOf(tree)], (e) => e.type === 'svg')).toHaveLength(1);
     // 借り直した書きかけは「前の変更の続きです」（借り直していなければ出さない）
     const resumed = (t: Node[]) => all(t, hasClass('draft__resumed'));
     expect(resumed(tree)).toEqual([]);
@@ -501,7 +510,7 @@ describe('AC-4: 直す（例 E1・E2）', () => {
       />,
     );
     expect(text(resumed(again)[0] as El)).toBe(
-      '前の変更の続きです（2 時間前）。破棄するときは [キャンセル] を押してください。',
+      '前の変更の続きです（2 時間前）。破棄するときは左上の ✕（キャンセル）を押してください。',
     );
   });
 
@@ -675,16 +684,18 @@ describe('AC-5・AC-6: 消す + [元に戻す]（トーストと画面）', () =
 });
 
 describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 直した後', () => {
-  it('詳細の見出しは「銘柄 · L / S」と決済の日時、一覧へ戻るリンク、[直す]・[消す] は見出しの行', () => {
+  it('詳細の上の帯は「‹ 取引」・題「銘柄 · L / S」・[編集]（#127）。その下の行に決済の日時と [削除]', () => {
     const tree = detailTree(D1);
     const h1 = all(tree, (e) => e.type === 'h1')[0] as El;
     expect(text(h1)).toBe('US30 · L ロング');
-    const head = all(tree, hasClass('pagehead'))[0] as El;
-    expect(text(head)).toMatch(/決済 2026\/11\/1[01] /);
-    expect(all([head], (e) => e.type === 'a').map((a) => a.props.href)).toEqual([
+    const bar = all(tree, hasClass('appbar'))[0] as El;
+    expect(all([bar], (e) => e.type === 'a').map((a) => a.props.href)).toEqual([
       '/trades',
       '/trades/d1/edit',
     ]);
+    expect(all([bar], (e) => e.type === 'a').map(text)).toEqual(['取引', '編集']);
+    const head = all(tree, hasClass('detail__head'))[0] as El;
+    expect(text(head)).toMatch(/決済 2026\/11\/1[01] /);
     expect(all([head], (e) => e.type === 'button').map(text)).toEqual(['削除']);
     // 判定の枠の脚注（銘柄・L / S・決済）は出さない
     expect(all(tree, hasClass('verdict__caption'))).toEqual([]);

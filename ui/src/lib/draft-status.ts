@@ -97,7 +97,7 @@ function shortLocal(v: string): string {
 }
 
 /**
- * 借り直した書きかけの見出しの下の 1 行（#75 デザイン 1）。前の入力の続きであること・やめるときの [キャンセル]、
+ * 借り直した書きかけの見出しの下の 1 行（#75 デザイン 1）。前の入力の続きであること・やめるときの左上の ✕（#127）、
  * 記録で決済の時刻が開いたときの自動の値のままなら、それを言う（前に開いた時刻のまま記録しないように）
  */
 export function resumedNote(
@@ -113,7 +113,7 @@ export function resumedNote(
   const exit = exitTimeKept
     ? `決済の時刻は開いたときの ${shortLocal(exitTimeKept)} のままです。`
     : '';
-  return `${head}${exit}破棄するときは [キャンセル] を押してください。`;
+  return `${head}${exit}破棄するときは左上の ✕（キャンセル）を押してください。`;
 }
 
 /** 記録の決済の時刻が、開いたときの自動の値のままか（そのままならその値。手で変えた・読み取りで入れたなら undefined） */

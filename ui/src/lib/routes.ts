@@ -7,6 +7,7 @@ export type Route =
   | { readonly name: 'home' }
   | { readonly name: 'record' }
   | { readonly name: 'trades' }
+  | { readonly name: 'review' }
   | { readonly name: 'trade'; readonly id: string }
   | { readonly name: 'tradeEdit'; readonly id: string }
   | { readonly name: 'settings' }
@@ -28,6 +29,7 @@ const FIXED: Readonly<Record<string, Route>> = {
   '/': { name: 'home' },
   '/record': { name: 'record' },
   '/trades': { name: 'trades' },
+  '/review': { name: 'review' },
   '/settings': { name: 'settings' },
   '/glossary': { name: 'glossary' },
 };
@@ -58,6 +60,8 @@ export function hrefOf(route: Route): string {
       return '/record';
     case 'trades':
       return '/trades';
+    case 'review':
+      return '/review';
     case 'trade':
       return `/trades/${route.id}`;
     case 'tradeEdit':
@@ -75,7 +79,8 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   login: 'ログイン',
   home: 'ホーム',
   record: '記録する',
-  trades: '取引の一覧',
+  trades: '取引',
+  review: '振り返り',
   trade: '取引の詳細',
   tradeEdit: '取引を編集',
   settings: '設定',
@@ -109,32 +114,89 @@ export function titleOf(route: Route): string {
   return `${NAMES[route.name]} — ${APP_NAME}`;
 }
 
-export interface NavItem {
-  readonly route: Route;
+/** 下のタブ（行き先。ui-guidelines 9.2・設計書 K16）。並びは ホーム・取引・（＋ 記録）・振り返り・設定 */
+export type Tab = 'home' | 'trades' | 'review' | 'settings';
+
+export interface TabItem {
+  readonly tab: Tab;
+  /** タブの根の URL */
+  readonly href: string;
   readonly label: string;
   readonly icon: IconName;
-  /** 今いる画面の印を付ける画面（詳細・直すは一覧の印） */
-  readonly current: readonly RouteName[];
 }
 
-/** どの画面からも 1 タップで行ける 4 つ（V6） */
-export const NAV_ITEMS: readonly NavItem[] = [
-  { route: { name: 'home' }, label: 'ホーム', icon: 'home', current: ['home'] },
-  { route: { name: 'record' }, label: '記録する', icon: 'record', current: ['record'] },
-  {
-    route: { name: 'trades' },
-    label: '一覧',
-    icon: 'list',
-    current: ['trades', 'trade', 'tradeEdit'],
-  },
-  {
-    route: { name: 'settings' },
-    label: '設定',
-    icon: 'settings',
-    // 用語集（#76）は設定から開く
-    current: ['settings', 'glossary'],
-  },
+/** 4 つのタブ（タブの根へ 1 タップ。V6） */
+export const TAB_ITEMS: readonly TabItem[] = [
+  { tab: 'home', href: '/', label: 'ホーム', icon: 'home' },
+  { tab: 'trades', href: '/trades', label: '取引', icon: 'list' },
+  { tab: 'review', href: '/review', label: '振り返り', icon: 'review' },
+  { tab: 'settings', href: '/settings', label: '設定', icon: 'settings' },
 ];
+
+/** 真ん中の ［＋ 記録］（行き先ではなく作業の入口。見える文字は「記録」、読み上げの名前は「記録する」。9.2） */
+export const RECORD_ENTRY = { href: '/record', label: '記録', name: '記録する' } as const;
+
+/** タブの根の URL */
+export function tabRoot(tab: Tab): string {
+  return tab === 'home' ? '/' : `/${tab}`;
+}
+
+/**
+ * URL から決まるタブ（9.7 の 5: `/trades*` = 取引、`/review*` = 振り返り、`/settings*`・`/glossary` = 設定、ほか = ホーム）。
+ * 印の無い起動の組み直しにだけ使う（アプリの中で進んだ画面のタブは、進んだ元のタブのまま = history.state の印）
+ */
+export function tabOfRoute(route: Route): Tab {
+  switch (route.name) {
+    case 'trades':
+    case 'trade':
+    case 'tradeEdit':
+      return 'trades';
+    case 'review':
+      return 'review';
+    case 'settings':
+    case 'glossary':
+      return 'settings';
+    default:
+      return 'home';
+  }
+}
+
+/** タブの根の画面ならそのタブ（無ければ null） */
+export function rootTabOf(route: Route): Tab | null {
+  switch (route.name) {
+    case 'home':
+      return 'home';
+    case 'trades':
+      return 'trades';
+    case 'review':
+      return 'review';
+    case 'settings':
+      return 'settings';
+    default:
+      return null;
+  }
+}
+
+/** 全画面のシート（作業）の画面か（記録する・編集。タブを隠し、どのタブの積み重ねにも残さない。9.3） */
+export function isSheetRoute(route: Route): boolean {
+  return route.name === 'record' || route.name === 'tradeEdit';
+}
+
+/** 画面の種類（殻の上の帯と余白の決め方。root = タブの根・push = 次の画面・sheet = 全画面のシート・bare = それ以外） */
+export type ScreenKind = 'root' | 'push' | 'sheet' | 'bare';
+
+export function screenKindOf(route: Route): ScreenKind {
+  if (route.name === 'login' || route.name === 'parts') return 'bare';
+  if (isSheetRoute(route)) return 'sheet';
+  return rootTabOf(route) ? 'root' : 'push';
+}
+
+/** 「‹ 前の画面の名前」の名前（上の帯の戻るのボタン。知らない URL は null） */
+export function screenLabel(href: string, opts: RouteOptions): string | null {
+  const route = parseRoute(href.split(/[?#]/)[0] ?? '', opts);
+  if (!route || route.name === 'login') return null;
+  return NAMES[route.name];
+}
 
 export interface Resolved {
   readonly route: Route;

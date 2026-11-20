@@ -28,7 +28,7 @@ export function AccountAddButton(p: {
     <button
       type="button"
       id={ADD_ACCOUNT_BUTTON_ID}
-      class="btn btn--ghost section__action accountadd__toggle"
+      class="btn btn--tonal btn--sm section__action accountadd__toggle"
       aria-expanded={p.open ? 'true' : 'false'}
       disabled={p.busy === true}
       onClick={p.open ? p.onClose : p.onOpen}
@@ -99,7 +99,7 @@ export function AccountAddForm(p: AccountAddFormProps) {
         <Button onClick={p.onAdd} disabled={s.saving}>
           {s.saving ? '追加しています…' : '追加'}
         </Button>
-        <Button variant="ghost" onClick={p.onClose} disabled={s.saving}>
+        <Button variant="secondary" onClick={p.onClose} disabled={s.saving}>
           キャンセル
         </Button>
       </div>

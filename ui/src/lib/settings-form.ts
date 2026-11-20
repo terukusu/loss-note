@@ -315,17 +315,29 @@ export function sortInstruments(list: readonly InstrumentRecord[]): InstrumentRe
   );
 }
 
-/** 一覧の 1 行の要約（利用者の言葉。内部の識別子を出さない） */
-export function instrumentSummary(rec: InstrumentRecord): string {
+/**
+ * 一覧の行の要約を 2 行に分けたもの（利用者の言葉。内部の識別子を出さない）。1 行目 = 種類 · 商品の形 · 通貨、
+ * 2 行目 = 乗数 · 刻み（· 原資産）。折り返しが「·」で割れて行ごとに揃わないのを避ける（#133 デザインレビュー a-4）
+ */
+export function instrumentSummaryLines(rec: InstrumentRecord): readonly [string, string] {
   return [
-    UNDERLYING_KIND_LABEL[rec.underlyingKind],
-    PRODUCT_FORM_LABEL[rec.productForm],
-    // 記録する画面の 1 行と同じ言葉（口座の「通貨」と取り違えない。#47 PR-2 デザイン 5）
-    rec.priceCurrency === null ? '価格の通貨 未設定' : `${rec.priceCurrency} 建て`,
-    `乗数 ${formatNumber(rec.multiplier)}`,
-    `刻み ${formatNumber(rec.quantityStep)}`,
-    ...(rec.underlying ? [`原資産 ${rec.underlying}`] : []),
-  ].join(' · ');
+    [
+      UNDERLYING_KIND_LABEL[rec.underlyingKind],
+      PRODUCT_FORM_LABEL[rec.productForm],
+      // 記録する画面の 1 行と同じ言葉（口座の「通貨」と取り違えない。#47 PR-2 デザイン 5）
+      rec.priceCurrency === null ? '価格の通貨 未設定' : `${rec.priceCurrency} 建て`,
+    ].join(' · '),
+    [
+      `乗数 ${formatNumber(rec.multiplier)}`,
+      `刻み ${formatNumber(rec.quantityStep)}`,
+      ...(rec.underlying ? [`原資産 ${rec.underlying}`] : []),
+    ].join(' · '),
+  ];
+}
+
+/** 一覧の 1 行の要約（2 行の要約を 1 文につないだもの） */
+export function instrumentSummary(rec: InstrumentRecord): string {
+  return instrumentSummaryLines(rec).join(' · ');
 }
 
 /** 名前だけで自動で追加したままの銘柄の印（画面の言葉。内部の呼び名は「仮の値」。C21） */

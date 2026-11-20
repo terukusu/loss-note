@@ -1,10 +1,13 @@
-// 設定の画面の描画 SettingsView（Issue #5 契約・AC-1〜AC-7）。DOM のライブラリを使わず、部品の関数を呼んで
-// 要素の木に展開して見る（SettingsView と部品は hook を持たない）。状態は偽の API で controller を動かして作る。値はすべて架空
-import type { VNode } from 'preact';
+// 設定の画面の描画（Issue #5 契約・#47 の口座・#133 のまとめた一覧と次の画面・下のシート）。DOM のライブラリを使わず、部品の
+// 関数を呼んで要素の木に展開して見る（View と部品は hook を持たない。Link は a、「i」は閉じた InfoTipView、下のシートは開いて
+// いれば dialog に置き換える）。状態は偽の API で controller を動かして作る。値はすべて架空
+import { h, type VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade } from '../../core/record';
+import { Sheet } from '../../ui/src/components/Sheet';
 import { formatDateTime } from '../../ui/src/lib/datetime';
 import { AUTH_EXPIRED } from '../../ui/src/lib/request';
+import { Link } from '../../ui/src/lib/router';
 import {
   createSettingsController,
   SETTINGS_LOAD_FAILED,
@@ -12,9 +15,28 @@ import {
   type SettingsState,
 } from '../../ui/src/lib/settings-controller';
 import { EFFECT_NOTE, SETTINGS_MSG } from '../../ui/src/lib/settings-form';
-import { SettingsView, type SettingsViewProps } from '../../ui/src/pages/Settings';
+import {
+  ACCOUNTS_INFO,
+  ACCOUNTS_LEAD,
+  ACCOUNTS_LEAD_SET,
+  settingsMenu,
+} from '../../ui/src/lib/settings-menu';
+import { Settings, SettingsLinks, SettingsLinksView } from '../../ui/src/pages/Settings';
+import {
+  ACCOUNT_SHEET_ID,
+  SettingsAccountsView,
+  type SettingsAccountsViewProps,
+} from '../../ui/src/pages/SettingsAccounts';
+import {
+  INSTRUMENT_ADD_SHEET_ID,
+  INSTRUMENT_SHEET_ID,
+  PROVISIONAL_NOTE,
+  SettingsInstrumentsView,
+  type SettingsInstrumentsViewProps,
+} from '../../ui/src/pages/SettingsInstruments';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeOptions } from './helpers/fake-api';
+import { closedInfoTip } from './helpers/info-tip';
 
 interface El {
   readonly type: string;
@@ -23,11 +45,33 @@ interface El {
 }
 type Node = El | string;
 
+const NONE: El = { type: '', props: {}, children: [] };
+
 function expand(v: unknown): Node[] {
   if (v === null || v === undefined || typeof v === 'boolean') return [];
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  // Link は context（hook）を読むので a に置き換える
+  if (vn.type === (Link as unknown)) {
+    const { children, ...props } = vn.props ?? {};
+    return [{ type: 'a', props, children: expand(children) }];
+  }
+  // 下のシート（hook を持つ）: 開いていれば dialog（id・題・中身）、閉じていれば何も出さない。
+  // closedInfoTip（#130 で Sheet も SheetView に置き換える）より先に見る
+  if (vn.type === (Sheet as unknown)) {
+    const { children, ...props } = vn.props ?? {};
+    if (props.open !== true) return [];
+    return [
+      {
+        type: 'dialog',
+        props: { id: props.id, title: props.title, kind: props.kind },
+        children: expand(children),
+      },
+    ];
+  }
+  const info = closedInfoTip(vn);
+  if (info) return expand(info);
   if (typeof vn.type === 'function') {
     const fn = vn.type as (p: unknown) => unknown;
     return expand(fn(vn.props));
@@ -51,6 +95,7 @@ function text(n: Node | Node[]): string {
 }
 
 const noop = () => {};
+const cls = (e: El) => String(e.props.class ?? '');
 
 function inst(id: string, name: string, over: Partial<InstrumentRecord> = {}): InstrumentRecord {
   return {
@@ -81,58 +126,173 @@ async function ready(
   return c.getState();
 }
 
-function render(state: SettingsState, over: Partial<SettingsViewProps> = {}): Node[] {
-  const props: SettingsViewProps = {
+/** 口座の画面 */
+function render(state: SettingsState, over: Partial<SettingsAccountsViewProps> = {}): Node[] {
+  const props: SettingsAccountsViewProps = {
     state,
     onOpenAccount: noop,
     onCloseAccount: noop,
     onAccount: noop,
     onSaveAccount: noop,
+    onReload: noop,
+    onRelogin: noop,
+    ...over,
+  };
+  return expand(h(SettingsAccountsView as never, props as never));
+}
+
+/** 銘柄の画面 */
+function renderInst(
+  state: SettingsState,
+  over: Partial<SettingsInstrumentsViewProps> = {},
+): Node[] {
+  const props: SettingsInstrumentsViewProps = {
+    state,
     onOpen: noop,
     onClose: noop,
     onInstrument: noop,
     onSaveInstrument: noop,
+    onOpenAdd: noop,
+    onCloseAdd: noop,
     onNewName: noop,
     onAdd: noop,
     onReload: noop,
     onRelogin: noop,
     ...over,
   };
-  return expand(SettingsView(props));
+  return expand(h(SettingsInstrumentsView as never, props as never));
 }
 
 const byId = (nodes: Node[], id: string) => all(nodes, (e) => e.props.id === id)[0];
+const sheet = (nodes: Node[], id: string) =>
+  all(nodes, (e) => e.type === 'dialog' && e.props.id === id)[0];
+/** まとめた一覧（1 枚の面）の行の文字 */
+const listRows = (nodes: Node[]) =>
+  all(nodes, (e) => e.type === 'ul' && cls(e).split(' ').includes('setlist'))
+    .flatMap((ul) => all([ul], (e) => e.type === 'li'))
+    .map(text);
 
-describe('口座（#47 U12〜U15）', () => {
-  it('U12・U13: 「資金と許容リスク」の枠が「口座」の一覧に替わり、大きな数字の 2 枚は無い', async () => {
+describe('設定の根（#133 の AC-1）', () => {
+  const root = (over: Partial<Parameters<typeof Settings>[0]> = {}) =>
+    Settings({
+      theme: 'dark',
+      onTheme: noop,
+      onSignOut: noop,
+      signOutBusy: false,
+      signOutError: null,
+      ...over,
+    }) as VNode<{ children: VNode[] }>;
+  /** 数の添えは controller を購読する SettingsLinks（hook）が描く。展開から外す */
+  const rootTree = (over: Partial<Parameters<typeof Settings>[0]> = {}) =>
+    expand(
+      (root(over).props.children as VNode[]).map((c) => (c?.type === SettingsLinks ? null : c)),
+    );
+
+  it('大きな題「設定」の下に説明の文が無い。口座・記録の区切り → 表示 → アカウントの順', () => {
+    const kids = root().props.children as VNode[];
+    expect(kids.map((c) => c?.type).indexOf(SettingsLinks)).toBe(1);
+    const tree = rootTree();
+    expect(all(tree, (e) => cls(e).includes('pagehead__desc'))).toEqual([]);
+    expect(text(all(tree, (e) => e.type === 'h1'))).toBe('設定');
+    expect(all(tree, (e) => cls(e) === 'setgroup__title').map(text)).toEqual([
+      '表示',
+      'アカウント',
+    ]);
+    // テーマはセグメント（ダーク / ライト）、ログアウトは枠つきの面のボタン
+    expect(text(tree)).toContain('ダーク');
+    expect(text(tree)).toContain('ライト');
+    expect(text(tree)).not.toContain('この端末に保存されます');
+    const out = all(tree, (e) => e.type === 'button' && text(e) === 'ログアウト')[0] ?? NONE;
+    expect(cls(out)).toContain('btn--secondary');
+  });
+
+  it('区切りの行は押せる行（a・右に ›）で、行き先と数の添え', () => {
+    const tree = expand(
+      SettingsLinksView({
+        groups: settingsMenu({
+          accounts: [defaultAccount(1_000_000), account('b', '口座 B', 500_000)],
+          instruments: 3,
+          usageToday: 3,
+          glossary: 17,
+        }),
+      }),
+    );
+    expect(all(tree, (e) => cls(e) === 'setgroup__title').map(text)).toEqual(['口座', '記録']);
+    const links = all(tree, (e) => e.type === 'a');
+    expect(links.map((a) => [a.props.href, text(a)])).toEqual([
+      ['/settings/accounts', '口座2 件'],
+      ['/settings/instruments', '銘柄3 件'],
+      ['/settings/ai-usage', 'AI の利用状況今日 3 回'],
+      ['/glossary', '用語集17 語'],
+    ]);
+    for (const a of links) expect(cls(a)).toBe('rowlink');
+  });
+
+  it('読めていない数は添えを出さない（行は出す）', () => {
+    const tree = expand(
+      SettingsLinksView({
+        groups: settingsMenu({ accounts: null, instruments: null, usageToday: null, glossary: 17 }),
+      }),
+    );
+    expect(all(tree, (e) => cls(e) === 'rowlink__meta').map(text)).toEqual(['17 語']);
+    expect(all(tree, (e) => e.type === 'a')).toHaveLength(4);
+  });
+
+  it('ログアウトの最中は押せず「ログアウトしています…」、失敗は role="alert"', () => {
+    const tree = rootTree({ signOutBusy: true, signOutError: '失敗' });
+    const b = all(tree, (e) => e.type === 'button' && text(e) === 'ログアウトしています…')[0];
+    expect(b?.props.disabled).toBe(true);
+    expect(all(tree, (e) => e.props.role === 'alert').map(text)).toEqual(['失敗']);
+  });
+});
+
+describe('口座の画面（#133 の AC-3・#47 U12〜U15）', () => {
+  it('上の帯「‹ 設定」と題「口座」、先頭の 1 行と「i」（冒頭の説明の移し先）', async () => {
+    const tree = render(await ready());
+    expect(text(all(tree, (e) => e.type === 'h1'))).toBe('口座');
+    const back = all(tree, (e) => cls(e) === 'appbar__back')[0];
+    expect(back?.props.href).toBe('/settings');
+    expect(back?.props['aria-label']).toBe('設定へ戻る');
+    const lead = all(tree, (e) => cls(e) === 'setlead')[0];
+    expect(text(lead ?? [])).toContain(ACCOUNTS_LEAD);
+    expect(
+      all(lead ? [lead] : [], (e) => e.props['aria-label'] === `「${ACCOUNTS_INFO.label}」の説明`),
+    ).toHaveLength(1);
+  });
+
+  it('U12・U13: 口座ごとの押せる行（名前・資金 · 許容・1 回の負け）と ［＋ 口座を追加］。一覧の中に欄は無い', async () => {
     const tree = render(
       await ready({
         accounts: [defaultAccount(1_000_000), account('accB', '口座 B', null)],
       }),
     );
-    const t = text(tree);
-    expect(t).not.toContain('資金と許容リスク');
-    expect(all(tree, (e) => String(e.props.class ?? '').includes('settings__stat'))).toEqual([]);
-    const rows = all(tree, (e) => e.props.class === 'instlist__row')
-      .map(text)
-      .filter((x) => x.includes('口座'));
-    expect(rows).toEqual([
-      '口座 11,000,000円 · 許容 1%1 回の負けは 10,000円 まで編集',
-      '口座 B資金 未設定 · 許容 1%資金を入力するとリスク（%）が表示されます編集',
+    expect(listRows(tree)).toEqual([
+      '口座 11,000,000円 · 許容 1%1 回の負けは 10,000円 まで',
+      '口座 B資金 未設定 · 許容 1%資金を入力するとリスク（%）が表示されます',
+      '口座を追加',
     ]);
-    // [直す] の読み上げの名前
-    expect(byId(tree, 'settings-account-edit-accB')?.props['aria-label']).toBe('口座 B を編集');
+    const row = byId(tree, 'settings-account-edit-accB') ?? NONE;
+    expect(row.type).toBe('button');
+    expect(row.props['aria-label']).toBe('口座 B を編集');
+    expect(row.props['aria-haspopup']).toBe('dialog');
+    expect(cls(row)).toBe('setrow');
+    expect(all(tree, (e) => e.type === 'input' || e.type === 'form')).toEqual([]);
+    expect(all(tree, (e) => e.type === 'dialog')).toEqual([]);
+    expect(all(tree, (e) => e.type === 'details')).toEqual([]);
   });
 
   it('移した直後（口座 1 つ・「口座 1」）も 1 行。特別な案内は出さない', async () => {
     const tree = render(await ready({ capitalYen: 1_000_000 }));
     expect(
-      all(tree, (e) => String(e.props.id ?? '').startsWith('settings-account-edit-')),
+      all(
+        tree,
+        (e) => e.type === 'button' && String(e.props.id ?? '').startsWith('settings-account-edit-'),
+      ),
     ).toHaveLength(1);
     expect(text(tree)).toContain('口座 1');
   });
 
-  it('U14: [直す] で行がその場で開く（名前・資金・許容リスク・[保存] [やめる]・効き方・畳んだ資金の履歴）', async () => {
+  it('U14: 行を押すと編集のシート（名前・資金・許容リスク・効き方・畳まない資金の履歴・下に貼り付く ［保存］）', async () => {
     const tree = render(
       await ready(
         {
@@ -146,12 +306,10 @@ describe('口座（#47 U12〜U15）', () => {
         (c) => c.openAccount('default'),
       ),
     );
-    const form = all(
-      tree,
-      (e) => e.type === 'form' && e.props['aria-label'] === '口座 1 を編集',
-    )[0];
-    expect(form).toBeDefined();
-    const f = form ? [form] : [];
+    const sh = sheet(tree, ACCOUNT_SHEET_ID) ?? NONE;
+    expect(sh.props.title).toBe('口座 1 を編集');
+    expect(sh.props.kind).toBe('form');
+    const f = [sh];
     for (const id of [
       'settings-account-name',
       'settings-account-capital',
@@ -159,12 +317,19 @@ describe('口座（#47 U12〜U15）', () => {
     ]) {
       expect(byId(f, id)?.type, id).toBe('input');
     }
-    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['保存', 'キャンセル']);
-    expect(text(f)).toContain(EFFECT_NOTE);
+    // 閉じるはシートの ✕・Esc・外・戻る（［キャンセル］ は置かない）。主のボタンは ［保存］ の 1 つ
+    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['保存']);
+    expect(cls(byId(f, 'settings-account-save') ?? NONE)).toContain('btn--primary');
+    // 常に出す文は減らす（#133 デザインレビュー a-2）: 効き方の文は口座の画面の「i」へ、資金の書き方の注記は置かない
+    expect(text(f)).not.toContain(EFFECT_NOTE);
+    expect(text(f)).not.toContain('円の整数で入力します');
     expect(text(f)).toContain('1 回の負けは 9,000円 までです');
-    const details = all(f, (e) => e.type === 'details')[0];
-    expect(details?.props.open).toBeUndefined();
-    expect(text(all(f, (e) => e.type === 'summary'))).toBe('資金の履歴（3 件）');
+    // ［保存］ の帯（貼り付く）はフォームの最後（資金の履歴の後）
+    const form = all(f, (e) => e.type === 'form')[0] ?? NONE;
+    const last = form.children.filter((c) => typeof c !== 'string').at(-1);
+    expect(typeof last === 'string' ? '' : cls(last ?? NONE)).toBe('setform__actions');
+    expect(all(f, (e) => e.type === 'details')).toEqual([]);
+    expect(text(all(f, (e) => e.type === 'h3'))).toBe('資金の履歴（3 件）');
     const rows = all(f, (e) => e.type === 'li').map(text);
     expect(rows).toEqual([
       `${formatDateTime(1_800_000_200_000)}900,000円`,
@@ -196,19 +361,19 @@ describe('口座（#47 U12〜U15）', () => {
     expect(text(bad)).not.toContain('1 回の負けは 0円');
   });
 
-  it('U15: [＋ 口座を追加]（行の全幅）で同じ欄が開き、[足す] [やめる]。開いている間は [＋ 口座を追加] を出さない', async () => {
+  it('U15: ［＋ 口座を追加］（＋ のアイコンつきの行）で追加のシート（同じ欄・［追加］）', async () => {
     const closed = render(await ready());
-    expect(text(byId(closed, 'settings-account-add') ?? [])).toBe('＋ 口座を追加');
+    const add = byId(closed, 'settings-account-add') ?? NONE;
+    expect(text(add)).toBe('口座を追加');
+    expect(cls(add)).toBe('setrow setrow--add');
+    expect(all([add], (e) => e.type === 'svg')).toHaveLength(1);
     const open = render(await ready({}, (c) => c.openAccount(null)));
-    expect(byId(open, 'settings-account-add')).toBeUndefined();
-    const form = all(open, (e) => e.type === 'form' && e.props['aria-label'] === '口座を追加')[0];
-    expect(all(form ? [form] : [], (e) => e.type === 'button').map(text)).toEqual([
-      '追加',
-      'キャンセル',
-    ]);
+    const sh = sheet(open, ACCOUNT_SHEET_ID) ?? NONE;
+    expect(sh.props.title).toBe('口座を追加');
+    expect(all([sh], (e) => e.type === 'button').map(text)).toEqual(['追加']);
   });
 
-  it('U15: 足せたら名前の順の位置に行が入り、「口座 C を足しました」', async () => {
+  it('U15: 足せたらシートが閉じ、名前の順の位置に行が入り、一覧の上に「口座 C を追加しました」', async () => {
     const tree = render(
       await ready(
         { accounts: [defaultAccount(null), account('accD', '口座 D', null)] },
@@ -219,27 +384,14 @@ describe('口座（#47 U12〜U15）', () => {
         },
       ),
     );
-    const names = all(tree, (e) => e.props.class === 'instlist__name')
-      .map(text)
-      .filter((x) => x.startsWith('口座'));
+    expect(all(tree, (e) => e.type === 'dialog')).toEqual([]);
+    const names = all(tree, (e) => e.props.class === 'setrow__name').map(text);
     expect(names).toEqual(['口座 1', '口座 C', '口座 D']);
     const status = all(tree, (e) => e.props.role === 'status').map(text);
     expect(status).toContain('口座 C を追加しました。');
   });
 
-  it('[保存]・[足す] にはフォーカスを戻す先の ID がある（レビュー指摘 6）', async () => {
-    const tree = render(
-      await ready({}, (c) => {
-        c.openInstrument(US30.id);
-        c.openAccount('default');
-      }),
-    );
-    for (const id of ['settings-account-save', 'settings-inst-save', 'settings-add']) {
-      expect(byId(tree, id)?.type, id).toBe('button');
-    }
-  });
-
-  it('保存は form の submit（Enter でも押せる）。保存中は押せない', async () => {
+  it('保存は form の submit（Enter でも押せる）。保存中は押せず、行も押せない', async () => {
     let saved = 0;
     const s = await ready({}, (c) => c.openAccount('default'));
     const tree = render(s, { onSaveAccount: () => saved++ });
@@ -250,11 +402,32 @@ describe('口座（#47 U12〜U15）', () => {
     if (!form) throw new Error('口座の form が無い');
     (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault: noop });
     expect(saved).toBe(1);
+    expect(byId(tree, 'settings-account-save')?.type).toBe('button');
     const busy = render({
       ...s,
       account: { ...(s.account as NonNullable<typeof s.account>), saving: true },
     });
     expect(byId(busy, 'settings-account-save')?.props.disabled).toBe(true);
+    expect(byId(busy, 'settings-account-edit-default')?.props.disabled).toBe(true);
+  });
+
+  it('シートの閉じ方: ✕・Esc・外は保存中なら閉じない、戻る・close watcher は保存中でも閉じる（force）', async () => {
+    const calls: (boolean | undefined)[] = [];
+    const s = await ready({}, (c) => c.openAccount('default'));
+    const vn = SettingsAccountsView({
+      state: s,
+      onOpenAccount: noop,
+      onCloseAccount: (force) => calls.push(force),
+      onAccount: noop,
+      onSaveAccount: noop,
+      onReload: noop,
+      onRelogin: noop,
+    }) as VNode<{ children: VNode[] }>;
+    const sheetVn = (vn.props.children as VNode[]).find((c) => c?.type === Sheet) as VNode<{
+      onDismiss: (r: string) => void;
+    }>;
+    for (const r of ['button', 'escape', 'backdrop', 'back', 'native']) sheetVn.props.onDismiss(r);
+    expect(calls).toEqual([false, false, false, true, true]);
   });
 
   it('R / 円の切り替えは置かない（スコープ外）', async () => {
@@ -264,31 +437,46 @@ describe('口座（#47 U12〜U15）', () => {
   });
 });
 
-describe('銘柄', () => {
-  it('AC-7: 「記録済みの取引は変わりません」が銘柄の枠と、口座の直す欄にある', async () => {
-    const t = text(render(await ready()));
-    expect(t.split(EFFECT_NOTE).length - 1).toBe(1);
-    const open = text(render(await ready({}, (c) => c.openAccount('default'))));
-    expect(open.split(EFFECT_NOTE).length - 1).toBe(2);
-  });
-
-  it('一覧: 名前・要約・[直す]（読み上げの名前は「US30 を直す」）。初期値のままの印', async () => {
-    const tree = render(await ready());
-    const items = all(
-      tree,
-      (e) => e.type === 'li' && String(e.props.class ?? '') === 'instlist__item',
-    );
-    const insts = items.filter((i) => !text(i).startsWith('口座'));
-    expect(insts.map((i) => text(i).slice(0, 4))).toEqual(['US30', '日経22']);
-    expect(text(insts[0] ?? [])).toContain('初期値のまま');
-    expect(text(insts[1] ?? [])).not.toContain('初期値のまま');
+describe('銘柄の画面（#133 の AC-4）', () => {
+  it('上の帯「‹ 設定」と題「銘柄」。押せる行（名前・初期値のままの印・要約）と ［＋ 銘柄を追加］。追加の欄は押すまで無い', async () => {
+    const tree = renderInst(await ready());
+    expect(text(all(tree, (e) => e.type === 'h1'))).toBe('銘柄');
+    const rows = listRows(tree);
+    expect(rows.map((r) => r.slice(0, 4))).toEqual(['US30', '日経22', '銘柄を追']);
+    expect(rows[0]).toContain('初期値のまま');
+    expect(rows[1]).not.toContain('初期値のまま');
     const edit = all(tree, (e) => e.type === 'button' && e.props['aria-label'] === 'US30 を編集');
     expect(edit).toHaveLength(1);
+    expect(edit[0]?.props.id).toBe('settings-edit-i-us30');
+    expect(byId(tree, 'settings-new-name')).toBeUndefined();
+    expect(all(tree, (e) => e.type === 'input' || e.type === 'form')).toEqual([]);
+    // 一覧の上に説明の文を常に出さない（効き方は編集のシートの中）
+    expect(text(tree)).not.toContain(EFFECT_NOTE);
   });
 
-  it('開いた行に 7 欄と [保存] [やめる]', async () => {
-    const tree = render(await ready({}, (c) => c.openInstrument(US30.id)));
-    const labels = all(tree, (e) => e.type === 'label' || e.props.role === 'radiogroup').map(
+  it('銘柄の行の添えは 2 行（種類 · 形 · 通貨 / 乗数 · 刻み）。#133 デザインレビュー a-4', async () => {
+    const tree = renderInst(await ready());
+    const edit = all(
+      tree,
+      (e) => e.type === 'button' && e.props['aria-label'] === 'US30 を編集',
+    )[0];
+    const lines = all([edit ?? NONE], (e) => cls(e).split(' ').includes('setrow__line')).map(text);
+    expect(lines).toEqual(['その他 · 現物・CFD · 価格の通貨 未設定', '乗数 1 · 刻み 1']);
+  });
+
+  it('口座の画面の先頭の 1 行: 資金が未設定の口座があるときだけ頼む文（a-5）', async () => {
+    const lead = async (capitalYen: number | null) =>
+      text(all(render(await ready({ capitalYen })), (e) => cls(e) === 'setlead'));
+    expect(await lead(null)).toContain('入力してください');
+    expect(await lead(1_000_000)).toContain(ACCOUNTS_LEAD_SET);
+  });
+
+  it('行を押すと編集のシートに 7 欄と ［保存］（［キャンセル］ は置かない）・効き方', async () => {
+    const tree = renderInst(await ready({}, (c) => c.openInstrument(US30.id)));
+    const sh = sheet(tree, INSTRUMENT_SHEET_ID) ?? NONE;
+    expect(sh.props.title).toBe('US30 を編集');
+    const f = [sh];
+    const labels = all(f, (e) => e.type === 'label' || e.props.role === 'radiogroup').map(
       (e) => (e.props['aria-label'] as string | undefined) ?? text(e),
     );
     for (const l of [
@@ -302,19 +490,20 @@ describe('銘柄', () => {
     ]) {
       expect(labels, l).toContain(l);
     }
-    const buttons = all(tree, (e) => e.type === 'button').map(text);
-    expect(buttons).toContain('保存');
-    expect(buttons).toContain('キャンセル');
-    // 6 択は select
-    const sel = byId(tree, 'settings-inst-kind');
+    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['保存']);
+    const sel = byId(f, 'settings-inst-kind');
     expect(sel?.type).toBe('select');
     expect(all(sel ? [sel] : [], (e) => e.type === 'option')).toHaveLength(6);
-    // 名前を変えると別の銘柄として足されることのヒント
-    expect(text(tree)).toContain('名前を変えると');
+    expect(text(f)).toContain('名前を変えると');
+    expect(text(f)).toContain(EFFECT_NOTE);
+    // 初期値のままの銘柄だけ、その説明
+    expect(text(f)).toContain(PROVISIONAL_NOTE);
+    const n225 = renderInst(await ready({}, (c) => c.openInstrument(N225.id)));
+    expect(text(n225)).not.toContain(PROVISIONAL_NOTE);
   });
 
   it('E10 の誤り: 名前の欄に「同じ名前の銘柄があります」', async () => {
-    const tree = render(
+    const tree = renderInst(
       await ready({}, (c) => {
         c.openInstrument(US30.id);
         c.updateInstrument('name', '日経２２５ ');
@@ -323,10 +512,41 @@ describe('銘柄', () => {
     expect(text(byId(tree, 'settings-inst-name-error') ?? [])).toBe(SETTINGS_MSG.duplicateName);
   });
 
-  it('足す欄と [足す]', async () => {
-    const tree = render(await ready());
-    expect(byId(tree, 'settings-new-name')?.type).toBe('input');
-    expect(all(tree, (e) => e.type === 'button').map(text)).toContain('追加');
+  it('［＋ 銘柄を追加］ → 追加のシート（名前・［追加］）。誤りはシートの中', async () => {
+    const tree = renderInst(
+      await ready({}, async (c) => {
+        c.openAddInstrument();
+        await c.addInstrument();
+      }),
+    );
+    const sh = sheet(tree, INSTRUMENT_ADD_SHEET_ID) ?? NONE;
+    expect(sh.props.title).toBe('銘柄を追加');
+    const f = [sh];
+    expect(byId(f, 'settings-new-name')?.type).toBe('input');
+    expect(text(byId(f, 'settings-new-name-error') ?? [])).toBe(SETTINGS_MSG.nameRequired);
+    expect(all(f, (e) => e.type === 'button').map(text)).toEqual(['追加']);
+    expect(byId(f, 'settings-add')?.type).toBe('button');
+  });
+
+  it('足せたらシートが閉じ、一覧の上に知らせ', async () => {
+    const tree = renderInst(
+      await ready({}, async (c) => {
+        c.openAddInstrument();
+        c.setNewName('GOLD');
+        await c.addInstrument();
+      }),
+    );
+    expect(all(tree, (e) => e.type === 'dialog')).toEqual([]);
+    expect(all(tree, (e) => e.props.role === 'status').map(text)).toContain(
+      'GOLD を追加しました。',
+    );
+    expect(listRows(tree).map((r) => r.slice(0, 4))).toContain('GOLD');
+  });
+
+  it('銘柄が 0 件なら短い 1 行と ［＋ 銘柄を追加］', async () => {
+    const tree = renderInst(await ready({ instruments: [] }));
+    expect(text(tree)).toContain('まだありません');
+    expect(listRows(tree)).toEqual(['銘柄を追加']);
   });
 });
 
@@ -334,6 +554,7 @@ describe('読み込み・失敗', () => {
   it('読み込み中', () => {
     const c = createSettingsController({ api: createFakeApi().api });
     expect(text(render(c.getState()))).toContain('読み込み中');
+    expect(text(renderInst(c.getState()))).toContain('読み込み中');
   });
 
   it('読み込みの失敗は role="alert" と [再読み込み]', async () => {
@@ -456,7 +677,7 @@ describe('口座の通貨（#47 PR-2・U30・U31）', () => {
         c.openAccount('accD'),
       ),
     );
-    const rows = all(tree, (e) => e.props.class === 'settings__history-row').map((e) => text(e));
+    const rows = all(tree, (e) => e.props.class === 'sethistory__row').map((e) => text(e));
     expect(rows.some((r) => r.endsWith('10,000.00 USD'))).toBe(true);
     expect(rows.some((r) => r.endsWith('1,000,000円'))).toBe(true);
   });

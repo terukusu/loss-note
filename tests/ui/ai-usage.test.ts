@@ -296,3 +296,15 @@ describe('通信（AC-7 の失敗の文言）', () => {
     }
   });
 });
+
+describe('設定の根の行の添え（#133）', () => {
+  it('todayCount は今日の回数（上限を受けない利用者も同じ）', () => {
+    expect(usageView(body([3, P * 3], [10, P * 10])).todayCount).toBe(3);
+    expect(usageView(body([0, 0], [0, 0])).todayCount).toBe(0);
+    const bypass = body([40, 1_500_000], [212, 6_400_000], {
+      bypass: true,
+      limits: { count: null, userMicroUsd: null, dailyMicroUsd: 2_000_000 },
+    });
+    expect(usageView(bypass).todayCount).toBe(40);
+  });
+});

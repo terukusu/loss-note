@@ -15,7 +15,7 @@ import {
 } from '../../ui/src/lib/ai-usage';
 import type { AiUsageState } from '../../ui/src/lib/ai-usage-controller';
 import { AUTH_EXPIRED } from '../../ui/src/lib/request';
-import { Settings, SettingsScreen } from '../../ui/src/pages/Settings';
+import { SettingsAiUsageView } from '../../ui/src/pages/Settings';
 
 interface El {
   readonly type: string;
@@ -216,17 +216,21 @@ describe('利用状況のカード', () => {
     expect(bad).toHaveLength(0);
   });
 
-  it('設定の画面では口座・銘柄のカードと別の部品（読めなくてもほかのカードの状態に触れない。AC-7）', () => {
-    const vn = Settings({
-      theme: 'dark',
-      onTheme: noop,
-      onSignOut: noop,
-      signOutBusy: false,
-      signOutError: null,
-    }) as VNode<{ children: VNode[] }>;
-    const types = (vn.props.children as VNode[]).map((c) => c?.type);
-    expect(types).toContain(SettingsScreen);
-    expect(types).toContain(AiUsageCard);
-    expect(types.indexOf(AiUsageCard)).toBe(types.indexOf(SettingsScreen) + 1);
+  it('設定の次の画面「AI の利用状況」（#133）: 上の帯「‹ 設定」と題、中身は口座・銘柄と状態を共有しない部品（AC-7）', () => {
+    const vn = SettingsAiUsageView({}) as VNode<{ children: VNode[] }>;
+    const kids = vn.props.children as VNode[];
+    expect(kids.map((c) => c?.type)).toContain(AiUsageCard);
+    const card = kids.find((c) => c?.type === AiUsageCard) as VNode<{ titled?: boolean }>;
+    // 画面の題（h1）と同じ名前の h2 を重ねない
+    expect(card.props.titled).toBe(false);
+  });
+
+  it('titled = false では h2 を出さず、section の名前は「AI の利用状況」', () => {
+    const tree = expand(
+      AiUsageView({ state: { phase: 'loading' }, onReload: noop, onRelogin: noop, titled: false }),
+    );
+    expect(all(tree, (e) => e.type === 'h2')).toEqual([]);
+    const sec = all(tree, (e) => e.type === 'section')[0];
+    expect(sec?.props['aria-label']).toBe('AI の利用状況');
   });
 });

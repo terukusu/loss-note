@@ -84,6 +84,11 @@ describe('parseRoute / hrefOf', () => {
     ['/review', { name: 'review' }],
     ['/trades/abc_DEF-123', { name: 'trade', id: 'abc_DEF-123' }],
     ['/settings', { name: 'settings' }],
+    // 設定の次の画面（#133 の AC-2）
+    ['/settings/accounts', { name: 'settingsAccounts' }],
+    ['/settings/instruments', { name: 'settingsInstruments' }],
+    ['/settings/ai-usage', { name: 'settingsAiUsage' }],
+    ['/settings/accounts/', { name: 'settingsAccounts' }],
     ['/trades/', { name: 'trades' }],
   ] as const)('%s → %j', (path, route) => {
     expect(parseRoute(path, PROD)).toEqual(route);
@@ -98,6 +103,8 @@ describe('parseRoute / hrefOf', () => {
     '',
     'trades',
     '/dev/parts',
+    '/settings/nope',
+    '/settings/accounts/x',
   ])('知らない URL: %s → null', (path) => {
     expect(parseRoute(path, PROD)).toBeNull();
   });
@@ -116,6 +123,9 @@ describe('parseRoute / hrefOf', () => {
       { name: 'review' },
       { name: 'trade', id: 't-1' },
       { name: 'settings' },
+      { name: 'settingsAccounts' },
+      { name: 'settingsInstruments' },
+      { name: 'settingsAiUsage' },
       { name: 'parts' },
     ];
     for (const r of routes) expect(parseRoute(hrefOf(r), DEV)).toEqual(r);
@@ -125,6 +135,9 @@ describe('parseRoute / hrefOf', () => {
     expect(titleOf({ name: 'trades' })).toBe('取引 — 損失ノート');
     expect(titleOf({ name: 'review' })).toBe('振り返り — 損失ノート');
     expect(titleOf({ name: 'trade', id: 'x' })).toBe('取引の詳細 — 損失ノート');
+    expect(titleOf({ name: 'settingsAccounts' })).toBe('口座 — 損失ノート');
+    expect(titleOf({ name: 'settingsInstruments' })).toBe('銘柄 — 損失ノート');
+    expect(titleOf({ name: 'settingsAiUsage' })).toBe('AI の利用状況 — 損失ノート');
   });
 });
 
@@ -395,6 +408,9 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
       [{ name: 'review' }, 'review'],
       [{ name: 'settings' }, 'settings'],
       [{ name: 'glossary' }, 'settings'],
+      [{ name: 'settingsAccounts' }, 'settings'],
+      [{ name: 'settingsInstruments' }, 'settings'],
+      [{ name: 'settingsAiUsage' }, 'settings'],
       [{ name: 'parts' }, 'home'],
     ];
     for (const [route, tab] of cases) expect(tabOfRoute(route), route.name).toBe(tab);
@@ -408,6 +424,11 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
     expect(screenKindOf({ name: 'review' })).toBe('root');
     expect(screenKindOf({ name: 'trade', id: 'a' })).toBe('push');
     expect(screenKindOf({ name: 'glossary' })).toBe('push');
+    expect(screenKindOf({ name: 'settings' })).toBe('root');
+    expect(screenKindOf({ name: 'settingsAccounts' })).toBe('push');
+    expect(screenKindOf({ name: 'settingsInstruments' })).toBe('push');
+    expect(screenKindOf({ name: 'settingsAiUsage' })).toBe('push');
+    expect(isSheetRoute({ name: 'settingsAccounts' })).toBe(false);
     expect(screenKindOf({ name: 'record' })).toBe('sheet');
     expect(screenKindOf({ name: 'login' })).toBe('bare');
   });
@@ -418,6 +439,8 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
     expect(screenLabel('/?period=30d', PROD)).toBe('ホーム');
     expect(screenLabel('/trades/a', PROD)).toBe('取引の詳細');
     expect(screenLabel('/review?period=7d', PROD)).toBe('振り返り');
+    expect(screenLabel('/settings', PROD)).toBe('設定');
+    expect(screenLabel('/settings/accounts', PROD)).toBe('口座');
     expect(screenLabel('/nope', PROD)).toBeNull();
     expect(screenLabel('/login', PROD)).toBeNull();
   });
@@ -434,6 +457,9 @@ describe('印の無い最初の起動の組み直し（9.7 の 5。純関数）'
     ['/review?period=7d', ['/', '/review?period=7d']],
     ['/settings', ['/', '/settings']],
     ['/glossary?from=%2Frecord', ['/', '/settings', '/glossary?from=%2Frecord']],
+    ['/settings/accounts', ['/', '/settings', '/settings/accounts']],
+    ['/settings/instruments', ['/', '/settings', '/settings/instruments']],
+    ['/settings/ai-usage', ['/', '/settings', '/settings/ai-usage']],
     ['/login?next=%2Ftrades', ['/login?next=%2Ftrades']],
     ['/nope', ['/nope']],
   ] as const)('%s → %j', (href, want) => {
@@ -628,6 +654,13 @@ describe('タブごとの積み重ねと戻る（ui-guidelines 9.7 の表の例�
     const g = new MarkBrowser('/glossary');
     createNavigator(g, PROD);
     expect(g.stack).toEqual(['/', '/settings', '/glossary']);
+    // 設定の次の画面（#133 の AC-2）: 下に設定の根を敷き、戻ると設定
+    const s = new MarkBrowser('/settings/instruments');
+    const navS = createNavigator(s, PROD);
+    expect(s.stack).toEqual(['/', '/settings', '/settings/instruments']);
+    expect(navS.current.mark.tab).toBe('settings');
+    navS.back('/settings');
+    expect(navS.current.route).toEqual({ name: 'settings' });
   });
 
   it('[/, /trades, /trades/a] で詳細を再読み込み（印あり）: 組み直さず、そのまま。戻ると /trades', () => {

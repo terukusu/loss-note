@@ -484,6 +484,132 @@ describe('銘柄を追加', () => {
   });
 });
 
+describe('下のシートの開閉（#133 の AC-4・AC-6）', () => {
+  it('銘柄の足す欄は開くまで閉じている。開くと名前は空から、足せたら閉じて知らせ', async () => {
+    const { c } = await open();
+    expect(c.getState().addOpen).toBe(false);
+    c.setNewName('前の名前');
+    c.openAddInstrument();
+    expect(c.getState()).toMatchObject({ addOpen: true, newName: '', newNameError: null });
+    c.setNewName('GOLD');
+    await c.addInstrument();
+    expect(c.getState()).toMatchObject({ addOpen: false, newName: '' });
+    expect(c.getState().notice).toEqual({
+      area: 'instruments',
+      kind: 'ok',
+      text: instrumentAdded('GOLD'),
+    });
+  });
+
+  it('誤り・409・失敗では足す欄は開いたまま（誤りはシートの中に出す）', async () => {
+    const { c } = await open({ conflictOnce: inst('i-gold', 'GOLD') });
+    c.openAddInstrument();
+    await c.addInstrument();
+    expect(c.getState()).toMatchObject({ addOpen: true, newNameError: SETTINGS_MSG.nameRequired });
+    c.setNewName('GOLD');
+    await c.addInstrument();
+    expect(c.getState()).toMatchObject({
+      addOpen: true,
+      newNameError: SETTINGS_MSG.duplicateName,
+    });
+    // 閉じると名前と誤りは捨てる（開き直すと空から）
+    c.closeAddInstrument();
+    expect(c.getState()).toMatchObject({ addOpen: false, newName: '', newNameError: null });
+  });
+
+  it('足している間は閉じない。force（シートが先に閉じた）なら閉じ、結果は一覧の知らせに出る', async () => {
+    const { c, fake } = await open();
+    c.openAddInstrument();
+    c.setNewName('GOLD');
+    fake.hold();
+    const p = c.addInstrument();
+    c.closeAddInstrument();
+    expect(c.getState().addOpen).toBe(true);
+    c.closeAddInstrument(true);
+    expect(c.getState().addOpen).toBe(false);
+    fake.release();
+    await p;
+    expect(c.getState().addOpen).toBe(false);
+    expect(c.getState().notice?.text).toBe(instrumentAdded('GOLD'));
+  });
+
+  it('口座・銘柄の直す欄も、保存中は閉じず force なら閉じる', async () => {
+    const { c, fake } = await open();
+    c.openAccount('default');
+    c.updateAccount('risk', '2');
+    fake.hold();
+    const a = c.saveAccount();
+    c.closeAccount();
+    expect(c.getState().account?.saving).toBe(true);
+    c.closeAccount(true);
+    expect(c.getState().account).toBeNull();
+    fake.release();
+    await a;
+    expect(c.getState().account).toBeNull();
+    c.openInstrument(US30.id);
+    c.updateInstrument('multiplier', '100');
+    fake.hold();
+    const b = c.saveInstrument();
+    c.closeInstrument();
+    expect(c.getState().editing?.saving).toBe(true);
+    c.closeInstrument(true);
+    expect(c.getState().editing).toBeNull();
+    fake.release();
+    await b;
+    expect(c.getState().editing).toBeNull();
+  });
+
+  it('force で閉じた保存が終わるまで、別の口座・銘柄は開けない（入力が黙って消えない。#133 レビュー N1）', async () => {
+    const { c, fake } = await open({
+      accounts: [defaultAccount(1_000_000), account('b', '口座 B', 500_000)],
+    });
+    c.openAccount('default');
+    c.updateAccount('risk', '2');
+    fake.hold();
+    const a = c.saveAccount();
+    c.closeAccount(true);
+    expect(c.getState().accountSaving).toBe(true);
+    // 保存中は別の行も ［＋ 口座を追加］ も開かない（開けば B の ［保存］ が A の Promise に吸われる）
+    c.openAccount('b');
+    expect(c.getState().account).toBeNull();
+    c.openAccount(null);
+    expect(c.getState().account).toBeNull();
+    fake.release();
+    await a;
+    expect(c.getState().accountSaving).toBe(false);
+    // 終わったら開ける。B の ［保存］ は B の PUT を送り、B のシートを B の知らせで閉じる
+    c.openAccount('b');
+    c.updateAccount('risk', '1.5');
+    await c.saveAccount();
+    const puts = fake.calls.filter(
+      (x) => x.method === 'PUT' && x.path.startsWith('/api/accounts/'),
+    );
+    expect(puts.map((x) => x.path)).toEqual(['/api/accounts/default', '/api/accounts/b']);
+    expect(c.getState().notice?.text).toBe(accountSaved('口座 B'));
+
+    c.openInstrument(US30.id);
+    c.updateInstrument('multiplier', '100');
+    fake.hold();
+    const b = c.saveInstrument();
+    c.closeInstrument(true);
+    expect(c.getState().instrumentSaving).toBe(true);
+    c.openInstrument(N225.id);
+    expect(c.getState().editing).toBeNull();
+    fake.release();
+    await b;
+    expect(c.getState().instrumentSaving).toBe(false);
+    c.openInstrument(N225.id);
+    expect(c.getState().editing?.id).toBe(N225.id);
+  });
+
+  it('読み直すと開いていたシートはすべて閉じる', async () => {
+    const { c } = await open();
+    c.openAddInstrument();
+    await c.load();
+    expect(c.getState()).toMatchObject({ addOpen: false, account: null, editing: null });
+  });
+});
+
 describe('誤りのまま押したときの知らせ（レビュー指摘 5）', () => {
   it('口座: 送らず、誤りのある欄を role="alert" の知らせで出す', async () => {
     const { c, fake } = await open({ capitalYen: 1_000_000 });

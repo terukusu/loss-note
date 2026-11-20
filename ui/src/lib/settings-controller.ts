@@ -4,6 +4,9 @@
 // - 口座（#47 U12〜U15）: 一覧・1 件だけ開く直す（名前・資金・許容リスク。PUT /api/accounts/<id>）・足す
 //   （POST /api/accounts）。口座の枠で同時に開けるのは 1 つ（直す欄か足す欄）
 // - 銘柄は 1 件ずつ開いて 7 欄を直し [保存]（PUT /api/instruments/<id>）、名前だけで [足す]（POST。既定は API が埋める。C21）
+// - 画面（#133）: 口座の直す欄・足す欄（account）、銘柄の直す欄（editing）、銘柄の足す欄（addOpen）は、それぞれ下のシートで、
+//   状態が開いている間だけシートが開く。足せた・保存できたら閉じる。閉じ方の force は、戻る・close watcher でシート（dialog）が
+//   先に閉じたときに、保存中でも状態を閉じる（シートと状態を食い違わせない。保存の結果は一覧の知らせに出る）
 // - 誤りのある下書きは送らない。実行中は同じ Promise を返す（二重に送らない）
 // - 失敗は決まった文言だけを状態に置く（応答の本文・例外の文字列を持たない）。401・ログインしていない = ログインが切れた
 // - 足す要求が時間切れ・通信の失敗になったときは届いた可能性がある。次に押して 409 なら、届いていたものとして一覧を取り直す
@@ -119,6 +122,14 @@ export interface SettingsState {
   readonly newName: string;
   readonly newNameError: string | null;
   readonly adding: boolean;
+  /** 銘柄の足す欄（下のシート）を開いている（#133） */
+  readonly addOpen: boolean;
+  /**
+   * 口座・銘柄の保存の要求が実行中（シートを先に閉じた後も。#133 レビュー N1）。この間は別の行を開かない
+   * （開くと、その ［保存］ が実行中の要求に吸われて送られず、入力が黙って消える）
+   */
+  readonly accountSaving: boolean;
+  readonly instrumentSaving: boolean;
   readonly notice: SettingsNotice | null;
 }
 
@@ -129,7 +140,8 @@ export interface SettingsController {
   load(): Promise<void>;
   /** 口座の [直す]（id）・[＋ 口座を足す]（null）。別の欄を開くと前の下書きは捨てる */
   openAccount(id: string | null): void;
-  closeAccount(): void;
+  /** force = 保存中でも閉じる（シートが先に閉じたとき。#133） */
+  closeAccount(force?: boolean): void;
   updateAccount(field: AccountField, value: string): void;
   /** 直す欄なら PUT、足す欄なら POST */
   saveAccount(): Promise<void>;
@@ -137,11 +149,14 @@ export interface SettingsController {
   settled(): Promise<void>;
   /** 1 件だけ開く（別の行を開くと前の下書きは捨てる） */
   openInstrument(id: string): void;
-  closeInstrument(): void;
+  closeInstrument(force?: boolean): void;
   updateInstrument<K extends InstrumentField>(field: K, value: InstrumentDraft[K]): void;
   saveInstrument(): Promise<void>;
   setNewName(value: string): void;
   addInstrument(): Promise<void>;
+  /** 銘柄の足す欄（下のシート）を開く・閉じる（#133）。開くと名前は空から */
+  openAddInstrument(): void;
+  closeAddInstrument(force?: boolean): void;
 }
 
 const EMPTY_ACCOUNT_READING: AccountReading<unknown> = { errors: {}, warning: null, body: null };
@@ -187,6 +202,9 @@ export function createSettingsController(deps: {
     newName: '',
     newNameError: null,
     adding: false,
+    addOpen: false,
+    accountSaving: false,
+    instrumentSaving: false,
     notice: null,
   };
   let savingAccount: Promise<void> | null = null;
@@ -309,6 +327,7 @@ export function createSettingsController(deps: {
       editing: null,
       account: null,
       addedAccountId: null,
+      addOpen: false,
     });
     try {
       const [accounts, items] = await Promise.all([listAccounts(), listInstruments()]);
@@ -341,11 +360,13 @@ export function createSettingsController(deps: {
     }
     const sent = body as { readonly name: string };
     const key = nameKey(sent.name);
-    set({ account: { ...ed, saving: true }, notice: null });
+    // 実行中の印は結果と同じ set で下ろす（閉じたシートが行へフォーカスを戻すとき、行が押せないままにしない）
+    set({ account: { ...ed, saving: true }, accountSaving: true, notice: null });
     const done = (patch: Partial<SettingsState>) => {
       const cur = state.account;
       set({
         ...(cur && cur.id === ed.id ? { account: { ...cur, saving: false } } : {}),
+        accountSaving: false,
         ...patch,
       });
     };
@@ -356,6 +377,7 @@ export function createSettingsController(deps: {
       uncertainAccount = null;
       set({
         account: null,
+        accountSaving: false,
         accounts,
         addedAccountId: added ? saved.id : null,
         notice: {
@@ -396,6 +418,7 @@ export function createSettingsController(deps: {
           inUse.add(id);
           const cur = state.account;
           set({
+            accountSaving: false,
             accountsInUse: inUse,
             ...(cur && cur.id === id
               ? { account: { ...cur, saving: false, draft: { ...cur.draft, currency } } }
@@ -453,10 +476,14 @@ export function createSettingsController(deps: {
       set({ notice: { area: 'instruments', kind: 'error', text: errorFieldsText(labels) } });
       return;
     }
-    set({ editing: { ...ed, saving: true }, notice: null });
+    set({ editing: { ...ed, saving: true }, instrumentSaving: true, notice: null });
     const done = (patch: Partial<SettingsState>) => {
       const cur = state.editing;
-      set({ ...(cur && cur.id === ed.id ? { editing: { ...cur, saving: false } } : {}), ...patch });
+      set({
+        ...(cur && cur.id === ed.id ? { editing: { ...cur, saving: false } } : {}),
+        instrumentSaving: false,
+        ...patch,
+      });
     };
     try {
       const res = await request(`/api/instruments/${encodeURIComponent(ed.id)}`, {
@@ -477,6 +504,7 @@ export function createSettingsController(deps: {
       nameTaken = null;
       set({
         editing: null,
+        instrumentSaving: false,
         instruments: sortInstruments(state.instruments.map((i) => (i.id === saved.id ? saved : i))),
         notice: { area: 'instruments', kind: 'ok', text: instrumentSaved(saved.name) },
       });
@@ -500,6 +528,7 @@ export function createSettingsController(deps: {
       uncertainAdd = null;
       set({
         adding: false,
+        addOpen: false,
         newName: '',
         instruments,
         notice: { area: 'instruments', kind: 'ok', text: instrumentAdded(name) },
@@ -569,7 +598,7 @@ export function createSettingsController(deps: {
     },
     load,
     openAccount(id) {
-      if (state.phase !== 'ready' || state.account?.saving) return;
+      if (state.phase !== 'ready' || state.account?.saving || savingAccount) return;
       const rec = id === null ? undefined : state.accounts.find((a) => a.id === id);
       if (id !== null && !rec) return;
       accountTried = false;
@@ -585,8 +614,8 @@ export function createSettingsController(deps: {
         notice: null,
       });
     },
-    closeAccount() {
-      if (!state.account || state.account.saving) return;
+    closeAccount(force) {
+      if (!state.account || (state.account.saving && force !== true)) return;
       accountTried = false;
       accountTaken = null;
       set({ account: null });
@@ -610,11 +639,13 @@ export function createSettingsController(deps: {
         () => savingAccount,
         (p) => {
           savingAccount = p;
+          // 印は doSaveAccount が結果と同じ set で下ろす。ここは投げて抜けたときの念のため
+          if (p === null && state.accountSaving) set({ accountSaving: false });
         },
         doSaveAccount,
       ),
     openInstrument(id) {
-      if (state.phase !== 'ready' || state.editing?.saving) return;
+      if (state.phase !== 'ready' || state.editing?.saving || savingInstrument) return;
       const rec = state.instruments.find((i) => i.id === id);
       if (!rec) return;
       nameTaken = null;
@@ -628,8 +659,8 @@ export function createSettingsController(deps: {
         notice: null,
       });
     },
-    closeInstrument() {
-      if (!state.editing || state.editing.saving) return;
+    closeInstrument(force) {
+      if (!state.editing || (state.editing.saving && force !== true)) return;
       nameTaken = null;
       set({ editing: null });
     },
@@ -643,6 +674,7 @@ export function createSettingsController(deps: {
         () => savingInstrument,
         (p) => {
           savingInstrument = p;
+          if (p === null && state.instrumentSaving) set({ instrumentSaving: false });
         },
         doSaveInstrument,
       ),
@@ -659,6 +691,16 @@ export function createSettingsController(deps: {
         },
         doAdd,
       ),
+    openAddInstrument() {
+      if (state.phase !== 'ready' || state.adding) return;
+      addTried = false;
+      set({ addOpen: true, newName: '', notice: null });
+    },
+    closeAddInstrument(force) {
+      if (!state.addOpen || (state.adding && force !== true)) return;
+      addTried = false;
+      set({ addOpen: false, newName: '' });
+    },
   };
 }
 

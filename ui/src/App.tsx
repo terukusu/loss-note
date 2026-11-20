@@ -24,7 +24,9 @@ import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Record } from './pages/Record';
 import { Review, ReviewTablePage } from './pages/Review';
-import { Settings } from './pages/Settings';
+import { Settings, SettingsAiUsage } from './pages/Settings';
+import { SettingsAccounts } from './pages/SettingsAccounts';
+import { SettingsInstruments } from './pages/SettingsInstruments';
 import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
 import { Trades } from './pages/Trades';
@@ -84,6 +86,12 @@ export function Page(p: PageProps) {
           signOutError={p.signOutError ?? null}
         />
       );
+    case 'settingsAccounts':
+      return <SettingsAccounts />;
+    case 'settingsInstruments':
+      return <SettingsInstruments />;
+    case 'settingsAiUsage':
+      return <SettingsAiUsage />;
     case 'glossary':
       return <Glossary />;
     case 'parts':

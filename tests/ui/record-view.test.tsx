@@ -4,6 +4,7 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
 import { CHART_READ_MARK, CHART_READ_MSG, CHART_READ_NOTICE } from '../../ui/src/lib/chart-read';
+import { GLOSSARY } from '../../ui/src/lib/glossary';
 import {
   type AddAccountState,
   AUTH_EXPIRED,
@@ -122,8 +123,23 @@ function view(state: RecordState, over: Partial<RecordViewProps> = {}): Node[] {
   );
 }
 
+/** 判定の枠（判定のシートの中・保存の後）のバッジ（下の帯の判定の 1 行のバッジは数えない。#130） */
+/** シートの包み（テストの補いが SheetView を data-sheet で包む）。#130 */
+function sheetOf(tree: Node[], id: string): El {
+  const s = all(tree, (e) => e.props['data-sheet'] === id);
+  expect(s).toHaveLength(1);
+  return s[0] as El;
+}
+
+/** 取引の欄のシート（段 1）と、ほかの欄（段 2 を開いた木） */
+const fieldsSheet = (tree: Node[]) => sheetOf(tree, 'record-fields-sheet');
+const moreView = (state: RecordState, over: Partial<RecordViewProps> = {}) =>
+  view(state, { sheet: { kind: 'fields', step: 'more' }, ...over });
+/** 「ほかの欄（任意）›」の行の右の添え */
+const moreMetaOf = (tree: Node[]) => text(all([fieldsSheet(tree)], hasClass('rowlink__meta')));
+
 function badge(tree: Node[]): El {
-  const b = all(tree, hasClass('badge'));
+  const b = all([verdictOf(tree)], hasClass('badge'));
   expect(b).toHaveLength(1);
   return b[0] as El;
 }
@@ -362,9 +378,10 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     // 下の帯（判定の 1 行 + [記録する]）にキャンセルを置かない
     const withCancel = view(stateFor(E1, NO_CAPITAL), { onCancel: noop });
     const submitBar = all(withCancel, hasClass('record__submit--bar'))[0] as El;
-    expect(all([submitBar], (e) => e.type === 'button').map(text)).toEqual([
-      text(submit(withCancel)),
-    ]);
+    const barButtons = all([submitBar], (e) => e.type === 'button');
+    // 判定の 1 行（押すと判定のシート）と [記録する] だけ（#130）
+    expect(barButtons.map((b) => b.props.id)).toEqual(['record-verdict-line', 'record-submit']);
+    expect(barButtons.some((b) => b.props['aria-label'] === 'キャンセル')).toBe(false);
     const page = RecordPage() as { props: { children: { type: unknown }[] } };
     expect(page.props.children[0]?.type).toBe(RecordBar);
   });
@@ -423,14 +440,9 @@ describe('入力の誤り（AC-7・E9）', () => {
 });
 
 describe('#58 エントリーの時刻は「取引」の枠で決済の時刻と並ぶ', () => {
-  /** 「取引」の枠（section）と「ほかの欄」（details） */
-  const tradeSection = (tree: Node[]) =>
-    all(
-      tree,
-      (e) => e.type === 'section' && e.props['aria-labelledby'] === 'record-trade-title',
-    )[0] as El;
-  const moreOf = (tree: Node[]) =>
-    all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
+  /** 「取引」の欄（取引の欄のシートの段 1）と「ほかの欄」（同じシートの段 2。#130） */
+  const tradeSection = (tree: Node[]) => fieldsSheet(tree);
+  const moreOf = (tree: Node[]) => fieldsSheet(tree);
   const inputIds = (n: El) => all([n], (e) => e.type === 'input').map((e) => String(e.props.id));
 
   it('AC-1（例 T1）: 開いた直後、「取引」の枠に「エントリーの時刻（任意）」が決済の時刻より前にあり、「ほかの欄」に無い', () => {
@@ -440,7 +452,9 @@ describe('#58 エントリーの時刻は「取引」の枠で決済の時刻と
     expect(ids.indexOf('record-entry-time')).toBeLessThan(ids.indexOf('record-exit-time'));
     // イン / 決済の後に エントリー / 決済の時刻（同じ並び。左 = エントリー側・右 = 決済の側）
     expect(ids.indexOf('record-exit')).toBeLessThan(ids.indexOf('record-entry-time'));
-    expect(inputIds(moreOf(tree))).not.toContain('record-entry-time');
+    const more = moreOf(moreView(stateFor(draft({}), NO_CAPITAL)));
+    expect(inputIds(more)).toContain('record-pnl');
+    expect(inputIds(more)).not.toContain('record-entry-time');
     const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-entry-time');
     expect(text(label)).toBe('エントリーの時刻（任意）');
   });
@@ -456,13 +470,17 @@ describe('#58 エントリーの時刻は「取引」の枠で決済の時刻と
     expect(hasClass('record__pair--prices')(pairs[0] as El)).toBe(true);
   });
 
-  it('エントリーの時刻の誤りでは「ほかの欄」を開かない（「取引」の枠の欄なので）', () => {
+  it('エントリーの時刻の誤りは取引の欄のシートの中（「ほかの欄」に誤りの印を付けない）', () => {
     const tree = view(
       stateFor(draft({ entryTime: '2026-03-04T11:00', exitTime: '2026-03-04T10:00' }), NO_CAPITAL),
     );
     const err = all(tree, (e) => e.props.id === 'record-entry-time-error')[0] as El;
     expect(text(err)).toBe('エントリーの時刻は決済の時刻より前にしてください');
-    expect(moreOf(tree).props.open).toBeUndefined();
+    // 取引の欄のシートの中の誤り（「ほかの欄」の行に誤りの印は付けない）
+    expect(all([tradeSection(tree)], (e) => e.props.id === 'record-entry-time-error')).toHaveLength(
+      1,
+    );
+    expect(moreMetaOf(tree)).toBe('');
   });
 });
 
@@ -517,17 +535,22 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
     },
   );
 
-  it('デザインレビュー 4: 3 択の下にどちらに当たるかの 1 行（L / S で同じ）があり、3 択の読み上げの説明に結ぶ', () => {
+  it('デザインレビュー 4（#130 で置き場を替えた）: 記録する画面ではどちらに当たるかの 1 行を出さず「i」の説明の先頭に任せる（1 画面の高さ）。L / S で同じ', () => {
     for (const base of [L, S]) {
       const tree = view(stateFor(draft({ ...base, lcMove: 'none' }), NO_CAPITAL));
-      const hint = all(tree, (e) => e.props.id === 'record-lc-move-hint');
-      expect(text(hint)).toBe('狭めた = インに近づけた、広げた = 遠ざけた');
+      expect(all(tree, (e) => e.props.id === 'record-lc-move-hint')).toEqual([]);
       const group = all(
         tree,
         (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
       )[0] as El;
-      expect(String(group.props['aria-describedby'])).toContain('record-lc-move-hint');
+      expect(group.props['aria-describedby']).toBeUndefined();
+      expect(all(tree, (e) => e.props['aria-label'] === '「LC を動かしたか」の説明')).toHaveLength(
+        1,
+      );
     }
+    const summary = GLOSSARY.find((g) => g.id === 'lcMove')?.summary ?? '';
+    expect(summary).toContain('インに近づけた（狭めた）');
+    expect(summary).toContain('インから遠ざけた（広げた）');
   });
 
   it('デザインレビュー 3: 「（任意）」は薄く小さい文字に分け、空の日時の欄は薄い文字（値が入ると外れる）', () => {
@@ -582,14 +605,14 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
 });
 
 describe('窓・滑りでしたか（AC-6）', () => {
-  it('E6 では結果の枠の中に出て、E7 では出ない', () => {
+  it('E6 では 3 つのタップの下（1 画面の中。判定のシートの中には置かない。#130）に出て、E7 では出ない', () => {
+    const ask = (t: Node[]) =>
+      all(t, (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '窓・滑りでしたか');
     const e6 = view(stateFor(E6, NO_CAPITAL));
-    const ask = all(e6, hasClass('verdict__ask'));
-    expect(ask).toHaveLength(1);
-    expect(all(ask, (e) => e.props.role === 'radiogroup')[0]?.props['aria-label']).toBe(
-      '窓・滑りでしたか',
-    );
-    expect(all(view(stateFor(E7, NO_CAPITAL)), hasClass('verdict__ask'))).toEqual([]);
+    const taps = all(e6, hasClass('record__taps'))[0] as El;
+    expect(ask([taps])).toHaveLength(1);
+    expect(ask([verdictOf(e6)])).toEqual([]);
+    expect(ask(view(stateFor(E7, NO_CAPITAL)))).toEqual([]);
   });
 });
 
@@ -728,23 +751,20 @@ describe('保存の後', () => {
 });
 
 describe('畳んだ欄の誤り（レビュー指摘 1）', () => {
-  it('手数料に誤り → 「ほかの欄」を開き、帯は「誤り 1 欄」、判定の枠は誤りの欄の名前つきで直す案内を 1 回', () => {
+  it('手数料に誤り → 「ほかの欄」の行に「誤りあり」、帯は「誤り 1 欄」、判定の枠は誤りの欄の名前つきで直す案内を 1 回', () => {
     const d = applyDraft(E1, { type: 'set', field: 'feeYen', value: 'x' });
     const tree = view(stateFor(d, NO_CAPITAL));
-    const details = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
-    expect(details.props.open).toBe(true);
+    // 「ほかの欄（任意）›」の行に誤りの印（#130。その場で開く折りたたみはやめた）
+    expect(moreMetaOf(tree)).toBe('誤りあり');
+    expect(all(tree, (e) => e.type === 'details')).toEqual([]);
     expect(text(statusOf(tree))).toBe('誤り 1 欄');
     expect(text(hintOf(tree))).toBe('誤りのある欄（手数料）を直すと判定が表示されます。');
     expect(count(text(verdictOf(tree)), '直すと')).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
   });
 
-  it('誤りが無ければ「ほかの欄」は閉じたまま。誤りと未入力の欄は両方数え、案内に両方の名前', () => {
-    const closed = all(
-      view(stateFor(E1, NO_CAPITAL)),
-      (e) => e.type === 'details' && hasClass('more')(e),
-    )[0] as El;
-    expect(closed.props.open).toBeUndefined();
+  it('誤りが無ければ「ほかの欄」の行に印は無い。誤りと未入力の欄は両方数え、案内に両方の名前', () => {
+    expect(moreMetaOf(view(stateFor(E1, NO_CAPITAL)))).toBe('');
     const both = applyDraft(E10, { type: 'set', field: 'entryTime', value: '2026-03-04T11:00' });
     const tree = view(stateFor(both, NO_CAPITAL));
     expect(text(statusOf(tree))).toBe('誤り 1 欄・あと 1 欄');
@@ -830,49 +850,57 @@ const filledE1 = () => {
 };
 
 describe('送る前の注意（AC-11・R10）', () => {
-  it('貼る前・読み取り中・読み取りの後に 3 つの中身（AI の提供元に送る・切り取る・保存しない）が常に出ている。畳まない・ダイアログは無い（KEEP-5）', () => {
+  it('送る前（選ぶ前の明細の場所）に 3 つの中身（AI の提供元に送る・切り取る・保存しない）が畳まずに出ている。読み取りの後はもう 1 枚選ぶ所（取引の欄のシート）に出る（KEEP-6・#130）', () => {
     const f = filledE1();
-    for (const t of [
-      view(stateFor(E1, NO_CAPITAL)),
-      view(withStatement(E1, { phase: 'reading' }, true)),
-      view(withStatement(f.draft, { marks: f.marks })),
-    ]) {
-      const notice = all(t, hasClass('statement__notice'));
+    const area = (t: Node[]) => all(t, hasClass('rstmt'))[0] as El;
+    const pick = view(stateFor(draft({}), NO_CAPITAL));
+    const reading = view(withStatement(E1, { phase: 'reading' }, true));
+    const after = view(withStatement(f.draft, { marks: f.marks }));
+    expect(area(pick).props['data-area']).toBe('pick');
+    expect(area(reading).props['data-area']).toBe('reading');
+    expect(area(after).props['data-area']).toBe('summary');
+    // 読み取り中・読み取りの後の明細の場所は要約の 2 行（注意は送る前に出ている）
+    expect(all([area(reading)], hasClass('statement__notice'))).toEqual([]);
+    expect(all([area(after)], hasClass('statement__notice'))).toEqual([]);
+    for (const [t, where] of [
+      [pick, area(pick)],
+      [after, fieldsSheet(after)],
+    ] as const) {
+      const notice = all([where], hasClass('statement__notice'));
       expect(notice).toHaveLength(1);
+      expect(all(t, hasClass('statement__notice'))).toHaveLength(1);
       expect(notice[0]?.type).toBe('p');
-      const body = text(notice);
+      const body = text(
+        all([notice[0] as El], (e) => e.type === 'span' && e.props.id !== undefined),
+      );
       expect(body).toBe(STATEMENT_NOTICE.join(''));
       expect(body).toContain('AI の提供元（Anthropic）に送');
       expect(body).toContain('切り取って');
       expect(body).toContain('保存しません');
-      expect(all(t, (e) => e.type === 'dialog' || e.props.role === 'alertdialog')).toEqual([]);
-      for (const d of all(t, (e) => e.type === 'details')) {
-        expect(all([d], hasClass('statement__notice'))).toEqual([]);
-      }
-      // 補足は「i」に（#57 AC-9。3 つの中身は畳まない注意の側にある）。「詳しく」の文字・details の補足は無い
+      expect(all(t, (e) => e.props.role === 'alertdialog')).toEqual([]);
+      expect(all(t, (e) => e.type === 'details')).toEqual([]);
       expect(text(t)).not.toContain('詳しく');
       expect(all(t, hasClass('statement__more'))).toEqual([]);
-      // 「i」は注意の文の末尾（デザインレビュー 6）
-      const info = all(notice, (e) => e.type === 'button' && hasClass('info')(e));
-      expect(info).toHaveLength(1);
-      expect(info[0]?.props['aria-label']).toBe('「明細の送り方」の説明');
-      expect(info[0]?.props['aria-expanded']).toBe('false');
-      // 閉じている間は補足の文が無い（開いたときの中身は info-tip.test.tsx）
-      expect(text(t)).not.toContain(STATEMENT_NOTICE_MORE);
-      // [スクショを選ぶ] の読み上げの説明に注意を結ぶ
-      const input = all(t, (e) => e.props.id === 'record-statement-file')[0] as El;
-      // （結ぶのは注意の文の span だけ。「i」の名前を説明に混ぜない）
+      // [スクショを選ぶ] の読み上げの説明に注意を結ぶ（結ぶのは注意の文の span だけ）
+      const input = all(t, (e) => e.props.id === 'record-statement-file');
+      expect(input).toHaveLength(1);
       const span = (notice[0] as El).children.find(
         (c): c is El => typeof c !== 'string' && c.type === 'span' && c.props.id !== undefined,
       );
       expect(span && text(span)).toBe(STATEMENT_NOTICE.join(''));
-      expect(input.props['aria-describedby']).toBe(span?.props.id);
+      expect((input[0] as El).props['aria-describedby']).toBe(span?.props.id);
     }
+    // 「i」は選ぶ前の注意の文の末尾（デザインレビュー 6）。閉じている間は補足の文が無い
+    const info = all([area(pick)], (e) => e.type === 'button' && hasClass('info')(e));
+    expect(info).toHaveLength(1);
+    expect(info[0]?.props['aria-label']).toBe('「明細の送り方」の説明');
+    expect(info[0]?.props['aria-expanded']).toBe('false');
+    expect(text(pick)).not.toContain(STATEMENT_NOTICE_MORE);
   });
 
   it('[スクショを選ぶ] は label + ファイルの input（画像だけ）。選ぶと onPickFile、同じファイルを選び直せるよう空に戻す', () => {
     const got: unknown[] = [];
-    const tree = view(stateFor(E1, NO_CAPITAL), { onPickFile: (f) => got.push(f) });
+    const tree = view(stateFor(draft({}), NO_CAPITAL), { onPickFile: (f) => got.push(f) });
     const input = all(tree, (e) => e.type === 'input' && e.props.type === 'file')[0] as El;
     expect(input.props.id).toBe('record-statement-file');
     expect(String(input.props.accept)).toContain('image/png');
@@ -886,7 +914,7 @@ describe('送る前の注意（AC-11・R10）', () => {
 });
 
 describe('読み取り中（AC-3）', () => {
-  it('控えめな状態の文と [やめて手で入れる]。[記録する] は押せず理由「明細を読み取っています」。欄は入れられる', () => {
+  it('控えめな状態の文と [読み取りをキャンセル]。[記録する] は押せず理由「明細を読み取っています」。欄は入れられる', () => {
     let cancel = 0;
     const tree = view(withStatement(E1, { phase: 'reading', rows: [] }, true), {
       onCancelRead: () => {
@@ -894,8 +922,18 @@ describe('読み取り中（AC-3）', () => {
       },
     });
     const status = all(tree, (e) => e.props.role === 'status').map(text);
-    expect(status).toContain('明細を読み取っています…');
+    expect(status).toContain('読み取り中…');
+    // 2 番目の重さの ［キャンセル］（見える文字は短く。デザインレビュー a2）（読み上げ「明細の読み取りをキャンセル」。9.4）
     const btn = all(tree, (e) => e.type === 'button' && text(e) === 'キャンセル')[0] as El;
+    expect(btn.props['aria-label']).toBe('明細の読み取りをキャンセル');
+    // 明細の場所は要約の骨組み（読み取りの後の要約と同じ形の 2 行 + ボタン）
+    const card = all(tree, hasClass('rstmt__card'))[0] as El;
+    expect(cls(card)).toContain('rstmt__card--sum');
+    expect(all([card], hasClass('rsum__l1'))).toHaveLength(1);
+    expect(all([card], hasClass('rsum__l2'))).toHaveLength(1);
+    // LC・一言・3 つのタップは読み取り中も入れられる（C23）
+    for (const id of ['record-lc', 'record-broken'])
+      expect(all(tree, (e) => e.props.id === id)[0]?.props.disabled, id).not.toBe(true);
     (btn.props.onClick as () => void)();
     expect(cancel).toBe(1);
     expect(submit(tree).props.disabled).toBe(true);
@@ -906,12 +944,18 @@ describe('読み取り中（AC-3）', () => {
 });
 
 describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
-  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る。「ほかの欄」は開いて損益・手数料が見える（エントリーの時刻は「取引」の枠。#58）', () => {
+  it('9 欄の印「読み取り」が文字で出て、欄の読み上げの説明に入る（取引の欄のシートの 7 欄・ほかの欄の 2 欄。エントリーの時刻は「取引」の欄。#58・#130）', () => {
     const { draft, marks } = filledE1();
-    const tree = view(withStatement(draft, { marks }));
-    const texts = all(tree, hasClass('field__mark')).map(text);
+    const main = view(withStatement(draft, { marks }));
+    const more = moreView(withStatement(draft, { marks }));
+    const marksIn = (t: Node[]) => all([fieldsSheet(t)], hasClass('field__mark')).map(text);
+    const texts = [...marksIn(main), ...marksIn(more)];
     expect(texts).toHaveLength(9);
     expect(new Set(texts)).toEqual(new Set(['読み取り']));
+    // 要約の 1 行目にも印「読み取り」、「ほかの欄」の行に「読み取りあり」
+    expect(text(all(main, hasClass('rsum__mark')))).toBe('読み取り');
+    expect(moreMetaOf(main)).toBe('読み取りあり');
+    const tree = [...main, ...more];
     for (const id of [
       'record-instrument',
       'record-entry',
@@ -930,21 +974,21 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
       (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'L / S',
     )[0] as El;
     expect(side.props['aria-describedby']).toBe('record-side-mark');
-    const details = all(tree, (e) => e.type === 'details' && hasClass('more')(e))[0] as El;
-    expect(details.props.open).toBe(true);
   });
 
   it('直した欄は「直した」、逆指値の既定は「明細から」、時間帯の無い時刻は「タイムゾーンが書かれていません」', () => {
-    const tree = view(
-      withStatement(E1, {
-        marks: {
-          exitPrice: 'edited',
-          lcDecided: 'statement',
-          exitReason: 'statement',
-          exitTime: 'tz',
-        },
-      }),
-    );
+    const st = withStatement(E1, {
+      marks: {
+        exitPrice: 'edited',
+        lcDecided: 'statement',
+        exitReason: 'statement',
+        exitTime: 'tz',
+      },
+    });
+    const tree = [
+      ...view(st),
+      ...all(moreView(st), (e) => e.props['data-sheet'] === 'record-fields-sheet'),
+    ];
     const marks = all(tree, hasClass('field__mark')).map(text);
     expect(marks).toEqual(
       expect.arrayContaining([
@@ -954,7 +998,10 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
         'タイムゾーンが書かれていません',
       ]),
     );
-    const reason = all(tree, (e) => e.type === 'select')[0] as El;
+    const reason = all(
+      tree,
+      (e) => e.type === 'select' && e.props.id === 'record-exit-reason',
+    )[0] as El;
     expect(reason.props['aria-describedby']).toBe('record-exit-reason-mark');
   });
 
@@ -1074,7 +1121,9 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
 
   it('欄を直した（修正済み）ら選択肢を出さない（KEEP-6）。時間帯の書かれた明細でも出ない（KEEP-5）', () => {
     expect(all(tzView(tzState(), { exitTime: 'edited' }), hasClass('statement__tz'))).toEqual([]);
+    expect(all(tzView(tzState(), { exitTime: 'edited' }), hasClass('rsum__tz'))).toEqual([]);
     expect(all(view(withStatement(E1, {})), hasClass('statement__tz'))).toEqual([]);
+    expect(all(view(withStatement(E1, {})), hasClass('rsum__tz'))).toEqual([]);
   });
 
   it('プレビューは canvas（width・height の属性、style なし、読み上げの名前）', () => {
@@ -1180,7 +1229,7 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
   });
 
   it('指摘 4: 貼り付けの案内はキーの名前に頼らない（PC だけに出すクラス）', () => {
-    const hint = all(view(stateFor(E1, NO_CAPITAL)), hasClass('statement__pastehint'));
+    const hint = all(view(stateFor(draft({}), NO_CAPITAL)), hasClass('statement__pastehint'));
     expect(hint.map(text)).toEqual(['PC はこの画面に貼り付けることもできます。']);
     expect(text(view(stateFor(E1, NO_CAPITAL)))).not.toContain('Ctrl');
   });
@@ -1207,7 +1256,9 @@ describe('保存に失敗して戻ったときのフォーカスの戻り先（I
 // ── 根拠の足のチャートの枠（Issue #12 契約 UI-1・AC-1・AC-3・R2） ──
 
 describe('チャートの枠（Issue #12）', () => {
-  const frames = (tree: Node[]) => all(tree, (e) => typeof e.props['data-chart-slot'] === 'string');
+  // チャートのシートの中の枠（時間足・差し替え・削除。#130 で 1 画面の小さな 2 枠とは分けた）
+  const frames = (tree: Node[]) =>
+    all(tree, (e) => e.type === 'fieldset' && typeof e.props['data-chart-slot'] === 'string');
   const ready = () => ({ phase: 'ready' as const, preview: fakePreview(1200, 800), message: null });
 
   it('記録する画面にエントリー時と決済時の枠があり、名前・撮る足の添え書き・[チャートを選ぶ]', () => {
@@ -1455,7 +1506,10 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
       view(stateFor(E1, NO_CAPITAL)),
       view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } })),
     ]) {
-      expect(text(all(tree, hasClass('charts__notice')))).toBe(CHART_READ_NOTICE);
+      // 1 画面の 2 枠の下と、チャートのシートの見出しの下（C38。畳まない）
+      const notices = all(tree, hasClass('charts__notice'));
+      expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
+      expect(cls(notices[0] as El)).toContain('rcharts__notice');
       const body = text(all(tree, (e) => e.props.id === 'record-statement-notice'));
       expect(body).toContain('明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません');
     }
@@ -1545,14 +1599,15 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
 });
 
 describe('密度と階層（Issue #33）', () => {
-  it('AC-3: 判定の枠は 3 つのタップの枠のすぐ後（間に別の入力の枠が無い）', () => {
+  it('#130（AC-3 の置き換え）: 1 画面の並びは 明細の場所 → チャートの 2 枠と注意 → LC と一言 → 3 つのタップ。判定は判定のシートの中', () => {
     for (const d of [draft({}), E1, E16]) {
       const tree = view(stateFor(d, NO_CAPITAL));
       const fieldset = all(tree, (e) => e.type === 'fieldset' && hasClass('record__fields')(e))[0];
-      const kids = (fieldset?.children ?? []).filter((n): n is El => typeof n !== 'string');
-      const taps = kids.findIndex((k) => k.props['aria-labelledby'] === 'record-taps-title');
-      expect(taps).toBeGreaterThanOrEqual(0);
-      expect(hasClass('verdict')(kids[taps + 1] as El)).toBe(true);
+      const kids = (fieldset?.children ?? []).filter(
+        (n): n is El => typeof n !== 'string' && n.type !== 'legend' && !('data-sheet' in n.props),
+      );
+      expect(kids.map((k) => cls(k))).toEqual(['rstmt', 'rcharts', 'record__lc', 'record__taps']);
+      expect(all([sheetOf(tree, 'record-verdict-sheet')], hasClass('verdict'))).toHaveLength(1);
     }
   });
 
@@ -1590,14 +1645,17 @@ describe('密度と階層（Issue #33）', () => {
     expect(Object.keys(head?.props ?? {})).toEqual(['title']);
   });
 
-  it('AC-1: 帯は 1 段（状態の文 1 つ + [記録する]）。保存の後の帯は [次の取引を記録] だけで大きいボタンにしない', () => {
+  it('AC-1: 帯は判定の 1 行 + [記録する] の 1 段（9.4）。[記録する] は大きいボタンにしない', () => {
     const tree = view(stateFor(draft({}), NO_CAPITAL));
     const bar = all(tree, hasClass('record__submit'))[0] as El;
     expect(cls(bar)).toContain('record__submit--bar');
     const kids = bar.children.filter((n): n is El => typeof n !== 'string');
-    expect(kids.map((k) => k.type)).toEqual(['p', 'button']);
+    // 判定の 1 行（状態の文を持つ押せる行。押すと判定のシート）と [記録する]（#130）
+    expect(kids.map((k) => k.type)).toEqual(['button', 'button']);
+    expect(kids[0]?.props.id).toBe('record-verdict-line');
+    expect(all([kids[0] as El], hasClass('record__status'))).toHaveLength(1);
+    expect(kids[1]?.props.type).toBe('submit');
     expect(String(kids[1]?.props.class)).not.toContain('btn--lg');
-    expect(String(kids[1]?.props.class)).not.toContain('btn--block');
   });
 });
 
@@ -1632,10 +1690,10 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
     expect(text(head ? [head] : [])).toBe('取引＋ 口座を追加');
   });
 
-  it('U2: 口座 2〜3 つ → 「取引」の先頭（銘柄の上）に Segment「口座」。選ばれた項目にチェック', () => {
+  it('U2（#130 の置き場）: 口座 2〜3 つ → 要約の下に Segment「口座」（取引の欄のシートには出さない）。選ばれた項目にチェック', () => {
     for (const n of [2, 3]) {
       const d = applyDraft(E11, { type: 'set', field: 'accountId', value: 'accB' });
-      const tree = view(stateFor(d, withAccounts(n)));
+      const tree = view(stateFor(d, withAccounts(n), { manual: true }));
       const group = all(
         tree,
         (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === '口座',
@@ -1644,17 +1702,25 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
       const radios = all(group ? [group] : [], (e) => e.type === 'input');
       expect(radios).toHaveLength(n);
       expect(radios.filter((r) => r.props.checked).map((r) => r.props.value)).toEqual(['accB']);
-      // 銘柄の欄より前
-      const ids = all(
-        tree,
-        (e) => e.props.name === 'record-account' || e.props.id === 'record-instrument',
-      ).map((e) => String(e.props.name ?? e.props.id));
-      expect(ids.indexOf('record-account')).toBeLessThan(ids.indexOf('record-instrument'));
+      // 要約の下の 1 行（明細の場所の中）。取引の欄のシートには口座の欄が無い
+      const summary = all(tree, hasClass('rsum__accounts'))[0] as El;
+      expect(all([summary], (e) => e.props.role === 'radiogroup')).toHaveLength(1);
+      expect(all([fieldsSheet(tree)], (e) => e.props.name === 'record-account')).toEqual([]);
+      // 選ぶ前の明細の場所（1 画面の高さの予算）には出さない
+      const blank = draft({ accountId: 'accB' });
+      expect(all(view(stateFor(blank, withAccounts(n))), hasClass('rsum__accounts'))).toEqual([]);
     }
   });
 
-  it('U3: 口座 4 つ以上 → select「口座」', () => {
-    const tree = view(stateFor(E11, withAccounts(4)));
+  it('U3（#130 の置き場）: 口座 4 つ以上 → 要約の先頭の札（押すと取引の欄のシートの select「口座」へ）', () => {
+    const sheets: unknown[] = [];
+    const tree = view(stateFor(E11, withAccounts(4), { manual: true }), {
+      onSheet: (x) => sheets.push(x),
+    });
+    const chip = all(tree, hasClass('rsum__account'))[0] as El;
+    expect(text(chip)).toBe('口座 1');
+    (chip.props.onClick as () => void)();
+    expect(sheets).toEqual([{ kind: 'fields', step: 'main', focus: 'accountId' }]);
     const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-account')[0];
     expect(sel).toBeDefined();
     expect(all(sel ? [sel] : [], (e) => e.type === 'option').map(text)).toEqual([
@@ -1708,7 +1774,7 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
   });
 
   it('U4: 長い名前は省略の印（seg__text）を持つ項目の文字。全文は文字のまま', () => {
-    const tree = view(stateFor(E11, withAccounts(3, true)));
+    const tree = view(stateFor(E11, withAccounts(3, true), { manual: true }));
     const texts = all(tree, hasClass('seg__text')).map(text);
     expect(texts).toContain('口座 B（とても長い名前の口座で、幅に入らない）');
     expect(all(tree, hasClass('seg--truncate'))).toHaveLength(1);
@@ -1735,7 +1801,9 @@ describe('口座の欄（#47 U1〜U4・U10）', () => {
 
   it('口座の 1 タップで onUpdate に口座が届く（AC-11 の自動の側）', () => {
     const got: unknown[] = [];
-    const tree = view(stateFor(E11, withAccounts(2)), { onUpdate: (a) => got.push(a) });
+    const tree = view(stateFor(E11, withAccounts(2), { manual: true }), {
+      onUpdate: (a) => got.push(a),
+    });
     const radio = all(tree, (e) => e.type === 'input' && e.props.value === 'accB')[0];
     (radio?.props.onChange as (() => void) | undefined)?.();
     expect(got).toEqual([{ type: 'set', field: 'accountId', value: 'accB' }]);
@@ -1773,7 +1841,8 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     expect(
       all(tree, (e) => e.props['aria-label'] === '口座' && e.props.role === 'radiogroup'),
     ).toEqual([]);
-    expect(all(tree, (e) => e.type === 'dialog' || e.props.role === 'dialog')).toEqual([]);
+    // 取引の欄のシートの中に開く（シートの上にシートを重ねない。#130）
+    expect(all([fieldsSheet(tree)], hasClass('accountadd'))).toHaveLength(1);
     expect(all(tree, (e) => e.props.id === 'record-account-add')[0]?.props['aria-expanded']).toBe(
       'true',
     );
@@ -1994,7 +2063,7 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
   });
 
   it('U27・U29: 「ほかの欄」の名前は「損益（明細の値）」「手数料」、USD の口座では単位 USD・判定の枠の損益は「−50.00 USD」', () => {
-    const tree = view(stateFor(pDraft({}), CTX_D));
+    const tree = moreView(stateFor(pDraft({}), CTX_D));
     const labels = all(tree, (e) => e.type === 'label').map((e) => text(e));
     expect(labels).toContain('損益（明細の値）');
     expect(labels).toContain('手数料');
@@ -2022,23 +2091,23 @@ describe('通貨と為替（#47 PR-2・U22〜U28・AC-15・AC-21 の出る / 消
       },
     });
     // C5: JPY の明細を USD の口座 D に
-    expect(text(byId(view(withRow(CTX_D, ROW_E1)), 'record-money-note'))).toBe(
+    expect(text(byId(moreView(withRow(CTX_D, ROW_E1)), 'record-money-note'))).toBe(
       '明細の損益は JPY です（口座 D は USD）。JPY の口座を選ぶか、USD の損益を入力してください',
     );
     // C6: 通貨が読めない
     const unread = { ...ROW_E1, pnlCurrency: 'unknown' };
-    expect(text(byId(view(withRow(CTX_D, unread)), 'record-money-note'))).toBe(
+    expect(text(byId(moreView(withRow(CTX_D, unread)), 'record-money-note'))).toBe(
       '明細の損益の通貨が読めませんでした。USD の損益を入力してください',
     );
     // C4: USD の明細は入るので理由は出ない
     const usd = { ...ROW_E1, pnlCurrency: 'USD' };
-    expect(byId(view(withRow(CTX_D, usd)), 'record-money-note')).toHaveLength(0);
+    expect(byId(moreView(withRow(CTX_D, usd)), 'record-money-note')).toHaveLength(0);
     // C3: 円の口座 A に USD の明細
-    expect(text(byId(view(withRow(CTX_A, usd)), 'record-money-note'))).toBe(
+    expect(text(byId(moreView(withRow(CTX_A, usd)), 'record-money-note'))).toBe(
       '明細の損益は USD です（口座 A は JPY）。USD の口座を選ぶか、円の損益を入力してください',
     );
     // 円の口座・明細なしでは出ない
-    expect(byId(view(stateFor(pDraft({}), CTX_A)), 'record-money-note')).toHaveLength(0);
+    expect(byId(moreView(stateFor(pDraft({}), CTX_A)), 'record-money-note')).toHaveLength(0);
   });
 
   it('KEEP-3: 口座 1 つ・円建てでは為替の欄・建ての 1 行・注記が無く、入力の欄の数が通貨の無い形と同じ', () => {
@@ -2086,7 +2155,13 @@ describe('言葉の説明の「i」（#57）', () => {
     }
     const n = names(t);
     expect(new Set(n).size).toBe(n.length);
-    expect(all(t, (e) => e.type === 'dialog')).toEqual([]);
+    // 説明のシートはアプリに 1 つ（#129）。画面の木の dialog は記録する画面のシート 4 つだけ（#130）
+    expect(all(t, (e) => e.type === 'dialog').map((e) => e.props.id)).toEqual([
+      'record-fields-sheet',
+      'record-tz-sheet',
+      'record-chart-sheet',
+      'record-verdict-sheet',
+    ]);
   });
 
   it('AC-5: 「i」は type="button" で、押しても onUpdate・onSave を呼ばない（未選択の下書き）', () => {
@@ -2111,5 +2186,135 @@ describe('言葉の説明の「i」（#57）', () => {
       (b.props.onClick as () => void)();
     }
     expect(got).toEqual([]);
+  });
+});
+
+describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
+  const sheets = () => {
+    const got: unknown[] = [];
+    return { got, onSheet: (x: unknown) => got.push(x) };
+  };
+  const area = (t: Node[]) => all(t, hasClass('rstmt'))[0] as El;
+
+  it('選ぶ前: ［スクショを選ぶ］ と ［明細なしで手入力］ が 1 段。手入力を押すと onManual', () => {
+    let manual = 0;
+    const tree = view(stateFor(draft({}), NO_CAPITAL), { onManual: () => manual++ });
+    const actions = all([area(tree)], hasClass('rstmt__actions'))[0] as El;
+    expect(text(actions)).toBe('スクショを選ぶ明細なしで手入力');
+    const btn = all([actions], (e) => e.type === 'button')[0] as El;
+    (btn.props.onClick as () => void)();
+    expect(manual).toBe(1);
+  });
+
+  it('AC-4: 読み取りの後は要約 2 行と ［編集］。読めなかった欄を名指し、押すとその欄で取引の欄のシート', () => {
+    const { got, onSheet } = sheets();
+    const d = draft({ side: 'L', entryPrice: '100', exitPrice: '' });
+    const tree = view(
+      withStatement(d, { marks: { exitPrice: 'unread', instrumentName: 'read' } }),
+      { onSheet },
+    );
+    expect(text(all(tree, hasClass('rsum__l1')))).toBe('US30 · L · 数量 10,000読み取り');
+    expect(text(all(tree, hasClass('rsum__l2')))).toBe('100 → — · 3/4 10:00');
+    const edit = all(tree, (e) => e.props.id === 'record-edit-fields')[0] as El;
+    expect(text(edit)).toBe('編集');
+    expect(edit.props['aria-label']).toBe('取引の欄を編集');
+    (edit.props.onClick as () => void)();
+    const chips = all(tree, hasClass('rsum__chip'));
+    expect(chips.map((c) => c.props['aria-label'])).toEqual([
+      '読み取れませんでした: 決済（取引の欄を開く）',
+    ]);
+    ((chips[0] as El).props.onClick as () => void)();
+    expect(got).toEqual([
+      { kind: 'fields', step: 'main' },
+      { kind: 'fields', step: 'main', focus: 'exitPrice' },
+    ]);
+    // 文字のリンクの見た目にしない（2 番目の重さのボタン・チップ。9.12）
+    expect(cls(edit)).toContain('btn--secondary');
+    for (const c of chips) expect(cls(c)).toContain('chip');
+  });
+
+  it('AC-5: タイムゾーンが未選択 → シートは閉じたまま、要約の行に印と ［タイムゾーンを選ぶ］。判定の 1 行は「タイムゾーンが未選択」', () => {
+    const { got, onSheet } = sheets();
+    const st = withStatement(E1, {
+      rows: [ROW_E9],
+      marks: { exitTime: 'tz' },
+      tz: { fields: ['exitTime'], choice: null, remembered: false, otherOpen: false, gap: null },
+    });
+    const tree = view(st, { onSheet });
+    const tz = sheetOf(tree, 'record-tz-sheet');
+    expect(tz.props['data-open']).toBe('false');
+    expect(all([tz], hasClass('statement__tz'))).toHaveLength(1);
+    const row = all(tree, hasClass('rsum__tz'))[0] as El;
+    expect(text(all([row], hasClass('rsum__tzmark')))).toBe('時刻が未確定');
+    const btn = all([row], (e) => e.type === 'button')[0] as El;
+    expect(text(btn)).toBe('タイムゾーンを選ぶ');
+    (btn.props.onClick as () => void)();
+    expect(got).toEqual([{ kind: 'tz' }]);
+    expect(text(statusOf(tree))).toBe('タイムゾーンが未選択');
+    expect(submit(tree).props.disabled).toBe(true);
+    const opened = view(st, { sheet: { kind: 'tz' } });
+    expect(sheetOf(opened, 'record-tz-sheet').props['data-open']).toBe('true');
+  });
+
+  it('AC-9: 判定の 1 行は判定が出ればバッジ・R、押すと判定のシート', () => {
+    const { got, onSheet } = sheets();
+    const tree = view(stateFor(E1, NO_CAPITAL), { onSheet });
+    const line = all(tree, (e) => e.props.id === 'record-verdict-line')[0] as El;
+    expect(text(all([line], hasClass('badge')))).toBe('B 悪い損失');
+    expect(text(all([line], hasClass('num')))).toContain('R');
+    expect(line.props['aria-haspopup']).toBe('dialog');
+    (line.props.onClick as () => void)();
+    expect(got).toEqual([{ kind: 'verdict' }]);
+    // 判定が出ていなければ状態の文だけ
+    const open = view(stateFor(draft({}), NO_CAPITAL));
+    const l2 = all(open, (e) => e.props.id === 'record-verdict-line')[0] as El;
+    expect(all([l2], hasClass('badge'))).toEqual([]);
+    expect(text(statusOf(open))).toMatch(/^あと \d+ 欄$/);
+  });
+
+  it('AC-7: チャートの 2 枠は横並び。空は ［チャートを選ぶ］（ファイルの欄に data-chart-slot）、ある枠は押すとチャートのシート', () => {
+    const { got, onSheet } = sheets();
+    const tree = view(
+      stateFor(E1, NO_CAPITAL, {
+        charts: { entry: { phase: 'ready', preview: fakePreview(1200, 800), message: null } },
+      }),
+      { onSheet },
+    );
+    const mini = all(tree, hasClass('rcharts'))[0] as El;
+    const grid = all([mini], hasClass('rcharts__grid'))[0] as El;
+    const slots = grid.children.filter((n): n is El => typeof n !== 'string');
+    expect(slots.map((x) => x.type)).toEqual(['button', 'label']);
+    expect(slots[0]?.props['data-chart-slot']).toBe('entry');
+    ((slots[0] as El).props.onClick as () => void)();
+    expect(got).toEqual([{ kind: 'chart' }]);
+    const file = all([slots[1] as El], (e) => e.type === 'input')[0] as El;
+    expect(file.props['data-chart-slot']).toBe('exit');
+    expect(file.props['aria-label']).toBe('決済時のチャートを選ぶ');
+    expect(text(all([mini], hasClass('rcharts__notice')))).toBe(CHART_READ_NOTICE);
+  });
+
+  it('AC-8: 「ほかの欄（任意）›」は取引の欄のシートの次の段。段 2 は ［‹ 取引の欄］ で戻る', () => {
+    const { got, onSheet } = sheets();
+    const tree = view(stateFor(E1, NO_CAPITAL), { onSheet });
+    const row = all(tree, (e) => e.props.id === 'record-more')[0] as El;
+    (row.props.onClick as () => void)();
+    const more = moreView(stateFor(E1, NO_CAPITAL), { onSheet });
+    const up = all([fieldsSheet(more)], (e) => e.props['aria-label'] === '取引の欄へ戻る')[0] as El;
+    (up.props.onClick as () => void)();
+    expect(got).toEqual([
+      { kind: 'fields', step: 'more' },
+      { kind: 'fields', step: 'main' },
+    ]);
+    expect(all(more, (e) => e.type === 'details')).toEqual([]);
+    expect(text(all([fieldsSheet(more)], (e) => e.type === 'h2'))).toBe('ほかの欄（任意）');
+  });
+
+  it('AC-1: 行が 2 つ以上なら上の帯の右に「i / N 行目」', () => {
+    const bar = expand(
+      RecordBarView({ title: '記録する', saving: false, rows: '1 / 2 行目', onCancel: noop }),
+    );
+    expect(text(all(bar, hasClass('appbar__meta')))).toBe('1 / 2 行目');
+    const none = expand(RecordBarView({ title: '記録する', saving: false, onCancel: noop }));
+    expect(all(none, hasClass('appbar__meta'))).toEqual([]);
   });
 });

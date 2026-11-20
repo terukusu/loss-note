@@ -5,6 +5,7 @@ import type { StoredTrade } from '../../core/record';
 import { ACCOUNT_MSG } from '../../ui/src/lib/accounts';
 import { NotSignedIn } from '../../ui/src/lib/api';
 import { floorToMinute, toLocalInput } from '../../ui/src/lib/datetime';
+import { recordDraftStatus } from '../../ui/src/lib/draft-status';
 import { formatR } from '../../ui/src/lib/format';
 import { reasonText } from '../../ui/src/lib/reasons';
 import {
@@ -31,6 +32,7 @@ import {
   type ZoneMemory,
 } from '../../ui/src/lib/record-controller';
 import { applyDraft, type Draft, EMPTY_DRAFT, summarize } from '../../ui/src/lib/record-form';
+import { statementArea } from '../../ui/src/lib/record-screen';
 import {
   READ_FIELDS,
   READ_MSG,
@@ -2237,5 +2239,53 @@ describe('記録する画面の為替の基準（#47 PR-2 の 3 回目の再レ�
     await c.readImage(img());
     expect(c.getState().draft.instrumentName).toBe('架空指数E');
     expect(c.getState().draft.fxRate).toBe('');
+  });
+});
+
+describe('［明細なしで手入力］（#130 AC-4）', () => {
+  it('押すと明細の場所が要約の状態になり、押しただけでは書きかけに数えない。次の取引で選ぶ前へ戻る', async () => {
+    const fake = createFakeApi({ instruments: [US30] });
+    const c = await opened(fake);
+    expect(statementArea(c.getState())).toBe('pick');
+    c.startManual();
+    expect(c.getState().manual).toBe(true);
+    expect(statementArea(c.getState())).toBe('summary');
+    expect(recordDraftStatus(c.getState())).toBe('empty');
+    fillFrom(c, E1);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    c.next();
+    expect(c.getState().manual).toBe(false);
+    expect(statementArea(c.getState())).toBe('pick');
+  });
+});
+
+describe('#130 のレビュー B1: 2 枚目の読み取りが失敗・キャンセルでも要約が消えない（確かめずに記録へ入る経路を作らない）', () => {
+  it('読めた後に 2 枚目が失敗 → 明細の場所は要約のまま（取引の値が残る）', async () => {
+    const { c } = await openedForRead([
+      ok([ROW_E1]),
+      { status: 503, body: { error: 'read_unavailable' } },
+    ]);
+    await c.readImage(img());
+    expect(statementArea(c.getState())).toBe('summary');
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.statement?.phase).toBe('failed');
+    expect(s.draft.entryPrice).not.toBe('');
+    expect(statementArea(s)).toBe('summary');
+  });
+
+  it('読めた後に 2 枚目を読み取り中にキャンセル → 要約のまま', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_E1]), ok([ROW_E1])]);
+    await c.readImage(img());
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => c.getState().statement?.phase === 'reading');
+    expect(statementArea(c.getState())).toBe('reading');
+    c.cancelRead();
+    expect(c.getState().statement).toBeUndefined();
+    expect(statementArea(c.getState())).toBe('summary');
+    fake.releaseReads();
+    await p;
   });
 });

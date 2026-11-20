@@ -45,6 +45,11 @@ export interface TradeFieldsProps {
   readonly accountAdd?: ComponentChildren;
   /** 3 つ目のタップの下に添える 1 行（チャートの時間足の違いと食い違うとき。記録する画面だけ。#27） */
   readonly timeframeHint?: string | null;
+  /**
+   * 「狭めた = …」の 1 行を出さず、「i」の説明（用語集の lcMove の先頭の文）に任せる（記録する画面の 1 画面の高さ。#130）。
+   * 直す画面は今のまま 1 行を出す
+   */
+  readonly moveHintInInfo?: boolean;
   /** 通貨と為替（#47 PR-2）。省けば円の口座・円建てと同じ（欄も文言も増えない） */
   readonly currency?: CurrencyView;
 }
@@ -106,9 +111,9 @@ function fieldHelpers(p: TradeFieldsProps) {
   return { d, e: p.errors, set, mark, onUpdate: p.onUpdate, marks: p.marks };
 }
 
-/** 「取引」「LC」「決済までの行動」（3 つの質問）の枠 */
-export function TradeMainFields(p: TradeFieldsProps) {
-  const { d, e, set, mark, onUpdate } = fieldHelpers(p);
+/** 「取引」の欄の中身（口座・銘柄 | 数量・L / S・イン | 決済・為替・時刻）。記録する画面は取引の欄のシートに、直す画面は枠に置く */
+export function TradeCoreFields(p: TradeFieldsProps) {
+  const { d, e, set, mark } = fieldHelpers(p);
   const fx = p.currency?.fx;
   const quantity = (
     <NumberField
@@ -158,6 +163,184 @@ export function TradeMainFields(p: TradeFieldsProps) {
   );
   return (
     <>
+      {p.accountAdd ? (
+        p.accountAdd
+      ) : p.accounts && p.accountId !== undefined ? (
+        <AccountField
+          accounts={p.accounts}
+          value={p.accountId}
+          onChange={set('accountId')}
+          {...(p.accountHint ? { hint: p.accountHint } : {})}
+          {...mark('accountId')}
+        />
+      ) : null}
+      {/* 銘柄と数量は前の取引から入る既定の値の対なので、幅 360px でも 2 列に並べて画面の全長を詰める（#58。R12）。
+        通貨が違っても同じ段に置き、欄の位置を変えない（為替は価格の下に段を足す。#58 デザインレビュー 1） */}
+      <div class="record__pair record__pair--prices">
+        {instrument}
+        {quantity}
+      </div>
+      <datalist id={INSTRUMENT_LIST_ID}>
+        {p.instruments.map((i) => (
+          <option key={i.id} value={i.name} />
+        ))}
+      </datalist>
+      <Segment
+        label="L / S"
+        id="record-side"
+        {...mark('side')}
+        value={d.side}
+        onChange={set('side')}
+        options={[
+          { value: 'L', label: 'L ロング' },
+          { value: 'S', label: 'S ショート' },
+        ]}
+      />
+      <div class="record__pair record__pair--prices">
+        <NumberField
+          id="record-entry"
+          label="イン"
+          size="lg"
+          value={d.entryPrice}
+          onInput={set('entryPrice')}
+          placeholder="0.00"
+          {...mark('entryPrice')}
+          {...(e.entryPrice ? { error: e.entryPrice } : {})}
+        />
+        <NumberField
+          id="record-exit"
+          label="決済"
+          size="lg"
+          value={d.exitPrice}
+          onInput={set('exitPrice')}
+          placeholder="0.00"
+          {...mark('exitPrice')}
+          {...(e.exitPrice ? { error: e.exitPrice } : {})}
+        />
+      </div>
+      {fx ? (
+        // 通貨が違うときだけ「為替 | 1 USD = ? 円」の段を足す（どの幅でも 2 列。右の 1 行は為替の欄の読み上げの説明）
+        <div class="record__pair record__pair--prices">
+          <NumberField
+            id="record-fx"
+            label="為替"
+            value={d.fxRate}
+            onInput={set('fxRate')}
+            unit={fx.unit}
+            describedBy={FX_LINE_ID}
+            {...(e.fxRate ? { error: e.fxRate } : {})}
+          />
+          <p id={FX_LINE_ID} class="field__hint record__fxline">
+            {fx.line}
+          </p>
+        </div>
+      ) : null}
+      {times}
+    </>
+  );
+}
+
+/** 入る前に決めた LC（+ なし）と崩れの条件の一言 */
+export function LcFields(p: TradeFieldsProps) {
+  const { d, e, set, onUpdate } = fieldHelpers(p);
+  return (
+    <>
+      <div class="lcrow">
+        <NumberField
+          id="record-lc"
+          label="入る前に決めた LC"
+          size="lg"
+          value={d.lc}
+          onInput={set('lc')}
+          disabled={d.lcNone}
+          placeholder={d.lcNone ? 'なし' : '0.00'}
+          hint="思惑が外れたと確認できる価格"
+          {...(e.lc ? { error: e.lc } : {})}
+        />
+        <button
+          type="button"
+          class="lcnone"
+          aria-pressed={d.lcNone ? 'true' : 'false'}
+          aria-label="LC を決めていなかった（なし）"
+          onClick={() => onUpdate({ type: 'set', field: 'lcNone', value: !d.lcNone })}
+        >
+          {d.lcNone ? <Icon name="check" /> : null}
+          <span>なし</span>
+        </button>
+      </div>
+      <TextField
+        id="record-broken"
+        label="根拠が崩れる条件（任意）"
+        value={d.brokenCondition}
+        onInput={set('brokenCondition')}
+        placeholder="例: 押し目の安値を割ったら"
+        {...(e.brokenCondition ? { error: e.brokenCondition } : {})}
+      />
+    </>
+  );
+}
+
+/** 決済までの行動の 3 つのタップ（LC なしの注記・広げた後の LC・チャートとの食い違いの 1 行） */
+export function TapFields(p: TradeFieldsProps) {
+  const { d, e, set, mark, onUpdate } = fieldHelpers(p);
+  return (
+    <>
+      {d.lcNone ? (
+        <p class="section__note">LC が無いため、「決めていない」「そのまま」として記録します。</p>
+      ) : (
+        <>
+          <Segment
+            label="LC を入る前に決めていたか"
+            id="record-lc-decided"
+            info={<InfoTip term="lcDecided" prefer="above" />}
+            {...mark('lcDecided')}
+            value={d.lcDecided === null ? null : d.lcDecided ? 'yes' : 'no'}
+            onChange={(v) => onUpdate({ type: 'set', field: 'lcDecided', value: v === 'yes' })}
+            options={[
+              { value: 'yes', label: '決めていた' },
+              { value: 'no', label: '決めていない' },
+            ]}
+          />
+          <Segment
+            label="LC を動かしたか"
+            info={<InfoTip term="lcMove" prefer="above" />}
+            value={d.lcMove}
+            onChange={set('lcMove')}
+            options={MOVE_OPTIONS}
+            {...(p.moveHintInInfo ? {} : { describedBy: LC_MOVE_HINT_ID })}
+          />
+          {p.moveHintInInfo ? null : (
+            <p id={LC_MOVE_HINT_ID} class="field__hint record__movehint">
+              {LC_MOVE_HINT}
+            </p>
+          )}
+          {d.lcMove === 'widened' ? (
+            <NumberField
+              id="record-lc-after"
+              label={`${FIELD_LABEL.lcAfter}（任意）`}
+              value={d.lcAfter}
+              onInput={set('lcAfter')}
+              {...(e.lcAfter ? { error: e.lcAfter } : {})}
+            />
+          ) : null}
+        </>
+      )}
+      <Segment
+        label="時間足を変えたか"
+        info={<InfoTip term="timeframeChange" prefer="above" />}
+        value={d.timeframeChange}
+        onChange={set('timeframeChange')}
+        options={TIMEFRAME_OPTIONS}
+      />
+      {p.timeframeHint ? <p class="field__hint">{p.timeframeHint}</p> : null}
+    </>
+  );
+}
+
+/** 「取引」「LC」「決済までの行動」（3 つの質問）の枠（直す画面。記録する画面は 1 画面の形で同じ部品を並べる。#130） */
+export function TradeMainFields(p: TradeFieldsProps) {
+  return (
+    <>
       <section class="card section" aria-labelledby="record-trade-title">
         {p.accountAction ? (
           <div class="section__head">
@@ -171,168 +354,21 @@ export function TradeMainFields(p: TradeFieldsProps) {
             取引
           </h2>
         )}
-        {p.accountAdd ? (
-          p.accountAdd
-        ) : p.accounts && p.accountId !== undefined ? (
-          <AccountField
-            accounts={p.accounts}
-            value={p.accountId}
-            onChange={set('accountId')}
-            {...(p.accountHint ? { hint: p.accountHint } : {})}
-            {...mark('accountId')}
-          />
-        ) : null}
-        {/* 銘柄と数量は前の取引から入る既定の値の対なので、幅 360px でも 2 列に並べて画面の全長を詰める（#58。R12）。
-            通貨が違っても同じ段に置き、欄の位置を変えない（為替は価格の下に段を足す。#58 デザインレビュー 1） */}
-        <div class="record__pair record__pair--prices">
-          {instrument}
-          {quantity}
-        </div>
-        <datalist id={INSTRUMENT_LIST_ID}>
-          {p.instruments.map((i) => (
-            <option key={i.id} value={i.name} />
-          ))}
-        </datalist>
-        <Segment
-          label="L / S"
-          id="record-side"
-          {...mark('side')}
-          value={d.side}
-          onChange={set('side')}
-          options={[
-            { value: 'L', label: 'L ロング' },
-            { value: 'S', label: 'S ショート' },
-          ]}
-        />
-        <div class="record__pair record__pair--prices">
-          <NumberField
-            id="record-entry"
-            label="イン"
-            size="lg"
-            value={d.entryPrice}
-            onInput={set('entryPrice')}
-            placeholder="0.00"
-            {...mark('entryPrice')}
-            {...(e.entryPrice ? { error: e.entryPrice } : {})}
-          />
-          <NumberField
-            id="record-exit"
-            label="決済"
-            size="lg"
-            value={d.exitPrice}
-            onInput={set('exitPrice')}
-            placeholder="0.00"
-            {...mark('exitPrice')}
-            {...(e.exitPrice ? { error: e.exitPrice } : {})}
-          />
-        </div>
-        {fx ? (
-          // 通貨が違うときだけ「為替 | 1 USD = ? 円」の段を足す（どの幅でも 2 列。右の 1 行は為替の欄の読み上げの説明）
-          <div class="record__pair record__pair--prices">
-            <NumberField
-              id="record-fx"
-              label="為替"
-              value={d.fxRate}
-              onInput={set('fxRate')}
-              unit={fx.unit}
-              describedBy={FX_LINE_ID}
-              {...(e.fxRate ? { error: e.fxRate } : {})}
-            />
-            <p id={FX_LINE_ID} class="field__hint record__fxline">
-              {fx.line}
-            </p>
-          </div>
-        ) : null}
-        {times}
+        <TradeCoreFields {...p} />
       </section>
 
       <section class="card section" aria-labelledby="record-lc-title">
         <h2 class="section__title" id="record-lc-title">
           LC
         </h2>
-        <div class="lcrow">
-          <NumberField
-            id="record-lc"
-            label="入る前に決めた LC"
-            size="lg"
-            value={d.lc}
-            onInput={set('lc')}
-            disabled={d.lcNone}
-            placeholder={d.lcNone ? 'なし' : '0.00'}
-            hint="思惑が外れたと確認できる価格"
-            {...(e.lc ? { error: e.lc } : {})}
-          />
-          <button
-            type="button"
-            class="lcnone"
-            aria-pressed={d.lcNone ? 'true' : 'false'}
-            aria-label="LC を決めていなかった（なし）"
-            onClick={() => onUpdate({ type: 'set', field: 'lcNone', value: !d.lcNone })}
-          >
-            {d.lcNone ? <Icon name="check" /> : null}
-            <span>なし</span>
-          </button>
-        </div>
-        <TextField
-          id="record-broken"
-          label="根拠が崩れる条件（任意）"
-          value={d.brokenCondition}
-          onInput={set('brokenCondition')}
-          placeholder="例: 押し目の安値を割ったら"
-          {...(e.brokenCondition ? { error: e.brokenCondition } : {})}
-        />
+        <LcFields {...p} />
       </section>
 
       <section class="card section" aria-labelledby="record-taps-title">
         <h2 class="section__title" id="record-taps-title">
           決済までの行動
         </h2>
-        {d.lcNone ? (
-          <p class="section__note">LC が無いため、「決めていない」「そのまま」として記録します。</p>
-        ) : (
-          <>
-            <Segment
-              label="LC を入る前に決めていたか"
-              id="record-lc-decided"
-              info={<InfoTip term="lcDecided" prefer="above" />}
-              {...mark('lcDecided')}
-              value={d.lcDecided === null ? null : d.lcDecided ? 'yes' : 'no'}
-              onChange={(v) => onUpdate({ type: 'set', field: 'lcDecided', value: v === 'yes' })}
-              options={[
-                { value: 'yes', label: '決めていた' },
-                { value: 'no', label: '決めていない' },
-              ]}
-            />
-            <Segment
-              label="LC を動かしたか"
-              info={<InfoTip term="lcMove" prefer="above" />}
-              value={d.lcMove}
-              onChange={set('lcMove')}
-              options={MOVE_OPTIONS}
-              describedBy={LC_MOVE_HINT_ID}
-            />
-            <p id={LC_MOVE_HINT_ID} class="field__hint record__movehint">
-              {LC_MOVE_HINT}
-            </p>
-            {d.lcMove === 'widened' ? (
-              <NumberField
-                id="record-lc-after"
-                label={`${FIELD_LABEL.lcAfter}（任意）`}
-                value={d.lcAfter}
-                onInput={set('lcAfter')}
-                {...(e.lcAfter ? { error: e.lcAfter } : {})}
-              />
-            ) : null}
-          </>
-        )}
-        <Segment
-          label="時間足を変えたか"
-          info={<InfoTip term="timeframeChange" prefer="above" />}
-          value={d.timeframeChange}
-          onChange={set('timeframeChange')}
-          options={TIMEFRAME_OPTIONS}
-        />
-        {p.timeframeHint ? <p class="field__hint">{p.timeframeHint}</p> : null}
+        <TapFields {...p} />
       </section>
     </>
   );
@@ -340,86 +376,93 @@ export function TradeMainFields(p: TradeFieldsProps) {
 
 /** 畳んだ「ほかの欄（任意）」（open = 開いて見せる: 誤りがある・読み取りの値がある） */
 export function TradeMoreFields(p: TradeFieldsProps & { readonly open: boolean }) {
+  return (
+    <details class="card more" {...(p.open ? { open: true } : {})}>
+      <summary class="more__summary">ほかの欄（任意）</summary>
+      <TradeMoreBody {...p} />
+    </details>
+  );
+}
+
+/** ほかの欄（任意）の中身（損益・手数料・LC の根拠・決済の理由）。記録する画面は取引の欄のシートの次の段に置く（#130） */
+export function TradeMoreBody(p: TradeFieldsProps) {
   const { d, e, set, mark, onUpdate, marks } = fieldHelpers(p);
   const unit = p.currency?.moneyUnit ?? '円';
   const note = p.currency?.moneyNote;
   return (
-    <details class="card more" {...(p.open ? { open: true } : {})}>
-      <summary class="more__summary">ほかの欄（任意）</summary>
-      <div class="more__body">
-        <div class="record__pair">
-          <NumberField
-            id="record-pnl"
-            label="損益（明細の値）"
-            inputMode="text"
-            value={d.pnlYen}
-            onInput={set('pnlYen')}
-            unit={unit}
-            {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
-            {...mark('pnlYen')}
-            {...(e.pnlYen ? { error: e.pnlYen } : {})}
-          />
-          <NumberField
-            id="record-fee"
-            label="手数料"
-            value={d.feeYen}
-            onInput={set('feeYen')}
-            unit={unit}
-            {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
-            {...mark('feeYen')}
-            {...(e.feeYen ? { error: e.feeYen } : {})}
-          />
-        </div>
-        {note ? (
-          <p id={MONEY_NOTE_ID} class="field__hint record__pairnote">
-            {note}
-          </p>
-        ) : null}
-        <Segment
-          label="LC の根拠"
-          value={d.lcBasis}
-          onChange={set('lcBasis')}
-          options={[
-            { value: 'chart', label: 'チャート' },
-            { value: 'amount', label: '金額' },
-          ]}
+    <div class="more__body">
+      <div class="record__pair">
+        <NumberField
+          id="record-pnl"
+          label="損益（明細の値）"
+          inputMode="text"
+          value={d.pnlYen}
+          onInput={set('pnlYen')}
+          unit={unit}
+          {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
+          {...mark('pnlYen')}
+          {...(e.pnlYen ? { error: e.pnlYen } : {})}
         />
-        <div class="field">
-          {marks.exitReason ? (
-            <div class="field__head">
-              <label class="field__label" for="record-exit-reason">
-                決済の理由
-              </label>
-              <span id="record-exit-reason-mark" class="field__mark">
-                {MARK_LABEL[marks.exitReason]}
-              </span>
-            </div>
-          ) : (
+        <NumberField
+          id="record-fee"
+          label="手数料"
+          value={d.feeYen}
+          onInput={set('feeYen')}
+          unit={unit}
+          {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
+          {...mark('feeYen')}
+          {...(e.feeYen ? { error: e.feeYen } : {})}
+        />
+      </div>
+      {note ? (
+        <p id={MONEY_NOTE_ID} class="field__hint record__pairnote">
+          {note}
+        </p>
+      ) : null}
+      <Segment
+        label="LC の根拠"
+        value={d.lcBasis}
+        onChange={set('lcBasis')}
+        options={[
+          { value: 'chart', label: 'チャート' },
+          { value: 'amount', label: '金額' },
+        ]}
+      />
+      <div class="field">
+        {marks.exitReason ? (
+          <div class="field__head">
             <label class="field__label" for="record-exit-reason">
               決済の理由
             </label>
-          )}
-          <select
-            id="record-exit-reason"
-            class="select"
-            aria-describedby={marks.exitReason ? 'record-exit-reason-mark' : undefined}
-            value={d.exitReason}
-            onChange={(ev) =>
-              onUpdate({
-                type: 'set',
-                field: 'exitReason',
-                value: ev.currentTarget.value as ExitReason,
-              })
-            }
-          >
-            {EXIT_REASONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
+            <span id="record-exit-reason-mark" class="field__mark">
+              {MARK_LABEL[marks.exitReason]}
+            </span>
+          </div>
+        ) : (
+          <label class="field__label" for="record-exit-reason">
+            決済の理由
+          </label>
+        )}
+        <select
+          id="record-exit-reason"
+          class="select"
+          aria-describedby={marks.exitReason ? 'record-exit-reason-mark' : undefined}
+          value={d.exitReason}
+          onChange={(ev) =>
+            onUpdate({
+              type: 'set',
+              field: 'exitReason',
+              value: ev.currentTarget.value as ExitReason,
+            })
+          }
+        >
+          {EXIT_REASONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
-    </details>
+    </div>
   );
 }

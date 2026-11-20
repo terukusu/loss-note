@@ -20,10 +20,16 @@ export interface AiUsageViewProps {
   readonly state: AiUsageState;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
+  /** カードの見出し（h2）を出すか（既定 true）。設定の次の画面（#133）では画面の題（h1）が同じ名前なので出さない */
+  readonly titled?: boolean;
 }
 
-/** controller を作って購読する（画面を開くたびに読み直す） */
-export function AiUsageCard() {
+/** controller を作って購読する（開くたびに読み直す）。設定の根の行の添え（#133）と利用状況の画面が使う */
+export function useAiUsage(): {
+  readonly state: AiUsageState;
+  readonly onReload: () => void;
+  readonly onRelogin: () => void;
+} {
   const controller = useMemo<AiUsageController>(() => createAiUsageController({ api }), []);
   const [state, setState] = useState<AiUsageState>(controller.getState());
   useEffect(() => {
@@ -31,27 +37,37 @@ export function AiUsageCard() {
     void controller.load();
     return off;
   }, [controller]);
-  return (
-    <AiUsageView
-      state={state}
-      onReload={() => {
-        void controller.load();
-      }}
-      onRelogin={() => {
-        void signOutActive();
-      }}
-    />
-  );
+  return {
+    state,
+    onReload: () => {
+      void controller.load();
+    },
+    onRelogin: () => {
+      void signOutActive();
+    },
+  };
+}
+
+/** controller を作って購読する（画面を開くたびに読み直す） */
+export function AiUsageCard({ titled }: { readonly titled?: boolean } = {}) {
+  const u = useAiUsage();
+  return <AiUsageView {...u} titled={titled ?? true} />;
 }
 
 const TITLE_ID = 'ai-usage-title';
 
-export function AiUsageView({ state, onReload, onRelogin }: AiUsageViewProps) {
+export function AiUsageView({ state, onReload, onRelogin, titled }: AiUsageViewProps) {
+  const head = titled ?? true;
   return (
-    <section class="card section usage" aria-labelledby={TITLE_ID}>
-      <h2 class="section__title" id={TITLE_ID}>
-        {USAGE_TITLE}
-      </h2>
+    <section
+      class="card section usage"
+      {...(head ? { 'aria-labelledby': TITLE_ID } : { 'aria-label': USAGE_TITLE })}
+    >
+      {head ? (
+        <h2 class="section__title" id={TITLE_ID}>
+          {USAGE_TITLE}
+        </h2>
+      ) : null}
       <p class="section__note">{USAGE_INTRO}</p>
       <UsageBody state={state} onReload={onReload} onRelogin={onRelogin} />
     </section>

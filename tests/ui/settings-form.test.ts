@@ -15,6 +15,7 @@ import {
   type InstrumentDraft,
   instrumentDraftOf,
   instrumentSummary,
+  instrumentSummaryLines,
   isProvisional,
   readCapital,
   readInstrumentDraft,
@@ -360,6 +361,24 @@ describe('一覧の表示', () => {
     expect(
       instrumentSummary(inst('y', 'F', { productForm: 'future', underlyingKind: 'fx' })),
     ).toContain('FX · 先物');
+  });
+
+  it('一覧の行は 2 行（種類 · 形 · 通貨 / 乗数 · 刻み（· 原資産））。#133 デザインレビュー a-4', () => {
+    expect(instrumentSummaryLines(US30)).toEqual([
+      'その他 · 現物・CFD · 価格の通貨 未設定',
+      '乗数 1 · 刻み 1',
+    ]);
+    expect(
+      instrumentSummaryLines(
+        inst('x', 'XAU', {
+          underlyingKind: 'commodity',
+          priceCurrency: 'USD',
+          multiplier: 100,
+          quantityStep: 0.01,
+          underlying: '架空金',
+        }),
+      ),
+    ).toEqual(['商品 · 現物・CFD · USD 建て', '乗数 100 · 刻み 0.01 · 原資産 架空金']);
   });
 
   it('初期値のまま: 自動で足したままの既定（その他・現物・CFD・未設定・1・1・原資産なし）', () => {

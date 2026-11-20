@@ -114,7 +114,7 @@ loss-note の画面が沿う原則と規則、そのよりどころにした世�
 
 ### P6 戻るで迷わない
 
-- する: 画面ごとの URL（`/`・`/record`・`/trades`・`/trades/<id>`・`/trades/<id>/edit`・`/settings`・`/login`。開発の時だけ `/dev/parts`。→ 9.7: `/review` と設定の下の画面を足す）。行き来は History API（ADR-0002）。アプリの中のリンクは `Link`（左クリックだけを横取りし、新しいタブで開く等はブラウザに任せる）
+- する: 画面ごとの URL（`/`・`/record`・`/trades`・`/trades/<id>`・`/trades/<id>/edit`・`/settings`・`/login`。開発の時だけ `/dev/parts`。→ 9.7: `/review`・`/review/table` と設定の下の画面 `/settings/accounts`・`/settings/instruments`・`/settings/ai-usage` を足した）。行き来は History API（ADR-0002）。アプリの中のリンクは `Link`（左クリックだけを横取りし、新しいタブで開く等はブラウザに任せる）
 - する: 知らない URL は履歴を **置き換えて** ホームへ（戻るで知らない URL に戻らない）。詳細の ID が無い取引は、詳細の画面に「この取引は見つかりません」と一覧へのリンク（→ 9.12: 押せる行か上の帯の「‹ 取引」のボタン）
 - する: 画面が変わったら見出し（`h1`、`tabindex="-1"`）にフォーカスを移し（フォーカスでスクロールさせない）、`document.title` を「<画面の名前> — 損失ノート」にする（画面に出すアプリの名前は「損失ノート」。識別子は loss-note のまま。#52）
 - する: 新しい画面へ進んだ（push）ときだけ先頭へスクロールし、戻る・進むではブラウザが元の位置を戻す（`history.scrollRestoration` の既定）。一覧をスクロールして詳細を開き、戻ったら同じ位置
@@ -571,7 +571,7 @@ iOS のタブの作法に寄せる。**タブはそれぞれ次の画面の積�
 | 広い形で取引のタブから記録するを開き、設定のタブへ | 記録するは閉じて書きかけを残す（トースト）。取引の記憶は記録するを含まない | — |
 | ホームで説明のシートを開く | `[/, /（層）]` | シートを閉じる |
 
-- する: どの画面にも URL がある（P6）は変えない。記録するは `/record`、編集は `/trades/{id}/edit`、振り返りは `/review`、設定の下は `/settings/accounts`・`/settings/instruments`・`/settings/ai-usage`（名前は実装の Issue で決める）
+- する: どの画面にも URL がある（P6）は変えない。記録するは `/record`、編集は `/trades/{id}/edit`、振り返りは `/review`、設定の下は `/settings/accounts`（口座）・`/settings/instruments`（銘柄）・`/settings/ai-usage`（AI の利用状況）と `/glossary`（用語集。#133 で決めた。どれも設定のタブの次の画面で、直接開くと下に `/settings` を敷く）
 - する: 層の再読み込み（1 段・2 段）と「進む」で層の段に入った例は `back-layers.test.ts` に足す
 - する: 上の表の例を `routes.test.ts`（純関数の行き来の規則）に足す。積み重ねの記憶はタブの記憶の中だけ（端末の保存先に書かない）
 

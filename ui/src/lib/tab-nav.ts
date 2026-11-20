@@ -81,7 +81,7 @@ export function readMark(state: unknown, href: string, opts: RouteOptions): NavM
 
 /**
  * 印の無い最初の起動で組み直す並び（9.7 の 5）。`/trades/a` → `[/, /trades, /trades/a]`、`/trades/a/edit` →
- * `[/, /trades, /trades/a, /trades/a/edit]`、`/record` → `[/, /record]`、`/glossary` → `[/, /settings, /glossary]`、
+ * `[/, /trades, /trades/a, /trades/a/edit]`、`/record` → `[/, /record]`、`/glossary`・`/settings/accounts` → `[/, /settings, …]`、
  * `/review/table?q` → `[/, /review?q, /review/table?q]`。
  * ホーム・ログイン・知らない URL は組み直さない（`[href]`）
  */
@@ -94,6 +94,9 @@ export function bootStack(href: string, opts: RouteOptions): string[] {
     case 'tradeEdit':
       return ['/', '/trades', `/trades/${route.id}`, href];
     case 'glossary':
+    case 'settingsAccounts':
+    case 'settingsInstruments':
+    case 'settingsAiUsage':
       return ['/', '/settings', href];
     case 'reviewTable': {
       // 振り返りの根は同じ期間（検索部分）で開く（#128。戻ると見ていた期間の振り返り）

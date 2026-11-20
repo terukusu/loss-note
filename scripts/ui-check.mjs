@@ -27,6 +27,9 @@
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
 // 文字の前にあって項目の中に収まるかも、部品のはみ出しと一緒に数える。
+// #133 で設定はタブの根のまとめた一覧（/settings）と次の画面（/settings/accounts・/settings/instruments・/settings/ai-usage）に
+// 分け、口座・銘柄の編集と追加は下のシートにした。状態は画面ごとに開き、編集・追加はシートを開いた状態で測る。手順 SET6（根 → 次の
+// 画面 → 戻る・直接開く・AI が読めなくても口座の [保存]）を足した。
 // 口座（Issue #47 PR-1）: 記録する画面の口座 2 つ（Segment）・3 つ（長い名前の「…」）・4 つ（select）・その場で足す欄・足す欄の誤り、
 // 設定の口座の一覧（2 つ・資金が未設定の行）・直す欄・足す欄・誤り、一覧と詳細（口座 2 つ）を同じ幅とテーマで測り、
 // 手順 ACC1（口座 2 つで 1 タップで替わる・判定の枠の 1 行がその場で変わる）・ACC2（その場で足す: Enter で足す・Esc で閉じて
@@ -151,6 +154,10 @@ const PAGES = [
   { path: '/trades/x-r2', h1: 'US30 · L', wait: '.ruler__plot' },
   { path: '/trades/x-r3', h1: 'US30 · S', wait: '.ruler__plot' },
   { path: '/settings', h1: '設定' },
+  // 設定の次の画面（#133）
+  { path: '/settings/accounts', h1: '口座', wait: '.setrow' },
+  { path: '/settings/instruments', h1: '銘柄', wait: '.setrow' },
+  { path: '/settings/ai-usage', h1: 'AI の利用状況', wait: '.usage' },
   { path: '/dev/parts', h1: '部品の見本' },
 ];
 const SIZES = [
@@ -207,7 +214,12 @@ const ZOOM_RECORD = [
   'record-21-fx',
   'record-11-info-tap',
 ];
-const ZOOM_SETTINGS = ['settings-1-open', 'settings-5-accounts', 'settings-3-errors'];
+const ZOOM_SETTINGS = [
+  'settings-1-open',
+  'settings-5-accounts',
+  'settings-3-errors',
+  'settings-2-editing',
+];
 /**
  * 文字の拡大で残している崩れ（`幅:slug` → { match: 既知の外れの文言の正規表現, why: 理由 }）。match に当たる外れだけを
  * 既知として数え（失敗にしない）、当たらない外れは失敗にする。match に当たる外れが無くなったら「消す」で失敗にする。
@@ -2655,54 +2667,80 @@ function seedSettings(api) {
   };
 }
 
-/** 設定の画面を開き、口座の一覧（[＋ 口座を追加]）が出るまで待つ */
-async function openSettings(page, base) {
-  await page.goto(`${base}/settings`);
-  await waitReady(page, '設定');
-  await page.locator('#settings-account-add').waitFor({ state: 'visible', timeout: 15000 });
+/** 設定の画面の題と、開いた後に待つ要素（#133: 設定はタブの根のまとめた一覧と、口座・銘柄・AI の利用状況の次の画面に分けた） */
+const SETTINGS_SCREENS = {
+  '/settings': { h1: '設定', wait: '#settings-link-accounts .rowlink__meta' },
+  '/settings/accounts': { h1: '口座', wait: '#settings-account-add' },
+  '/settings/instruments': { h1: '銘柄', wait: '#settings-inst-add' },
+  '/settings/ai-usage': { h1: 'AI の利用状況', wait: '.usage' },
+};
+
+/** 設定の画面を開き、中身（根は口座の数の添え、口座・銘柄は ［＋ 〇〇を追加］）が出るまで待つ */
+async function openSettings(page, base, path = '/settings') {
+  const screen = SETTINGS_SCREENS[path];
+  if (!screen) throw new Error(`openSettings: 知らない画面 ${path}`);
+  await page.goto(`${base}${path}`);
+  await waitReady(page, screen.h1);
+  await page.locator(screen.wait).first().waitFor({ state: 'visible', timeout: 15000 });
 }
 
-/** 設定の画面の状態（幅 × テーマで測る）。prep は開く前に偽の API を整え、fn は開いた画面をその状態にする */
+/** 開いている下のシート（設定の編集・追加。#133）が見えるまで待つ */
+async function waitSettingsSheet(page, id) {
+  await page.locator(`dialog#${id}[open]`).waitFor({ state: 'visible', timeout: 5000 });
+}
+
+/**
+ * 設定の画面の状態（幅 × テーマで測る）。path は開く画面（#133）、prep は開く前に偽の API を整え、fn は開いた画面をその状態にする。
+ * 編集・追加は下のシートを開いた状態で測る
+ */
 const SETTINGS_STATES = [
   {
     slug: 'settings-1-open',
-    name: '開いた直後',
+    name: '根（まとめた一覧）',
+    path: '/settings',
     prep: seedSettings,
-    fn: async () => {},
+    fn: async (p) => {
+      await p.locator('#settings-link-aiUsage .rowlink__meta').waitFor();
+    },
   },
   {
     slug: 'settings-5-accounts',
     name: '口座 2 つ（未設定の行）',
+    path: '/settings/accounts',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_C]);
     },
     fn: async (p) => {
-      await p.locator('.instlist__item', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
+      await p.locator('.setrow', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
     },
   },
   {
     slug: 'settings-6-account-edit',
-    name: '口座を直している',
+    name: '口座の編集のシート',
+    path: '/settings/accounts',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_B]);
     },
     fn: async (p) => {
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-name').waitFor();
-      await p.locator('summary', { hasText: '資金の履歴（3 件）' }).click();
+      await p.locator('.sethistory__title', { hasText: '資金の履歴（3 件）' }).waitFor();
     },
   },
   {
     slug: 'settings-7-account-add',
-    name: '口座の追加の欄',
+    name: '口座の追加のシート',
+    path: '/settings/accounts',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, ACCOUNTS_2);
     },
     fn: async (p) => {
       await p.locator('#settings-account-add').click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-name').fill('口座 Ｂ');
       await p.locator('#settings-account-capital').fill('300,000');
       await p.locator('#settings-account-save').click();
@@ -2715,13 +2753,15 @@ const SETTINGS_STATES = [
     // #47 PR-2 U30: USD の口座の行
     slug: 'settings-8-usd-row',
     name: 'USD の口座の行',
+    path: '/settings/accounts',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_USD]);
     },
     fn: async (p) => {
-      await p.locator('.instlist__item', { hasText: '10,000.00 USD · 許容 1%' }).waitFor();
+      await p.locator('.setrow', { hasText: '10,000.00 USD · 許容 1%' }).waitFor();
       await p.getByRole('button', { name: '口座 D を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-currency').waitFor();
     },
   },
@@ -2729,12 +2769,14 @@ const SETTINGS_STATES = [
     // #47 PR-2 U31: 取引のある口座（既定の口座。例の取引は口座が付いていない）の直す欄は通貨が文字
     slug: 'settings-9-currency-locked',
     name: '通貨を変更できない口座',
+    path: '/settings/accounts',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_USD]);
     },
     fn: async (p) => {
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       // 通貨を変える操作のときだけ取引を確かめる（開いたときは読まない）。取引のある口座は文字に戻る
       await p.locator('input#settings-account-currency').fill('USD');
       await p
@@ -2743,26 +2785,63 @@ const SETTINGS_STATES = [
     },
   },
   {
+    slug: 'settings-15-instruments',
+    name: '銘柄の一覧',
+    path: '/settings/instruments',
+    prep: seedSettings,
+    fn: async (p) => {
+      await p.locator('.setrow', { hasText: '初期値のまま' }).waitFor();
+    },
+  },
+  {
     slug: 'settings-2-editing',
-    name: '銘柄を直している',
+    name: '銘柄の編集のシート',
+    path: '/settings/instruments',
     prep: seedSettings,
     fn: async (p) => {
       await p.getByRole('button', { name: 'US30 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-inst-sheet');
       await p.locator('#settings-inst-name').waitFor();
       await p.locator('#settings-inst-kind').selectOption('index');
       await p.locator('#settings-inst-currency').fill('USD');
     },
   },
   {
+    slug: 'settings-16-inst-add',
+    name: '銘柄の追加のシート',
+    path: '/settings/instruments',
+    prep: seedSettings,
+    fn: async (p) => {
+      await p.locator('#settings-inst-add').click();
+      await waitSettingsSheet(p, 'settings-inst-add-sheet');
+      await p.locator('#settings-new-name').fill('xau');
+      await p
+        .locator('#settings-new-name-error', { hasText: '同じ名前の銘柄があります' })
+        .waitFor();
+    },
+  },
+  {
+    // 口座の誤りと警告（#133 で銘柄の誤りは settings-3b-inst-errors に分けた。画面が別になったため）
     slug: 'settings-3-errors',
-    name: '誤りと警告',
+    name: '口座の誤りと警告',
+    path: '/settings/accounts',
     prep: seedSettings,
     fn: async (p) => {
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-capital').fill('1000.5');
       await p.locator('#settings-account-risk').fill('2.5');
       await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
+    },
+  },
+  {
+    slug: 'settings-3b-inst-errors',
+    name: '銘柄の誤り',
+    path: '/settings/instruments',
+    prep: seedSettings,
+    fn: async (p) => {
       await p.getByRole('button', { name: 'US30 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-inst-sheet');
       await p.locator('#settings-inst-name').fill('日経２２５ ');
       await p.locator('#settings-inst-currency').fill('US');
       await p.locator('#settings-inst-multiplier').fill('0');
@@ -2772,18 +2851,20 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-4-unset',
     name: '資金が未設定',
+    path: '/settings/accounts',
     prep: (api) => {
       api.instruments.splice(0, api.instruments.length, FAKE_US30_AUTO);
     },
     fn: async (p) => {
       await p
-        .locator('.instlist__item', { hasText: '資金を入力するとリスク（%）が表示されます' })
+        .locator('.setrow', { hasText: '資金を入力するとリスク（%）が表示されます' })
         .waitFor();
     },
   },
   {
     slug: 'settings-8-usage-reached',
     name: 'AI 金額で届いた',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       api.aiUsage = {
@@ -2802,6 +2883,7 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-11-usage-near',
     name: 'AI 上限に近いだけ',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       api.aiUsage = {
@@ -2819,6 +2901,7 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-12-usage-count-reached',
     name: 'AI 回数で届いた',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       api.aiUsage = {
@@ -2837,6 +2920,7 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-13-usage-zero',
     name: 'AI 月の初日・0 回',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       api.aiUsage = {
@@ -2854,6 +2938,7 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-9-usage-bypass',
     name: 'AI 上限を受けない',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       api.aiUsage = {
@@ -2873,6 +2958,7 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-14-usage-loading',
     name: 'AI 読み込み中',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       api.aiUsage = { status: 200, body: FAKE_AI_USAGE, holdMs: 20000 };
@@ -2884,19 +2970,15 @@ const SETTINGS_STATES = [
   {
     slug: 'settings-10-usage-failed',
     name: 'AI 読めない',
+    path: '/settings/ai-usage',
     prep: (api) => {
       seedSettings(api);
       setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_B]);
       api.aiUsage = { status: 503, body: { error: 'read_unavailable' } };
     },
     fn: async (p) => {
+      // AC-7（#62）の「読めなくても口座の編集と [保存] は使える」は、#133 で別の画面になったので SET6 で見る
       await p.getByText('利用状況を読み込めませんでした').waitFor();
-      // AC-7: 利用状況が読めなくても、口座の編集と [保存] は使える（別の部品で状態を共有しない）
-      await p.getByRole('button', { name: '口座 1 を編集' }).click();
-      await p.locator('#settings-account-name').waitFor();
-      if (!(await p.locator('#settings-account-save').isEnabled())) {
-        throw new Error('利用状況が読めないときに口座の [保存] が押せない（AC-7）');
-      }
     },
   },
 ];
@@ -3711,7 +3793,7 @@ async function main() {
         }
         // 設定の画面の状態（Issue #5 の E16）。状態ごとに偽の API の設定・銘柄を元に戻してから開く
         for (const st of SETTINGS_STATES) {
-          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`/settings（${st.name}）`, 22)}`;
+          const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`${st.path}（${st.name}）`, 22)}`;
           try {
             recApi.instruments.splice(0, recApi.instruments.length, FAKE_US30);
             recApi.settings = {
@@ -3723,7 +3805,7 @@ async function main() {
             setAccounts(recApi, []);
             recApi.aiUsage = { status: 200, body: FAKE_AI_USAGE };
             st.prep(recApi);
-            await openSettings(recPage, base);
+            await openSettings(recPage, base, st.path);
             await st.fn(recPage, recApi);
             const m = await measure(recPage, w === 360, TAP);
             states++;
@@ -4562,7 +4644,7 @@ async function main() {
             });
           }
           for (const st of setStates) {
-            await zoomState(recPage, `/settings（${st.name}）`, st.slug, async () => {
+            await zoomState(recPage, `${st.path}（${st.name}）`, st.slug, async () => {
               recApi.instruments.splice(0, recApi.instruments.length, FAKE_US30);
               recApi.settings = {
                 capitalYen: null,
@@ -4573,7 +4655,7 @@ async function main() {
               setAccounts(recApi, []);
               recApi.aiUsage = { status: 200, body: FAKE_AI_USAGE };
               st.prep(recApi);
-              await openSettings(recPage, base);
+              await openSettings(recPage, base, st.path);
               await st.fn(recPage, recApi);
             });
           }
@@ -6907,9 +6989,10 @@ async function runFlows(browser, base, signedIn) {
     try {
       // 円建ての銘柄にしておく（1R・リスク（%）を価格から出せる。5.1）
       fake.instruments[0] = { ...FAKE_US30, priceCurrency: 'JPY' };
-      await openSettings(p, base);
-      await p.locator('.instlist__item', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
+      await openSettings(p, base, '/settings/accounts');
+      await p.locator('.setrow', { hasText: '資金 未設定 · 許容 1%' }).waitFor();
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-capital').fill('1,000,000');
       await p.getByText('1 回の負けは 10,000円 までです').waitFor();
       await p.locator('#settings-account-save').click();
@@ -6924,10 +7007,11 @@ async function runFlows(browser, base, signedIn) {
         '設定の API に書かない',
       );
       await p.reload();
-      await openSettings(p, base);
-      await p.locator('.instlist__item', { hasText: '1,000,000円 · 許容 1%' }).waitFor();
+      await openSettings(p, base, '/settings/accounts');
+      await p.locator('.setrow', { hasText: '1,000,000円 · 許容 1%' }).waitFor();
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
-      await p.locator('summary', { hasText: '資金の履歴（1 件）' }).waitFor();
+      await waitSettingsSheet(p, 'settings-account-sheet');
+      await p.locator('.sethistory__title', { hasText: '資金の履歴（1 件）' }).waitFor();
       expectEq(
         await p.locator('#settings-account-capital').inputValue(),
         '1,000,000',
@@ -6955,22 +7039,28 @@ async function runFlows(browser, base, signedIn) {
     const { c, p, fake, errors } = await recordContext();
     try {
       seedSettings(fake);
-      await openSettings(p, base);
-      // E9: [直す] → 名前の欄にフォーカス → 株価指数・usd・刻み 0.1 → 保存
+      await openSettings(p, base, '/settings/instruments');
+      // E9: 行を押す → 編集のシート → 株価指数・usd・刻み 0.1 → 保存。
+      // #133: 開いた後のフォーカスは名前の欄からシートの見出しへ（下のシートの規則。ui-guidelines 9.3・部品 Sheet）
       await p.getByRole('button', { name: 'US30 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-inst-sheet');
       await p.locator('#settings-inst-name').waitFor();
-      // フォーカスは描き直しの後の effect で移る（待つ）
       await expectPollAsync(
-        async () => (await p.evaluate(() => document.activeElement?.id)) === 'settings-inst-name',
-        '開いた後のフォーカス',
+        async () =>
+          (await p.evaluate(() => document.activeElement?.id)) === 'settings-inst-sheet-title',
+        '開いた後のフォーカス（シートの見出し）',
       );
       await p.locator('#settings-inst-kind').selectOption('index');
       await p.locator('#settings-inst-currency').fill('usd');
       await p.locator('#settings-inst-step').fill('0.1');
-      await p.locator('form.instedit button[type="submit"]').click();
+      await p.locator('form.setform button[type="submit"]').click();
       await p.getByRole('status').filter({ hasText: 'US30 を保存しました' }).waitFor();
-      const want = '株価指数 · 現物・CFD · USD 建て · 乗数 1 · 刻み 0.1';
-      await p.locator('.instlist__item', { hasText: want }).waitFor();
+      // 行の添えは 2 行（#133 デザインレビュー a-4）
+      await p
+        .locator('.setrow', { hasText: '株価指数 · 現物・CFD · USD 建て' })
+        .filter({ hasText: '乗数 1 · 刻み 0.1' })
+        .waitFor();
+      expectEq(await p.locator('dialog[open]').count(), 0, '保存の後のシート');
       // フォーカスは描き直しの後の effect で移る（待つ）
       await expectPollAsync(
         async () =>
@@ -6978,51 +7068,87 @@ async function runFlows(browser, base, signedIn) {
         '閉じた後のフォーカス',
       );
       await p.reload();
-      await openSettings(p, base);
-      await p.locator('.instlist__item', { hasText: want }).waitFor();
+      await openSettings(p, base, '/settings/instruments');
+      await p
+        .locator('.setrow', { hasText: '株価指数 · 現物・CFD · USD 建て' })
+        .filter({ hasText: '乗数 1 · 刻み 0.1' })
+        .waitFor();
       // E10・E11: 重複の名前・乗数 0 → 送らずに欄の誤り
       const before = fake.writes.length;
       await p.getByRole('button', { name: 'XAU を編集' }).click();
+      await waitSettingsSheet(p, 'settings-inst-sheet');
       await p.locator('#settings-inst-name').fill('日経２２５ ');
       await p.locator('#settings-inst-multiplier').fill('0');
-      await p.locator('form.instedit button[type="submit"]').click();
+      await p.locator('form.setform button[type="submit"]').click();
       await p
         .locator('#settings-inst-name-error', { hasText: '同じ名前の銘柄があります' })
         .waitFor();
       await p.locator('#settings-inst-multiplier-error').waitFor();
       expectEq(fake.writes.length, before, '誤りのときの書き込み');
-      await p.getByRole('button', { name: 'キャンセル' }).click();
-      // フォーカスは描き直しの後の effect で移る（待つ）
+      // #133: やめるはシートの ✕・Esc・外・戻る（［キャンセル］ は置かない）。Esc で閉じる → 押した行へフォーカス
+      await p.keyboard.press('Escape');
+      await expectPollAsync(
+        async () => (await p.locator('dialog[open]').count()) === 0,
+        'Esc で閉じる',
+      );
       await expectPollAsync(
         async () =>
           (await p.evaluate(() => document.activeElement?.id)) === 'settings-edit-inst-xau',
         'やめた後のフォーカス',
       );
+      // 戻るで閉じる: シートだけが閉じ、画面は銘柄のまま。もう 1 回の戻るで設定の根へ（9.7）
+      await p.getByRole('button', { name: 'XAU を編集' }).click();
+      await waitSettingsSheet(p, 'settings-inst-sheet');
+      await p.goBack();
+      await expectPollAsync(
+        async () => (await p.locator('dialog[open]').count()) === 0,
+        '戻るで閉じる',
+      );
+      expectEq(new URL(p.url()).pathname, '/settings/instruments', '戻るで閉じた後の画面');
+      // 開き直した下書きは保存した値から（閉じたら捨てる）
+      await p.getByRole('button', { name: 'XAU を編集' }).click();
+      await waitSettingsSheet(p, 'settings-inst-sheet');
+      expectEq(await p.locator('#settings-inst-name').inputValue(), 'XAU', '開き直した名前');
+      // ✕（読み上げ「閉じる」）で閉じる
+      await p.locator('dialog#settings-inst-sheet').getByRole('button', { name: '閉じる' }).click();
+      await expectPollAsync(
+        async () => (await p.locator('dialog[open]').count()) === 0,
+        '✕ で閉じる',
+      );
+      expectEq(fake.writes.length, before, '閉じただけの書き込み');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return 'E9 を直して保存 → 一覧・開き直しても同じ、E10・E11 は送らない、フォーカスは名前の欄 ⇄ [直す]';
+    return 'E9 を直して保存 → シートが閉じ一覧・開き直しても同じ、E10・E11 は送らない、Esc・戻る・✕ で閉じる（下書きは捨てる）、フォーカスはシートの見出し ⇄ 行';
   });
 
   await check('SET3', async () => {
     const { c, p, fake, errors } = await recordContext();
     try {
       seedSettings(fake);
-      await openSettings(p, base);
+      await openSettings(p, base, '/settings/instruments');
+      // #133: 追加の欄は押すまで無い（［＋ 銘柄を追加］ で追加のシート）
+      expectEq(await p.locator('#settings-new-name').count(), 0, '押す前の追加の欄');
       // E13: 名前だけで足す
+      await p.locator('#settings-inst-add').click();
+      await waitSettingsSheet(p, 'settings-inst-add-sheet');
       await p.locator('#settings-new-name').fill('GOLD');
       await p.getByRole('button', { name: '追加', exact: true }).click();
       await p.getByRole('status').filter({ hasText: 'GOLD を追加しました' }).waitFor();
-      const row = p.locator('.instlist__item', { hasText: 'GOLD' });
+      expectEq(await p.locator('dialog[open]').count(), 0, '足した後のシート');
+      const row = p.locator('.setrow', { hasText: 'GOLD' });
       await row.filter({ hasText: '初期値のまま' }).waitFor();
       await row
-        .filter({ hasText: 'その他 · 現物・CFD · 価格の通貨 未設定 · 乗数 1 · 刻み 1' })
+        .filter({ hasText: 'その他 · 現物・CFD · 価格の通貨 未設定' })
+        .filter({ hasText: '乗数 1 · 刻み 1' })
         .waitFor();
       const post = fake.writes.find((x) => x.key === 'POST /api/instruments');
       expectEq(JSON.stringify(post?.body), JSON.stringify({ name: 'GOLD' }), '足す本文');
       // E7（A7）: 口座 1 の許容リスク 2.5 → 警告を出して保存できる
+      await openSettings(p, base, '/settings/accounts');
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-risk').fill('2.5');
       await p.getByRole('status').filter({ hasText: '2% を超えています' }).waitFor();
       await p.locator('#settings-account-save').click();
@@ -7035,6 +7161,7 @@ async function runFlows(browser, base, signedIn) {
       // E8: 3.1 は送らない
       const before = fake.writes.length;
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-risk').fill('3.1');
       await p.locator('#settings-account-save').click();
       await p.locator('#settings-account-risk-error').waitFor();
@@ -7054,12 +7181,13 @@ async function runFlows(browser, base, signedIn) {
       const { c, p, fake, errors } = await recordContext({ failAccounts: 503 });
       try {
         seedSettings(fake);
-        await openSettings(p, base);
+        await openSettings(p, base, '/settings/accounts');
         await p.getByRole('button', { name: '口座 1 を編集' }).click();
+        await waitSettingsSheet(p, 'settings-account-sheet');
         await p.locator('#settings-account-risk').fill('3.1');
         await p.locator('#settings-account-capital').fill('0');
         await p.locator('#settings-account-save').click();
-        await p.locator('form.instedit .field--error').nth(1).waitFor();
+        await p.locator('form.setform .field--error').nth(1).waitFor();
         expectEq(
           await p.getByRole('alert').filter({ hasText: '誤りのある欄があります' }).count(),
           0,
@@ -7078,15 +7206,20 @@ async function runFlows(browser, base, signedIn) {
           async () => (await focused(p)) === 'settings-account-save',
           '[保存] へ',
         );
-        // やめると口座の [直す] へ戻る
-        await p.locator('form.instedit').getByRole('button', { name: 'キャンセル' }).click();
+        // やめる（#133: シートを Esc で閉じる）と口座の行へ戻る
+        await p.keyboard.press('Escape');
         await expectPollAsync(
           async () => (await focused(p)) === 'settings-account-edit-default',
           'やめた後のフォーカス',
         );
-        // 銘柄: 誤りのまま [保存] → 最初の誤りの欄（価格の通貨）
-
+        // 銘柄: 誤りのまま [保存] → 最初の誤りの欄（価格の通貨）。シートの戻るの段を戻し終えてから移る
+        await expectPollAsync(
+          async () => p.evaluate(() => !history.state?.back),
+          'シートの戻るの段を戻し終える',
+        );
+        await openSettings(p, base, '/settings/instruments');
         await p.getByRole('button', { name: 'US30 を編集' }).click();
+        await waitSettingsSheet(p, 'settings-inst-sheet');
         await p.locator('#settings-inst-multiplier').fill('0');
         await p.locator('#settings-inst-currency').fill('US');
         await p.locator('#settings-inst-save').click();
@@ -8046,7 +8179,7 @@ async function runFlows(browser, base, signedIn) {
           await setupContext(c, theme);
           await p.setViewportSize({ width: w, height: h });
           await openSettings(p, base);
-          await p.getByRole('link', { name: '用語集を開く' }).click();
+          await p.locator('#settings-link-glossary').click();
           await waitReady(p, '用語集');
           const m = await measure(p, w === 360, TAP);
           if (m.h > 0) throw new Error(`${theme} ${w}: 横スクロール ${m.h}px`);
@@ -8561,12 +8694,14 @@ async function runFlows(browser, base, signedIn) {
     const { c, p, fake, errors } = await recordContext({ accounts: [ACC_ONE, ACC_D] });
     try {
       await p.setViewportSize({ width: 360, height: 780 });
-      await openSettings(p, base);
+      await openSettings(p, base, '/settings/accounts');
       await p.locator('#settings-account-add').click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
       await p.locator('#settings-account-name').fill('口座 C');
       await p.locator('#settings-account-save').click();
       await p.getByRole('status').filter({ hasText: '口座 C を追加しました' }).waitFor();
-      const names = await p.locator('.instlist__name').allTextContents();
+      expectEq(await p.locator('dialog[open]').count(), 0, '足した後のシート');
+      const names = await p.locator('.setrow__name').allTextContents();
       expectEq(
         names.filter((n) => n.startsWith('口座')).join(' / '),
         '口座 1 / 口座 C / 口座 D',
@@ -8584,6 +8719,152 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return '設定で「口座 C」を足す → 名前の順の位置に入り、「口座 C を追加しました」、フォーカスは新しい行の [直す]';
+  });
+
+  // SET6（#133 の AC-1・AC-2・AC-7）: 設定の根のまとめた一覧（題の下に説明の文なし・区切り 4 つ・数の添え）→ 次の画面（口座・銘柄・
+  // AI の利用状況・用語集）→ 戻るで根。直接開くと下に根を敷く（[/, /settings, /settings/accounts]）。AI の利用状況が読めなくても、
+  // 根の行と口座の編集の [保存] は使える（#62 AC-7。別の画面になったので状態の検査から移した）
+  await check('SET6', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    const at = () => new URL(p.url()).pathname;
+    try {
+      await p.setViewportSize({ width: 390, height: 844 });
+      seedSettings(fake);
+      fake.aiUsage = { status: 503, body: { error: 'read_unavailable' } };
+      const usageAnswered = p.waitForResponse((r) => r.url().includes('/api/ai-usage'));
+      await openSettings(p, base);
+      expectEq(await p.locator('main .pagehead__desc').count(), 0, '題の下の説明の文');
+      expectEq(
+        (await p.locator('.setgroup__title').allTextContents()).join(' / '),
+        '口座 / 記録 / 表示 / アカウント',
+        '区切り',
+      );
+      expectEq(
+        (await p.locator('#settings-link-instruments .rowlink__meta').textContent())?.trim(),
+        '3 件',
+        '銘柄の添え',
+      );
+      // 口座の添えは中身（口座が 1 つ = 資金 · 許容。#133 デザインレビュー a-3）
+      expectEq(
+        (await p.locator('#settings-link-accounts .rowlink__meta').textContent())?.trim(),
+        '1,000,000円 · 許容 1%',
+        '口座の添え',
+      );
+      // AI が読めない: 添えは出さず、行は出す（応答が届いて描き直した後に数える）
+      await usageAnswered;
+      await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => r(null))));
+      expectEq(
+        await p.locator('#settings-link-aiUsage .rowlink__meta').count(),
+        0,
+        'AI の添え（読めない）',
+      );
+      const visited = [];
+      for (const [id, path, h1] of [
+        ['accounts', '/settings/accounts', '口座'],
+        ['instruments', '/settings/instruments', '銘柄'],
+        ['aiUsage', '/settings/ai-usage', 'AI の利用状況'],
+        ['glossary', '/glossary', '用語集'],
+      ]) {
+        await p.locator(`#settings-link-${id}`).click();
+        await waitReady(p, h1);
+        expectEq(at(), path, `${h1} の URL`);
+        expectEq(
+          (await p.locator('main .appbar__backlabel').first().textContent())?.trim(),
+          '設定',
+          `${h1} の「‹ 設定」`,
+        );
+        expectEq(
+          await p.locator('.appnav a[aria-current="page"]').getAttribute('href'),
+          '/settings',
+          `${h1} のタブ`,
+        );
+        await p.goBack();
+        await waitReady(p, '設定');
+        visited.push(h1);
+      }
+      // 直接開く → 触った後の戻るで根、もう 1 回でホーム（9.7 の 5）
+      await p.goto(`${base}/settings/accounts`);
+      await waitReady(p, '口座');
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
+      if (!(await p.locator('#settings-account-save').isEnabled())) {
+        throw new Error('利用状況が読めないときに口座の [保存] が押せない（#62 AC-7）');
+      }
+      await p.keyboard.press('Escape');
+      await expectPollAsync(
+        async () => (await p.locator('dialog[open]').count()) === 0,
+        'Esc で閉じる',
+      );
+      await expectPollAsync(
+        async () => p.evaluate(() => !history.state?.back),
+        'シートの戻るの段を戻し終える',
+      );
+      await p.goBack();
+      await waitReady(p, '設定');
+      expectEq(at(), '/settings', '直接開いた口座の画面の戻る');
+      await p.goBack();
+      await waitReady(p, 'ホーム');
+      expectEq(at(), '/', '根の戻る');
+      // ［保存］ はシートの下に貼り付き、開いた直後（スクロールなし）から全部見える。資金の履歴の端まで
+      // スクロールしても見えたまま（#133 デザインレビュー a-1）。口座（資金の履歴 3 件）・銘柄（7 欄）× 幅 360 / 390
+      const inView = (sel) =>
+        p.locator(sel).evaluate((el) => {
+          const r = el.getBoundingClientRect();
+          const body = el.closest('.sheet__body')?.getBoundingClientRect();
+          return (
+            r.top >= 0 &&
+            r.bottom <= window.innerHeight &&
+            (!body || (r.top >= body.top - 0.5 && r.bottom <= body.bottom + 0.5))
+          );
+        });
+      const shown = [];
+      for (const [w, h] of [
+        [360, 780],
+        [390, 844],
+      ]) {
+        await p.setViewportSize({ width: w, height: h });
+        for (const [path, button, sheetId, save] of [
+          [
+            '/settings/accounts',
+            '口座 1 を編集',
+            'settings-account-sheet',
+            '#settings-account-save',
+          ],
+          ['/settings/instruments', 'US30 を編集', 'settings-inst-sheet', '#settings-inst-save'],
+        ]) {
+          await openSettings(p, base, path);
+          await p.getByRole('button', { name: button }).click();
+          await waitSettingsSheet(p, sheetId);
+          await p.waitForFunction((id) => document.activeElement?.id === `${id}-title`, sheetId);
+          // 出てくる動き（下から）が終わってから測る
+          await p
+            .locator(`#${sheetId}`)
+            .evaluate((d) =>
+              Promise.all(d.getAnimations({ subtree: true }).map((a) => a.finished)),
+            );
+          expectEq(
+            await p.locator(`#${sheetId} .sheet__body`).evaluate((b) => b.scrollTop),
+            0,
+            `${w} ${button} の開いた直後のスクロール`,
+          );
+          expectEq(await inView(save), true, `${w} ${button} の開いた直後の [保存]`);
+          await p.locator(`#${sheetId} .sheet__body`).evaluate((b) => {
+            b.scrollTop = b.scrollHeight;
+          });
+          expectEq(await inView(save), true, `${w} ${button} の下までスクロールした [保存]`);
+          await p.keyboard.press('Escape');
+          await expectPollAsync(
+            async () => p.evaluate(() => !history.state?.back),
+            'シートの戻るの段を戻し終える',
+          );
+          shown.push(`${w}:${button}`);
+        }
+      }
+      expectEq(errors.length, 0, 'ページのエラー');
+      return `根（説明の文なし・区切り 4 つ・添え）→ ${visited.join('・')} → 戻るで根、直接開いた口座 → 戻るで根 → ホーム、AI が読めなくても [保存] は押せる、[保存] は開いた直後も下まで送っても見える（${shown.length} 件）`;
+    } finally {
+      await c.close();
+    }
   });
 
   // ── 取引の一覧・詳細・直す・消す（Issue #9 の例の表 L4・H1・D1・D2・E1・E2・X1・X2）。偽の記録の API で流す

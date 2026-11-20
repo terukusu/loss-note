@@ -134,6 +134,8 @@ export interface UsageRow {
 export interface UsageView {
   /** 今日の日付（例: 今日（11 月 18 日）） */
   readonly todayLabel: string;
+  /** 今日の読み取りの回数（設定の根の行の添え「今日 3 回」。#133） */
+  readonly todayCount: number;
   /** 今月（例: 今月（11 月）） */
   readonly monthLabel: string;
   readonly bypass: boolean;
@@ -176,6 +178,7 @@ export function usageView(u: AiUsageBody): UsageView {
   const global = formatLimitUsd(u.limits.dailyMicroUsd);
   const base = {
     todayLabel: `今日（${monthDay(u.today.date)}）`,
+    todayCount: u.today.count,
     monthLabel: `今月（${Number(u.month.month.slice(5, 7))} 月）`,
     month: [
       { label: COUNT_LABEL, valueText: formatCount(u.month.count) },

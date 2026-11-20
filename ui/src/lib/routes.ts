@@ -13,6 +13,10 @@ export type Route =
   | { readonly name: 'trade'; readonly id: string }
   | { readonly name: 'tradeEdit'; readonly id: string }
   | { readonly name: 'settings' }
+  /** 設定の次の画面（#133。ui-guidelines 9.3・9.7）: 口座・銘柄・AI の利用状況 */
+  | { readonly name: 'settingsAccounts' }
+  | { readonly name: 'settingsInstruments' }
+  | { readonly name: 'settingsAiUsage' }
   | { readonly name: 'glossary' }
   | { readonly name: 'parts' };
 
@@ -34,6 +38,9 @@ const FIXED: Readonly<Record<string, Route>> = {
   '/review': { name: 'review' },
   '/review/table': { name: 'reviewTable' },
   '/settings': { name: 'settings' },
+  '/settings/accounts': { name: 'settingsAccounts' },
+  '/settings/instruments': { name: 'settingsInstruments' },
+  '/settings/ai-usage': { name: 'settingsAiUsage' },
   '/glossary': { name: 'glossary' },
 };
 
@@ -73,6 +80,12 @@ export function hrefOf(route: Route): string {
       return `/trades/${route.id}/edit`;
     case 'settings':
       return '/settings';
+    case 'settingsAccounts':
+      return '/settings/accounts';
+    case 'settingsInstruments':
+      return '/settings/instruments';
+    case 'settingsAiUsage':
+      return '/settings/ai-usage';
     case 'glossary':
       return '/glossary';
     case 'parts':
@@ -90,6 +103,9 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   trade: '取引の詳細',
   tradeEdit: '取引を編集',
   settings: '設定',
+  settingsAccounts: '口座',
+  settingsInstruments: '銘柄',
+  settingsAiUsage: 'AI の利用状況',
   glossary: '用語集',
   // 開発の時だけの画面。名前の文字列を本番のビルドに残さないため、見出しは画面の側に持つ
   parts: '開発用',
@@ -148,7 +164,7 @@ export function tabRoot(tab: Tab): string {
 }
 
 /**
- * URL から決まるタブ（9.7 の 5: `/trades*` = 取引、`/review*` = 振り返り、`/settings*`・`/glossary` = 設定、ほか = ホーム）。
+ * URL から決まるタブ（9.7 の 5: `/trades*` = 取引、`/review*` = 振り返り、`/settings*`（設定の下の画面も。#133）・`/glossary` = 設定、ほか = ホーム）。
  * 印の無い起動の組み直しにだけ使う（アプリの中で進んだ画面のタブは、進んだ元のタブのまま = history.state の印）
  */
 export function tabOfRoute(route: Route): Tab {
@@ -161,6 +177,9 @@ export function tabOfRoute(route: Route): Tab {
     case 'reviewTable':
       return 'review';
     case 'settings':
+    case 'settingsAccounts':
+    case 'settingsInstruments':
+    case 'settingsAiUsage':
     case 'glossary':
       return 'settings';
     default:

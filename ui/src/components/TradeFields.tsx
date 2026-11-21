@@ -356,6 +356,8 @@ export function LcFields(p: TradeFieldsProps) {
             ? { locked: { note: lcLockNote(lock), onUnlock: () => onUpdate(lcUnlockAction(lock)) } }
             : {})}
           hint="思惑が外れたと確認できる価格"
+          enterKeyHint="next"
+          onEnter={(el) => nextAfterLc(el)?.focus()}
           {...(e.lc ? { error: e.lc } : {})}
         />
         <button
@@ -384,21 +386,36 @@ export function LcFields(p: TradeFieldsProps) {
           <InfoTip term="maxLoss" size="sm" />
         </div>
       ) : null}
-      {o?.reading.lossPlanUp && !maxLossOn ? <LossPlanField {...p} hint={LOSS_PLAN_HINT} /> : null}
+      {o?.reading.lossPlanUp && !maxLossOn ? (
+        <LossPlanField {...p} hint={LOSS_PLAN_HINT} afterLc />
+      ) : null}
       <TextField
         id="record-broken"
         label="根拠が崩れる条件（任意）"
         value={d.brokenCondition}
         onInput={set('brokenCondition')}
         placeholder="例: 押し目の安値を割ったら"
+        enterKeyHint="done"
+        onEnter={(el) => el.blur()}
         {...(e.brokenCondition ? { error: e.brokenCondition } : {})}
       />
     </>
   );
 }
 
+/**
+ * LC の決定キー（次へ）の行き先: 並びの次の欄。オプションで損失の見込みの欄が間にあればその欄、無ければ根拠が崩れる条件
+ * （#172 のレビュー N4。ui-guidelines 10.1「途中の欄は次へ」）
+ */
+function nextAfterLc(el: HTMLInputElement): HTMLElement | null {
+  const d = el.ownerDocument;
+  return d.getElementById('record-loss-plan') ?? d.getElementById('record-broken');
+}
+
 /** LC での損失の見込み（任意。K15。口座の通貨） */
-export function LossPlanField(p: TradeFieldsProps & { readonly hint?: string }) {
+export function LossPlanField(
+  p: TradeFieldsProps & { readonly hint?: string; readonly afterLc?: boolean },
+) {
   const { d, e, set } = fieldHelpers(p);
   return (
     <NumberField
@@ -407,6 +424,14 @@ export function LossPlanField(p: TradeFieldsProps & { readonly hint?: string }) 
       value={d.lcLossPlan}
       onInput={set('lcLossPlan')}
       unit={p.currency?.moneyUnit ?? '円'}
+      {...(p.afterLc
+        ? {
+            // LC の次（2 段目の並び）にあるときだけ、決定キーで根拠が崩れる条件へ（#172）
+            enterKeyHint: 'next' as const,
+            onEnter: (el: HTMLInputElement) =>
+              el.ownerDocument.getElementById('record-broken')?.focus(),
+          }
+        : {})}
       {...(p.hint ? { hint: p.hint } : {})}
       {...(e.lcLossPlan ? { error: e.lcLossPlan } : {})}
     />

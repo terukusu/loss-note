@@ -7,6 +7,9 @@
 // （Tab で通る・画面がプログラムで focus() する・読み上げのスワイプで移るだけでは選択を変えない。WCAG 3.2.1）。
 // click では外して focus() し直す（iOS は読み取り専用の欄のフォーカスでキーボードを出さず、ユーザーの操作の中の focus() なら出すため）。
 // 文字のキーは既定の入力を止めて、その 1 文字を打った値として親へ返す（LC の欄では価格を打つと「なし」は外れる = applyDraft）
+// 決定キー（#172）: onEnter を渡した欄は、止まっていない間の Enter（変換の確定を除く）で既定の送信を止めて呼ぶ。止まった欄の
+// Enter は「外す」（#171）が先（外れた後の Enter が onEnter）。キーの振り分けは純関数 numberFieldKeyOf
+import { isEnterCommit } from '../lib/keyboard';
 import { FieldLabelText } from './FieldLabelText';
 
 export interface NumberFieldProps {
@@ -27,6 +30,10 @@ export interface NumberFieldProps {
   readonly describedBy?: string;
   /** 止まった欄（薄い形・押すと onUnlock。note は読み上げの説明に足す 1 文） */
   readonly locked?: NumberFieldLock;
+  /** スマホのキーボードの決定キーの表示（LC = 次へ・一言 = 完了。#172） */
+  readonly enterKeyHint?: 'next' | 'done';
+  /** 決定キー（変換の確定を除く）。渡したときだけ既定の動き（フォームの送信）を止めて呼ぶ（#172） */
+  readonly onEnter?: (input: HTMLInputElement) => void;
 }
 
 export interface NumberFieldLock {
@@ -41,10 +48,25 @@ export function unlockKeyOf(e: {
   readonly metaKey?: boolean;
   readonly altKey?: boolean;
   readonly isComposing?: boolean;
+  readonly keyCode?: number;
 }): 'press' | 'type' | null {
-  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return null;
+  // 変換中の判定は決定キー（isEnterCommit）と同じ: isComposing と keyCode 229（Safari の確定直後の keydown。#172 のレビュー N5）
+  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229) return null;
   if (e.key === 'Enter' || e.key === ' ') return 'press';
   if (e.key.length === 1) return 'type';
+  return null;
+}
+
+/**
+ * 欄の keydown の振り分け（#171・#172）。止まっている間は「外す」（press = Enter・Space / type = 1 文字）が先で、決定キーで
+ * 一言へ移らない。止まっていない（外れた後も）間の決定キー（変換の確定を除く）は、onEnter を渡したときだけ 'enter'
+ */
+export function numberFieldKeyOf(
+  e: Parameters<typeof unlockKeyOf>[0],
+  at: { readonly locked: boolean; readonly onEnter: boolean },
+): 'press' | 'type' | 'enter' | null {
+  if (at.locked) return unlockKeyOf(e);
+  if (at.onEnter && isEnterCommit(e.key, e.isComposing ?? false, e.keyCode ?? 0)) return 'enter';
   return null;
 }
 
@@ -107,6 +129,7 @@ export function NumberField(p: NumberFieldProps) {
           aria-invalid={p.error ? 'true' : undefined}
           aria-describedby={describedBy || undefined}
           onInput={(e) => p.onInput(e.currentTarget.value)}
+          enterKeyHint={p.enterKeyHint}
           {...(lock
             ? {
                 onClick: (e: MouseEvent) => {
@@ -115,13 +138,24 @@ export function NumberField(p: NumberFieldProps) {
                   el.blur();
                   el.focus();
                 },
+              }
+            : {})}
+          {...(lock || p.onEnter
+            ? {
                 onKeyDown: (e: KeyboardEvent) => {
                   const el = e.currentTarget as HTMLInputElement;
-                  const kind = unlockKeyOf(e);
-                  if (kind === null || !el.readOnly) return;
+                  const act = numberFieldKeyOf(e, {
+                    locked: lock !== undefined && el.readOnly,
+                    onEnter: p.onEnter !== undefined,
+                  });
+                  if (act === null) return;
                   e.preventDefault();
-                  unlock(el, lock);
-                  if (kind === 'type') p.onInput(e.key);
+                  if (act === 'enter') {
+                    p.onEnter?.(el);
+                    return;
+                  }
+                  if (lock) unlock(el, lock);
+                  if (act === 'type') p.onInput(e.key);
                 },
               }
             : {})}

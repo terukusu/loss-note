@@ -1,6 +1,7 @@
 // 文字・日時の入力欄（Issue #13 契約 R-4）。NumberField と同じ見た目・誤りの出し方（文言 + aria-invalid + aria-describedby）。
 // 打った文字列をそのまま親へ返す（解釈・検査は純関数）。文字 16px 以上・高さ 44px 以上。
 // 空の欄は文字を薄くする（日時の欄の「yyyy/mm/dd --:--」が入れた値に見えないように。#58 デザインレビュー 3）
+import { isEnterCommit } from '../lib/keyboard';
 import { FieldLabelText } from './FieldLabelText';
 
 export interface TextFieldProps {
@@ -20,6 +21,10 @@ export interface TextFieldProps {
   readonly disabled?: boolean;
   /** スマホのキーボード（限月は数字。#117 のデザインレビュー N4）。省けば文字 */
   readonly inputMode?: 'text' | 'numeric';
+  /** スマホのキーボードの決定キーの表示（LC = 次へ・一言 = 完了。#172） */
+  readonly enterKeyHint?: 'next' | 'done';
+  /** 決定キー（変換の確定を除く）。渡したときだけ既定の動き（フォームの送信）を止めて呼ぶ（#172） */
+  readonly onEnter?: (input: HTMLInputElement) => void;
 }
 
 export function TextField(p: TextFieldProps) {
@@ -66,6 +71,16 @@ export function TextField(p: TextFieldProps) {
           aria-invalid={p.error ? 'true' : undefined}
           aria-describedby={describedBy || undefined}
           onInput={(e) => p.onInput(e.currentTarget.value)}
+          enterKeyHint={p.enterKeyHint}
+          onKeyDown={
+            p.onEnter
+              ? (e) => {
+                  if (!isEnterCommit(e.key, e.isComposing, e.keyCode)) return;
+                  e.preventDefault();
+                  p.onEnter?.(e.currentTarget);
+                }
+              : undefined
+          }
         />
       </div>
       {p.hint ? (

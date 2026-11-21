@@ -63,6 +63,9 @@
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
+  /* iOS の Safari でキーボードが出ている間だけ下に足す余白（<html data-keyboard="overlay">。#172）。窓の高さは縮まないので
+     値は窓の割合で、キーボード（縦でおよそ 4 割・横で 6 割）より大きく取る。スクロールの余地にだけ使う */
+  --kbd-room: 60lvh;
 
   /* 押せるものの当たりの最小（Apple HIG の 44pt。AC-10） */
   --tap: 44px;

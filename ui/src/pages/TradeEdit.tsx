@@ -10,6 +10,7 @@
 // 残る。#75）。チャートの無い枠に記録された時間足は保存で外し、その旨を出す。保存できたら前の画面（詳細）へ戻る。
 // TradeEdit は hook を持たない。「見つかりません」の面は詳細と同じ。TradeEditView も hook を持たない（開いているシートは
 // TradeEditScreen が持つ）
+import { keyboardShown } from '../lib/keyboard-reveal';
 import '../styles/record.css';
 import '../styles/detail.css';
 import type { JSX } from 'preact';
@@ -476,6 +477,8 @@ function TradeEditBody(p: TradeEditViewProps) {
       noValidate
       onSubmit={(ev) => {
         ev.preventDefault();
+        // キーボードが出ている間（下の帯が隠れている）は、欄の Enter による暗黙の送信で保存しない（ui-guidelines 10.1。#172）
+        if (keyboardShown(ev.currentTarget?.ownerDocument?.documentElement)) return;
         p.onSave();
       }}
     >

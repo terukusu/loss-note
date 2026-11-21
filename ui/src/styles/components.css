@@ -2693,6 +2693,19 @@
   padding-block: var(--sp-1) calc(var(--sp-6) + var(--safe-bottom));
 }
 
+/* キーボードが出ている間は、下のシートの中で貼り付いた ［保存］ / ［追加］ の帯を隠す（キーボードの上に貼り付いた帯を置かない。
+   閉じたらすぐ戻す。#172・ui-guidelines 9.6） */
+:root[data-keyboard] .sheet .setform__actions,
+:root[data-keyboard] .sheet .emotions__actions {
+  display: none;
+}
+
+/* iOS の Safari でキーボードが出ている間は、シートの下の端がキーボードの裏に入る。下の欄もキーボードの上へ寄せられるよう、
+   その間だけ下に余白を足す（lib/keyboard-reveal.ts の印。#172） */
+:root[data-keyboard="overlay"] .sheet__body {
+  padding-block-end: calc(var(--sp-6) + var(--safe-bottom) + var(--kbd-room));
+}
+
 /* 横の形: 右から出るパネル（幅 400px・高さいっぱい。右の安全域の分だけ広げる） */
 :root[data-form="landscape"] .sheet {
   inset: 0 0 0 auto;

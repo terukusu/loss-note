@@ -14,6 +14,13 @@
   gap: 0;
 }
 
+/* iOS の Safari でキーボードが出ている間（窓は縮まず、キーボードが窓の下に重なる。lib/keyboard-reveal.ts の印）だけ、
+   下に余白を足してスクロールできるようにし、フォーカスした欄をキーボードの上へ寄せられるようにする。1 画面の約束
+   （スクロール 0px）はキーボードの出ていない間のもの。閉じたら余白が消えて元に戻る（#172。ui-guidelines 9.6） */
+:root[data-keyboard="overlay"] .content--sheet:has(.record--one) {
+  padding-bottom: var(--kbd-room);
+}
+
 /* 幅 720px 未満は上の帯が貼り付き、下の帯を窓の下の端に付ける（中身が短くても帯は下。幅 720 以上の帯は浮かせた形のまま） */
 @media (max-width: 719.98px) {
   .record--one {
@@ -505,6 +512,15 @@
   flex-wrap: nowrap;
   gap: var(--sp-1);
   margin-top: auto;
+}
+
+/* キーボードが出ている間（lib/keyboard-reveal.ts の印。overlay / resize のどちらも）は、下に貼り付いた帯（「あと N 欄」・
+   判定の 1 行・［記録する］ / ［保存］）と上の書きかけの案内を隠し、入れている欄の見える所を広げる。キーボードの上に貼り付いた
+   帯を置かない（オーナー「ソフトキーの上にスティッキーなuiを置くのもその他のuiをはいちする画面が狭くなってきつくない」）。
+   閉じたらすぐ戻す（動きを付けない）。#172・ui-guidelines 9.6 */
+:root[data-keyboard] .record--one .record__submit--bar,
+:root[data-keyboard] .record--one .draft__resumed {
+  display: none;
 }
 
 .vline {

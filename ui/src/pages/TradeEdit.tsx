@@ -491,7 +491,7 @@ function TradeEditBody(p: TradeEditViewProps) {
           </h2>
           <SummaryCard
             prefix="edit"
-            summary={tradeSummary(d, e, {}, read.option)}
+            summary={tradeSummary(d, e, {}, read.option, read.currency?.account)}
             accountChip={choice === 'select' && account ? account.name : null}
             onFields={(focus) =>
               openSheet({ kind: 'fields', step: 'main', ...(focus ? { focus } : {}) })

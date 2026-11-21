@@ -1,9 +1,9 @@
 // 記録する（#130）と編集（#131）の全画面のシートが共有する部品（設計書 9.2「形は記録すると同じ」・docs/ui-guidelines.md 9.4）。
 // hook を持たない。id は接頭辞（record / edit）で作り、同じ画面に 2 つ置かない。
-// - SummaryCard: 取引の欄の 2 行の要約・［編集］（取引の欄のシート）・名指しのチップ・口座の札 / Segment・状態の文
+// - SummaryCard: 取引の欄の 3 行の要約・［編集］（取引の欄のシート）・名指しのチップ・口座の札 / Segment・状態の文
 // - MiniCharts: チャートの小さな 2 枠（横に並べる）と、その下のチャートの注意（常に出す。C38）
 // - VerdictLineButton: 下の帯の判定の 1 行（押すと判定のシート）
-import type { ComponentChildren } from 'preact';
+import { type ComponentChildren, Fragment } from 'preact';
 import type { Timeframe } from '../../../core/trade';
 import { CHART_READ_NOTICE } from '../lib/chart-read';
 import type { ChartState, ChartsState } from '../lib/chart-slots';
@@ -63,33 +63,35 @@ export function SummaryCard(p: SummaryCardProps) {
         </button>
       ) : null}
       <div class="rsum__text" id={ids.summary}>
-        <p class="rsum__l1">
-          {sum.name !== undefined && sum.tail !== undefined ? (
-            <span class="rsum__value">
-              <span class="rsum__name">{sum.name}</span>
-              <span class="rsum__tail">{sum.tail}</span>
-            </span>
-          ) : (
-            <span class="rsum__value">{sum.line1}</span>
-          )}
-          {sum.read ? <span class="field__mark rsum__mark">読み取り</span> : null}
-        </p>
-        {sum.yearInferred ? (
-          <p class="rsum__warn">
-            <span class="field__mark field__mark--warn">{YEAR_INFERRED_CHIP}</span>
+        {/* 1 行目は名前と札・［編集］。2・3 行目は ［編集］ の下まで全幅（実際の桁の価格でも折り返しにくくする。#164） */}
+        <div class="rsum__head">
+          {/* 名前は切らずに折り返す。札は名前の右（入らなければ下）に置き、名前を押し縮めない（#164） */}
+          <p class="rsum__l1">
+            <span class="rsum__name">{sum.name}</span>
+            {sum.read ? <span class="field__mark rsum__mark">読み取り</span> : null}
+            {sum.yearInferred ? (
+              <span class="field__mark field__mark--warn rsum__mark">{YEAR_INFERRED_CHIP}</span>
+            ) : null}
           </p>
-        ) : null}
-        <p class="rsum__l2">{sum.line2}</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            id={ids.editFields}
+            label="取引の欄を編集"
+            onClick={() => p.onFields()}
+          >
+            編集
+          </Button>
+        </div>
+        {/* 見える 2 行は記号つき。読み上げは記号の無い文（#164 のレビュー N4） */}
+        <p class="rsum__l2" aria-hidden="true">
+          <Parts parts={sum.line2Parts} />
+        </p>
+        <p class="rsum__l3" aria-hidden="true">
+          <Parts parts={sum.line3Parts} pnl={sum.pnl} />
+        </p>
+        <p class="sr-only">{sum.spoken}</p>
       </div>
-      <Button
-        variant="secondary"
-        size="sm"
-        id={ids.editFields}
-        label="取引の欄を編集"
-        onClick={() => p.onFields()}
-      >
-        編集
-      </Button>
       {sum.named.length > 0 ? (
         <ul class="rsum__named" aria-label="入力が必要な欄">
           {sum.named.map((n) => (
@@ -109,6 +111,37 @@ export function SummaryCard(p: SummaryCardProps) {
       ) : null}
       {p.children}
     </div>
+  );
+}
+
+/**
+ * 折り返してよい所で分けた行（塊ごとに次の行へ回す。間は空白 1 つ）。pnl を渡すと、最後の塊の末尾の損益の数だけ 1 段強く
+ * （色は付けない。判定の色と混ぜない = P2。#164 のデザインレビュー 4）
+ */
+function Parts({
+  parts,
+  pnl,
+}: {
+  readonly parts: readonly string[];
+  readonly pnl?: string | undefined;
+}) {
+  const last = parts.length - 1;
+  return (
+    <>
+      {parts.map((t, i) => (
+        <Fragment key={i}>
+          {i > 0 ? ' ' : null}
+          {pnl !== undefined && i === last && t.endsWith(pnl) ? (
+            <span class="rsum__part">
+              {t.slice(0, t.length - pnl.length)}
+              <span class="rsum__pnl">{pnl}</span>
+            </span>
+          ) : (
+            <span class="rsum__part">{t}</span>
+          )}
+        </Fragment>
+      ))}
+    </>
   );
 }
 

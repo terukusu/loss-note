@@ -570,15 +570,15 @@ describe('次のポジションの見出し・2 段目の要約（デザイン�
     });
     expect(nextPositionView(raw, units, 2)).toBeNull();
   });
-  it('要約の 1 行目は銘柄と残りに分ける。年を補ったレッグがあれば札', () => {
+  it('要約の 1 行目は銘柄だけ、2 行目の先頭に向きとレッグの本数。年を補ったレッグがあれば札', () => {
     const rows = parsed([optionRowJson({ ...OPT_A1, inferred: true }), optionRowJson(OPT_A2)]);
     const row = unitRow(rows, [0, 1]) as ReadRow;
     const d = { ...positionDraft([OPT_A1, OPT_A2]).draft, legs: unitLegs([], row, null) };
     const r = readDraft(d, ctx);
     const sum = tradeSummary(d, r.errors, {}, r.option);
     expect(sum.name).toBe('架空指数XYZOP');
-    expect(sum.tail).toBe(' · L · レッグ 2');
-    expect(sum.line1).toBe('架空指数XYZOP · L · レッグ 2');
+    expect(sum.line2Parts.slice(0, 2)).toEqual(['L ·', 'レッグ 2 ·']);
+    expect(sum.line2.startsWith('L · レッグ 2 · 原資産 イン ')).toBe(true);
     expect(sum.yearInferred).toBe(true);
   });
   it('1 段目の数え方は「件」（明細の行の数を添える）', () => {

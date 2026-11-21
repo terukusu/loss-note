@@ -202,6 +202,8 @@ const ZOOM_RECORD = [
   'record-3-judged-b',
   'record-5-no-lc-c',
   'record-8-read',
+  'record-45-read-long-name',
+  'record-46-read-real-digits',
   'record-9-rows',
   'record-10-read-failed',
   'record-12-charts',
@@ -656,6 +658,31 @@ const TX_C7 = exampleTrade(
   },
 );
 
+/** 実際の桁の架空の銘柄と取引（#164 のレビュー。編集の画面の要約を測る）。値は架空 */
+const FAKE_REAL = {
+  ...FAKE_US30,
+  id: 'inst-real',
+  name: '架空ミニ指数先物 26/12',
+  multiplier: 1000,
+};
+const TX_REAL = exampleTrade(
+  'x-real',
+  1700000000031,
+  {
+    instrumentId: FAKE_REAL.id,
+    lc: 61180,
+    entries: [{ price: 61234.5, quantity: 1 }],
+    exit: {
+      time: T_1110,
+      price: 61139.5,
+      orderType: 'unknown',
+      reason: 'lc',
+      gapSlip: 'unanswered',
+    },
+    statementPnlYen: -95000,
+  },
+  { snapshot: { ...SNAP, instrument: { ...SNAP.instrument, multiplier: 1000 } } },
+);
 const TX_FX = exampleTrade(
   'x-fx',
   1700000000021,
@@ -785,6 +812,17 @@ const READ_E1 = {
   fees: [100, 50],
   feesTotal: 150,
   exitOrderType: 'unknown',
+};
+/**
+ * 実際の桁の架空の明細の行（#164 のレビュー）: オーナーの例と同じ桁（6 万台・小数 1 桁、損益 6 桁、名前の長さ）。値は架空
+ */
+const READ_REAL = {
+  ...READ_E1,
+  symbol: '架空ミニ指数先物 26/12',
+  entryPrice: 61234.5,
+  exitPrice: 61139.5,
+  quantity: 1,
+  pnl: -95000,
 };
 /** 3 行。行 1 は決済の時刻の時間帯が明細に無い（E9 + E10） */
 const READ_E10 = [
@@ -1373,6 +1411,76 @@ async function toReviewByPaste(page, fake) {
   await page.locator('.rsum__mark').waitFor({ timeout: 10000 });
 }
 
+/**
+ * 要約のカード（#record-summary・#edit-summary）の中で切れている文字の数（#164: 名前・数・時刻を「…」で省略しない）。
+ * 名前と塊（.rsum__part）・札が自分の箱にも要約の箱にも収まっているかを見る
+ */
+async function summaryCuts(page, sel = '#record-summary') {
+  return page.evaluate((s) => {
+    const box = document.querySelector(s);
+    if (!box) return ['要約が無い'];
+    const outer = box.getBoundingClientRect();
+    const out = [];
+    for (const el of box.querySelectorAll('.rsum__name, .rsum__part, .rsum__mark')) {
+      const r = el.getBoundingClientRect();
+      const cut =
+        el.scrollWidth > el.clientWidth + 0.5 ||
+        r.right > outer.right + 0.5 ||
+        r.left < outer.left - 0.5 ||
+        getComputedStyle(el).textOverflow === 'ellipsis';
+      if (cut) out.push(el.textContent ?? '');
+    }
+    return out;
+  }, sel);
+}
+
+/**
+ * 実際の桁の要約（#164 のレビュー）: 2・3 行目の文、切れた文字 0、行の頭に「·」「→」が来ない、文字が等倍で幅 390 以上なら
+ * 2・3 行目は 1 行ずつ
+ */
+async function expectRealSummary(page, sel) {
+  const got = await page.evaluate((s) => {
+    const box = document.querySelector(s);
+    const line = (c) => {
+      const el = box?.querySelector(c);
+      if (!el) return { text: '', lines: 0, heads: [] };
+      const lh = Number.parseFloat(getComputedStyle(el).lineHeight);
+      // 塊ごとの行の頭（前の塊より下の行に来た塊の先頭の文字）
+      const heads = [];
+      let top = null;
+      for (const part of el.querySelectorAll('.rsum__part')) {
+        const t = part.getBoundingClientRect().top;
+        if (top !== null && t > top + 1) heads.push((part.textContent ?? '').trim().charAt(0));
+        top = t;
+      }
+      return {
+        text: (el.textContent ?? '').replace(/\s+/g, ' ').trim(),
+        lines: Math.round(el.getBoundingClientRect().height / lh),
+        heads,
+      };
+    };
+    return {
+      l2: line('.rsum__l2'),
+      l3: line('.rsum__l3'),
+      w: window.innerWidth,
+      zoom: !!document.querySelector('style[data-ui-check-zoom]'),
+    };
+  }, sel);
+  if (got.l2.text !== 'L · 数量 1 · イン 61,234.5 → 決済 61,139.5')
+    throw new Error(`要約の 2 行目「${got.l2.text}」`);
+  if (!/^11\/10 \d\d:\d\d 決済 · 明細の損益 −95,000円$/.test(got.l3.text))
+    throw new Error(`要約の 3 行目「${got.l3.text}」`);
+  for (const l of [got.l2, got.l3])
+    for (const h of l.heads)
+      if (h === '·' || h === '→') throw new Error(`折り返した行の頭に「${h}」（${l.text}）`);
+  if (got.w >= 390 && !got.zoom && (got.l2.lines !== 1 || got.l3.lines !== 1))
+    throw new Error(
+      `幅 ${got.w}: 2 行目 ${got.l2.lines} 行・3 行目 ${got.l3.lines} 行（1 行ずつ）`,
+    );
+  const cuts = await summaryCuts(page, sel);
+  if (cuts.length > 0) throw new Error(`要約の文字が切れる: ${cuts.join('、')}`);
+}
+
 /** 記録する画面の 1 段目「スクショを入れる」へ戻る（2 段目なら上の帯の ［スクショ］。2026-11-21） */
 async function toInput(page) {
   const back = page.locator('#record-to-input');
@@ -1875,7 +1983,7 @@ const RECORD_STATES = [
   {
     slug: 'record-8-read',
     name: '読み取りの後',
-    // 1 画面（要約 2 行・LC から判定まで）を撮る。印のついた取引の欄は record-8b（シート）で撮る
+    // 1 画面（要約 3 行・LC から判定まで）を撮る。印のついた取引の欄は record-8b（シート）で撮る
     anchor: '.rstmt',
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
@@ -2154,6 +2262,42 @@ const RECORD_STATES = [
       await pasteChart(p, 'entry');
       await p.locator('#record-mini-entry', { hasText: '1 時間足' }).waitFor({ timeout: 10000 });
       await p.locator('#record-proceed').waitFor();
+    },
+  },
+  {
+    // #164: 長い銘柄の名前も切らずに折り返す。向き・数量・イン → 決済・決済の時刻・明細の損益に見出し
+    slug: 'record-45-read-long-name',
+    name: '2 段目（長い銘柄の名前）',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = {
+        status: 200,
+        rows: [{ ...READ_E1, symbol: '架空ミニ指数先物 2026年12月限 ラージ' }],
+        holdMs: 0,
+      };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__mark').waitFor();
+      const l2 = (await p.locator('#record-summary .rsum__l2').textContent()) ?? '';
+      if (!/^L · 数量 2 · イン 100 → 決済 99$/.test(l2.replace(/\s+/g, ' ').trim()))
+        throw new Error(`要約の 2 行目「${l2}」`);
+      const l3 = (await p.locator('#record-summary .rsum__l3').textContent()) ?? '';
+      if (!/^11\/10 \d\d:\d\d 決済 · 明細の損益 −2,000円$/.test(l3.replace(/\s+/g, ' ').trim()))
+        throw new Error(`要約の 3 行目「${l3}」`);
+      const cuts = await summaryCuts(p);
+      if (cuts.length > 0) throw new Error(`要約の文字が切れる: ${cuts.join('、')}`);
+    },
+  },
+  {
+    // #164 のレビュー: 実際の桁の架空の値（6 万台の小数 1 桁の価格・6 桁の損益・オーナーの例と同じ長さの名前）。
+    // 2・3 行目は ［編集］ の下まで全幅で、幅 390 以上では 1 行ずつ。行の頭に「·」「→」が来ない。何も切れない
+    slug: 'record-46-read-real-digits',
+    name: '2 段目（実際の桁）',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_REAL], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__mark').waitFor();
+      await expectRealSummary(p, '#record-summary');
     },
   },
   {
@@ -4619,6 +4763,18 @@ async function main() {
             },
           },
           {
+            // #164 のレビュー: 編集の画面の要約も実際の桁で測る
+            path: '/trades/x-real/edit',
+            h1: '取引を編集',
+            slug: 'trade-x-real-edit',
+            name: '編集（実際の桁）',
+            trade: TX_REAL,
+            instrument: FAKE_REAL,
+            after: async (pg) => {
+              await expectRealSummary(pg, '#edit-summary');
+            },
+          },
+          {
             path: '/trades/x-fx/edit',
             h1: '取引を編集',
             slug: 'trade-x-fx-edit-usd',
@@ -4635,6 +4791,8 @@ async function main() {
           const label = `${w}x${hgt} ${pad(theme, 5)} ${pad(`${fx.path}（${fx.name}）`, 22)}`;
           withUsdInstrument(recApi);
           setAccounts(recApi, [ACC_ONE, ACC_USD]);
+          if (fx.instrument && !recApi.instruments.some((i) => i.id === fx.instrument.id))
+            recApi.instruments.push(fx.instrument);
           recApi.trades.push(fx.trade);
           try {
             await tp.goto(base + fx.path);
@@ -4670,6 +4828,10 @@ async function main() {
             // 心理のタグの PUT（#156）は取引を置き換えるので、ID で探して外す
             const at = recApi.trades.findIndex((t) => t.id === fx.trade.id);
             if (at >= 0) recApi.trades.splice(at, 1);
+            if (fx.instrument) {
+              const ii = recApi.instruments.findIndex((i) => i.id === fx.instrument.id);
+              if (ii >= 0) recApi.instruments.splice(ii, 1);
+            }
             setAccounts(recApi, []);
           }
         }
@@ -6623,7 +6785,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
       expectEq(await p.locator('#record-instrument').inputValue(), '架空指数A', '銘柄');
       expectEq(await p.locator('#record-quantity').inputValue(), '2', '数量');
-      // 読み取りの値は要約の 2 行に流れ込む（取引の欄・ほかの欄はシートの中。#130）
+      // 読み取りの値は要約に流れ込む（取引の欄・ほかの欄はシートの中。#130）
       await p.locator('.rsum__l1', { hasText: '架空指数A' }).waitFor();
       expectEq(await p.locator('#record-fee').count(), 0, '手数料（ほかの欄はシートの段 2）');
       const typed = await fillStatementTaps(p);
@@ -6799,6 +6961,15 @@ async function runFlows(browser, base, signedIn) {
         },
       ],
       [
+        // #164 のレビュー: 実際の桁（6 万台・小数 1 桁の価格、6 桁の損益、オーナーの例と同じ長さの名前）
+        '実際の桁',
+        async (p, fake) => {
+          fake.read = { status: 200, rows: [READ_REAL], holdMs: 0 };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+        },
+      ],
+      [
         '手入力',
         async (p) => {
           await p.locator('#record-manual').click();
@@ -6875,9 +7046,13 @@ async function runFlows(browser, base, signedIn) {
             await c.close();
           }
         }
-        const moved = Math.abs((lcTops.読み取り中 ?? 0) - (lcTops.読み取りの後 ?? 0));
-        if (moved > 1)
-          throw new Error(`${theme}: 読み取りの結果が流れ込むと LC の欄が ${moved}px 動いた`);
+        for (const after of ['読み取りの後', '実際の桁']) {
+          const moved = Math.abs((lcTops.読み取り中 ?? 0) - (lcTops[after] ?? 0));
+          if (moved > 1)
+            throw new Error(
+              `${theme}: 読み取りの結果が流れ込むと LC の欄が ${moved}px 動いた（${after}）`,
+            );
+        }
       }
     // 360×780: 縦のスクロール 120px 以下（口座 1・2・3 の形）
     const shapes = [
@@ -6887,7 +7062,7 @@ async function runFlows(browser, base, signedIn) {
     ];
     for (const shape of shapes)
       for (const [name, fn] of states) {
-        if (name !== '1 段目' && name !== '読み取りの後') continue;
+        if (name !== '1 段目' && name !== '読み取りの後' && name !== '実際の桁') continue;
         const c = await browser.newContext({
           viewport: { width: 360, height: 780 },
           storageState: signedIn,
@@ -11068,15 +11243,9 @@ async function runFlows(browser, base, signedIn) {
         '要約のレッグ',
       );
       expectEq(await hscroll(), 0, '2 段目の横のスクロール');
-      // 年を補った限月の札（注意の色）が要約に出る。要約の 1 行目の「レッグ 2」は切れない（デザインレビュー 1・5）
-      await p.locator('.rsum__warn .field__mark--warn').waitFor({ timeout: 5000 });
-      const tailCut = await p.evaluate(() => {
-        const t = document.querySelector('#record-summary .rsum__tail');
-        const v = t?.closest('.rsum__value');
-        if (!t || !v) return 'なし';
-        return t.getBoundingClientRect().right <= v.getBoundingClientRect().right + 0.5 ? 0 : 1;
-      });
-      expectEq(tailCut, 0, '要約の「レッグ 2」が切れる');
+      // 年を補った限月の札（注意の色）が要約に出る。要約の名前・「L · レッグ 2」は切れない（デザインレビュー 1・5・#164）
+      await p.locator('#record-summary .field__mark--warn').waitFor({ timeout: 5000 });
+      expectEq((await summaryCuts(p)).join('、'), '', '要約の切れた文字');
       await shot('opt118-review');
       // 取引の欄のシート: レッグ 2 本の印・次のポジションの行
       await openFields(p);

@@ -105,12 +105,16 @@ import {
   opensEmotionSheet,
   type RecordSheet,
   type RecordStage,
+  readFinished,
   SHEET_ID,
+  type StatementStatus,
   showProceed,
   stage1Reading,
   stage1Statement,
   stageOf,
   statementRow,
+  statementStatus,
+  type TradeSummary,
   TZ_PENDING,
   timeZoneNeed,
   tradeSummary,
@@ -424,6 +428,38 @@ export function RecordScreen() {
     }
   }, [state.statement?.phase]);
 
+  // 完了の文の読み上げの数は、読めた最初の行が出た時点で 1 回だけ数える（同じ読み取りの間は替えない。#166 のコードレビュー 2）
+  const spokenRef = useRef<{ readonly key: unknown; readonly named: number } | null>(null);
+  {
+    const st = state.statement;
+    const key = st?.phase === 'ready' && st.index === 0 && st.notice === null ? st.rows : null;
+    if (key === null) spokenRef.current = null;
+    else if (spokenRef.current?.key !== key)
+      spokenRef.current = { key, named: summaryOf(state).named.length };
+  }
+  const spokenNamed = spokenRef.current?.named;
+
+  // 読み取りが読めた・失敗した直後だけ、明細の行に 1 回の動き（#166 R3）。動きの終わり（animationend）で外し、動きが
+  // 描かれなかったとき（1 段目へ戻った・動きを減らす設定）も時間で外す（段・シートを行き来しても繰り返さない）
+  const [readFlash, setReadFlash] = useState(false);
+  const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevFlashPhase = useRef(state.statement?.phase);
+  useEffect(() => {
+    const before = prevFlashPhase.current;
+    const after = state.statement?.phase;
+    prevFlashPhase.current = after;
+    if (!readFinished(before, after)) return;
+    setReadFlash(true);
+    if (flashTimer.current) clearTimeout(flashTimer.current);
+    flashTimer.current = setTimeout(() => setReadFlash(false), READ_FLASH_CLEAR_MS);
+  }, [state.statement?.phase]);
+  useEffect(
+    () => () => {
+      if (flashTimer.current) clearTimeout(flashTimer.current);
+    },
+    [],
+  );
+
   // 段の移り（2026-11-21）: 1 段目 → 2 段目は LC へ（明細を選んだ・［振り返りへ進む］。シートを開いた ［明細なしで手入力］ は
   // シートが見出しへ移す）。2 段目 → 1 段目は 1 段目の見出しへ。どちらも上の端から見せる
   const stage = state.phase === 'editing' || state.phase === 'saving' ? stageOf(state) : null;
@@ -535,6 +571,9 @@ export function RecordScreen() {
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
       legUndo={legUndo}
       legNotice={legNotice}
+      readFlash={readFlash}
+      {...(spokenNamed === undefined ? {} : { spokenNamed })}
+      onReadFlashEnd={() => setReadFlash(false)}
       onLegRemoved={setLegUndo}
       onLegUndo={() => {
         if (!legUndo) return;
@@ -684,6 +723,17 @@ export interface RecordViewProps {
   readonly onPickFile?: (file: File) => void;
   /** [やめて手で入れる] */
   readonly onCancelRead?: () => void;
+  /**
+   * 明細の行の 1 回だけの動き（読み取りが読めた・失敗した直後。#166 R3）。動きが終わったら onReadFlashEnd で外す。
+   * 省けば動かない
+   */
+  readonly readFlash?: boolean;
+  /**
+   * 読み取りが終わった時点の「入力が必要な欄」の数（hook の層が読み取りごとに 1 回だけ数える）。読み上げの領域はこの数で
+   * 止める（#166 のコードレビュー 2）。省けば今の数
+   */
+  readonly spokenNamed?: number;
+  readonly onReadFlashEnd?: () => void;
   /** 明細の時刻の時間帯を選んだ（#58） */
   readonly onChooseTz?: (id: TzId) => void;
   /** [ほかのタイムゾーン…] */
@@ -755,6 +805,10 @@ const STATEMENT_FILE_ID = 'record-statement-file';
 const STATEMENT_NOTICE_ID = 'record-statement-notice';
 const VERDICT_HINT_ID = 'record-verdict-hint';
 const STATEMENT_TITLE_ID = 'record-statement-title';
+/** 明細の行の動きの印を外すまでの時間（動きは --dur-base = 200ms 以下。animationend が来なかったときの保険。#166） */
+const READ_FLASH_CLEAR_MS = 600;
+/** 2 段目の明細の行の状態の文の読み上げの領域（#166） */
+export const STATEMENT_STATUS_ID = 'record-statement-status';
 /** 1 段目の見出し（段の移り・次の取引のフォーカスの行き先） */
 const STAGE1_TITLE_ID = 'record-stage1-title';
 /** 1 段目の ［読み取りをキャンセル］（読み取り中に 1 段目へ戻ったとき） */
@@ -1317,8 +1371,17 @@ function StatementArea(
   const { state } = p;
   const st = state.statement;
   const area = statementRow({ statement: st, manual: state.manual, draft: state.draft });
-  const marks = st?.marks ?? {};
   const open = (s: RecordSheet) => p.onSheet?.(s);
+  const sum = area === 'summary' ? summaryOf(state) : null;
+  // 状態の文（読み取り中… / 完了の文 / キャンセル。#166）。読み上げは下の領域が持ち、見える文は読み上げから外す
+  const cancelled = state.readCancelled === true;
+  const status = statementStatus(st, sum?.named.length ?? 0, cancelled);
+  // 読み上げは終わった時点の文で止める（欄を埋めて数が減っても読み上げ直さない。10.2「1 つの出来事に知らせは 1 つ」。
+  // 同じ Issue のコードレビュー 2）。見える文は今の数
+  const spoken =
+    status?.kind === 'done' && p.spokenNamed !== undefined
+      ? statementStatus(st, p.spokenNamed, cancelled)
+      : status;
   const message =
     st?.phase === 'failed' && st.message ? (
       <p class="notice notice--error" role="alert">
@@ -1327,13 +1390,31 @@ function StatementArea(
     ) : null;
   const notices = <StatementNotices state={state} />;
   return (
-    <section class="rstmt" data-area={area} aria-labelledby={STATEMENT_TITLE_ID}>
+    <section
+      class={`rstmt${p.readFlash ? ' rstmt--flash' : ''}`}
+      data-area={area}
+      aria-labelledby={STATEMENT_TITLE_ID}
+      onAnimationEnd={(e) => {
+        if ((e.target as Element).classList.contains('rstmt__card')) p.onReadFlashEnd?.();
+      }}
+    >
       <h2 class="sr-only" id={STATEMENT_TITLE_ID} tabIndex={-1}>
         決済明細
       </h2>
+      {/* 読み上げの領域は読み取り中から常に描き、中身だけを替える（3 つの形が入れ替わっても同じ要素。ui-guidelines 9.4・#166 R2） */}
+      <p class="sr-only" role="status" id={STATEMENT_STATUS_ID} key="status">
+        {spoken?.text ?? ''}
+      </p>
       {area === 'retry' ? (
-        <div class="rstmt__card rstmt__card--retry">
-          {message ?? <p class="rsum__l1">明細がありません</p>}
+        <div class="rstmt__card rstmt__card--retry" key="card-retry">
+          {message ??
+            (status?.kind === 'cancelled' ? (
+              <p class="rsum__l1 rstmt__cancelled" aria-hidden="true">
+                {status.text}
+              </p>
+            ) : (
+              <p class="rsum__l1">明細がありません</p>
+            ))}
           <div class="rstmt__actions">
             <Button
               variant="secondary"
@@ -1350,14 +1431,16 @@ function StatementArea(
           {notices}
         </div>
       ) : area === 'reading' ? (
-        <div class="rstmt__card rstmt__card--sum">
+        <div class="rstmt__card rstmt__card--sum" key="card-reading">
           {/* 要約と同じ形（名前の行と右のボタン + 全幅の 2 行。流れ込んでも LC が動かない。#164） */}
           <div class="rsum__text">
-            <div class="rsum__head">
-              {/* 下の帯が「明細を読み取っています」と言うので、枠の中は短く（幅 360 でも切れない。#130 のデザインレビュー a2） */}
-              <p class="rsum__l1 statement__reading" role="status">
-                読み取り中…
+            <div class="rsum__head rsum__head--status">
+              {/* 下の帯が「明細を読み取っています」と言うので、枠の中は短く（幅 360 でも切れない。#130 のデザインレビュー a2）。
+                  読み取りの後の完了の文と同じ場所（名前の上の 1 行）。読み上げは上の領域（#166） */}
+              <p class="rsum__status rsum__status--reading" aria-hidden="true">
+                <span>読み取り中…</span>
               </p>
+              <p class="rsum__l1 rsum__skeleton rsum__skeleton--name" aria-hidden="true" />
               <Button
                 variant="secondary"
                 size="sm"
@@ -1373,9 +1456,28 @@ function StatementArea(
           {notices}
         </div>
       ) : (
-        <RecordSummary {...p} marks={marks} message={message} notices={notices} onOpen={open} />
+        <RecordSummary
+          key="card-summary"
+          {...p}
+          summary={sum as TradeSummary}
+          status={status}
+          message={message}
+          notices={notices}
+          onOpen={open}
+        />
       )}
     </section>
+  );
+}
+
+/** 2 段目の要約（明細の行と、完了の文の数の hook の層が同じものを数える） */
+function summaryOf(state: RecordState): TradeSummary {
+  return tradeSummary(
+    state.draft,
+    state.read.errors,
+    state.statement?.marks ?? {},
+    state.read.option,
+    state.read.currency?.account,
   );
 }
 
@@ -1417,24 +1519,18 @@ function RecordSummary(
     readonly tzNeed: 'choose' | 'chosen' | null;
     readonly accountField: ComponentChildren;
     readonly accountChip: string | null;
-    readonly marks: Marks;
+    readonly summary: TradeSummary;
+    readonly status: StatementStatus;
     readonly message: ComponentChildren;
     readonly notices: ComponentChildren;
     readonly onOpen: (s: RecordSheet) => void;
   },
 ) {
-  const { state } = p;
-  const sum = tradeSummary(
-    state.draft,
-    state.read.errors,
-    p.marks,
-    state.read.option,
-    state.read.currency?.account,
-  );
   return (
     <SummaryCard
       prefix="record"
-      summary={sum}
+      summary={p.summary}
+      status={p.status}
       accountChip={p.accountChip}
       onFields={(focus) => p.onOpen({ kind: 'fields', step: 'main', ...(focus ? { focus } : {}) })}
     >

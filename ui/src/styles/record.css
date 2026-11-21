@@ -29,6 +29,13 @@
   padding: var(--sp-1) 0 var(--sp-2);
 }
 
+/* 記録する画面の 2 段目だけ: 明細の行の状態の 1 行（完了の文。#166）の分、段の間を 6px・下の帯の上の余白を 4px に詰める
+   （1 段目・編集の画面は上の 8px のまま。#166 のコードレビュー 4） */
+.record--review > .record__fields {
+  gap: 6px;
+  padding-bottom: var(--sp-1);
+}
+
 /* ── 明細の場所（3 つの状態が同じ場所で入れ替わる） */
 .rstmt__card {
   display: grid;
@@ -130,10 +137,113 @@
   flex: none;
 }
 
-.rsum__l1.statement__reading {
+/* 明細の行の状態の 1 行（読み取り中… / 完了の文 / キャンセル。#166 R1）: 名前の上。［編集］・［キャンセル］ は 2 行の高さの
+   真ん中に置く（行を 1 つ足さずに、名前の行と重ねる）。長い文（件数 + 入力が必要な欄）は折り返す（省略記号で切らない。AC-7） */
+.rsum__status {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25em;
   margin: 0;
-  font-size: var(--fs-md);
+  min-width: 0;
+  overflow-wrap: break-word;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.2;
+  color: var(--ink-2);
+}
+
+/* 完了の文は結果の知らせの主役: 太字・--ink と、アクセントの地に白抜きのチェック（判定の段の色は使わない。P2。
+   #166 のデザインレビュー 1） */
+.rsum__status--done {
   font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.rsum__statusicon {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 1.15em;
+  height: 1.15em;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 1em;
+  line-height: 1;
+}
+
+.rsum__statusicon--need::before {
+  content: "!";
+}
+
+.rsum__statusicon .icon {
+  width: 0.8em;
+  height: 0.8em;
+}
+
+/* 入力が必要な欄が残る完了: 中立の「!」の丸（成功のチェックと「読み取れませんでした」を同居させない。デザインレビュー 2） */
+.rsum__statusicon--need {
+  border: 1.5px solid var(--ink-2);
+  background: none;
+  color: var(--ink-2);
+  font-size: 0.75em;
+  font-weight: var(--fw-heavy);
+  width: 1.55em;
+  height: 1.55em;
+}
+
+/* やり直しの形のキャンセルの文: 自分で押した結果なので控えめに（失敗の文と同じ大きさ・色は中立。デザインレビュー 4） */
+.rsum__l1.rstmt__cancelled {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+}
+
+.rsum__head--status > .rsum__l1 {
+  grid-column: 1;
+}
+
+.rsum__head--status > .btn {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+/* 読み取り中の名前の骨組み（名前の行と同じ高さ） */
+.rsum__skeleton.rsum__skeleton--name {
+  width: 55%;
+  height: calc(var(--fs-md) * 1.4);
+}
+
+/* 読み取りが読めた・失敗した直後の 1 回だけの動き（#166 R3。ui-guidelines 9.8）: 明細の行の面が 1 回だけアクセントの色に
+   明るくなって戻る（面の色だけ。2 段目のカードは外側の .rinput が面を持つので、戻る先は透明）。
+   大きさ・位置を変えない（LC 以下は動かない）。時間はトークン（動きを減らす設定では 0s） */
+.rstmt--flash > .rstmt__card {
+  animation: rstmt-done var(--dur-base) var(--ease) 1;
+}
+
+/* 完了の文も同じ時間で薄い所から現れる（大きさ・位置は変えない。デザインレビュー 6） */
+.rstmt--flash .rsum__status--done {
+  animation: rsum-status-in var(--dur-base) var(--ease) 1;
+}
+
+@keyframes rsum-status-in {
+  from {
+    opacity: 0.4;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rstmt-done {
+  from {
+    background-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  to {
+    background-color: transparent;
+  }
 }
 
 /* 2 行目（向き・数量・イン → 決済）と 3 行目（決済の時刻・明細の損益）は控えめに。判定の 1 行（下の帯）と強さを争わない */
@@ -148,11 +258,6 @@
 /* 明細の損益の数だけ 1 段強く（色は付けない。判定の色と混ぜない = P2。#164 のデザインレビュー 4） */
 .rsum__pnl {
   color: var(--ink);
-}
-
-.rsum__l1.statement__reading::before {
-  /* 明滅は骨組みの 2 行目に任せ、文の左端を要約の 1 行目とそろえる（流れ込んでも文字が動かない。#130 のデザインレビュー a2） */
-  display: none;
 }
 
 .rsum__skeleton {
@@ -700,6 +805,14 @@
   row-gap: 4px;
   /* ［編集］ の当たり（名前の行から上下に 9px はみ出す）を枠の中に収める */
   padding-top: 9px;
+}
+
+/* 状態の 1 行があるときは ［編集］・［キャンセル］ が 2 行の真ん中に下がるので、上の余白を詰める（当たりは枠の中のまま。
+   上の帯から 4px 離す。下の余白と行の間を 1〜2px ずつ回して、読み取り中と読み取りの後で同じ高さ = LC が動かない。#166） */
+.rinput .rstmt__card--sum:has(.rsum__head--status) {
+  row-gap: 3px;
+  padding-top: 4px;
+  padding-bottom: 4px;
 }
 
 .rstmt__card--retry {

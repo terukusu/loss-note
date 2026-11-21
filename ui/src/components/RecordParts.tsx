@@ -17,6 +17,7 @@ import {
   miniChartId,
   NAMED_LEAD,
   namedLabel,
+  type StatementStatus,
   type TradeSummary,
   type VerdictLine,
 } from '../lib/record-screen';
@@ -37,6 +38,11 @@ export const partIds = (prefix: string) => ({
 export interface SummaryCardProps {
   readonly prefix: string;
   readonly summary: TradeSummary;
+  /**
+   * 明細の行の状態の文（記録する画面だけ。完了の文・キャンセル。#166）。あれば名前の上の 1 行に出し、札「読み取り」は出さない。
+   * 読み上げは記録する画面の状態の領域が持つので、ここは見える文だけ。省けば札「読み取り」のまま（編集の画面）
+   */
+  readonly status?: StatementStatus | undefined;
   /** 口座の札（口座が 4 つ以上のとき。押すと取引の欄のシートの口座の欄） */
   readonly accountChip: string | null;
   /** 取引の欄のシートを開く（focus = 名指した欄から開いたときの欄） */
@@ -64,11 +70,25 @@ export function SummaryCard(p: SummaryCardProps) {
       ) : null}
       <div class="rsum__text" id={ids.summary}>
         {/* 1 行目は名前と札・［編集］。2・3 行目は ［編集］ の下まで全幅（実際の桁の価格でも折り返しにくくする。#164） */}
-        <div class="rsum__head">
+        <div class={p.status ? 'rsum__head rsum__head--status' : 'rsum__head'}>
           {/* 名前は切らずに折り返す。札は名前の右（入らなければ下）に置き、名前を押し縮めない（#164） */}
+          {/* 状態の 1 行（記録する画面の完了の文・キャンセル。名前の上。読み取り中の「読み取り中…」と同じ場所。#166） */}
+          {p.status ? (
+            <p class={`rsum__status rsum__status--${p.status.kind}`} aria-hidden="true">
+              {p.status.kind !== 'done' ? null : (p.status.need ?? 0) > 0 ? (
+                // 入力が必要な欄が残る: 成功のチェックでなく中立の「!」（下の「読み取れませんでした」と矛盾させない）
+                <span class="rsum__statusicon rsum__statusicon--need" />
+              ) : (
+                <span class="rsum__statusicon">
+                  <Icon name="check" />
+                </span>
+              )}
+              <span>{p.status.text}</span>
+            </p>
+          ) : null}
           <p class="rsum__l1">
             <span class="rsum__name">{sum.name}</span>
-            {sum.read ? <span class="field__mark rsum__mark">読み取り</span> : null}
+            {sum.read && !p.status ? <span class="field__mark rsum__mark">読み取り</span> : null}
             {sum.yearInferred ? (
               <span class="field__mark field__mark--warn rsum__mark">{YEAR_INFERRED_CHIP}</span>
             ) : null}

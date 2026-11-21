@@ -38,6 +38,8 @@
 // 数量と提案の数量（Issue #67）: 手順 SZ1（幅 360 の記録する画面・詳細・編集の画面で、判定の枠の数量の行が区切りの中で折れず・
 // --ink-3・数の段の直後・横スクロール 0。2〜3 桁の比・小数 / 7 桁の提案の数量・1R が出ない・エントリー 2 つも。詳細の「すべての欄」に 2 行）を流す。
 // R12 は 1 画面に収まる（#130。2026-11-21 に 2 段へ）: 390×844 の 1 段目と 2 段目の 4 つの状態で 0px、360×780 は口座 1・2・3 の形で 120px 以下。
+// 読み取りの終わりの知らせ（Issue #166）: 手順 RD1（完了の文・キャンセルの文と同じ読み上げの領域・読めた / 失敗したときだけ 1 回の
+// 動き（200ms 以下・動きを減らす設定で 0）・シートを閉じた後・次の行の知らせ・幅 360 で切れない）を流す。
 // 通貨と為替（Issue #47 PR-2・U34）: 記録する画面の為替の欄（USD 建て）・為替 7 桁・明細から逆算した為替・為替の誤り・USD の口座、
 // 設定の USD の口座の行と通貨を直せない口座の直す欄、詳細（外貨建て）を同じ幅とテーマで測る。円の口座・円建ての形は今のまま。
 // 記録する画面の密度と階層（Issue #33）: 全状態で枠の入れ子（線か、最も近い面と違う面の色を持つ箱の祖先）が 3 段以上の要素を
@@ -815,6 +817,10 @@ const READ_E1 = {
   exitOrderType: 'unknown',
 };
 /**
+ * 明細の読み取りが終わって要約が出た印: 読めた最初の行は名前の上の完了の文（#166）、次の行・ほかは名前の右の札「読み取り」
+ */
+const READ_DONE = '.rsum__status--done, .rsum__mark';
+/**
  * 実際の桁の架空の明細の行（#164 のレビュー）: オーナーの例と同じ桁（6 万台・小数 1 桁、損益 6 桁、名前の長さ）。値は架空
  */
 const READ_REAL = {
@@ -1409,7 +1415,7 @@ async function toReviewByPaste(page, fake) {
   fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
   await makeImage(page, STATEMENT_SPEC, 'paste');
   await page.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
-  await page.locator('.rsum__mark').waitFor({ timeout: 10000 });
+  await page.locator(READ_DONE).first().waitFor({ timeout: 10000 });
 }
 
 /**
@@ -1422,7 +1428,7 @@ async function summaryCuts(page, sel = '#record-summary') {
     if (!box) return ['要約が無い'];
     const outer = box.getBoundingClientRect();
     const out = [];
-    for (const el of box.querySelectorAll('.rsum__name, .rsum__part, .rsum__mark')) {
+    for (const el of box.querySelectorAll('.rsum__name, .rsum__part, .rsum__mark, .rsum__status')) {
       const r = el.getBoundingClientRect();
       const cut =
         el.scrollWidth > el.clientWidth + 0.5 ||
@@ -1989,7 +1995,7 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
     },
   },
   {
@@ -1999,9 +2005,54 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await openFields(p);
       await p.locator('#record-fields-sheet .field__mark').first().waitFor();
+    },
+  },
+  // 読み取りの終わりの知らせ（#166）: 入力が必要な欄つきの完了の文・失敗・キャンセル・複数行の次の行の知らせ
+  {
+    slug: 'record-8c-read-missing',
+    name: '読み取りの後（入力が必要な欄 2）',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [{ ...READ_E1, quantity: null, exitTime: null }], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__status--done', { hasText: '入力が必要な欄 2' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-8d-read-failed',
+    name: '読み取りの失敗',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 502, rows: [], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rstmt__card--retry [role="alert"]').waitFor();
+    },
+  },
+  {
+    slug: 'record-8e-read-cancelled',
+    name: '読み取りのキャンセル',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 20000 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.getByRole('button', { name: '明細の読み取りをキャンセル' }).click();
+      await p.locator('.rstmt__card--retry', { hasText: '読み取りをキャンセルしました' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-8f-rows-next',
+    name: '複数行の次の行の知らせ',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__status--done', { hasText: '2 行を読み取りました' }).waitFor();
+      await fillStatementTaps(p);
+      await p.locator('#record-submit').click();
+      await p.locator('.rstmt .statement__text', { hasText: '1 / 2 行目を記録しました' }).waitFor();
     },
   },
   {
@@ -2069,7 +2120,7 @@ const RECORD_STATES = [
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       // スマホの縦長のスクショ（1080 × 2340）。描き直すと 923 × 2000。プレビューは取引の欄のシートの先頭（#130）
       await makeImage(p, { w: 1080, h: 2340, type: 'image/png' }, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await openFields(p);
       // プレビューが枠に収まり、縦横比を保つ（縦に潰れない。レビュー指摘 8）
       const box = await p.evaluate(() => {
@@ -2258,7 +2309,7 @@ const RECORD_STATES = [
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       api.chartTimeframes = ['1h'];
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await p.locator('#record-to-input').click();
       await pasteChart(p, 'entry');
       await p.locator('#record-mini-entry', { hasText: '1 時間足' }).waitFor({ timeout: 10000 });
@@ -2277,7 +2328,7 @@ const RECORD_STATES = [
         holdMs: 0,
       };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       const l2 = (await p.locator('#record-summary .rsum__l2').textContent()) ?? '';
       if (!/^L · 数量 2 · イン 100 → 決済 99$/.test(l2.replace(/\s+/g, ' ').trim()))
         throw new Error(`要約の 2 行目「${l2}」`);
@@ -2297,7 +2348,7 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_REAL], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await expectRealSummary(p, '#record-summary');
     },
   },
@@ -2309,7 +2360,7 @@ const RECORD_STATES = [
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       api.chartTimeframes = ['1h'];
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await pasteChart(p, 'entry');
       await p.locator('#record-mini-entry', { hasText: '1 時間足' }).waitFor({ timeout: 10000 });
       await p.locator('#record-lc').fill('99');
@@ -2635,7 +2686,7 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await openMore(p);
       await p.locator('#record-money-note', { hasText: '明細の損益は JPY です' }).waitFor();
     },
@@ -2673,7 +2724,7 @@ const RECORD_STATES = [
       await p
         .locator('#record-account-hint', { hasText: 'この明細の口座を選んでください' })
         .waitFor();
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       mustEq(await p.locator('#record-account-mark').count(), 0, '初めての明細の口座の印');
     },
   },
@@ -2733,7 +2784,7 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_E1], holdMs: 0, profile: PROFILE_NEW };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await fillRecord(p, EX_E1);
       await p.locator('button[type="submit"]').click();
       // 心理のシート（#156）を閉じてから、保存の後の 1 行を見る
@@ -2751,7 +2802,7 @@ const RECORD_STATES = [
     fn: async (p, api) => {
       api.read = { status: 200, rows: [READ_USD], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await openMore(p);
       await expectPollAsync(
         async () => (await p.locator('#record-pnl').inputValue()) === '-62',
@@ -2772,7 +2823,7 @@ const RECORD_STATES = [
         holdMs: 0,
       };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor();
+      await p.locator(READ_DONE).first().waitFor();
       await openMore(p);
       await p.locator('#record-money-note', { hasText: '明細の損益は USD です' }).waitFor();
     },
@@ -5179,7 +5230,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -6528,7 +6579,7 @@ async function runFlows(browser, base, signedIn) {
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
       await p.locator('.lcnone').first().click();
-      await p.locator('.rsum__mark').waitFor({ timeout: 15000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 15000 });
       await p.waitForTimeout(300);
       const s = await lcLockState(p);
       expectEq(s.none, 'true', '読み取りの後の ［なし］');
@@ -6587,7 +6638,7 @@ async function runFlows(browser, base, signedIn) {
       await openRecord(p, base);
       // 画像の貼り付け 1 回 → 1 件
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       expectEq(fake.reads.length, 1, '貼り付けの後の要求');
       // ファイル選択 1 回 → 1 件（合成の明細の画像）。明細を選ぶ入口は 1 段目だけ（2026-11-21）
       await toInput(p);
@@ -6741,7 +6792,7 @@ async function runFlows(browser, base, signedIn) {
       // E1 を貼って保存 → 次の取引 → E10（3 行）を貼って 2 行を保存・1 行を飛ばす
       fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       await fillStatementTaps(p);
       await p.locator('button[type="submit"]').click();
       await waitSaved(p, '記録しました');
@@ -6856,7 +6907,7 @@ async function runFlows(browser, base, signedIn) {
       await p
         .locator('#record-statement-file')
         .setInputFiles({ name: 's05.png', mimeType: 'image/png', buffer: synthetic });
-      await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       expectEq(await p.locator('#record-instrument').inputValue(), '架空指数A', '銘柄');
       expectEq(await p.locator('#record-quantity').inputValue(), '2', '数量');
       // 読み取りの値は要約に流れ込む（取引の欄・ほかの欄はシートの中。#130）
@@ -7031,7 +7082,7 @@ async function runFlows(browser, base, signedIn) {
         async (p, fake) => {
           fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
           await makeImage(p, STATEMENT_SPEC, 'paste');
-          await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+          await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
         },
       ],
       [
@@ -7040,7 +7091,7 @@ async function runFlows(browser, base, signedIn) {
         async (p, fake) => {
           fake.read = { status: 200, rows: [READ_REAL], holdMs: 0 };
           await makeImage(p, STATEMENT_SPEC, 'paste');
-          await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+          await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
         },
       ],
       [
@@ -7162,6 +7213,258 @@ async function runFlows(browser, base, signedIn) {
     return `1 画面に収まる: ${out.join(' / ')}`;
   });
 
+  // RD1（#166。ui-guidelines 9.4 の状態 2・9.8「読み取りが終わった」）: 2 段目の明細の行に、読み取りの終わり方ごとの文
+  // （#1「読み取りました」・#2「2 行を読み取りました」・#4「· 入力が必要な欄 2」・#9「読み取りをキャンセルしました」）を
+  // 名前の上の 1 行に出し、読み上げの領域 #record-statement-status は読み取り中から同じ要素のまま中身だけが替わる（AC-2）。
+  // 読めた・失敗したときだけ明細の行に 1 回の動き（200ms 以下・繰り返さない。キャンセルは動かない。AC-3）、動きを減らす設定で
+  // 時間 0（AC-4）、読み取り中に開いたシートを閉じた後も文が見えて 2 回目の動きが無い（AC-5）、次の行へ進むと知らせ 1 つだけ
+  // （AC-6）、幅 360 で #4 の文が切れず横 0（AC-7）
+  await check('RD1', async () => {
+    const out = [];
+    const open = async (opts = {}) => {
+      const c = await browser.newContext({
+        viewport: opts.viewport ?? { width: 390, height: 844 },
+        storageState: signedIn,
+        hasTouch: true,
+        ...(opts.reduce ? { reducedMotion: 'reduce' } : {}),
+      });
+      await setupContext(c, 'dark');
+      const fake = await installFakeApi(c);
+      const p = await c.newPage();
+      const errors = [];
+      p.on('pageerror', (e) => errors.push(e.message));
+      await openRecord(p, base);
+      // 明細の行に動きの印が付いた回数と、そのときのカードの動きの長さ・繰り返し（MutationObserver で印の付いた瞬間に読む）
+      await p.evaluate(() => {
+        const w = { adds: 0, on: false, dur: [], iter: [] };
+        window.__rd1 = w;
+        new MutationObserver(() => {
+          const sec = document.querySelector('.rstmt');
+          const on = !!sec?.classList.contains('rstmt--flash');
+          if (on && !w.on) {
+            w.adds++;
+            const card = sec.querySelector(':scope > .rstmt__card');
+            const cs = card ? getComputedStyle(card) : null;
+            w.dur.push(cs ? Number.parseFloat(cs.animationDuration) * 1000 : -1);
+            w.iter.push(cs?.animationIterationCount ?? '');
+          }
+          w.on = on;
+        }).observe(document.body, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['class'],
+        });
+      });
+      return { c, p, fake, errors };
+    };
+    const flash = (p) => p.evaluate(() => ({ ...window.__rd1 }));
+    const statusText = (p) =>
+      p.evaluate(() => document.getElementById('record-statement-status')?.textContent ?? null);
+    const seen = (p) =>
+      p.evaluate(() => {
+        const el = document.querySelector('.rsum__status');
+        return el ? el.textContent : null;
+      });
+    // 終わった後: 印が外れ、カードに続く動きが無い
+    const settled = async (p, what) => {
+      await p.waitForTimeout(800);
+      const r = await p.evaluate(() => ({
+        on: !!document.querySelector('.rstmt--flash'),
+        anims: [...document.querySelectorAll('.rstmt__card')].flatMap((c) => c.getAnimations())
+          .length,
+      }));
+      if (r.on || r.anims > 0) throw new Error(`${what}: 動きが続いている（${JSON.stringify(r)}）`);
+    };
+    const once = (f, what, max = 200) => {
+      if (f.adds !== 1) throw new Error(`${what}: 動きの回数 ${f.adds}（1 回）`);
+      if (!(f.dur[0] > 0 && f.dur[0] <= max))
+        throw new Error(`${what}: 動きの長さ ${f.dur[0]}ms（${max}ms 以下）`);
+      if (f.iter[0] !== '1') throw new Error(`${what}: 繰り返し ${f.iter[0]}`);
+    };
+
+    // #1 と AC-2・AC-3: 読み取り中の領域を握り、終わった後も同じ要素で中身が完了の文
+    {
+      const { c, p, fake, errors } = await open();
+      try {
+        fake.read = { status: 200, rows: [READ_E1], holdMs: 1500 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('#record-statement-status', { hasText: '読み取り中…' }).waitFor();
+        const h = await p.$('#record-statement-status');
+        await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+        const kept = await h.evaluate((el) => [el.isConnected, el.textContent]);
+        if (!kept[0]) throw new Error('#1: 読み上げの領域が描き直された');
+        mustEq(kept[1], '読み取りました', '#1 の読み上げ');
+        mustEq(await seen(p), '読み取りました', '#1 の見える文');
+        once(await flash(p), '#1');
+        await settled(p, '#1');
+        mustEq(errors.length, 0, 'ページのエラー');
+        out.push('#1 同じ領域・1 回');
+      } finally {
+        await c.close();
+      }
+    }
+    // #9 と AC-2: キャンセルは同じ領域の中身が替わり、動かない
+    {
+      const { c, p, fake } = await open();
+      try {
+        fake.read = { status: 200, rows: [READ_E1], holdMs: 5000 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('#record-statement-status', { hasText: '読み取り中…' }).waitFor();
+        const h = await p.$('#record-statement-status');
+        await p.getByRole('button', { name: '明細の読み取りをキャンセル' }).click();
+        await p.locator('.rstmt__card--retry').waitFor();
+        const kept = await h.evaluate((el) => [el.isConnected, el.textContent]);
+        if (!kept[0]) throw new Error('#9: 読み上げの領域が描き直された');
+        mustEq(kept[1], '読み取りをキャンセルしました', '#9 の読み上げ');
+        mustEq(
+          await p.locator('.rstmt__card--retry .rsum__l1').textContent(),
+          '読み取りをキャンセルしました',
+          '#9 の見える文',
+        );
+        mustEq((await flash(p)).adds, 0, '#9 の動き');
+        out.push('#9 同じ領域・動きなし');
+      } finally {
+        await c.close();
+      }
+    }
+    // #7 と AC-3: 失敗も 1 回だけ動く（文は今の警告のまま）
+    {
+      const { c, p, fake } = await open();
+      try {
+        fake.read = { status: 502, rows: [], holdMs: 300 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p
+          .getByRole('alert')
+          .filter({ hasText: '読み取れませんでした。もう一度貼り付けるか、手入力してください。' })
+          .waitFor({ timeout: 10000 });
+        once(await flash(p), '#7');
+        await settled(p, '#7');
+        mustEq(await statusText(p), '', '#7 の読み上げの領域');
+        out.push('#7 1 回');
+      } finally {
+        await c.close();
+      }
+    }
+    // #13 と AC-4: 動きを減らす設定では時間 0・文は同じ
+    {
+      const { c, p, fake } = await open({ reduce: true });
+      try {
+        fake.read = { status: 200, rows: [READ_E1], holdMs: 300 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+        const f = await flash(p);
+        mustEq(f.adds, 1, '#13 の印の回数');
+        mustEq(f.dur[0], 0, '#13 の動きの長さ（ms）');
+        mustEq(await seen(p), '読み取りました', '#13 の見える文');
+        mustEq(await statusText(p), '読み取りました', '#13 の読み上げ');
+        out.push('#13 0ms');
+      } finally {
+        await c.close();
+      }
+    }
+    // #11 と AC-5: 読み取り中にシートを開き、開いたまま終わる → 閉じた後に文が見え、2 回目の動きが無い
+    {
+      const { c, p, fake } = await open();
+      try {
+        fake.read = { status: 200, rows: [READ_E1], holdMs: 2500 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('#record-statement-status', { hasText: '読み取り中…' }).waitFor();
+        await openVerdict(p);
+        await p
+          .locator('#record-statement-status', { hasText: '読み取りました' })
+          .waitFor({ state: 'attached', timeout: 10000 });
+        await p.waitForTimeout(400);
+        await closeSheets(p);
+        await p.locator('.rsum__status--done').waitFor();
+        mustEq(await seen(p), '読み取りました', '#11 の見える文');
+        await p.waitForTimeout(400);
+        mustEq((await flash(p)).adds, 1, '#11 の動きの回数');
+        out.push('#11 閉じた後に文・動き 1 回');
+      } finally {
+        await c.close();
+      }
+    }
+    // #2・#14 と AC-6: 2 行を読み、1 行目を記録して次の行へ → 知らせ 1 つだけ
+    {
+      const { c, p, fake } = await open();
+      try {
+        fake.read = {
+          status: 200,
+          rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }],
+          holdMs: 0,
+        };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+        mustEq(await seen(p), '2 行を読み取りました', '#2 の見える文');
+        mustEq(await statusText(p), '2 行を読み取りました', '#2 の読み上げ');
+        await fillStatementTaps(p);
+        await p.locator('#record-submit').click();
+        const notice = '1 / 2 行目を記録しました。次の行（2 / 2）です';
+        await p.locator('.rstmt .statement__text', { hasText: notice }).waitFor({ timeout: 10000 });
+        mustEq(await p.locator('.rsum__status').count(), 0, '#14 の完了の文');
+        mustEq(await statusText(p), '', '#14 の読み上げの領域');
+        mustEq(
+          await p.locator('.rstmt .statement__text', { hasText: notice }).count(),
+          1,
+          '#14 の知らせ',
+        );
+        mustEq((await flash(p)).adds, 1, '#14 の動きの回数（次の行で動かない）');
+        out.push('#2・#14 知らせ 1 つ');
+      } finally {
+        await c.close();
+      }
+    }
+    // #4 と AC-7: 幅 360 で「読み取りました · 入力が必要な欄 2」が切れず、横 0
+    {
+      const { c, p, fake } = await open({ viewport: { width: 360, height: 780 } });
+      try {
+        fake.read = {
+          status: 200,
+          rows: [{ ...READ_REAL, quantity: null, exitTime: null }],
+          holdMs: 0,
+        };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+        mustEq(await seen(p), '読み取りました · 入力が必要な欄 2', '#4 の見える文');
+        const m = await p.evaluate(() => {
+          const el = document.querySelector('.rsum__status');
+          const span = el?.querySelector('span');
+          const r = el.getBoundingClientRect();
+          const card = el.closest('.rstmt__card').getBoundingClientRect();
+          return {
+            cut:
+              [el, span].some(
+                (x) =>
+                  x &&
+                  (x.scrollWidth > x.clientWidth + 1 ||
+                    getComputedStyle(x).textOverflow === 'ellipsis'),
+              ) || r.right > card.right + 0.5,
+            h: document.documentElement.scrollWidth - window.innerWidth,
+          };
+        });
+        if (m.cut) throw new Error('#4: 完了の文が切れている');
+        mustEq(m.h, 0, '#4 の横スクロール');
+        mustEq(await p.locator('.rsum__chip').count(), 2, '#4 のチップ');
+        mustEq(await p.locator('.rsum__statusicon--need').count(), 1, '#4 の印（中立の「!」）');
+        // 欄を埋めると見える文の数は減るが、読み上げは終わった時点の文のまま（読み上げ直さない。コードレビュー 2）
+        await openFields(p);
+        await p.locator('#record-quantity').fill('1');
+        await closeSheets(p);
+        await p.locator('.rsum__status', { hasText: '入力が必要な欄 1' }).waitFor();
+        mustEq(
+          await statusText(p),
+          '読み取りました · 入力が必要な欄 2',
+          '#4 の欄を埋めた後の読み上げ',
+        );
+        out.push('#4 幅 360 で切れない・埋めても読み上げ直さない');
+      } finally {
+        await c.close();
+      }
+    }
+    return out.join(' / ');
+  });
+
   // R14（#130 AC-11。ui-guidelines 9.5「形が替わっても View を包む DOM を同じに保つ」）: 記録する画面で LC に入力中に向きを
   // 変える（844×390 ⇄ 390×844）と、同じ LC の要素のまま値とフォーカスが残り、横スクロール 0。取引の欄のシートで銘柄に入力中に
   // 向きを変えても同じ
@@ -7267,7 +7570,7 @@ async function runFlows(browser, base, signedIn) {
       fake.chartTimeframes = ['4h'];
       await openRecord(p, base);
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       // 取引の欄: 段 1 → 段 2 → 戻る → 戻る
       await p.locator('#record-edit-fields').click();
       await expectSheet('record-fields-sheet', '取引の欄', '取引の欄');
@@ -7452,7 +7755,7 @@ async function runFlows(browser, base, signedIn) {
       );
       await makeChart(p, 'paste');
       await expectPoll(() => fake.reads.length === 1, '時間足の欄に貼った後の明細の読み取りの要求');
-      await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       expectEq(exitPreviewBefore, true, '貼る前の決済時のプレビュー');
       expectEq(await p.locator('#record-chart-exit-tf').inputValue(), '1d', '貼った後の時間足');
       expectEq(await p.locator('canvas.chart__preview').count(), 2, '貼った後のチャートの枚数');
@@ -7584,7 +7887,7 @@ async function runFlows(browser, base, signedIn) {
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
       await makeImage(p, STATEMENT_SPEC, 'paste');
-      await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       const typed = await fillStatementTaps(p);
       await p.locator('.vline .badge', { hasText: 'A' }).waitFor({ timeout: 5000 });
       await p.locator('button[type="submit"]').click();
@@ -11308,7 +11611,7 @@ async function runFlows(browser, base, signedIn) {
       await openRecord(p, base);
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
-      await p.locator('.rsum__mark').first().waitFor({ timeout: 10000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
       // 2 段目: 上の帯に「1 / 2 件目」（取引とポジションを合わせて数える）、要約に「レッグ 2」
       await p.getByText('1 / 2 件目').first().waitFor({ timeout: 5000 });
       expectEq(

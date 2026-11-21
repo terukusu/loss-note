@@ -861,7 +861,7 @@ describe('送る前の注意（AC-11・R10）', () => {
     const after = view(withStatement(f.draft, { marks: f.marks }));
     expect(area(reading).props['data-area']).toBe('reading');
     expect(area(after).props['data-area']).toBe('summary');
-    // 2 段目（読み取り中・読み取りの後）は要約の 2 行。取引の欄のシートも欄だけ
+    // 2 段目（読み取り中・読み取りの後）は要約の 3 行。取引の欄のシートも欄だけ
     for (const t of [reading, after]) {
       expect(all(t, hasClass('statement__notice'))).toEqual([]);
       expect(all(t, (e) => e.props.id === 'record-statement-file')).toEqual([]);
@@ -2328,15 +2328,16 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(submit.props.disabled).toBe(true);
   });
 
-  it('AC-4: 読み取りの後は要約 2 行と ［編集］。読めなかった欄を名指し、押すとその欄で取引の欄のシート', () => {
+  it('AC-4: 読み取りの後は要約 3 行と ［編集］。読めなかった欄を名指し、押すとその欄で取引の欄のシート', () => {
     const { got, onSheet } = sheets();
     const d = draft({ side: 'L', entryPrice: '100', exitPrice: '' });
     const tree = view(
       withStatement(d, { marks: { exitPrice: 'unread', instrumentName: 'read' } }),
       { onSheet },
     );
-    expect(text(all(tree, hasClass('rsum__l1')))).toBe('US30 · L · 数量 10,000読み取り');
-    expect(text(all(tree, hasClass('rsum__l2')))).toBe('100 → — · 3/4 10:00');
+    expect(text(all(tree, hasClass('rsum__l1')))).toBe('US30読み取り');
+    expect(text(all(tree, hasClass('rsum__l2')))).toBe('L · 数量 10,000 · イン 100 → 決済 —');
+    expect(text(all(tree, hasClass('rsum__l3')))).toBe('3/4 10:00 決済');
     const edit = all(tree, (e) => e.props.id === 'record-edit-fields')[0] as El;
     expect(text(edit)).toBe('編集');
     expect(edit.props['aria-label']).toBe('取引の欄を編集');

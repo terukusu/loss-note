@@ -1,5 +1,6 @@
 // 記録する画面の 1 画面の形の純関数（#130。lib/record-screen.ts）。値はすべて架空
 import { describe, expect, it } from 'vitest';
+import { EMPTY_LEG } from '../../ui/src/lib/legs-form';
 import { EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
 import {
   chartRow,
@@ -38,11 +39,16 @@ describe('明細の場所の 3 つの状態（AC-2・AC-3）', () => {
   });
 });
 
-describe('要約の 2 行と名指し（AC-4）', () => {
-  it('例 3: 全部ある → 「US30 · L · 数量 10,000」「100 → 99.2 · 3/4 10:00」、名指し 0', () => {
+describe('要約の 3 行と名指し（AC-4・#164）', () => {
+  it('例 3: 全部ある → 「US30」「L · 数量 10,000 · イン 100 → 決済 99.2」「3/4 10:00 決済」、名指し 0', () => {
     const s = tradeSummary(E1, readDraft(E1, CAPITAL_1M).errors, {});
-    expect(s.line1).toBe('US30 · L · 数量 10,000');
-    expect(s.line2).toBe('100 → 99.2 · 3/4 10:00');
+    expect(s.name).toBe('US30');
+    expect(s.line2).toBe('L · 数量 10,000 · イン 100 → 決済 99.2');
+    // 区切りは塊の末尾（折り返した行の頭に「·」「→」が来ない。#164 のレビュー）
+    expect(s.line2Parts).toEqual(['L ·', '数量 10,000 ·', 'イン 100 →', '決済 99.2']);
+    expect(s.line3).toBe('3/4 10:00 決済');
+    expect(s.pnl).toBeUndefined();
+    expect(s.spoken).toBe('L、数量 10,000、イン 100、決済 99.2、3/4 10:00 決済');
     expect(s.named).toEqual([]);
     expect(s.read).toBe(false);
   });
@@ -52,14 +58,19 @@ describe('要約の 2 行と名指し（AC-4）', () => {
       instrumentName: 'read',
       exitPrice: 'unread',
     });
-    expect(s.line2).toBe('100 → — · 3/4 10:00');
+    expect(s.line2).toBe('L · 数量 10,000 · イン 100 → 決済 —');
+    expect(s.line3).toBe('3/4 10:00 決済');
+    expect(s.spoken).toBe('L、数量 10,000、イン 100、決済 未入力、3/4 10:00 決済');
     expect(s.named).toEqual([{ field: 'exitPrice', label: '決済', kind: 'unread' }]);
     expect(s.read).toBe(true);
     expect(namedLabel(s.named[0] as never)).toBe('読み取れませんでした: 決済（取引の欄を開く）');
   });
   it('空の下書き → 6 欄を画面の順に「未入力」で名指し', () => {
     const s = tradeSummary(EMPTY_DRAFT, {}, {});
-    expect(s.line1).toBe('— · — · 数量 —');
+    expect(s.name).toBe('—');
+    expect(s.line2).toBe('— · 数量 — · イン — → 決済 —');
+    expect(s.line3).toBe('— 決済');
+    expect(s.spoken).toBe('未入力、数量 未入力、イン 未入力、決済 未入力、決済の時刻 未入力');
     expect(s.named.map((n) => n.label)).toEqual([
       '銘柄',
       'L / S',
@@ -74,9 +85,61 @@ describe('要約の 2 行と名指し（AC-4）', () => {
     const d = draft({ side: 'S', entryPrice: '100', exitPrice: 'x' });
     const r = readDraft(d, CAPITAL_1M);
     const s = tradeSummary(d, r.errors, {});
-    expect(s.line2).toBe('100 → — · 3/4 10:00');
+    expect(s.line2).toBe('S · 数量 10,000 · イン 100 → 決済 —');
     expect(s.named).toEqual([{ field: 'exitPrice', label: '決済', kind: 'error' }]);
     expect(NAMED_LEAD.error).toBe('誤り');
+  });
+  it('#164: 長い名前は切らずにそのまま 1 行目に。L / S と数量は 2 行目の先頭', () => {
+    const d = draft({
+      instrumentName: '架空ミニ指数先物 26/12 長い名前の銘柄',
+      side: 'L',
+      quantity: '1',
+    });
+    const s = tradeSummary(d, {}, {});
+    expect(s.name).toBe('架空ミニ指数先物 26/12 長い名前の銘柄');
+    expect(s.line2Parts[0]).toBe('L ·');
+    expect(s.line2Parts[1]).toBe('数量 1 ·');
+  });
+  it('#164: 明細の損益が読めていれば 3 行目に口座の通貨の書き方で添える（無い・誤りなら出さない）', () => {
+    const d = draft({ side: 'L', entryPrice: '100', exitPrice: '99.2', pnlYen: '-8000' });
+    const s = tradeSummary(d, {}, {});
+    expect(s.line3).toBe('3/4 10:00 決済 · 明細の損益 −8,000円');
+    expect(s.line3Parts).toEqual(['3/4 10:00 決済 ·', '明細の損益 −8,000円']);
+    expect(s.pnl).toBe('−8,000円');
+    expect(s.spoken).toBe(
+      'L、数量 10,000、イン 100、決済 99.2、3/4 10:00 決済、明細の損益 −8,000円',
+    );
+    expect(tradeSummary(d, {}, {}, undefined, 'USD').line3).toBe(
+      '3/4 10:00 決済 · 明細の損益 −8,000.00 USD',
+    );
+    expect(tradeSummary(d, { pnlYen: '数値を入力してください' }, {}).line3).toBe('3/4 10:00 決済');
+    expect(tradeSummary(draft({ pnlYen: '' }), {}, {}).line3).toBe('3/4 10:00 決済');
+  });
+  it('#164: オプションの形はレッグの本数と原資産のイン / 決済。レッグを直した（legsEdited）ときは明細の損益を出さない', () => {
+    const d = draft({
+      side: null,
+      entryPrice: '30000',
+      exitPrice: '29500.5',
+      pnlYen: '+98000',
+      legs: [EMPTY_LEG, EMPTY_LEG],
+    });
+    const option = {
+      legErrors: [],
+      autoSide: 'S' as const,
+      askSide: false,
+      maxLossSelectable: false,
+      lossPlanUp: false,
+      legsEdited: false,
+    };
+    const s = tradeSummary(d, {}, {}, option);
+    expect(s.line2).toBe('S · レッグ 2 · 原資産 イン 30,000 → 決済 29,500.5');
+    expect(s.line3).toBe('3/4 10:00 決済 · 明細の損益 +98,000円');
+    expect(s.spoken).toBe(
+      'S、レッグ 2、原資産 イン 30,000、決済 29,500.5、3/4 10:00 決済、明細の損益 +98,000円',
+    );
+    const edited = tradeSummary(d, {}, {}, { ...option, legsEdited: true });
+    expect(edited.line3).toBe('3/4 10:00 決済');
+    expect(edited.pnl).toBeUndefined();
   });
   it('時刻: 端末の時刻の欄は「M/D HH:mm」、タイムゾーンの無い書かれた時刻はそのまま、空は「—」', () => {
     expect(timeText('2026-11-19T14:05')).toBe('11/19 14:05');

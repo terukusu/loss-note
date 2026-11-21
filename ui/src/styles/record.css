@@ -23,8 +23,9 @@
 
 .record--one > .record__fields {
   flex: 1 0 auto;
-  /* 390×844 の選ぶ前の状態を 1 画面に収める段の間（10px。#130 の高さの測り） */
-  gap: calc(var(--sp-2) + 2px);
+  /* 安全域（上 47・下 34）の 390×844 で 2 段目を 1 画面に収める段の間（8px。#130 の 10px から、要約が 3 行になった分を
+     詰めた。#164） */
+  gap: var(--sp-2);
   padding: var(--sp-1) 0 var(--sp-2);
 }
 
@@ -51,15 +52,10 @@
   font-size: var(--fs-sm);
 }
 
-/* 読み取り中と読み取りの後は同じ高さの 2 行 + 右の 2 番目の重さのボタン（流れ込んでも下の欄が動かない。AC-3） */
+/* 読み取り中と読み取りの後は同じ形（名前の行 + 右の 2 番目の重さのボタン、その下に全幅の 2 行）。流れ込んでも下の欄が
+   動かない（AC-3）。名前が長くて折り返すときだけ高くなる（#164） */
 .rstmt__card--sum {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--sp-3);
-}
-
-.rstmt__card--sum > :not(.rsum__text, .btn, .rsum__account) {
-  grid-column: 1 / -1;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .rstmt__manual {
@@ -67,7 +63,6 @@
 }
 
 .rsum__account {
-  grid-column: 1 / -1;
   justify-self: start;
   gap: var(--sp-1);
   font-size: var(--fs-sm);
@@ -75,59 +70,60 @@
 
 .rsum__text {
   display: grid;
-  gap: 2px;
+  /* 行の間は行の高さだけ。要約が 3 行になった分を詰める（#164） */
+  gap: 0;
   min-width: 0;
 }
 
+/* 名前の行と ［編集］（読み取り中は ［キャンセル］）。2・3 行目はこの下で全幅を使う（#164 のレビュー） */
+.rsum__head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--sp-3);
+  min-height: 26px;
+}
+
+/* ボタンは当たり 44px のまま、見える面を 26px にして名前の行に重ねる（行の高さを 44px に広げない） */
+.rsum__head > .btn {
+  margin-block: -9px;
+}
+
+.rsum__head > .btn--sm::before {
+  inset: 9px 0;
+}
+
+/* 要約の 3 行は何も切らない。狭い幅・文字の拡大では折り返す（#164。1 行の高さに固定して「…」で省略すると、
+   銘柄の名前も数も意味が分からなくなった） */
 .rsum__l1,
-.rsum__l2 {
+.rsum__l2,
+.rsum__l3 {
   margin: 0;
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
+/* 名前の行: 名前が先に幅を取り、札「読み取り」は右に入らなければ下の行へ回る（名前を押し縮めない） */
 .rsum__l1 {
-  height: 1.4em;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--sp-2);
+  gap: 2px var(--sp-2);
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
   line-height: 1.4;
   color: var(--ink);
 }
 
-.rsum__value {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 銘柄の名前の側を省略し、「 · L / S · レッグ N」は切らない（#118 のデザインレビュー 5） */
-.rsum__value:has(.rsum__name) {
-  display: flex;
-}
-
 .rsum__name {
-  flex: 0 1000 auto;
-  min-width: 1.5em;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* 名前が 1 文字ほどまで縮んでも入らない（文字の拡大 200% など）ときだけ、残りの側も省略する */
-.rsum__tail {
-  flex: 0 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 
-/* 限月の年を推定したレッグの札（#118） */
-.rsum__warn {
-  margin: 2px 0 0;
+/* 塊（「· 数量 1」「→ 決済 99.2」）ごとに次の行へ回す。行の幅より長い塊（文字の拡大 200% の幅 360 など）だけ、塊の中の
+   空白で折り返す（はみ出さない） */
+.rsum__part {
+  display: inline-block;
+  max-width: 100%;
 }
 
 .rsum__mark {
@@ -140,12 +136,18 @@
   font-weight: var(--fw-bold);
 }
 
-.rsum__l2 {
-  height: 1.4em;
+/* 2 行目（向き・数量・イン → 決済）と 3 行目（決済の時刻・明細の損益）は控えめに。判定の 1 行（下の帯）と強さを争わない */
+.rsum__l2,
+.rsum__l3 {
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
-  line-height: 1.4;
+  line-height: 1.35;
   color: var(--ink-2);
+}
+
+/* 明細の損益の数だけ 1 段強く（色は付けない。判定の色と混ぜない = P2。#164 のデザインレビュー 4） */
+.rsum__pnl {
+  color: var(--ink);
 }
 
 .rsum__l1.statement__reading::before {
@@ -156,9 +158,17 @@
 .rsum__skeleton {
   animation: statement-pulse 1.2s var(--ease) infinite;
   width: 75%;
-  height: calc(var(--fs-sm) * 1.4);
+  /* 要約の 2・3 行目と同じ高さ（流れ込んでも LC が動かない）。見える帯は上下 3px 細くして、2 本の間を空ける */
+  box-sizing: border-box;
+  height: calc(var(--fs-sm) * 1.35);
+  border-block: 3px solid transparent;
   border-radius: var(--radius-sm);
   background: var(--s3);
+  background-clip: padding-box;
+}
+
+.rsum__skeleton--short {
+  width: 45%;
 }
 
 .rsum__named {
@@ -359,13 +369,19 @@
 }
 
 .record--one .record__lc .field {
-  gap: 6px;
+  /* 見出しと欄の間（6px から、要約の名前の行に ［編集］ を置いた分を詰めた。#164） */
+  gap: var(--sp-1);
 }
 
 /* ── 3 つのタップ */
 .record__taps {
   display: grid;
   gap: var(--sp-2);
+}
+
+/* 2 段目の 3 つのタップの間（要約が 3 行になった分を詰める。#164） */
+.record--one .record__taps {
+  gap: var(--sp-1);
 }
 
 .record--one .record__taps .field {
@@ -674,9 +690,16 @@
 }
 
 .rinput .rstmt__card {
-  padding-block: var(--sp-2);
+  /* 要約が 3 行になった分を詰める（#164） */
+  padding-block: 6px;
   border-radius: 0;
   background: none;
+}
+
+.rinput .rstmt__card--sum {
+  row-gap: 4px;
+  /* ［編集］ の当たり（名前の行から上下に 9px はみ出す）を枠の中に収める */
+  padding-top: 9px;
 }
 
 .rstmt__card--retry {

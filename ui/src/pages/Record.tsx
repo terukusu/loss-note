@@ -2,7 +2,7 @@
 // 2 つの段（2026-11-21。設計書 0.4 K17・9.2 の記録するの行・docs/ui-guidelines.md 9.4）: 同じ全画面のシートの中で、
 // 1 段目「スクショを入れる」= 決済明細とチャートの絵つきの大きな枠と ［明細なしで手入力］、2 段目「振り返る」= 入れたものの
 // カード（明細の要約の行・口座・チャートの行）・入る前に決めた LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。
-// ［次へ］ は置かず、明細を選ぶと読み取りを待たずに 2 段目へ移る（C23。LC へフォーカス）。読み取りの結果は要約の 2 行に
+// ［次へ］ は置かず、明細を選ぶと読み取りを待たずに 2 段目へ移る（C23。LC へフォーカス）。読み取りの結果は要約の 3 行に
 // 流れ込むだけ。2 段目の上の帯の ［スクショ］ で 1 段目へ戻る。取引の欄・ほかの欄・タイムゾーン・判定・チャートの詳細は下のシート。
 // 決済明細のスクショ（Issue #15）: 貼った・選んだ画像をすぐ読み取りへ送り、読み取りの値を同じ欄に印つきで入れる。
 // 送る前の注意は 1 段目の明細の枠の下に常に出す（ダイアログにしない。C38）。プレビューは送るものと同じ画像を canvas に描く。
@@ -1291,7 +1291,7 @@ function moreMeta(
 
 /**
  * 2 段目の明細の行（同じ要素の中で 3 つの状態が入れ替わる。9.4）: 読み取り中 = 要約の骨組みと ［キャンセル］、読み取りの後 =
- * 要約 2 行と ［編集］・名指し・タイムゾーン・口座、やり直し = 読み取りの失敗・キャンセルで取引の値が無い（理由と
+ * 要約 3 行と ［編集］・名指し・タイムゾーン・口座、やり直し = 読み取りの失敗・キャンセルで取引の値が無い（理由と
  * ［スクショを選ぶ］（1 段目へ）・［手入力で続ける］。選ぶ枠は 1 段目だけ。要約を通らずに記録できる経路は無い = 7.5）
  */
 function StatementArea(
@@ -1338,21 +1338,25 @@ function StatementArea(
         </div>
       ) : area === 'reading' ? (
         <div class="rstmt__card rstmt__card--sum">
+          {/* 要約と同じ形（名前の行と右のボタン + 全幅の 2 行。流れ込んでも LC が動かない。#164） */}
           <div class="rsum__text">
-            {/* 下の帯が「明細を読み取っています」と言うので、枠の中は短く（幅 360 でも切れない。#130 のデザインレビュー a2） */}
-            <p class="rsum__l1 statement__reading" role="status">
-              読み取り中…
-            </p>
+            <div class="rsum__head">
+              {/* 下の帯が「明細を読み取っています」と言うので、枠の中は短く（幅 360 でも切れない。#130 のデザインレビュー a2） */}
+              <p class="rsum__l1 statement__reading" role="status">
+                読み取り中…
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                label="明細の読み取りをキャンセル"
+                onClick={() => p.onCancelRead?.()}
+              >
+                キャンセル
+              </Button>
+            </div>
             <p class="rsum__l2 rsum__skeleton" aria-hidden="true" />
+            <p class="rsum__l3 rsum__skeleton rsum__skeleton--short" aria-hidden="true" />
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            label="明細の読み取りをキャンセル"
-            onClick={() => p.onCancelRead?.()}
-          >
-            キャンセル
-          </Button>
           {notices}
         </div>
       ) : (
@@ -1407,7 +1411,13 @@ function RecordSummary(
   },
 ) {
   const { state } = p;
-  const sum = tradeSummary(state.draft, state.read.errors, p.marks, state.read.option);
+  const sum = tradeSummary(
+    state.draft,
+    state.read.errors,
+    p.marks,
+    state.read.option,
+    state.read.currency?.account,
+  );
   return (
     <SummaryCard
       prefix="record"

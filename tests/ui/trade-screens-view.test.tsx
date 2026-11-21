@@ -638,7 +638,11 @@ describe('AC-4: 直す（例 E1・E2）', () => {
       />,
     );
     expect(all(tree, (e) => e.type === 'details')).toEqual([]);
-    expect(text(all(tree, (e) => e.props.id === 'edit-summary')[0] as El)).toContain('US30 · L');
+    // 要約は 3 行（名前 / 向き・数量・イン → 決済 / 決済の時刻・明細の損益。#164）
+    const summary = all(tree, (e) => e.props.id === 'edit-summary')[0] as El;
+    expect(text(all([summary], hasClass('rsum__l1')))).toBe('US30');
+    expect(text(all([summary], hasClass('rsum__l2')))).toContain('L · 数量 10,000 · イン 100');
+    expect(text(all([summary], hasClass('rsum__l3')))).toContain('明細の損益 −5,000円');
     const edit = all(tree, (e) => e.props.id === 'edit-edit-fields')[0] as El;
     (edit.props.onClick as () => void)();
     expect(all(tree, (e) => e.props.id === 'edit-mini-entry')).toHaveLength(1);

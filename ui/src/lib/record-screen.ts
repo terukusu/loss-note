@@ -2,13 +2,13 @@
 // - 同じ全画面のシートの中の 2 つの段: 1 段目「スクショを入れる」（明細・チャートの絵の枠）→ 2 段目「振り返る」（要約・LC 以下）。
 //   ［次へ］ は置かず、明細を選ぶ・［明細なしで手入力］ が段を進める（読み取りを待たない。C23）
 // - 明細の場所は同じ場所で 3 つの状態が入れ替わる: 選ぶ前（pick）・読み取り中（reading）・読み取りの後（summary）
-// - 読み取りの後（と ［明細なしで手入力］ の後）は、取引の欄を 2 行の要約に畳み、読めなかった・未入力・誤りの欄を名指す
+// - 読み取りの後（と ［明細なしで手入力］ の後）は、取引の欄を 3 行の要約（名前 / 向き・数量・イン → 決済 / 決済の時刻・明細の損益。何も切らない。#164）に畳み、読めなかった・未入力・誤りの欄を名指す
 //   （7.5 の「確かめずに記録へ入る経路は無い」を、要約が常に見えていることと名指しで守る。K17）
 // - 判定は下の帯に 1 行（押すと判定のシート）。タイムゾーンが未選択なら押せない理由を 1 行に出す（保存の門は 7.5 のまま）
 // - 読み取りが終わったとき、どの欄にもフォーカスが無ければ LC へ移す（入力中の欄から奪わない）
 import type { Grade } from '../../../core/judge';
 import type { AnySlot } from './charts';
-import { formatPrice, formatQuantity } from './format';
+import { formatMoney, formatPrice, formatQuantity } from './format';
 import { hasYearInferred } from './legs-form';
 import type { RecordPhase } from './record-controller';
 import {
@@ -58,7 +58,7 @@ export const SUMMARY_FIELDS = [
 
 export type SummaryField = (typeof SUMMARY_FIELDS)[number];
 
-/** 要約の 2 行には出さないが、誤りなら名指す取引の欄（取引の欄のシートの中。#130 のレビュー N4） */
+/** 要約の行には出さないが、誤りなら名指す取引の欄（取引の欄のシートの中。#130 のレビュー N4） */
 export const NAMED_EXTRA_FIELDS = [
   'fxRate',
   'entryTime',
@@ -78,15 +78,27 @@ export interface NamedField {
 }
 
 export interface TradeSummary {
-  /** 1 行目: 銘柄 · L / S · 数量（無い欄は「—」） */
-  readonly line1: string;
-  /** 1 行目の銘柄（長ければこちらを省略する）と、残り（「 · L / S · 数量」。切らない。#118 のデザインレビュー 5） */
-  readonly name?: string;
-  readonly tail?: string;
+  /**
+   * 1 行目: 銘柄の名前だけ（無ければ「—」）。切らずに折り返す（#164。「ミニ日経225先物 26/12」が「…」で切れて意味が
+   * 分からなかった）
+   */
+  readonly name: string;
   /** 限月の年を補ったまま（本人が直していない）のレッグがある（注意の札。#118 のデザインレビュー 1） */
   readonly yearInferred?: boolean;
-  /** 2 行目: イン → 決済 · 決済の時刻 */
+  /** 2 行目: 「L · 数量 1 · イン 100 → 決済 99.2」（オプションの形は「L · レッグ 2 · 原資産 イン … → 決済 …」） */
   readonly line2: string;
+  /**
+   * 2 行目を折り返してよい所で分けたもの（間は空白 1 つ。join(' ') で line2）。区切りの「·」「→」は前の塊の末尾に付け、
+   * 折り返した行の頭に来ないようにする（#164 のレビュー）
+   */
+  readonly line2Parts: readonly string[];
+  /** 3 行目: 「3/4 10:00 決済」と、明細の損益が読めていれば「· 明細の損益 −800円」（時刻を先に書き、2 行目の価格と分ける） */
+  readonly line3: string;
+  readonly line3Parts: readonly string[];
+  /** 明細の損益（口座の通貨の書き方）。3 行目の最後の塊の数の部分（画面は数だけ 1 段強く） */
+  readonly pnl?: string;
+  /** 読み上げの文（「L、数量 1、イン 100、決済 99.2、3/4 10:00 決済、明細の損益 −800円」。記号「·」「→」を読ませない） */
+  readonly spoken: string;
   /** 読み取りの値が入っている（印「読み取り」） */
   readonly read: boolean;
   /** 名指す欄（誤り → 読み取れなかった → 未入力の順は問わず、画面の並びの順） */
@@ -115,7 +127,7 @@ export function timeText(raw: string): string {
 
 const READ_MARKS: readonly FieldMark[] = ['read', 'edited', 'tz', 'unread'];
 
-/** 取引の欄の 2 行の要約と、名指す欄 */
+/** 取引の欄の 3 行の要約（名前 / 向き・数量・イン → 決済 / 決済の時刻・明細の損益）と、名指す欄 */
 export function tradeSummary(
   draft: Draft,
   errors: DraftReading['errors'],
@@ -124,6 +136,8 @@ export function tradeSummary(
    * オプションの形（#117。readDraft の option）。渡すと数量の代わりにレッグの本数、L / S は自動の向き（出ないときだけ名指す）
    */
   option?: DraftReading['option'],
+  /** 口座の通貨（明細の損益の書き方。省いたら JPY） */
+  currency = 'JPY',
 ): TradeSummary {
   const name =
     draft.instrumentName.trim() === '' || errors.instrumentName !== undefined
@@ -132,10 +146,29 @@ export function tradeSummary(
   const side =
     (option ? (option.autoSide ?? (option.askSide ? draft.side : null)) : draft.side) ?? DASH;
   const qty = numText(draft.quantity, formatQuantity);
-  const tail = option ? ` · ${side} · レッグ ${draft.legs.length}` : ` · ${side} · 数量 ${qty}`;
-  const line1 = `${name}${tail}`;
+  const entry = numText(draft.entryPrice, formatPrice);
+  const exit = numText(draft.exitPrice, formatPrice);
+  // 見出しを付ける（「100 → 99.2」だけでは何の数か分からない。#164）。画面は塊ごとに次の行へ回す（区切りは塊の末尾）
+  const size = option ? `レッグ ${draft.legs.length}` : `数量 ${qty}`;
+  const inLabel = option ? '原資産 イン' : 'イン';
+  const line2Parts = [`${side} ·`, `${size} ·`, `${inLabel} ${entry} →`, `決済 ${exit}`];
   const time = errors.exitTime !== undefined ? DASH : timeText(draft.exitTime);
-  const line2 = `${numText(draft.entryPrice, formatPrice)} → ${numText(draft.exitPrice, formatPrice)} · ${time}`;
+  const pnl = pnlText(
+    draft.pnlYen,
+    errors.pnlYen !== undefined || option?.legsEdited === true,
+    currency,
+  );
+  const at = `${time} 決済`;
+  const line3Parts = pnl === null ? [at] : [`${at} ·`, `明細の損益 ${pnl}`];
+  const say = (t: string) => (t === DASH ? '未入力' : t);
+  const spoken = [
+    say(side),
+    option ? size : `数量 ${say(qty)}`,
+    `${inLabel} ${say(entry)}`,
+    `決済 ${say(exit)}`,
+    time === DASH ? '決済の時刻 未入力' : at,
+    ...(pnl === null ? [] : [`明細の損益 ${pnl}`]),
+  ].join('、');
   const named: NamedField[] = [];
   for (const f of SUMMARY_FIELDS) {
     // オプションの形は数量を聞かず、L / S は自動の向きが出ないときだけ聞く
@@ -163,14 +196,25 @@ export function tradeSummary(
   }
   const read = SUMMARY_FIELDS.some((f) => READ_MARKS.includes(marks[f] as FieldMark));
   return {
-    line1,
     name,
-    tail,
-    line2,
+    line2: line2Parts.join(' '),
+    line2Parts,
+    line3: line3Parts.join(' '),
+    line3Parts,
+    ...(pnl === null ? {} : { pnl }),
+    spoken,
     read,
     named,
     ...(option && hasYearInferred(draft.legs) ? { yearInferred: true } : {}),
   };
+}
+
+/** 明細の損益（読めて誤りが無いときだけ。無い・読めない・レッグを直して使わないときは出さない = null） */
+function pnlText(raw: string, skip: boolean, currency: string): string | null {
+  const t = raw.trim();
+  if (skip || t === '') return null;
+  const p = parseNum(t);
+  return p.ok ? formatMoney(p.value, currency) : null;
 }
 
 function isEmpty(d: Draft, f: SummaryField): boolean {

@@ -37,6 +37,8 @@ const fs = node.getBuiltinModule('node:fs');
 const FIXTURE = new URL('../fixtures/records/option-legs.json', import.meta.url);
 /** API が決める銘柄の ID の印（テストが足した銘柄の ID に置き換える） */
 const PLACEHOLDER = 'INSTRUMENT';
+/** 記録する画面の本文（screenCreate）の決済の時刻。日本時間 2027-01-06 13:30 */
+const SCREEN_EXIT_TIME = 1_799_209_800_000;
 
 // 時点（日本時間）。満期で消えたレッグの決済の時刻は SQ の日の日本時間の終わり（翌日 0 時の 1 ms 前。設計書 C54）
 const OPEN_0900 = 1_799_020_800_000; // 2027-01-04 09:00
@@ -412,7 +414,15 @@ function screenCreate(): Fixture['screenCreate'] {
     { instruments: [instrument], accounts: [] },
   );
   if (!read.body) throw new Error('記録する画面で本文が作れない');
-  return { instrument: XYZ, body: { ...read.body, instrumentId: PLACEHOLDER } };
+  // datetime-local の読みは端末の時間帯に依るので、決済の時刻は決まった時点（日本時間 2027-01-06 13:30）に置き換える
+  return {
+    instrument: XYZ,
+    body: {
+      ...read.body,
+      instrumentId: PLACEHOLDER,
+      exit: { ...read.body.exit, time: SCREEN_EXIT_TIME },
+    },
+  };
 }
 
 function build(): Fixture {

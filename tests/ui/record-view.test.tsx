@@ -4,6 +4,7 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
 import { unlockKeyOf } from '../../ui/src/components/NumberField';
+import { SummaryCard } from '../../ui/src/components/RecordParts';
 import { CHART_READ_MARK, CHART_READ_MSG, CHART_READ_NOTICE } from '../../ui/src/lib/chart-read';
 import { GLOSSARY } from '../../ui/src/lib/glossary';
 import {
@@ -22,6 +23,7 @@ import {
   readDraft,
   summarize,
 } from '../../ui/src/lib/record-form';
+import { tradeSummary } from '../../ui/src/lib/record-screen';
 import { fillFromRow, gateReading, READ_MSG } from '../../ui/src/lib/statement-fill';
 import {
   lcTakesFocus,
@@ -1066,8 +1068,9 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     const texts = [...marksIn(main), ...marksIn(more)];
     expect(texts).toHaveLength(9);
     expect(new Set(texts)).toEqual(new Set(['読み取り']));
-    // 要約の 1 行目にも印「読み取り」、「ほかの欄」の行に「読み取りあり」
-    expect(text(all(main, hasClass('rsum__mark')))).toBe('読み取り');
+    // 読めた最初の行は、要約の名前の上に完了の文（名前の右の印「読み取り」の代わり。#166）、「ほかの欄」の行に「読み取りあり」
+    expect(text(all(main, hasClass('rsum__status')))).toBe('読み取りました');
+    expect(all(main, hasClass('rsum__mark'))).toHaveLength(0);
     expect(moreMetaOf(main)).toBe('読み取りあり');
     const tree = [...main, ...more];
     for (const id of [
@@ -2445,7 +2448,9 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
       withStatement(d, { marks: { exitPrice: 'unread', instrumentName: 'read' } }),
       { onSheet },
     );
-    expect(text(all(tree, hasClass('rsum__l1')))).toBe('US30読み取り');
+    // 名前の右の印「読み取り」は、読めた最初の行では名前の上の完了の文に替わる（#166）
+    expect(text(all(tree, hasClass('rsum__l1')))).toBe('US30');
+    expect(text(all(tree, hasClass('rsum__status')))).toBe('読み取りました · 入力が必要な欄 1');
     expect(text(all(tree, hasClass('rsum__l2')))).toBe('L · 数量 10,000 · イン 100 → 決済 —');
     expect(text(all(tree, hasClass('rsum__l3')))).toBe('3/4 10:00 決済');
     const edit = all(tree, (e) => e.props.id === 'record-edit-fields')[0] as El;
@@ -2671,5 +2676,174 @@ describe('2 段化のレビューの指摘（1 段目。2026-11-21）', () => {
       expect(desc.props.role).toBe('status');
     }
     expect(text(all(reading, hasClass('rin__desc'))[0] as El)).toBe('読み取り中…');
+  });
+});
+
+describe('読み取りが終わったことの知らせ（#166。例は Issue の表）', () => {
+  const area = (t: Node[]) => all(t, hasClass('rstmt'))[0] as El;
+  /** 明細の行の読み上げの領域（見出しの次。3 つの形の外に常に描く） */
+  const region = (t: Node[]) => {
+    const kids = area(t).children.filter((n): n is El => typeof n !== 'string');
+    return kids[1] as El;
+  };
+  const visible = (t: Node[]) => all(t, hasClass('rsum__status'));
+  const filled = () => {
+    const f = filledE1();
+    return withStatement(f.draft, { marks: f.marks });
+  };
+
+  it('AC-2: 読み取り中・読み取りの後・やり直しのどの形でも、見出しの次に同じ id・role の領域があり、中身だけが替わる', () => {
+    const reading = view(withStatement(E1, { phase: 'reading' }, true));
+    const after = view(filled());
+    const cancelled = view({ ...stateFor(draft({}), NO_CAPITAL), readCancelled: true });
+    for (const [t, want] of [
+      [reading, '読み取り中…'],
+      [after, '読み取りました'],
+      [cancelled, '読み取りをキャンセルしました'],
+    ] as const) {
+      const r = region(t);
+      expect(r.type).toBe('p');
+      expect(r.props.role).toBe('status');
+      expect(r.props.id).toBe('record-statement-status');
+      expect(cls(r)).toBe('sr-only');
+      expect(text(r)).toBe(want);
+    }
+    expect(area(reading).props['data-area']).toBe('reading');
+    expect(area(after).props['data-area']).toBe('summary');
+    expect(area(cancelled).props['data-area']).toBe('retry');
+    // 領域のほかに role="status" の「読み取り中…」を置かない（読み上げは 1 か所）
+    expect(
+      all([area(reading)], (e) => e.props.role === 'status' && text(e) === '読み取り中…'),
+    ).toHaveLength(1);
+  });
+
+  it('#1: 見える完了の文は名前の上の 1 行（読み上げは領域だけ = aria-hidden）。名前の右の印「読み取り」は出さない', () => {
+    const t = view(filled());
+    const st = visible(t)[0] as El;
+    expect(text(st)).toBe('読み取りました');
+    expect(st.props['aria-hidden']).toBe('true');
+    expect(cls(st)).toContain('rsum__status--done');
+    expect(all(t, hasClass('rsum__mark'))).toHaveLength(0);
+    // 読み取り中も同じ場所（名前の上）に「読み取り中…」
+    const r = visible(view(withStatement(E1, { phase: 'reading' }, true)))[0] as El;
+    expect(text(r)).toBe('読み取り中…');
+    expect(r.props['aria-hidden']).toBe('true');
+  });
+
+  it('#2: 2 行の明細 → 「2 行を読み取りました」', () => {
+    const f = filledE1();
+    const t = view(withStatement(f.draft, { marks: f.marks, rows: [ROW_E1, ROW_E1] }));
+    expect(text(visible(t))).toBe('2 行を読み取りました');
+    expect(text(region(t))).toBe('2 行を読み取りました');
+  });
+
+  it('#4: 読めなかった欄が 2 つ → 「読み取りました · 入力が必要な欄 2」と今のチップ 2 つ', () => {
+    const f = filledE1();
+    const d = { ...f.draft, quantity: '', exitTime: '' };
+    const t = view(
+      withStatement(d, { marks: { ...f.marks, quantity: 'unread', exitTime: 'unread' } }),
+    );
+    expect(text(visible(t))).toBe('読み取りました · 入力が必要な欄 2');
+    expect(text(region(t))).toBe('読み取りました · 入力が必要な欄 2');
+    expect(all(t, hasClass('rsum__chip'))).toHaveLength(2);
+  });
+
+  it('#4 の印は中立の「!」、全欄読めたらチェック（デザインレビュー 2）', () => {
+    const f = filledE1();
+    const need = view(
+      withStatement({ ...f.draft, quantity: '' }, { marks: { ...f.marks, quantity: 'unread' } }),
+    );
+    expect(all(need, hasClass('rsum__statusicon--need'))).toHaveLength(1);
+    const ok = view(filled());
+    expect(all(ok, hasClass('rsum__statusicon--need'))).toHaveLength(0);
+    expect(all(ok, hasClass('rsum__statusicon'))).toHaveLength(1);
+  });
+
+  it('読み上げは終わった時点の数で止める（spokenNamed）。見える文は今の数（コードレビュー 2）', () => {
+    const f = filledE1();
+    const t = view(
+      withStatement({ ...f.draft, quantity: '' }, { marks: { ...f.marks, quantity: 'unread' } }),
+      { spokenNamed: 2 },
+    );
+    expect(text(visible(t))).toBe('読み取りました · 入力が必要な欄 1');
+    expect(text(region(t))).toBe('読み取りました · 入力が必要な欄 2');
+    // 読み取り中・キャンセルは spokenNamed に関わらない
+    expect(
+      text(region(view(withStatement(E1, { phase: 'reading' }, true), { spokenNamed: 2 }))),
+    ).toBe('読み取り中…');
+  });
+
+  it('#9: 値の無いままキャンセル → やり直しの形に「読み取りをキャンセルしました」（「明細がありません」の代わり）と 2 つのボタン', () => {
+    const t = view({ ...stateFor(draft({}), NO_CAPITAL), readCancelled: true });
+    const card = all(t, hasClass('rstmt__card--retry'))[0] as El;
+    const l1 = all([card], hasClass('rsum__l1'))[0] as El;
+    expect(text(l1)).toBe('読み取りをキャンセルしました');
+    expect(l1.props['aria-hidden']).toBe('true');
+    expect(text(card)).not.toContain('明細がありません');
+    expect(all(t, (e) => e.props.id === 'record-repick')).toHaveLength(1);
+    expect(all(t, (e) => e.props.id === 'record-manual')).toHaveLength(1);
+    // キャンセルでない選ぶ前は今のまま
+    const plain = view(stateFor(draft({}), NO_CAPITAL));
+    expect(text(all(plain, hasClass('rstmt__card--retry')))).toContain('明細がありません');
+    expect(text(region(plain))).toBe('');
+  });
+
+  it('#10: 1 枚目の値があるままキャンセル → 要約のまま + 状態の 1 行に「読み取りをキャンセルしました」', () => {
+    const f = filledE1();
+    const t = view({ ...stateFor(f.draft, NO_CAPITAL), readCancelled: true });
+    expect(area(t).props['data-area']).toBe('summary');
+    const st = visible(t)[0] as El;
+    expect(text(st)).toBe('読み取りをキャンセルしました');
+    expect(cls(st)).toContain('rsum__status--cancelled');
+    expect(text(region(t))).toBe('読み取りをキャンセルしました');
+  });
+
+  it('#7・#8: 失敗は今の警告のまま（領域は空・状態の 1 行なし）', () => {
+    const t = view(
+      withStatement(draft({}), { phase: 'failed', message: READ_MSG.failed, rows: [] }),
+    );
+    expect(text(region(t))).toBe('');
+    expect(visible(t)).toHaveLength(0);
+    expect(text(all([area(t)], (e) => e.props.role === 'alert'))).toBe(READ_MSG.failed);
+    const f = filledE1();
+    const t8 = view(
+      withStatement(f.draft, { phase: 'failed', message: READ_MSG.failed, rows: [], marks: {} }),
+    );
+    expect(area(t8).props['data-area']).toBe('summary');
+    expect(visible(t8)).toHaveLength(0);
+    expect(all(t8, hasClass('rsum__mark'))).toHaveLength(0);
+  });
+
+  it('#14: 次の行へ進んだ → 知らせ 1 つだけ（完了の文・領域の文なし）。#15: 手入力 → 出ない', () => {
+    const f = filledE1();
+    const notice = '1 / 2 行目を記録しました。次の行（2 / 2）です';
+    const t = view(
+      withStatement(f.draft, { marks: f.marks, rows: [ROW_E1, ROW_E1], index: 1, notice }),
+    );
+    expect(visible(t)).toHaveLength(0);
+    expect(text(region(t))).toBe('');
+    expect(all(t, (e) => text(e) === notice && e.type === 'p')).toHaveLength(1);
+    // 次の行は名前の右の印「読み取り」（今のまま）
+    expect(text(all(t, hasClass('rsum__mark')))).toBe('読み取り');
+    const manual = view({ ...stateFor(draft({}), NO_CAPITAL), manual: true });
+    expect(area(manual).props['data-area']).toBe('summary');
+    expect(visible(manual)).toHaveLength(0);
+    expect(text(region(manual))).toBe('');
+  });
+
+  it('動きの印: readFlash の間だけ明細の行に rstmt--flash（hook の層が 1 回だけ立てる）', () => {
+    expect(cls(area(view(filled())))).toBe('rstmt');
+    expect(cls(area(view(filled(), { readFlash: true })))).toBe('rstmt rstmt--flash');
+  });
+
+  it('KEEP-6: 状態を渡さない要約のカード（編集の画面）は名前の右の印「読み取り」のまま・状態の 1 行なし', () => {
+    const d = draft({ side: 'L', entryPrice: '100', exitPrice: '99' });
+    const sum = tradeSummary(d, {}, { instrumentName: 'read' });
+    const t = expand(
+      SummaryCard({ prefix: 'edit', summary: sum, accountChip: null, onFields: noop }),
+    );
+    expect(all(t, hasClass('rsum__status'))).toHaveLength(0);
+    expect(text(all(t, hasClass('rsum__mark')))).toBe('読み取り');
+    expect(cls(all(t, hasClass('rsum__head'))[0] as El)).toBe('rsum__head');
   });
 });

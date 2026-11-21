@@ -32,7 +32,7 @@ import {
   type ZoneMemory,
 } from '../../ui/src/lib/record-controller';
 import { applyDraft, type Draft, EMPTY_DRAFT, summarize } from '../../ui/src/lib/record-form';
-import { statementArea } from '../../ui/src/lib/record-screen';
+import { statementArea, statementStatus } from '../../ui/src/lib/record-screen';
 import {
   READ_FIELDS,
   READ_MSG,
@@ -2369,5 +2369,71 @@ describe('記録する画面の 2 段（入れる → 振り返る。設計書 K
     const c = await opened(fake);
     c.setStage('review');
     expect(recordDraftStatus(c.getState())).toBe('empty');
+  });
+});
+
+describe('読み取りのキャンセルの印（#166 R1。例 #9・#10）', () => {
+  const cancelWhileReading = async (reads: readonly ReadScript[], firstRead: boolean) => {
+    const { fake, c } = await openedForRead(reads);
+    if (firstRead) await c.readImage(img());
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => c.getState().statement?.phase === 'reading');
+    expect(c.getState().readCancelled).toBe(false);
+    c.cancelRead();
+    return { fake, c, p };
+  };
+
+  it('#9: 値の無いまま読み取り中にキャンセル → 印が立ち、statement は無いまま・やり直しの形・動きの対象ではない', async () => {
+    const { fake, c, p } = await cancelWhileReading([ok([ROW_E1])], false);
+    const s = c.getState();
+    expect(s.readCancelled).toBe(true);
+    expect(s.statement).toBeUndefined();
+    expect(statementArea(s)).toBe('pick');
+    expect(statementStatus(s.statement, 0, s.readCancelled)?.text).toBe(
+      '読み取りをキャンセルしました',
+    );
+    fake.releaseReads();
+    await p;
+    // 後で届いた応答で印も欄も変わらない
+    expect(c.getState().readCancelled).toBe(true);
+    expect(c.getState().statement).toBeUndefined();
+  });
+
+  it('#10: 1 枚目の値があるまま 2 枚目をキャンセル → 要約のまま・印が立つ', async () => {
+    const { fake, c, p } = await cancelWhileReading([ok([ROW_E1]), ok([ROW_E1])], true);
+    expect(statementArea(c.getState())).toBe('summary');
+    expect(c.getState().readCancelled).toBe(true);
+    fake.releaseReads();
+    await p;
+  });
+
+  it('次の読み取りを始める・［明細なしで手入力］ で印を外す', async () => {
+    const { fake, c, p } = await cancelWhileReading([ok([ROW_E1]), ok([ROW_E1])], false);
+    fake.releaseReads();
+    await p;
+    const q = c.readImage(img());
+    expect(c.getState().readCancelled).toBe(false);
+    await q;
+    expect(statementStatus(c.getState().statement, 0)?.text).toBe('読み取りました');
+
+    const second = await cancelWhileReading([ok([ROW_E1])], false);
+    c.dispose();
+    second.c.startManual();
+    expect(second.c.getState().readCancelled).toBe(false);
+    second.fake.releaseReads();
+    await second.p;
+  });
+
+  it('値があるまま記録したら印を外し、次の取引でも立たない', async () => {
+    const { fake, c, p } = await cancelWhileReading([ok([ROW_E1]), ok([ROW_E1])], true);
+    fake.releaseReads();
+    await p;
+    typeFive(c);
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    expect(c.getState().readCancelled).toBe(false);
+    c.next();
+    expect(c.getState().readCancelled).toBe(false);
   });
 });

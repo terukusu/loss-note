@@ -363,6 +363,11 @@ export interface RecordState {
    * 戻ったときも同じ段。書きかけの判定には数えない
    */
   readonly stage?: RecordStage;
+  /**
+   * 読み取り中に ［キャンセル］ を押した（2 段目の明細の行に「読み取りをキャンセルしました」。#166 R1）。次の読み取り・
+   * ［明細なしで手入力］・保存・次の取引で false に戻す
+   */
+  readonly readCancelled?: boolean;
 }
 
 export interface RecordController {
@@ -1004,6 +1009,7 @@ export function createRecordController(deps: {
     set({
       error: null,
       readBlocked: null,
+      readCancelled: false,
       // 明細を選んだら読み取りを待たずに 2 段目へ（C23。2026-11-21）
       stage: 'review',
       draft,
@@ -1176,6 +1182,7 @@ export function createRecordController(deps: {
         stage: 'input',
         error: null,
         manual: false,
+        readCancelled: false,
         ...withBaseline(
           applyDraft(EMPTY_DRAFT, {
             type: 'reset',
@@ -1272,6 +1279,7 @@ export function createRecordController(deps: {
       endStatement();
       set({
         phase: 'saved',
+        readCancelled: false,
         saved: {
           trade: found,
           trades: savedTrades,
@@ -1537,7 +1545,8 @@ export function createRecordController(deps: {
       const st = state.statement;
       if (!st || (st.phase !== 'preparing' && st.phase !== 'reading')) return;
       endStatement();
-      set({});
+      // 明細の行に「読み取りをキャンセルしました」を出す（読み取りの値・画像は捨てたまま。#166 R1）
+      set({ readCancelled: true });
       pump();
     },
     acceptChartTimeframe(slot) {
@@ -1644,7 +1653,8 @@ export function createRecordController(deps: {
     startManual() {
       if (state.phase !== 'editing') return;
       if (state.manual === true && state.stage === 'review') return;
-      set({ manual: true, stage: 'review' });
+      // キャンセルの文は手入力の要約に持ち込まない（#166）
+      set({ manual: true, stage: 'review', readCancelled: false });
     },
     setStage(stage) {
       if (state.phase !== 'editing' || state.stage === stage) return;

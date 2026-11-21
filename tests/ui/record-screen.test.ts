@@ -8,11 +8,14 @@ import {
   focusLcAfterRead,
   NAMED_LEAD,
   namedLabel,
+  READ_CANCELLED,
+  readFinished,
   showProceed,
   stage1Statement,
   stageOf,
   statementArea,
   statementRow,
+  statementStatus,
   TZ_PENDING,
   timeText,
   timeZoneNeed,
@@ -327,5 +330,103 @@ describe('2 段（入れる → 振り返る。設計書 K17・2026-11-21）', (
       line1: 'エントリー時 · 未選択',
       line2: '決済時 · 時間足 指定なし',
     });
+  });
+});
+
+describe('2 段目の明細の行の状態の文（#166 R1・R4・R5。例は Issue の表）', () => {
+  const ready = (
+    rows: number,
+    extra: { raw?: number; index?: number; notice?: string | null } = {},
+  ) => ({
+    phase: 'ready' as const,
+    rows: Array.from({ length: rows }, (_, i) => i),
+    ...(extra.raw === undefined ? {} : { raw: Array.from({ length: extra.raw }, (_, i) => i) }),
+    index: extra.index ?? 0,
+    notice: extra.notice ?? null,
+  });
+
+  it('#1: 1 行の明細、全欄読めた → 「読み取りました」', () => {
+    expect(statementStatus(ready(1), 0)).toEqual({ kind: 'done', text: '読み取りました', need: 0 });
+  });
+  it('#2: 2 行の明細 → 「2 行を読み取りました」（1 段目と同じ言い方）', () => {
+    expect(statementStatus(ready(2), 0)).toEqual({
+      kind: 'done',
+      text: '2 行を読み取りました',
+      need: 0,
+    });
+    expect(stage1Statement(ready(2))).toEqual({ kind: 'filled', text: '2 行を読み取りました' });
+  });
+  it('#3: オプションの 3 行が 2 件にまとまる → 「2 件（明細の 3 行）を読み取りました」', () => {
+    expect(statementStatus(ready(2, { raw: 3 }), 0)).toEqual({
+      kind: 'done',
+      text: '2 件（明細の 3 行）を読み取りました',
+      need: 0,
+    });
+  });
+  it('#4: 名指す欄が 2 つ → 後ろに「 · 入力が必要な欄 2」。1 つなら 1、0 なら付けない', () => {
+    expect(statementStatus(ready(1), 2)?.text).toBe('読み取りました · 入力が必要な欄 2');
+    expect(statementStatus(ready(1), 1)?.text).toBe('読み取りました · 入力が必要な欄 1');
+    expect(statementStatus(ready(2), 1)?.text).toBe('2 行を読み取りました · 入力が必要な欄 1');
+    expect(statementStatus(ready(1), 0)?.text).toBe('読み取りました');
+  });
+  it('#9・#10: 読み取り中にキャンセルした（statement は無い）→ 「読み取りをキャンセルしました」', () => {
+    expect(statementStatus(undefined, 0, true)).toEqual({
+      kind: 'cancelled',
+      text: '読み取りをキャンセルしました',
+    });
+    expect(READ_CANCELLED).toBe('読み取りをキャンセルしました');
+    // 値の有無（#9 / #10）で文は変わらない（名指しの数も付けない）
+    expect(statementStatus(undefined, 3, true)?.text).toBe('読み取りをキャンセルしました');
+  });
+  it('読み取り中 → 「読み取り中…」（読み上げの領域は読み取り中から同じ要素。R2）', () => {
+    for (const phase of ['preparing', 'reading'] as const) {
+      expect(statementStatus({ phase, rows: [], index: 0, notice: null }, 0)).toEqual({
+        kind: 'reading',
+        text: '読み取り中…',
+      });
+      // 新しい読み取りを始めたらキャンセルの文より読み取り中（R4）
+      expect(statementStatus({ phase, rows: [], index: 0, notice: null }, 0, true)?.kind).toBe(
+        'reading',
+      );
+    }
+  });
+  it('#14: 次の行へ進んで知らせが出ている・2 行目以降 → 出さない（知らせと 2 つ並べない。R5）', () => {
+    expect(
+      statementStatus(
+        ready(2, { index: 1, notice: '1 / 2 行目を記録しました。次の行（2 / 2）です' }),
+        0,
+      ),
+    ).toBeNull();
+    expect(statementStatus(ready(2, { index: 1 }), 0)).toBeNull();
+    expect(statementStatus(ready(2, { notice: 'まとめました' }), 0)).toBeNull();
+  });
+  it('失敗（決まった文言の警告のまま）・行を見終えた・#15 手入力（明細なし）→ 出さない', () => {
+    expect(statementStatus({ phase: 'failed', rows: [], index: 0, notice: null }, 0)).toBeNull();
+    expect(
+      statementStatus(
+        { phase: 'done', rows: [], index: 0, notice: '明細のすべての行を確認しました' },
+        0,
+      ),
+    ).toBeNull();
+    expect(statementStatus(undefined, 0)).toBeNull();
+    expect(statementStatus(undefined, 2, false)).toBeNull();
+  });
+});
+
+describe('明細の行の 1 回だけの動き（#166 R3）', () => {
+  it('読み取り中から読めた・失敗したへ移ったときだけ', () => {
+    for (const before of ['preparing', 'reading'] as const) {
+      expect(readFinished(before, 'ready')).toBe(true);
+      expect(readFinished(before, 'failed')).toBe(true);
+      // キャンセル（statement が消える）は動かさない
+      expect(readFinished(before, undefined)).toBe(false);
+      expect(readFinished(before, 'reading')).toBe(false);
+    }
+    expect(readFinished('preparing', 'reading')).toBe(false);
+    // 次の行へ進む・読めた後の描き直し・手入力は動かさない
+    expect(readFinished('ready', 'ready')).toBe(false);
+    expect(readFinished(undefined, 'ready')).toBe(false);
+    expect(readFinished('ready', 'done')).toBe(false);
+    expect(readFinished('failed', 'failed')).toBe(false);
   });
 });

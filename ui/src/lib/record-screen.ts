@@ -471,3 +471,55 @@ export function chartRow(c: {
   const line2 = c.extras > 0 ? `${exitText} · 追加 ${c.extras} 枚` : exitText;
   return { kind: 'full', line1, line2 };
 }
+
+/**
+ * 2 段目の明細の行の状態の文（#166。設計書 7.5・ui-guidelines 9.4 の状態 2）: 読み取り中 → 「読み取り中…」、読めた → 完了の文
+ * （前半は 1 段目の明細の枠と同じ件数の言い方。要約が名指す欄が 1 つ以上なら「 · 入力が必要な欄 n」）、キャンセル →
+ * 「読み取りをキャンセルしました」、ほか（失敗 = 決まった文言の警告・次の行の知らせ・手入力）→ null。完了の文は読めた
+ * 最初の行で知らせ（「1 / 2 行目を記録しました…」など）が無い間だけ（R4・R5。次の行へ進んだら知らせに替わる）。
+ * 名指す欄の数は今の要約から数える（欄を埋めると減り、0 で後ろが外れる）
+ */
+export type StatementStatus = {
+  readonly kind: 'reading' | 'done' | 'cancelled';
+  readonly text: string;
+  /** 完了の文の「入力が必要な欄」の数（kind = done のとき。1 以上なら印をチェックでなく中立の「!」にする。#166 のデザインレビュー 2） */
+  readonly need?: number;
+} | null;
+
+export const READ_CANCELLED = '読み取りをキャンセルしました';
+
+export function statementStatus(
+  st:
+    | (Parameters<typeof stage1Statement>[0] & {
+        readonly index: number;
+        readonly notice: string | null;
+      })
+    | undefined,
+  named: number,
+  /** 読み取り中に ［キャンセル］ を押した（controller の readCancelled） */
+  cancelled = false,
+): StatementStatus {
+  if (!st) return cancelled ? { kind: 'cancelled', text: READ_CANCELLED } : null;
+  if (st.phase === 'preparing' || st.phase === 'reading')
+    return { kind: 'reading', text: '読み取り中…' };
+  if (st.phase !== 'ready' || st.index !== 0 || st.notice !== null) return null;
+  const s1 = stage1Statement(st);
+  if (s1.kind !== 'filled') return null;
+  return {
+    kind: 'done',
+    text: named > 0 ? `${s1.text} · 入力が必要な欄 ${named}` : s1.text,
+    need: named,
+  };
+}
+
+/**
+ * 明細の行の 1 回だけの動き（#166 R3）: 読み取り中から読めた・失敗したへ移ったときだけ true。キャンセル（利用者が押した）・
+ * ほかの移りは false
+ */
+export function readFinished(
+  before: StatementPhaseLike | undefined,
+  after: StatementPhaseLike | undefined,
+): boolean {
+  const wasReading = before === 'preparing' || before === 'reading';
+  return wasReading && (after === 'ready' || after === 'failed');
+}

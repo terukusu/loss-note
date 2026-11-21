@@ -105,6 +105,31 @@
   text-overflow: ellipsis;
 }
 
+/* 銘柄の名前の側を省略し、「 · L / S · レッグ N」は切らない（#118 のデザインレビュー 5） */
+.rsum__value:has(.rsum__name) {
+  display: flex;
+}
+
+.rsum__name {
+  flex: 0 1000 auto;
+  min-width: 1.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 名前が 1 文字ほどまで縮んでも入らない（文字の拡大 200% など）ときだけ、残りの側も省略する */
+.rsum__tail {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 限月の年を推定したレッグの札（#118） */
+.rsum__warn {
+  margin: 2px 0 0;
+}
+
 .rsum__mark {
   flex: none;
 }

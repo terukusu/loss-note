@@ -1939,6 +1939,14 @@
   color: var(--ink-2);
 }
 
+/* 確かめてほしい読み取りの札（限月の年を推定した など。誤りではない。#118） */
+.field__mark--warn {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  white-space: nowrap;
+}
+
 /* ── ログイン ─────────────────────── */
 .login {
   display: flex;

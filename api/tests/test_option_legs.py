@@ -144,6 +144,23 @@ def test_screen_create_body(api):
     assert got["record"] == sent and same_typed(got["record"], sent)
 
 
+def test_statement_create_body(api):
+    """明細から読んだポジション（#118。fixture の statementCreate: 読み取りの 2 本は時刻つき・
+    手で足した決済のレッグと満期で消えた売り・注文の種類は満期（SQ））は 201 で、値と型を変えずに保存する"""
+    sc = FIXTURE["statementCreate"]
+    iid = add_instrument(api, A, sc["instrument"])
+    put_default_account(api, A, ITEMS["P1"]["settings"])
+    sent = copy.deepcopy(sc["body"])
+    assert sent["instrumentId"] == PLACEHOLDER and len(sent["legs"]) == 4
+    assert sent["exit"]["orderType"] == "expiry" and sent["source"] == "statement"
+    sent["instrumentId"] = iid
+    res = api.post("/api/trades", A, sent)
+    assert res.status_code == 201, res.get_json()
+    got = api.get(f"/api/trades/{res.get_json()['id']}", A).get_json()
+    assert got["schemaVersion"] == 2
+    assert got["record"] == sent and same_typed(got["record"], sent)
+
+
 def test_screen_edit_bodies(api):
     """直す画面（#117）で開いて何も変えずに保存した本文（fixture の screenEdits）は 200 で、文書の record は前のまま"""
     assert [e["of"] for e in FIXTURE["screenEdits"]] == list(ITEMS)

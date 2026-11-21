@@ -51,9 +51,29 @@ export interface ReadRow {
   readonly exitOrderType: ExitOrderType;
   /**
    * オプションの行（#118 の option がある行）。価格はプレミアムで、取引の欄（原資産の価格）・L / S・数量に流し込まない
-   * （#117 のレビュー 5。レッグへの流し込みは EPIC（#120）の別の子）。オプションでない行には鍵が無い
+   * （#117 のレビュー 5）。レッグへは statement-positions.ts が流し込む。オプションでない行には鍵が無い
    */
-  readonly option?: true;
+  readonly option?: ReadOption;
+  /**
+   * ポジションのまとまり（statement-positions.ts の unitRow が作る合成の行だけ）: まとまりのオプションの行と、その行の
+   * 明細の中の番号（並びは同じ）。応答の行には無い
+   */
+  readonly legs?: readonly ReadRow[];
+  readonly legRaw?: readonly number[];
+}
+
+/**
+ * 応答のオプションの行の欄（#118。API の normalize._option の形）。型違い・範囲の外の欄は null（未知の形を信じない）。
+ * 限月は「YYYY-MM」、年を建てた日から補ったら expiryYearInferred。position は同じ原資産 + 同じ建てた日のまとまりの番号
+ */
+export interface ReadOption {
+  readonly underlying: string | null;
+  readonly expiry: string | null;
+  readonly expiryYearInferred: boolean;
+  readonly putCall: 'put' | 'call' | null;
+  readonly strike: number | null;
+  readonly side: 'buy' | 'sell' | null;
+  readonly position: number | null;
 }
 
 export interface ReadResult {
@@ -116,6 +136,34 @@ function timeOf(v: unknown): ReadTime | null {
   };
 }
 
+const EXPIRY = /^(\d{4})-(\d{2})$/;
+
+function expiryOf(v: unknown): string | null {
+  if (typeof v !== 'string') return null;
+  const m = EXPIRY.exec(v);
+  if (!m) return null;
+  const mo = Number(m[2]);
+  return mo >= 1 && mo <= 12 ? v : null;
+}
+
+/** 応答の option → ReadOption（オブジェクトでなければ無し = オプションでない行） */
+function optionOf(v: unknown): ReadOption | undefined {
+  if (!isObj(v)) return undefined;
+  const expiry = expiryOf(v.expiry);
+  const pos = v.position;
+  return {
+    underlying: symbolOf(v.underlying),
+    expiry,
+    // 年を補った印は限月が読めたときだけ（限月が無いのに印だけを信じない）
+    expiryYearInferred: expiry !== null && v.expiryYearInferred === true,
+    putCall: v.putCall === 'put' || v.putCall === 'call' ? v.putCall : null,
+    strike: positive(v.strike),
+    side: v.side === 'buy' || v.side === 'sell' ? v.side : null,
+    position:
+      typeof pos === 'number' && Number.isInteger(pos) && pos >= 0 && pos < MAX_ROWS ? pos : null,
+  };
+}
+
 /** オプションの行で流し込まない欄 */
 const OPTION_ROW_SKIP = ['side', 'entryPrice', 'exitPrice', 'quantity'] as const;
 
@@ -140,7 +188,10 @@ function rowOf(v: unknown): ReadRow | null {
     fees,
     feesTotal: finite(v.feesTotal),
     exitOrderType: order,
-    ...(isObj(v.option) ? { option: true as const } : {}),
+    ...(() => {
+      const option = optionOf(v.option);
+      return option === undefined ? {} : { option };
+    })(),
   };
 }
 
@@ -166,9 +217,9 @@ export function parseReadResponse(json: unknown): ReadResult | null {
 
 /**
  * 欄の印: 読み取り / 読み取れませんでした / 直した / 時間帯が明細にありません / 明細から（逆指値の既定）/
- * 自動で選択（前にこの明細で選んだ口座。#66）
+ * 自動で選択（前にこの明細で選んだ口座。#66）/ SQ の日（満期で消えた売りのレッグが最後に閉じた。C54・#118）
  */
-export type FieldMark = 'read' | 'unread' | 'edited' | 'tz' | 'statement' | 'auto';
+export type FieldMark = 'read' | 'unread' | 'edited' | 'tz' | 'statement' | 'auto' | 'sq';
 export type Marks = Readonly<Partial<Record<DraftField, FieldMark>>>;
 
 export const MARK_LABEL: Readonly<Record<FieldMark, string>> = {
@@ -178,6 +229,7 @@ export const MARK_LABEL: Readonly<Record<FieldMark, string>> = {
   tz: 'タイムゾーンが書かれていません',
   statement: '明細から',
   auto: '自動で選択',
+  sq: 'SQ の日',
 };
 
 /** 読み取りの欄（画面の並びの順） */
@@ -327,12 +379,12 @@ export function refillMoney(
   return { draft: { ...filled.draft, ...values }, marks };
 }
 
-/** 利用者が欄を直した後の印（「明細から」「自動で選択」は外す、ほかの印は「直した」。印の無い欄はそのまま） */
+/** 利用者が欄を直した後の印（「明細から」「自動で選択」「SQ の日」は外す、ほかの印は「直した」。印の無い欄はそのまま） */
 export function markEdited(marks: Marks, field: DraftField): Marks {
   const m = marks[field];
   if (m === undefined || m === 'edited') return marks;
   const { [field]: _old, ...rest } = marks;
-  return m === 'statement' || m === 'auto' ? rest : { ...rest, [field]: 'edited' };
+  return m === 'statement' || m === 'auto' || m === 'sq' ? rest : { ...rest, [field]: 'edited' };
 }
 
 /** 時間帯を確かめていない欄があるか */
@@ -387,9 +439,12 @@ export function readFailureOf(status: number): ReadFailure {
   return 'failed';
 }
 
-/** 行の番号の表示（N ≥ 2 のとき） */
-export function rowLabel(index: number, total: number): string {
-  return `${index + 1} / ${total} 行目`;
+/**
+ * 行の番号の表示（N ≥ 2 のとき）。オプションのポジションを含む明細は、取引とポジションを合わせて「件目」で数える
+ * （設計書 7.6 の 2。#118）
+ */
+export function rowLabel(index: number, total: number, unit: '行目' | '件目' = '行目'): string {
+  return `${index + 1} / ${total} ${unit}`;
 }
 
 export interface ClipItem<F> {

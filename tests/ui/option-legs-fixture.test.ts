@@ -21,6 +21,9 @@ import type { Leg } from '../../core/trade';
 import { draftFromStored, editContext, mergeEdit } from '../../ui/src/lib/edit-form';
 import { EMPTY_LEG } from '../../ui/src/lib/legs-form';
 import { EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
+import { fillFromRow, parseReadResponse } from '../../ui/src/lib/statement-fill';
+import { syncExpiry, unitLegs, unitRow } from '../../ui/src/lib/statement-positions';
+import { OPT_A1, OPT_A2, optionRowJson, statementBody } from './helpers/statement-rows';
 
 const node = (
   globalThis as unknown as {
@@ -82,6 +85,11 @@ interface Fixture {
   readonly screenCreate: { readonly instrument: InstrumentBody; readonly body: TradeRecord };
   /** 直す画面（#117）で各件を開いて何も変えずに保存した本文。元の記録と同じで、API は 200 */
   readonly screenEdits: readonly { readonly of: string; readonly body: TradeRecord }[];
+  /**
+   * 明細から読んだポジション（#118）: 読み取りの行 2 本（時刻つき・最後の決済は逆指値）+ 手で足した決済のレッグ 1 本 +
+   * 手で足した満期で消えた売り 1 本。注文の種類は満期（SQ）・決済の理由はその他・明細の損益は足した後の値。API は 201
+   */
+  readonly statementCreate: { readonly instrument: InstrumentBody; readonly body: TradeRecord };
 }
 
 const settings: SettingsBody = {
@@ -425,6 +433,68 @@ function screenCreate(): Fixture['screenCreate'] {
   };
 }
 
+/**
+ * 明細から読んだポジション（#118・架空）: P 36,000 売り 2（240 → 110。明細の損益 +259,000）・P 35,500 買い 2（150 → 70。
+ * −161,000。逆指値で決済）を読み、P 35,000 買い 1（50 → 20 = −30,000）を手で足し、P 34,000 売り 1（30・満期で消滅）を足す。
+ * 明細の損益 = 98,000 − 30,000 = 68,000、決済の時点は満期で消えた売り（SQ）→ 注文の種類 expiry
+ */
+function statementCreate(): Fixture['statementCreate'] {
+  const instrument: InstrumentRecord = {
+    id: PLACEHOLDER,
+    name: XYZ.name,
+    underlyingKind: 'index',
+    productForm: 'option',
+    priceCurrency: 'JPY',
+    multiplier: 1_000,
+    quantityStep: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const parsed = parseReadResponse(
+    statementBody([
+      optionRowJson({ ...OPT_A1, underlying: XYZ.name }),
+      optionRowJson({ ...OPT_A2, underlying: XYZ.name, order: 'stop' }),
+    ]),
+  );
+  const row = parsed && unitRow(parsed.rows, [0, 1]);
+  if (!row) throw new Error('明細の行が読めない');
+  const filled = fillFromRow(EMPTY_DRAFT, row, new Set());
+  const leg = (o: Partial<typeof EMPTY_LEG>) => ({ ...EMPTY_LEG, contractMonth: '2027-01', ...o });
+  const draft = {
+    ...filled.draft,
+    entryPrice: '38500',
+    exitPrice: '37200',
+    lc: '37800',
+    lcDecided: true,
+    lcMove: 'none' as const,
+    timeframeChange: 'none' as const,
+    legs: [
+      ...unitLegs([], row, null),
+      leg({
+        optionType: 'P',
+        strike: '35000',
+        side: 'buy',
+        quantity: '1',
+        entryPrice: '50',
+        exitPrice: '20',
+      }),
+      leg({
+        optionType: 'P',
+        strike: '34000',
+        side: 'sell',
+        quantity: '1',
+        entryPrice: '30',
+        exitPrice: '0',
+        expired: true,
+      }),
+    ],
+  };
+  const synced = syncExpiry(draft, filled.marks, new Set(), row, null);
+  const read = readDraft(synced.draft, { instruments: [instrument], accounts: [] });
+  if (!read.body) throw new Error('明細から本文が作れない');
+  return { instrument: XYZ, body: { ...read.body, instrumentId: PLACEHOLDER } };
+}
+
 function build(): Fixture {
   const items = [
     item('P1', XYZ, p1),
@@ -437,6 +507,7 @@ function build(): Fixture {
     legacyEdit: legacyEdit(items[0] as Item),
     screenCreate: screenCreate(),
     screenEdits: items.map(screenEdit),
+    statementCreate: statementCreate(),
   };
 }
 
@@ -533,6 +604,28 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(ev.oneRYen).toBe(140_000);
     expect(ev.r).toBeCloseTo(0.5, 12);
     expect(ev.judgment?.grade).toBe('safeWin');
+  });
+
+  it('明細から読んだポジション（#118）: レッグ 4 本・時刻は読み取りの 2 本だけ・満期（SQ）・明細の損益 68,000', () => {
+    const b = built.statementCreate.body;
+    expect(b.source).toBe('statement');
+    expect(b.legs?.map((l) => [l.id, l.exit.kind, l.entry.time !== undefined])).toEqual([
+      ['l1', 'closed', true],
+      ['l2', 'closed', true],
+      ['l3', 'closed', false],
+      ['l4', 'expired', false],
+    ]);
+    expect(b.statementPnlYen).toBe(68_000);
+    expect(b.fees).toEqual([{ amountYen: 2_000 }]);
+    expect(b.exit).toMatchObject({ orderType: 'expiry', reason: 'other' });
+    expect(b.stopOrderPlaced).toBe('unanswered');
+    // 時刻の無い決済のレッグ（手で足した）があるので決済の時点は決まらず、決済の時刻は明細の値のまま。注文の種類は満期で
+    // 消えた売りがあるので満期（SQ。C54 の救わない側）
+    expect(b.exit.time).toBe(OPT_A2.closed.epochMs);
+    const ev = evaluateTrade(toTradeInput({ record: b, snapshot: snapshotOf(XYZ) }));
+    if (!ev.ok) throw new Error('受け付けられなかった');
+    // 損益 = 明細の損益 68,000 + 満期で消えた売り +30 × 1 × 1,000 = 98,000
+    expect(ev.pnlYen).toBe(98_000);
   });
 
   it('レッグを知らない画面の本文は legs・riskPlan・lcLossPlanYen を落とす → API が 409 で止める（守り (b)）', () => {

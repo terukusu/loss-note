@@ -37,6 +37,7 @@
 import {
   type AccountRecord,
   accountIdOf,
+  type InstrumentBody,
   type InstrumentRecord,
   type StoredTrade,
   type TradeRecord,
@@ -117,12 +118,14 @@ import {
   suggestedAccount,
 } from './statement-account';
 import {
+  type FieldMark,
   type Filled,
   fillFromRow,
   gateReading,
   type Marks,
   markEdited,
   parseReadResponse,
+  READ_FIELDS,
   READ_MSG,
   type ReadRow,
   readFailureOf,
@@ -130,6 +133,20 @@ import {
   rowLabel,
 } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
+import {
+  gatePosition,
+  hasPositions,
+  initialUnits,
+  legsWithZone,
+  mergeNext,
+  nextPositionIndex,
+  optionInstrumentName,
+  splitUnit,
+  syncExpiry,
+  type Unit,
+  unitLegs,
+  unitRows,
+} from './statement-positions';
 import {
   applyZone,
   isOtherZone,
@@ -185,10 +202,22 @@ export function watchVisible(
   return () => target.removeEventListener('visibilitychange', fn);
 }
 export const ROWS_DONE = '明細のすべての行を確認しました';
-export const rowSaved = (index: number, total: number) =>
-  `${rowLabel(index, total)}を記録しました。次の行（${index + 2} / ${total}）です`;
-export const rowSkipped = (index: number, total: number) =>
-  `${rowLabel(index, total)}をスキップしました。次の行（${index + 2} / ${total}）です`;
+/** 「行目」か「件目」（オプションのポジションを含む明細は取引とポジションを合わせて数える。#118） */
+type RowUnit = '行目' | '件目';
+const nextWord = (unit: RowUnit) => (unit === '件目' ? '取引' : '行');
+export const rowSaved = (index: number, total: number, unit: RowUnit = '行目') =>
+  `${rowLabel(index, total, unit)}を記録しました。次の${nextWord(unit)}（${index + 2} / ${total}）です`;
+export const rowSkipped = (index: number, total: number, unit: RowUnit = '行目') =>
+  `${rowLabel(index, total, unit)}をスキップしました。次の${nextWord(unit)}（${index + 2} / ${total}）です`;
+/** [別のポジションにする]・［このポジションに入れる］ の後の知らせ（#118） */
+export const POSITION_SPLIT = (next: number, total: number) =>
+  `レッグを別のポジションにしました。次の取引（${next} / ${total}）で記録します`;
+export const POSITION_MERGED = (legs: number) => `次のポジションのレッグ ${legs} 本を入れました`;
+
+/** 明細の行の数え方 */
+export function rowUnitOf(st: Pick<StatementState, 'rows'>): RowUnit {
+  return hasPositions(st.rows) ? '件目' : '行目';
+}
 /** チャートつきの保存の時間の上限（画像 2 枚で約 1 MB を送る） */
 export const CHART_SAVE_TIMEOUT_MS = 30_000;
 export type { ChartPhase, ChartState, ChartsState };
@@ -213,8 +242,15 @@ export type StatementPhase = 'preparing' | 'reading' | 'ready' | 'failed' | 'don
 
 export interface StatementState {
   readonly phase: StatementPhase;
-  /** 読み取った行（phase = ready のとき 1 行以上） */
+  /**
+   * 記録する単位の行（phase = ready のとき 1 行以上）。先物の行は応答の行のまま、オプションの行はポジションのまとまりごとの
+   * 合成の行（statement-positions.ts の unitRow。#118）
+   */
   readonly rows: readonly ReadRow[];
+  /** 応答の行そのもの（#118。まとめ直しに使う。phase = ready のとき） */
+  readonly raw?: readonly ReadRow[];
+  /** まとまり（応答の行の番号の並び。rows と同じ並び。#118） */
+  readonly units?: readonly Unit[];
   /** 今の行の番号（0 から） */
   readonly index: number;
   /** 欄の印 */
@@ -343,6 +379,10 @@ export interface RecordController {
   openOtherZones(): void;
   /** [この行を飛ばす] */
   skipRow(): void;
+  /** [別のポジションにする]: 明細から読んだレッグ（下書きのレッグの番号）を次の取引として記録する（#118・7.6） */
+  splitLeg(legIndex: number): void;
+  /** ［このポジションに入れる］: 次の同じ原資産のポジションのレッグを今のポジションに入れる（#118・7.6） */
+  mergeNextPosition(): void;
   /** ［明細なしで手入力］: 明細の場所を要約の状態にする（取引の欄のシートを開くのは画面。#130） */
   startManual(): void;
   /** 段を替える（2 段目の上の帯の ［スクショ］ = input、1 段目の ［振り返りへ進む］ = review。値はそのまま） */
@@ -521,7 +561,24 @@ export function createRecordController(deps: {
         entry: base.charts?.entry?.phase === 'ready',
         exit: base.charts?.exit?.phase === 'ready',
       },
+      // 損益の欄を本人が打った・直したら、手で足したレッグの損益を足さない（#118 のレビュー 3）
+      ...(base.statement ? { statementPnl: base.statement.marks.pnlYen === 'read' } : {}),
+      // 明細の損益の通貨（その場で足すオプションの銘柄の価格の通貨。#118 の見直し 2）
+      ...(() => {
+        const st = base.statement;
+        const c = st?.phase === 'ready' ? st.rows[st.index]?.pnlCurrency : undefined;
+        return c !== undefined && /^[A-Z]{3}$/.test(c) ? { statementCurrency: c } : {};
+      })(),
     };
+    // 明細から作ったポジション（#118）: 決済の時点が SQ かで、明細の逆指値の既定と決済の時刻を合わせる（C54）
+    const st0 = base.statement;
+    const unitRow0 = st0?.phase === 'ready' ? st0.rows[st0.index] : undefined;
+    if (st0 && unitRow0?.legs) {
+      const synced = syncExpiry(base.draft, st0.marks, touched, unitRow0, st0.tz?.choice ?? null);
+      if (synced.draft !== base.draft || synced.marks !== st0.marks) {
+        base = { ...base, draft: synced.draft, statement: { ...st0, marks: synced.marks } };
+      }
+    }
     let read = readDraft(base.draft, ctx);
     // 「窓・滑りでしたか」の問いが消えたら答えも消す（後で問いが出直したときに古い答えを選んだまま出さない）
     if (!read.preview.showGapSlip && base.draft.gapSlip !== 'unanswered') {
@@ -534,6 +591,8 @@ export function createRecordController(deps: {
         reading: st.phase === 'preparing' || st.phase === 'reading',
         marks: st.marks,
       });
+      // 銘柄がオプションの形でないポジションは保存しない（#118）
+      read = gatePosition(read, unitRow0);
     }
     // チャートの描き直し中は保存しない（送るものが決まっていない）
     if (Object.values(base.charts ?? {}).some((c) => c?.phase === 'preparing')) {
@@ -657,8 +716,11 @@ export function createRecordController(deps: {
   };
 
   /** 銘柄の ID を決める（一覧に同じ名前があればそれ、無ければ足す。409 なら取り直して照合。instrument-resolve.ts） */
-  const resolveInstrument = (name: string, matchedId: string | undefined) =>
-    resolveInstrumentId(request, name, matchedId, state.instruments);
+  const resolveInstrument = (
+    name: string,
+    matchedId: string | undefined,
+    create?: Omit<InstrumentBody, 'name'>,
+  ) => resolveInstrumentId(request, name, matchedId, state.instruments, create);
 
   /** 前の保存が届いていたか（同じ本文の取引が、作った時刻の新しい順の先頭 DELIVERED_LIMIT 件にあるか。Issue #87） */
   const findDelivered = async (record: TradeRecord): Promise<StoredTrade | undefined> => {
@@ -702,7 +764,11 @@ export function createRecordController(deps: {
    * 流し込んだ行に時間帯の無い時刻があれば、この明細で選んだ時間帯（無ければ覚えた時間帯）で直して入れる（Z7・Z8）。
    * どちらも無ければ印 tz のまま（選ぶか欄を直すまで記録しない）
    */
-  const withZone = (filled: Filled, row: ReadRow): Filled & { tz?: TzState } => {
+  const withZone = (
+    filled: Filled,
+    row: ReadRow,
+    raw: readonly ReadRow[] = [],
+  ): Filled & { tz?: TzState } => {
     const fields = tzFieldsOf(filled.marks);
     if (fields.length === 0) return filled;
     const preferred = statementZone ?? rememberedZone();
@@ -722,7 +788,8 @@ export function createRecordController(deps: {
     }
     statementZone = preferred;
     return {
-      draft: a.draft,
+      // 明細から読んだレッグの時刻も同じ時間帯で（#118）
+      draft: row.legs ? { ...a.draft, legs: legsWithZone(a.draft.legs, raw, preferred) } : a.draft,
       marks: a.marks,
       tz: {
         fields,
@@ -779,6 +846,31 @@ export function createRecordController(deps: {
     return r.draft;
   };
 
+  /**
+   * 行（先物の行かポジションのまとまり）を下書きに流し込む。ポジションはレッグも（明細の行の順 + 手で足したレッグ。#118）
+   */
+  const fillUnit = (
+    base: Draft,
+    row: ReadRow,
+    opts: { readonly accountCurrency: string; readonly priceCurrency: string | null },
+  ): Filled => {
+    const filled = fillFromRow(base, row, touched, opts);
+    if (!row.legs) return filled;
+    // 銘柄はオプションの形の銘柄の中からだけ当てる（原資産の名前 / 原資産 +「オプション」。先物には当てない。レビュー B1）
+    const named =
+      row.symbol === null || touched.has('instrumentName')
+        ? undefined
+        : optionInstrumentName(row.symbol, state.instruments, defaults.instrumentName);
+    return {
+      draft: {
+        ...filled.draft,
+        ...(named ? { instrumentName: named.name } : {}),
+        legs: unitLegs(base.legs, row, statementZone),
+      },
+      marks: filled.marks,
+    };
+  };
+
   /** 行 index の下書き（読み取りの欄 = 行、LC・一言・3 つのタップ・広げた後の LC は空） */
   const showRow = (st: StatementState, index: number, notice: string | null) => {
     const row = st.rows[index];
@@ -787,11 +879,12 @@ export function createRecordController(deps: {
     clearCharts();
     // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）。外貨の口座では損益・手数料を入れない（PR-2・R7）
     const filled = withZone(
-      fillFromRow({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, touched, {
+      fillUnit({ ...EMPTY_DRAFT, accountId: state.draft.accountId }, row, {
         accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
         priceCurrency: priceCurrencyOf(row.symbol),
       }),
       row,
+      st.raw,
     );
     const { tz: _oldTz, ...rest } = st;
     set(
@@ -813,6 +906,50 @@ export function createRecordController(deps: {
       },
       true,
     );
+  };
+
+  /**
+   * まとめ直した（#118）: 今のポジションを新しいまとまりで流し込み直す。本人が触った欄・直したレッグ・手で足したレッグは保つ
+   */
+  const regroup = (st: StatementState, units: readonly Unit[], notice: string) => {
+    const raw = st.raw ?? [];
+    const rows = unitRows(raw, units);
+    const row = rows[st.index];
+    if (!row) return;
+    // 前のまとまりの明細の行から入れた既定（逆指値 → LC を決めていた・決済の理由）と読み取りの欄の印は、新しいまとまりの行で
+    // 決め直す（証拠の行を分けた後に「明細から」を残さない。本人が触った欄は残す。レビュー B2）
+    let base = state.draft;
+    const marks: Partial<Record<DraftField, FieldMark>> = { ...st.marks };
+    if (!touched.has('lcDecided') && st.marks.lcDecided === 'statement')
+      base = { ...base, lcDecided: null };
+    if (!touched.has('exitReason') && st.marks.exitReason === 'statement') {
+      base = { ...base, exitReason: 'other' };
+    }
+    for (const f of [...READ_FIELDS, 'lcDecided', 'exitReason'] as const) {
+      if (!touched.has(f)) delete marks[f];
+    }
+    const filled = withZone(
+      fillUnit(base, row, {
+        accountCurrency: accountCurrencyIn(state.accounts, state.draft.accountId),
+        priceCurrency: priceCurrencyOf(row.symbol),
+      }),
+      row,
+      raw,
+    );
+    const { tz: oldTz, ...rest } = st;
+    const tz = filled.tz ?? (tzFieldsOf(filled.marks).length > 0 ? oldTz : undefined);
+    set({
+      draft: withFxRule(filled.draft, state.accounts),
+      error: null,
+      statement: {
+        ...rest,
+        ...(tz ? { tz } : {}),
+        rows,
+        units,
+        marks: { ...marks, ...filled.marks },
+        notice,
+      },
+    });
   };
 
   const statementFailed = (gen: number, message: string | null) => {
@@ -847,6 +984,10 @@ export function createRecordController(deps: {
       if (prev.marks.lcDecided === 'statement') draft = { ...draft, lcDecided: null };
       if (prev.marks.exitReason === 'statement') draft = { ...draft, exitReason: 'other' };
       draft = { ...draft, exitOrderType: 'unknown', stopOrderPlaced: 'unanswered' };
+      // 前の明細から読んだレッグは捨てる（行の番号は明細ごと。手で足したレッグは残す。#118）
+      if (draft.legs.some((l) => l.read !== undefined)) {
+        draft = { ...draft, legs: draft.legs.filter((l) => l.read === undefined) };
+      }
     }
     endStatement(true);
     const gen = readGen;
@@ -927,7 +1068,11 @@ export function createRecordController(deps: {
         return;
       }
       const st = state.statement;
-      const row = result.rows[0];
+      // オプションの行は同じ position のまとまりを 1 件に（#118・7.6 の 2）
+      const raw = result.rows;
+      const units = initialUnits(raw);
+      const rows = unitRows(raw, units);
+      const row = rows[0];
       if (!st || !row || state.phase !== 'editing') return;
       // 明細から口座を選ぶ（#66・R4）: 口座 2 つ以上・提案の口座が一覧にある・本人がまだ選んでいないときだけ。
       // 損益・手数料は選んだ口座の通貨で流し込む（R6）
@@ -936,10 +1081,7 @@ export function createRecordController(deps: {
       const base = suggested === undefined ? state.draft : { ...state.draft, accountId: suggested };
       const accountCurrency = accountCurrencyIn(state.accounts, base.accountId);
       const priceCurrency = priceCurrencyOf(row.symbol);
-      const filled = withZone(
-        fillFromRow(base, row, touched, { accountCurrency, priceCurrency }),
-        row,
-      );
+      const filled = withZone(fillUnit(base, row, { accountCurrency, priceCurrency }), row, raw);
       // 印「自動で選択」は確かな提案のときだけ（提案の口座の通貨が明細の損益と合わなければ印を付けない。デザイン 4）
       const sure =
         suggested !== undefined &&
@@ -959,7 +1101,9 @@ export function createRecordController(deps: {
           ...stRest,
           ...(filled.tz ? { tz: filled.tz } : {}),
           phase: 'ready',
-          rows: result.rows,
+          rows,
+          raw,
+          units,
           index: 0,
           marks: {
             ...prevMarks,
@@ -1044,7 +1188,11 @@ export function createRecordController(deps: {
     if (stopped.length > 0) state = { ...state, ...slots.view() };
     set({ phase: 'saving', error: null });
     try {
-      const inst = await resolveInstrument(read.instrument.name, read.instrument.matchedId);
+      const inst = await resolveInstrument(
+        read.instrument.name,
+        read.instrument.matchedId,
+        read.instrument.create,
+      );
       // 足した銘柄は保存に失敗しても一覧に残す（次に押したときに同じ名前を足し直さない）
       if (inst.instruments !== state.instruments) set({ instruments: inst.instruments });
       const extraCharts = extrasBody(state.extras ?? [], (x) => slots.has(x));
@@ -1106,7 +1254,7 @@ export function createRecordController(deps: {
       const st = state.statement;
       if (st && st.phase === 'ready' && st.index + 1 < st.rows.length) {
         const saved = st.index;
-        showRow(st, saved + 1, rowSaved(saved, st.rows.length));
+        showRow(st, saved + 1, rowSaved(saved, st.rows.length, rowUnitOf(st)));
         return;
       }
       endStatement();
@@ -1404,7 +1552,9 @@ export function createRecordController(deps: {
         // 覚えられなくてもその場では当てる
       }
       set({
-        draft: a.draft,
+        draft: row.legs
+          ? { ...a.draft, legs: legsWithZone(a.draft.legs, st.raw ?? [], id) }
+          : a.draft,
         statement: {
           ...st,
           marks: a.marks,
@@ -1420,7 +1570,9 @@ export function createRecordController(deps: {
       if (!row) return;
       const u = unapplyZone(state.draft, st.marks, row, tz.fields);
       set({
-        draft: u.draft,
+        draft: row.legs
+          ? { ...u.draft, legs: legsWithZone(u.draft.legs, st.raw ?? [], null) }
+          : u.draft,
         statement: {
           ...st,
           marks: u.marks,
@@ -1432,7 +1584,7 @@ export function createRecordController(deps: {
       const st = state.statement;
       if (st?.phase !== 'ready' || state.phase !== 'editing') return;
       if (st.index + 1 < st.rows.length) {
-        showRow(st, st.index + 1, rowSkipped(st.index, st.rows.length));
+        showRow(st, st.index + 1, rowSkipped(st.index, st.rows.length, rowUnitOf(st)));
         return;
       }
       // 最後の行を飛ばした: 読み取りを終えて、空の下書き（既定 = 今保存した取引か開いたとき）に戻す
@@ -1458,6 +1610,23 @@ export function createRecordController(deps: {
           preview: null,
         },
       });
+    },
+    splitLeg(legIndex) {
+      const st = state.statement;
+      if (st?.phase !== 'ready' || state.phase !== 'editing' || !st.raw || !st.units) return;
+      const leg = state.draft.legs[legIndex];
+      if (leg?.read === undefined) return;
+      const units = splitUnit(st.raw, st.units, st.index, leg.read.raw);
+      if (units === null) return;
+      regroup(st, units, POSITION_SPLIT(st.index + 2, units.length));
+    },
+    mergeNextPosition() {
+      const st = state.statement;
+      if (st?.phase !== 'ready' || state.phase !== 'editing' || !st.raw || !st.units) return;
+      const j = nextPositionIndex(st.raw, st.units, st.index);
+      const units = mergeNext(st.raw, st.units, st.index);
+      if (j === null || units === null) return;
+      regroup(st, units, POSITION_MERGED(st.units[j]?.length ?? 0));
     },
     startManual() {
       if (state.phase !== 'editing') return;

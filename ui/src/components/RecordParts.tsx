@@ -9,6 +9,7 @@ import { CHART_READ_NOTICE } from '../lib/chart-read';
 import type { ChartState, ChartsState } from '../lib/chart-slots';
 import { CHART_SLOT_TEXT, CHART_SLOTS, type ChartSlot } from '../lib/charts';
 import { formatPct } from '../lib/format';
+import { YEAR_INFERRED_CHIP } from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import type { DraftField } from '../lib/record-form';
 import {
@@ -63,9 +64,21 @@ export function SummaryCard(p: SummaryCardProps) {
       ) : null}
       <div class="rsum__text" id={ids.summary}>
         <p class="rsum__l1">
-          <span class="rsum__value">{sum.line1}</span>
+          {sum.name !== undefined && sum.tail !== undefined ? (
+            <span class="rsum__value">
+              <span class="rsum__name">{sum.name}</span>
+              <span class="rsum__tail">{sum.tail}</span>
+            </span>
+          ) : (
+            <span class="rsum__value">{sum.line1}</span>
+          )}
           {sum.read ? <span class="field__mark rsum__mark">読み取り</span> : null}
         </p>
+        {sum.yearInferred ? (
+          <p class="rsum__warn">
+            <span class="field__mark field__mark--warn">{YEAR_INFERRED_CHIP}</span>
+          </p>
+        ) : null}
         <p class="rsum__l2">{sum.line2}</p>
       </div>
       <Button

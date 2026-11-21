@@ -837,5 +837,117 @@
         ]
       }
     }
-  ]
+  ],
+  "statementCreate": {
+    "instrument": {
+      "name": "架空指数XYZオプション",
+      "underlying": "XYZ",
+      "underlyingKind": "index",
+      "productForm": "option",
+      "priceCurrency": "JPY",
+      "multiplier": 1000,
+      "quantityStep": 1
+    },
+    "body": {
+      "status": "closed",
+      "source": "statement",
+      "side": "L",
+      "lc": 37800,
+      "lcBasis": "chart",
+      "stopOrderPlaced": "unanswered",
+      "lcDecidedBeforeEntry": true,
+      "lcMove": {
+        "kind": "none"
+      },
+      "timeframeChange": "none",
+      "entries": [
+        {
+          "price": 38500,
+          "quantity": 1,
+          "time": 1796690400000
+        }
+      ],
+      "exit": {
+        "time": 1797912960000,
+        "price": 37200,
+        "orderType": "expiry",
+        "reason": "other",
+        "gapSlip": "unanswered"
+      },
+      "statementPnlYen": 68000,
+      "fees": [
+        {
+          "amountYen": 2000
+        }
+      ],
+      "legs": [
+        {
+          "id": "l1",
+          "optionType": "P",
+          "contractMonth": "2027-01",
+          "strike": 36000,
+          "side": "sell",
+          "quantity": 2,
+          "entry": {
+            "price": 240,
+            "time": 1796690400000
+          },
+          "exit": {
+            "price": 110,
+            "time": 1797912900000,
+            "kind": "closed"
+          }
+        },
+        {
+          "id": "l2",
+          "optionType": "P",
+          "contractMonth": "2027-01",
+          "strike": 35500,
+          "side": "buy",
+          "quantity": 2,
+          "entry": {
+            "price": 150,
+            "time": 1796690460000
+          },
+          "exit": {
+            "price": 70,
+            "time": 1797912960000,
+            "kind": "closed"
+          }
+        },
+        {
+          "id": "l3",
+          "optionType": "P",
+          "contractMonth": "2027-01",
+          "strike": 35000,
+          "side": "buy",
+          "quantity": 1,
+          "entry": {
+            "price": 50
+          },
+          "exit": {
+            "price": 20,
+            "kind": "closed"
+          }
+        },
+        {
+          "id": "l4",
+          "optionType": "P",
+          "contractMonth": "2027-01",
+          "strike": 34000,
+          "side": "sell",
+          "quantity": 1,
+          "entry": {
+            "price": 30
+          },
+          "exit": {
+            "price": 0,
+            "time": 1799420399999,
+            "kind": "expired"
+          }
+        }
+      ],
+      "instrumentId": "INSTRUMENT"
+    }
+  }
 }

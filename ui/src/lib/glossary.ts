@@ -22,7 +22,10 @@ export type GlossaryId =
   | 'ruler'
   | 'judgment'
   | 'planRate'
-  | 'disciplineCost';
+  | 'disciplineCost'
+  | 'leg'
+  | 'underlyingLc'
+  | 'maxLoss';
 
 export interface GlossaryItem {
   /** 名前（判定の説明では判定のバッジの名前） */
@@ -147,6 +150,47 @@ export const GLOSSARY: readonly GlossaryTerm[] = [
     summary: '[[risk]] の分母にする、口座の資金です。',
     body: ['設定で口座ごとに決め、取引には記録したときの値を保存します。'],
     design: ['3', '4.6'],
+  },
+  {
+    id: 'leg',
+    group: 'plan',
+    term: 'レッグ',
+    label: 'レッグ',
+    summary:
+      'オプションのポジションの中の 1 つの建玉です（限月・P / C・行使価格・買い / 売り・枚数）。',
+    body: [
+      '組み合わせのポジションは、レッグをまとめて 1 件の取引として記録し、判定もポジションで 1 つです（LC は [[underlyingLc]]）。',
+      '満期で消えたレッグも、その損益をポジションの損益に入れます。損失の上限は [[maxLoss]] で見ます。',
+    ],
+    example: '例（架空の値）: 売り 2 · P 36,000 · 2027-01、イン 120 → 決済 60',
+    design: ['4.7', '7.6'],
+  },
+  {
+    id: 'underlyingLc',
+    group: 'plan',
+    term: '原資産の LC',
+    label: '原資産の LC',
+    summary: 'オプションのポジションの [[lc]] は、オプションの価格ではなく原資産の価格で決めます。',
+    body: [
+      '思惑が外れたと確認できるのは原資産の値動きなので、先物と同じ規則で判定します。',
+      'LC がエントリー時の原資産より下ならロング、上ならショートです。',
+    ],
+    design: ['4.7', '5.7'],
+  },
+  {
+    id: 'maxLoss',
+    group: 'plan',
+    term: '最大損失',
+    label: '最大損失',
+    summary:
+      '満期の損益のいちばん悪い値で、[[leg]]の組み合わせの損失に上限がある形だけ定まります。',
+    body: [
+      '売りの裸のように原資産が動くほど損が増える形や、限月の違う形では定まりません。',
+      '定まる形は、LC の代わりに「最大損失まで」（満期まで持つ計画）を選べ、[[oneR]] が最大損失になります。',
+    ],
+    example:
+      '例（架空の値）: P 38,000 買い（イン 400）と P 37,000 売り（イン 150）、乗数 1,000 → (400 − 150) × 1,000 = 250,000円',
+    design: ['5.7'],
   },
   {
     id: 'timeframe',

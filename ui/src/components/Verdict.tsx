@@ -5,6 +5,7 @@ import type { Grade } from '../../../core/judge';
 import type { Side } from '../../../core/trade';
 import { badgeModel } from '../lib/badge';
 import { formatPct } from '../lib/format';
+import { optionVerdictLines } from '../lib/option-view';
 import { reasonText } from '../lib/reasons';
 import { type Preview, RISK_NOTE, type Summary } from '../lib/record-form';
 import { MISSING, OFF_PLAN_TEXT, TAPS_LABEL, type TapAnswer } from '../lib/trade-view';
@@ -63,6 +64,8 @@ export interface VerdictProps {
    * [今の値で計算し直す]。#31）。注記が無ければ出さない
    */
   readonly asideAction?: ComponentChildren;
+  /** 直す画面でレッグを編集した（明細の損益を外してレッグの合計にした 1 行。#117・4.7） */
+  readonly legsEdited?: boolean;
 }
 
 /**
@@ -115,6 +118,10 @@ export function Verdict(v: VerdictProps) {
   const pending = v.pending === true;
   const n = verdictNotes(v.summary, { pending });
   const sizing = sizingLine(v.summary, { pending });
+  const option = optionVerdictLines(v.summary.option, v.summary.currency ?? 'JPY', {
+    legsEdited: v.legsEdited === true,
+  });
+  const maxLossPlan = v.summary.option?.maxLossPlan === true;
   const hint =
     v.hint !== undefined && v.hint !== null
       ? v.hint
@@ -214,6 +221,20 @@ export function Verdict(v: VerdictProps) {
         </p>
       ) : null}
       {v.account ? <p class="verdict__aside verdict__account">{v.account}</p> : null}
+      {/* オプションのポジション（#117。5.7・C47・C49・C50）: 1R の出どころ・最大損失の行と、向きの食い違い・レッグを編集した警告 */}
+      {pending
+        ? null
+        : option.facts.map((t) => (
+            <p key={t} class="verdict__aside verdict__option">
+              {t}
+              {option.maxLossTip ? <InfoTip term="maxLoss" size="sm" /> : null}
+            </p>
+          ))}
+      {option.warnings.map((t) => (
+        <p key={t} class="verdict__aside verdict__why">
+          {t}
+        </p>
+      ))}
 
       {n.notes.map((t) => (
         <p key={t} class="verdict__aside verdict__why">
@@ -221,12 +242,14 @@ export function Verdict(v: VerdictProps) {
         </p>
       ))}
       {/* LC の物差し（#34。数の後・理由の前に 1 段。判定が出てから） */}
-      {!pending && v.summary.ruler ? <Ruler ruler={v.summary.ruler} /> : null}
+      {!pending && v.summary.ruler ? (
+        <Ruler ruler={v.summary.ruler} underlying={v.summary.option !== undefined} />
+      ) : null}
       {n.reasons.length > 0 ? (
         <ul class="reasons" aria-label="理由">
           {n.reasons.map((r, i) => (
             <li key={`${r.kind}-${i}`} class="reasons__item">
-              {reasonText(r, v.side)}
+              {reasonText(r, v.side, { maxLossPlan })}
               {v.chartConflict && r.kind === 'timeframeLonger' && r.source === 'chart' ? (
                 <span class="reasons__sub">{v.chartConflict}</span>
               ) : null}
@@ -238,7 +261,7 @@ export function Verdict(v: VerdictProps) {
         <p key={`${r.kind}-${i}`} class="verdict__aside">
           {n.fxMissing && r.kind === 'riskNotChecked' && r.cause === 'noOneR'
             ? FX_NOT_CHECKED
-            : reasonText(r, v.side)}
+            : reasonText(r, v.side, { maxLossPlan })}
         </p>
       ))}
       {v.asideAction && n.aside.length > 0 ? (

@@ -36,8 +36,9 @@ import {
   formatR,
   formatTimes,
 } from './format';
+import { legCountText, ONE_R_SOURCE_LABEL } from './option-view';
 import { TIMEFRAME_NAME } from './reasons';
-import { lcMoveLabel, RISK_NOTE, type Summary, summarize } from './record-form';
+import { lcMoveLabel, OPTION_LABEL, RISK_NOTE, type Summary, summarize } from './record-form';
 
 /** 銘柄が一覧に無いときの名前 */
 export const UNKNOWN_INSTRUMENT = '銘柄が見つかりません';
@@ -69,6 +70,8 @@ export interface TradeRow {
   readonly accountName?: string;
   /** L / S（記号だけ） */
   readonly sideText: string;
+  /** オプションのポジションのレッグの数（「レッグ 3」。#117・設計書 7.6。レッグの無い取引には無い） */
+  readonly legsText?: string;
   readonly dateText: string;
   /** 決済の日付（time 要素の datetime。端末の時間帯の YYYY-MM-DD） */
   readonly dateIso: string;
@@ -124,6 +127,7 @@ export function tradeRow(
   const riskText = s.riskPct === undefined ? MISSING : formatPct(s.riskPct);
   const instrumentName = instrumentNameOf(t, instruments);
   const accountName = hasManyAccounts(accounts) ? tradeAccountName(t, accounts) : undefined;
+  const legsText = legCountText(t);
   const d = new Date(t.record.exit.time);
   const dateText = formatDate(t.record.exit.time);
   return {
@@ -139,10 +143,11 @@ export function tradeRow(
     instrumentName,
     ...(accountName === undefined ? {} : { accountName }),
     sideText: SIDE_SHORT[t.record.side],
+    ...(legsText === null ? {} : { legsText }),
     dateText,
     dateIso: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
     exitTime: t.record.exit.time,
-    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]}${accountName === undefined ? '' : ` ${accountName}`} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
+    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]}${legsText === null ? '' : ` ${legsText}`}${accountName === undefined ? '' : ` ${accountName}`} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
   };
 }
 
@@ -253,10 +258,18 @@ export const OFF_PLAN_TEXT = '計画から外れた';
  * 「時間足を変えた（…・チャートから）」が出る）とき。チャートから効いたときの札の値はチャートの足（例 4 時間足 → 日足）で、
  * あなたの答えとの食い違いは timeframeNote の 1 行で添える
  */
+/**
+ * 「最大損失まで」（#117・C50）: LC の価格を置かない計画で、「なし」ではない。LC を入る前に決めていたかは聞く（決めていなければ
+ * core が C の noLc を付ける）が、LC を動かしたかは聞かない（5.7 の 5）
+ */
+export function isMaxLossTrade(t: Pick<StoredTrade, 'record'>): boolean {
+  return t.record.legs !== undefined && t.record.riskPlan === 'maxLoss';
+}
+
 export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAnswer[] {
   const r = t.record;
   const out: TapAnswer[] = [];
-  if (r.lc !== undefined) {
+  if (r.lc !== undefined || isMaxLossTrade(t)) {
     out.push({
       label: 'LC を入る前に決めていたか',
       short: 'LC',
@@ -264,6 +277,8 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
       offPlan: !r.lcDecidedBeforeEntry,
       term: 'lcDecided',
     });
+  }
+  if (r.lc !== undefined) {
     out.push({
       label: 'LC を動かしたか',
       short: 'LC',
@@ -358,11 +373,16 @@ export function recordFields(
   if (price !== null ? price !== currency : currency !== 'JPY') {
     rows.push({ label: '価格の通貨', value: price ?? '未設定' });
   }
+  // オプションのポジション（#117）: イン / 決済は原資産の価格。数量（本文は 1）は使わないので、代わりにレッグの本数
+  const legs = r.legs;
+  const maxLoss = isMaxLossTrade(t);
   rows.push(
     { label: 'L / S', value: SIDE_TEXT[r.side] },
-    { label: 'イン', value: formatPrice(e.price) },
-    { label: '決済', value: formatPrice(x.price) },
-    { label: '数量', value: formatQuantity(e.quantity) },
+    { label: legs ? OPTION_LABEL.entryPrice : 'イン', value: formatPrice(e.price) },
+    { label: legs ? OPTION_LABEL.exitPrice : '決済', value: formatPrice(x.price) },
+    legs
+      ? { label: 'レッグ', value: `${legs.length} 本` }
+      : { label: '数量', value: formatQuantity(e.quantity) },
   );
   // 提案の数量と数量の比（#67。記録したときの資金・許容リスクで。数量どうしを隣に並べる。出ないときは行ごと出さない）
   const sizing = sum.sizing;
@@ -393,18 +413,28 @@ export function recordFields(
   }
   rows.push({ label: '決済の時刻', value: formatDateTime(x.time) });
   if (e.time !== undefined) rows.push({ label: 'エントリーの時刻', value: formatDateTime(e.time) });
-  rows.push({ label: 'LC', value: r.lc === undefined ? 'なし' : formatPrice(r.lc) });
+  rows.push({
+    label: legs ? 'LC（原資産）' : 'LC',
+    value: maxLoss ? '最大損失まで' : r.lc === undefined ? 'なし' : formatPrice(r.lc),
+  });
+  if (r.lcLossPlanYen !== undefined) {
+    rows.push({ label: 'LC での損失の見込み', value: formatAmount(r.lcLossPlanYen, currency) });
+  }
   if (sum.oneRYen !== undefined) {
     rows.push({ label: '1R', value: formatAmount(sum.oneRYen, currency) });
   }
+  // 1R の出どころ（オプションのポジションだけ。C49）
+  if (sum.option?.oneRSource !== undefined) {
+    rows.push({ label: '1R の決め方', value: ONE_R_SOURCE_LABEL[sum.option.oneRSource] });
+  }
   if (r.brokenCondition) rows.push({ label: '根拠が崩れる条件', value: r.brokenCondition });
-  if (r.lc !== undefined) {
+  if (r.lc !== undefined || maxLoss) {
     rows.push({
       label: 'LC を入る前に決めていたか',
       value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
     });
-    rows.push({ label: 'LC を動かしたか', value: lcMoveText(t) });
   }
+  if (r.lc !== undefined) rows.push({ label: 'LC を動かしたか', value: lcMoveText(t) });
   rows.push({ label: '時間足を変えたか', value: timeframeChangeText(t, judgment) });
   if (r.statementPnlYen !== undefined) {
     rows.push({ label: '損益（明細の値）', value: formatMoney(r.statementPnlYen, currency) });

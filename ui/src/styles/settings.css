@@ -139,6 +139,14 @@
   overflow-wrap: anywhere;
 }
 
+/* 名前の横の「初期値のまま」は枠の無い文字の添えにする（押せる行 = 枠の中に枠つきの札を重ねると 3 段の入れ子。#133 から
+   残っていたもの。#117 で直した） */
+.setrow__name .field__mark {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+
 .setrow__sub {
   display: flex;
   flex-direction: column;

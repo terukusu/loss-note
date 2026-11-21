@@ -20,6 +20,7 @@ import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button, IconButton, RowLink } from '../components/Button';
 import { EXTRA_TITLE } from '../components/ChartPanel';
 import { EmptyState } from '../components/EmptyState';
+import { LegTable } from '../components/LegTable';
 import { ResnapshotSummary } from '../components/Resnapshot';
 import { Sheet } from '../components/Sheet';
 import { Verdict } from '../components/Verdict';
@@ -42,6 +43,7 @@ import {
 import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { editBlock } from '../lib/edit-form';
+import { legRows } from '../lib/option-view';
 import {
   COMPARE_ROW_LABEL,
   COMPARE_SHEET_TITLE,
@@ -290,6 +292,8 @@ function DetailBody(p: TradeDetailViewProps) {
         taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
       />
       {block !== null ? <p class="detail__note">{block}</p> : null}
+      {/* オプションのポジションのレッグ（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
+      {t.record.legs !== undefined ? <LegTable rows={legRows(t)} /> : null}
       <ChartsView {...p} />
       {/* 「すべての欄」「総評」は次の画面（その場で開かない。設計書 9.2・9.3） */}
       <nav class="dlist detail__links" aria-label="この取引の記録">

@@ -49,6 +49,11 @@ export interface ReadRow {
   readonly fees: readonly number[] | null;
   readonly feesTotal: number | null;
   readonly exitOrderType: ExitOrderType;
+  /**
+   * オプションの行（#118 の option がある行）。価格はプレミアムで、取引の欄（原資産の価格）・L / S・数量に流し込まない
+   * （#117 のレビュー 5。レッグへの流し込みは EPIC（#120）の別の子）。オプションでない行には鍵が無い
+   */
+  readonly option?: true;
 }
 
 export interface ReadResult {
@@ -111,6 +116,9 @@ function timeOf(v: unknown): ReadTime | null {
   };
 }
 
+/** オプションの行で流し込まない欄 */
+const OPTION_ROW_SKIP = ['side', 'entryPrice', 'exitPrice', 'quantity'] as const;
+
 function rowOf(v: unknown): ReadRow | null {
   if (!isObj(v)) return null;
   const fees =
@@ -132,6 +140,7 @@ function rowOf(v: unknown): ReadRow | null {
     fees,
     feesTotal: finite(v.feesTotal),
     exitOrderType: order,
+    ...(isObj(v.option) ? { option: true as const } : {}),
   };
 }
 
@@ -249,6 +258,8 @@ export function fillFromRow(
   const marks: Partial<Record<DraftField, FieldMark>> = {};
   for (const f of READ_FIELDS) {
     if (touched.has(f)) continue;
+    // オプションの行はプレミアムの価格・建てた向き・枚数を取引の欄へ入れない（原資産の欄・自動の向きを狂わせない）
+    if (row.option && (OPTION_ROW_SKIP as readonly string[]).includes(f)) continue;
     if (!fillsMoney && (MONEY_FIELDS as readonly string[]).includes(f)) {
       values[f] = '';
       continue;

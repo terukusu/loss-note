@@ -30,6 +30,7 @@ import { CHART_SLOTS, CHART_TIMEFRAME_FIELD, type ChartSlot } from './charts';
 import { toLocalInput } from './datetime';
 import { formatPlain, formatR } from './format';
 import { findInstrument } from './instrument-name';
+import { legDraftsFromStored } from './legs-form';
 import {
   type Draft,
   type DraftContext,
@@ -60,7 +61,9 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
   const r = t.record;
   const e = r.entries[0];
   const x = r.exit;
-  const noLc = r.lc === undefined;
+  // 「最大損失まで」（#117・C50）は LC の価格を置かない計画で、「なし」ではない
+  const maxLoss = r.legs !== undefined && r.riskPlan === 'maxLoss';
+  const noLc = r.lc === undefined && !maxLoss;
   return {
     ...EMPTY_DRAFT,
     instrumentName: instruments.find((i) => i.id === r.instrumentId)?.name ?? '',
@@ -81,7 +84,7 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
         : '',
     brokenCondition: r.brokenCondition ?? '',
     lcDecided: noLc ? null : r.lcDecidedBeforeEntry,
-    lcMove: noLc ? null : r.lcMove.kind,
+    lcMove: noLc || maxLoss ? null : r.lcMove.kind,
     timeframeChange: r.timeframeChange,
     lcBasis: r.lcBasis,
     exitReason: x.reason,
@@ -93,6 +96,10 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
     entryChartTimeframe: r.entryChartTimeframe ?? null,
     exitChartTimeframe: r.exitChartTimeframe ?? null,
     accountId: accountIdOf(r),
+    // オプションのポジション（#117。レッグを落とさない。#116 の 409）
+    legs: r.legs === undefined ? [] : legDraftsFromStored(r.legs),
+    lcMaxLoss: maxLoss,
+    lcLossPlan: r.lcLossPlanYen === undefined ? '' : formatPlain(r.lcLossPlanYen),
   };
 }
 
@@ -117,6 +124,7 @@ export function editContext(
       instrumentId: t.record.instrumentId,
       accountId: accountIdOf(t.record),
       snapshot: t.snapshot,
+      ...(t.record.legs === undefined ? {} : { legs: t.record.legs }),
     },
   };
 }
@@ -236,6 +244,10 @@ export function mergeEdit(
     ...(body.exitChartTimeframe === undefined
       ? {}
       : { exitChartTimeframe: body.exitChartTimeframe }),
+    // レッグ・1R の決め方・見込みは下書きの本文から（レッグを持つ取引は必ず legs を送る。#116 の守り (b)・#117）
+    ...(body.legs === undefined ? {} : { legs: body.legs }),
+    ...(body.riskPlan === undefined ? {} : { riskPlan: body.riskPlan }),
+    ...(body.lcLossPlanYen === undefined ? {} : { lcLossPlanYen: body.lcLossPlanYen }),
   };
 }
 

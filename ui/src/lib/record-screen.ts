@@ -108,18 +108,27 @@ export function tradeSummary(
   draft: Draft,
   errors: DraftReading['errors'],
   marks: Marks,
+  /**
+   * オプションの形（#117。readDraft の option）。渡すと数量の代わりにレッグの本数、L / S は自動の向き（出ないときだけ名指す）
+   */
+  option?: DraftReading['option'],
 ): TradeSummary {
   const name =
     draft.instrumentName.trim() === '' || errors.instrumentName !== undefined
       ? DASH
       : draft.instrumentName.trim();
-  const side = draft.side ?? DASH;
+  const side =
+    (option ? (option.autoSide ?? (option.askSide ? draft.side : null)) : draft.side) ?? DASH;
   const qty = numText(draft.quantity, formatQuantity);
-  const line1 = `${name} · ${side} · 数量 ${qty}`;
+  const line1 = option
+    ? `${name} · ${side} · レッグ ${draft.legs.length}`
+    : `${name} · ${side} · 数量 ${qty}`;
   const time = errors.exitTime !== undefined ? DASH : timeText(draft.exitTime);
   const line2 = `${numText(draft.entryPrice, formatPrice)} → ${numText(draft.exitPrice, formatPrice)} · ${time}`;
   const named: NamedField[] = [];
   for (const f of SUMMARY_FIELDS) {
+    // オプションの形は数量を聞かず、L / S は自動の向きが出ないときだけ聞く
+    if (option && (f === 'quantity' || (f === 'side' && !option.askSide))) continue;
     const label = FIELD_LABEL[f];
     if (errors[f] !== undefined) named.push({ field: f, label, kind: 'error' });
     else if (isEmpty(draft, f)) {
@@ -228,8 +237,13 @@ export function focusLcAfterRead(
 export type RecordSheet =
   | {
       readonly kind: 'fields';
-      /** main = 取引の欄、more = ほかの欄（任意。同じシートの次の段） */
-      readonly step: 'main' | 'more';
+      /**
+       * main = 取引の欄、more = ほかの欄（任意。同じシートの次の段）、leg = レッグ 1 本の欄（#117。同じシートの次の段。
+       * 同時に開くのは 1 本。設計書 7.6）
+       */
+      readonly step: 'main' | 'more' | 'leg';
+      /** step = leg のときのレッグの並びの番号（0 から） */
+      readonly leg?: number;
       /** 開いたときにフォーカスする欄（要約の名指しから開いた） */
       readonly focus?: DraftField;
     }
@@ -318,6 +332,11 @@ export function stage1Statement(
     kind: 'filled',
     text: st.rows.length >= 2 ? `${st.rows.length} 行を読み取りました` : '読み取りました',
   };
+}
+
+/** 1 段目で読み取りの途中か（［読み取りをキャンセル］ を出す。読み取り中に 1 段目へ戻ってもやめられる。2 段化のレビュー指摘 2） */
+export function stage1Reading(st: { readonly phase: StatementPhaseLike } | undefined): boolean {
+  return st?.phase === 'preparing' || st?.phase === 'reading';
 }
 
 /** 1 段目の下に ［振り返りへ進む］ を出すか（2 段目に見せる要約があるとき。無ければ ［明細なしで手入力］） */

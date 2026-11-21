@@ -18,6 +18,8 @@ export interface TextFieldProps {
   readonly mark?: string;
   readonly placeholder?: string;
   readonly disabled?: boolean;
+  /** スマホのキーボード（限月は数字。#117 のデザインレビュー N4）。省けば文字 */
+  readonly inputMode?: 'text' | 'numeric';
 }
 
 export function TextField(p: TextFieldProps) {
@@ -60,6 +62,7 @@ export function TextField(p: TextFieldProps) {
           value={p.value}
           placeholder={p.placeholder}
           disabled={p.disabled}
+          {...(p.inputMode ? { inputMode: p.inputMode } : {})}
           aria-invalid={p.error ? 'true' : undefined}
           aria-describedby={describedBy || undefined}
           onInput={(e) => p.onInput(e.currentTarget.value)}

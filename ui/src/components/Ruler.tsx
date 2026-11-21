@@ -12,6 +12,7 @@ import {
   overArc,
   overshootText,
   RULER_LABEL,
+  RULER_LABEL_UNDERLYING,
   rulerItems,
   rulerTicks,
   widenArc,
@@ -78,7 +79,15 @@ function Legend({ kind, late }: { readonly kind: RulerPointKind; readonly late: 
 /** 計画の点を先に、決済を最後に描く（重なったとき決済が上に来る） */
 const DRAW_ORDER: readonly RulerPointKind[] = ['plannedLc', 'movedLc', 'entry', 'tp', 'exit'];
 
-export function Ruler({ ruler }: { readonly ruler: RulerModel }) {
+export function Ruler({
+  ruler,
+  underlying = false,
+}: {
+  readonly ruler: RulerModel;
+  /** オプションのポジション（題を「LC の物差し（原資産）」に） */
+  readonly underlying?: boolean;
+}) {
+  const title = underlying ? RULER_LABEL_UNDERLYING : RULER_LABEL;
   const late = !ruler.lcDecidedBeforeEntry;
   const items = rulerItems(ruler);
   const over = overshootText(ruler);
@@ -91,7 +100,7 @@ export function Ruler({ ruler }: { readonly ruler: RulerModel }) {
     <div class="ruler">
       {/* 図の上の小さな見出しと「i」（#57・#110）。名前は文字の一覧の読み上げの名前と同じ言葉。見出しの文字は一覧の名前と重ねて読ませない */}
       <div class="ruler__head">
-        <span aria-hidden="true">{RULER_LABEL}</span>
+        <span aria-hidden="true">{title}</span>
         <InfoTip term="ruler" size="sm" prefer="above" />
       </div>
       <div class="ruler__track">
@@ -123,7 +132,7 @@ export function Ruler({ ruler }: { readonly ruler: RulerModel }) {
           ))}
         </svg>
       </div>
-      <ul class="ruler__list" aria-label={RULER_LABEL}>
+      <ul class="ruler__list" aria-label={title}>
         {items.map((i) => (
           <li key={i.kind} class={`ruler__item ruler__item--${i.kind}`}>
             <Legend kind={i.kind} late={late} />

@@ -30,8 +30,10 @@ import { Button, RowLink } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
+import { LegEditor } from '../components/LegEditor';
+import { LEG_LIST_ID } from '../components/LegList';
 import { CandleArt, StatementArt } from '../components/RecordArt';
-import { MiniChart, SummaryCard, VerdictLineButton } from '../components/RecordParts';
+import { MiniChart, partIds, SummaryCard, VerdictLineButton } from '../components/RecordParts';
 import { Segment } from '../components/Segment';
 import { Sheet } from '../components/Sheet';
 import {
@@ -74,6 +76,7 @@ import {
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
 import { formatPrice, formatQuantity } from '../lib/format';
+import { type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import {
   createRecordController,
@@ -94,6 +97,7 @@ import {
   type RecordStage,
   SHEET_ID,
   showProceed,
+  stage1Reading,
   stage1Statement,
   stageOf,
   statementRow,
@@ -300,6 +304,8 @@ export function RecordScreen() {
   const prevPhase = useRef(state.phase);
   // 開いているシート（取引の欄・ほかの欄・タイムゾーン・判定・チャート。#130。書きかけには残さない）
   const [sheet, setSheet] = useState<RecordSheet | null>(null);
+  // 直前に消したレッグ（［元に戻す］。シートを閉じたら忘れる。#117）
+  const [legUndo, setLegUndo] = useState<LegUndo | null>(null);
   // 枠・行に貼ってチャートを差し替えた知らせ（段が替わる・チャートを選ぶ・消すと消す）
   const [replaced, setReplaced] = useState<string | null>(null);
 
@@ -416,7 +422,7 @@ export function RecordScreen() {
     document.getElementById(STATEMENT_TITLE_ID)?.focus({ preventScroll: true });
   }, [rowKey]);
 
-  // 取引の欄のシートの段 2（ほかの欄）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。ui-guidelines 9.3・9.7）
+  // 取引の欄のシートの段 2（ほかの欄・レッグ 1 本の欄。#117）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。ui-guidelines 9.3・9.7）
   const moreLayered = useRef(false);
   // 段 2 を開いたまま画面ごと外れた（403 の旗・ログインの門の置き換えなど）ときは層を外す（#130 のレビュー N3）
   useEffect(
@@ -430,7 +436,7 @@ export function RecordScreen() {
   useLayoutEffect(() => {
     const layers = backLayers();
     if (!layers) return;
-    const want = sheet?.kind === 'fields' && sheet.step === 'more';
+    const want = sheet?.kind === 'fields' && (sheet.step === 'more' || sheet.step === 'leg');
     if (want && !moreLayered.current) {
       layers.open(MORE_LAYER, () => {
         moreLayered.current = false;
@@ -446,6 +452,12 @@ export function RecordScreen() {
   /** シートを開く・替える・閉じる。名指した欄から開いたら、開いた後にその欄へフォーカスを移す */
   const onSheet = (next: RecordSheet | null) => {
     setSheet(next);
+    // 閉じた後にフォーカスが body に落ちた（開いたボタンが段の移りで消えた = ［明細なしで手入力］ など）ときは、LC か要約の
+    // ［編集］ へ（キーボード・読み上げで迷わない。2 段化のレビュー指摘 4）
+    if (next === null) {
+      setLegUndo(null);
+      setTimeout(focusAfterSheet, 0);
+    }
     if (next?.kind === 'fields' && next.focus) {
       const f = next.focus;
       setTimeout(() => {
@@ -482,6 +494,19 @@ export function RecordScreen() {
       state={state}
       sheet={sheet}
       onSheet={onSheet}
+      legUndo={legUndo}
+      onLegRemoved={setLegUndo}
+      onLegUndo={() => {
+        if (!legUndo) return;
+        onUpdate({
+          type: 'set',
+          field: 'legs',
+          value: undoLegRemove(controller.getState().draft.legs, legUndo),
+        });
+        setLegUndo(null);
+        // ボタンは消えるので、戻したレッグの行へ
+        focusSoon(`${LEG_LIST_ID}-${legUndo.index}`);
+      }}
       onManual={() => {
         onSheet({ kind: 'fields', step: 'main', focus: 'instrumentName' });
         controller.startManual();
@@ -507,7 +532,8 @@ export function RecordScreen() {
       }}
       onCancelRead={() => {
         controller.cancelRead();
-        focusSoon(LC_ID);
+        // 2 段目は LC へ、1 段目（読み取り中に ［スクショ］ で戻った）は明細を選ぶ欄へ（段は替わらない）
+        focusSoon(stageOf(controller.getState()) === 'review' ? LC_ID : STATEMENT_FILE_ID);
       }}
       onChooseTz={(id) => {
         controller.chooseTimeZone(id);
@@ -570,6 +596,12 @@ export interface RecordViewProps {
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
   readonly onSheet?: (sheet: RecordSheet | null) => void;
+  /** 直前に消したレッグ（一覧の「レッグ 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
+  readonly legUndo?: LegUndo | null;
+  /** ［このレッグを削除］ で消した（戻すために覚える） */
+  readonly onLegRemoved?: (u: LegUndo) => void;
+  /** ［元に戻す］（元の位置・ID・時刻ごと戻す） */
+  readonly onLegUndo?: () => void;
   /** ［明細なしで手入力］・［手入力で続ける］ */
   readonly onManual?: () => void;
   /** 段を替える（［振り返りへ進む］・［スクショを選ぶ］。2026-11-21） */
@@ -617,6 +649,21 @@ export interface RecordViewProps {
 
 /** 入る前に決めた LC の欄（読み取りの後・読み取りのキャンセルの後のフォーカスの行き先） */
 const LC_ID = 'record-lc';
+const IDS = partIds('record');
+
+/**
+ * シートを閉じた後、フォーカスが body に落ちていたら LC（使えなければ要約の ［編集］）へ。開いたボタンへ戻せた・ほかへ移した
+ * ときは何もしない
+ */
+function focusAfterSheet() {
+  if (typeof document === 'undefined') return;
+  const a = document.activeElement;
+  if (a && a !== document.body) return;
+  const lc = document.getElementById(LC_ID);
+  const target =
+    lc instanceof HTMLInputElement && !lc.disabled ? lc : document.getElementById(IDS.editFields);
+  target?.focus({ preventScroll: true });
+}
 const MANUAL_ID = 'record-manual';
 const MORE_ROW_ID = 'record-more';
 const TZ_OPEN_ID = 'record-tz-open';
@@ -633,6 +680,8 @@ const VERDICT_HINT_ID = 'record-verdict-hint';
 const STATEMENT_TITLE_ID = 'record-statement-title';
 /** 1 段目の見出し（段の移り・次の取引のフォーカスの行き先） */
 const STAGE1_TITLE_ID = 'record-stage1-title';
+/** 1 段目の ［読み取りをキャンセル］（読み取り中に 1 段目へ戻ったとき） */
+export const STAGE1_CANCEL_ID = 'record-stage1-cancel';
 /** 上の帯の ［スクショ］・1 段目の ［振り返りへ進む］・2 段目の ［スクショを選ぶ］ */
 const TO_INPUT_ID = 'record-to-input';
 const PROCEED_ID = 'record-proceed';
@@ -795,6 +844,11 @@ function RecordForm(p: RecordViewProps) {
   const line = verdictLine(read, errorLabels, tzNeed === 'choose');
   const sheet = p.sheet ?? null;
   const openSheet = (s: RecordSheet | null) => p.onSheet?.(s);
+  // オプションのポジション（#117。銘柄の商品の形がオプション）: レッグの行・[＋ レッグ] は取引の欄のシートの段 2（レッグ 1 本の欄）
+  const legAt = sheet?.kind === 'fields' && sheet.step === 'leg' ? (sheet.leg ?? 0) : null;
+  const legIndex = legAt !== null && d.legs[legAt] !== undefined ? legAt : null;
+  const openLeg = (i: number) => openSheet({ kind: 'fields', step: 'leg', leg: i });
+  const setLegs = (value: typeof d.legs) => onUpdate({ type: 'set', field: 'legs', value });
   const fields: TradeFieldsProps = {
     draft: d,
     errors: e,
@@ -802,7 +856,22 @@ function RecordForm(p: RecordViewProps) {
     marks,
     onUpdate,
     ...(currency ? { currency } : {}),
+    ...(read.option
+      ? {
+          option: {
+            reading: read.option,
+            onOpenLeg: openLeg,
+            onAddLeg: () => {
+              setLegs([...d.legs, nextLeg(d.legs)]);
+              openLeg(d.legs.length);
+            },
+            removed: p.legUndo ? legRemovedText(p.legUndo) : null,
+            ...(p.onLegUndo ? { onUndoRemove: p.onLegUndo } : {}),
+          },
+        }
+      : {}),
   };
+  const step2 = sheet?.kind === 'fields' && (sheet.step === 'more' || legIndex !== null);
   const choice = accountChoiceKind(state.accounts.length);
   const add = state.addAccount;
   const stage = stageOf(state);
@@ -830,7 +899,7 @@ function RecordForm(p: RecordViewProps) {
           <StageInput {...p} />
         ) : (
           <>
-            {/* 入れたもののカード（明細の要約の行・口座・チャートの行。#117 のレッグの欄は取引の欄のシートの中に置く） */}
+            {/* 入れたもののカード（明細の要約の行・口座・チャートの行。#117 のレッグの欄は取引の欄のシートの中 = 段 leg） */}
             <div class="rinput">
               <StatementArea
                 {...p}
@@ -878,10 +947,14 @@ function RecordForm(p: RecordViewProps) {
           open={sheet?.kind === 'fields'}
           kind="form"
           title={
-            sheet?.kind === 'fields' && sheet.step === 'more' ? 'ほかの欄（任意）' : '取引の欄'
+            sheet?.kind === 'fields' && sheet.step === 'more'
+              ? 'ほかの欄（任意）'
+              : legIndex !== null
+                ? `レッグ ${legIndex + 1}`
+                : '取引の欄'
           }
           lead={
-            sheet?.kind === 'fields' && sheet.step === 'more' ? (
+            step2 ? (
               <button
                 type="button"
                 class="info__up"
@@ -893,16 +966,36 @@ function RecordForm(p: RecordViewProps) {
               </button>
             ) : null
           }
-          focusKey={sheet?.kind === 'fields' ? sheet.step : 'none'}
+          focusKey={
+            sheet?.kind === 'fields'
+              ? sheet.step === 'leg'
+                ? `leg-${legIndex}`
+                : sheet.step
+              : 'none'
+          }
           onDismiss={(reason) => {
-            const up =
-              sheet?.kind === 'fields' && sheet.step === 'more'
-                ? sheetDismiss(reason, 1) === 'up'
-                : false;
+            const up = step2 ? sheetDismiss(reason, 1) === 'up' : false;
             openSheet(up ? { kind: 'fields', step: 'main' } : null);
           }}
         >
-          {sheet?.kind === 'fields' && sheet.step === 'more' ? (
+          {legIndex !== null && d.legs[legIndex] ? (
+            <div class="record__sheetbody">
+              <LegEditor
+                leg={d.legs[legIndex]}
+                index={legIndex}
+                {...(read.option?.legErrors[legIndex]
+                  ? { errors: read.option.legErrors[legIndex] }
+                  : {})}
+                onChange={(leg) => setLegs(d.legs.map((x, i) => (i === legIndex ? leg : x)))}
+                onRemove={() => {
+                  const leg = d.legs[legIndex];
+                  if (leg) p.onLegRemoved?.({ leg, index: legIndex });
+                  setLegs(d.legs.filter((_, i) => i !== legIndex));
+                  openSheet({ kind: 'fields', step: 'main' });
+                }}
+              />
+            </div>
+          ) : sheet?.kind === 'fields' && sheet.step === 'more' ? (
             <div class="record__sheetbody">
               <TradeMoreBody {...fields} />
             </div>
@@ -942,7 +1035,7 @@ function RecordForm(p: RecordViewProps) {
               <RowLink
                 id={MORE_ROW_ID}
                 onClick={() => openSheet({ kind: 'fields', step: 'more' })}
-                meta={moreMeta(d, marks, e)}
+                meta={moreMeta(d, marks, e, read.option?.lossPlanUp === false)}
               >
                 ほかの欄（任意）
               </RowLink>
@@ -1000,7 +1093,7 @@ function RecordForm(p: RecordViewProps) {
         >
           <Verdict
             summary={read.preview}
-            side={side ?? 'L'}
+            side={read.option?.autoSide ?? side ?? 'L'}
             {...(accountLine === undefined ? {} : { account: accountLine })}
             pending={read.preview.judgment === undefined}
             hasErrors={errorFields.length > 0}
@@ -1015,16 +1108,7 @@ function RecordForm(p: RecordViewProps) {
         <StageInputFoot {...p} />
       ) : (
         <div class="record__submit record__submit--bar">
-          {state.error ? (
-            <div class="notice notice--error" role="alert">
-              <p>{state.error}</p>
-              {state.errorKind === 'auth' ? (
-                <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
-                  もう一度ログイン
-                </Button>
-              ) : null}
-            </div>
-          ) : null}
+          <SaveError {...p} />
           <VerdictLineButton
             id={VERDICT_LINE_ID}
             line={line}
@@ -1052,13 +1136,33 @@ function RecordForm(p: RecordViewProps) {
   );
 }
 
+/**
+ * 保存の失敗の文（2 段目の下の帯と、1 段目の下の端。失敗の後に ［スクショ］ で 1 段目へ戻っても見える。2 段化のレビュー指摘 1）
+ */
+function SaveError(p: RecordViewProps) {
+  const { state } = p;
+  return state.error ? (
+    <div class="notice notice--error" role="alert">
+      <p>{state.error}</p>
+      {state.errorKind === 'auth' ? (
+        <Button variant="secondary" icon="logout" onClick={p.onRelogin}>
+          もう一度ログイン
+        </Button>
+      ) : null}
+    </div>
+  ) : null;
+}
+
 /** 「ほかの欄（任意）›」の行の右の添え（誤り → 読み取りの値 → 入れた欄の数。無ければ出さない） */
 function moreMeta(
   d: RecordState['draft'],
   marks: Marks,
   errors: RecordState['read']['errors'],
+  /** LC での損失の見込みが「ほかの欄」にある（オプションの形で、LC の枠に上げていない。#117） */
+  lossPlanInMore = false,
 ): string | null {
   if (OPTIONAL_FIELDS.some((f) => errors[f] !== undefined)) return '誤りあり';
+  if (lossPlanInMore && errors.lcLossPlan !== undefined) return '誤りあり';
   if (marks.pnlYen || marks.feeYen || marks.exitReason) return '読み取りあり';
   const filled = [d.pnlYen, d.feeYen].filter((v) => v.trim() !== '').length;
   return filled > 0 ? `${filled} 欄` : null;
@@ -1168,7 +1272,7 @@ function RecordSummary(
   },
 ) {
   const { state } = p;
-  const sum = tradeSummary(state.draft, state.read.errors, p.marks);
+  const sum = tradeSummary(state.draft, state.read.errors, p.marks, state.read.option);
   return (
     <SummaryCard
       prefix="record"
@@ -1344,7 +1448,9 @@ function StageInput(p: RecordViewProps) {
           </div>
           <div class="rin__text">
             <h3 class="rin__name">決済明細のスクショ</h3>
-            <p class="rin__desc" {...(filled ? { role: 'status' } : {})}>
+            {/* 状態の文の live region は常に描き、中身だけを替える（役割と中身を同時に替えると読み上げられないことがある。
+              2 段化のレビュー指摘 3） */}
+            <p class="rin__desc" role="status">
               {filled ? s1.text : '決済した後の、約定と損益が載っている画面'}
             </p>
             <StatementPick
@@ -1352,6 +1458,18 @@ function StageInput(p: RecordViewProps) {
               text={filled ? 'スクショを変更' : 'スクショを選ぶ'}
               onPickFile={p.onPickFile}
             />
+            {/* 読み取り中に 1 段目へ戻っても、ここでやめられる（2 段化のレビュー指摘 2） */}
+            {stage1Reading(st) ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                id={STAGE1_CANCEL_ID}
+                label="明細の読み取りをキャンセル"
+                onClick={() => p.onCancelRead?.()}
+              >
+                読み取りをキャンセル
+              </Button>
+            ) : null}
           </div>
         </div>
         {/* 送る前の注意（畳まない・3 行以下。7.5・C38）。補足は末尾の「i」 */}
@@ -1463,6 +1581,7 @@ function StageInputFoot(p: RecordViewProps) {
   const proceed = showProceed({ statement: st, manual: state.manual, draft: state.draft });
   return (
     <div class="rin__foot">
+      <SaveError {...p} />
       {proceed ? (
         <Button
           id={PROCEED_ID}

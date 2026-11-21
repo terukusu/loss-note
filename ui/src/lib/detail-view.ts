@@ -10,13 +10,16 @@ import type { ChartSlotView } from './trade-view';
 export type DetailSheet =
   | { readonly kind: 'actions' }
   | { readonly kind: 'compare' }
-  | { readonly kind: 'chart'; readonly slot: AnySlot };
+  | { readonly kind: 'chart'; readonly slot: AnySlot }
+  /** 心理のタグを付ける・外す（#156。保存の後のシートと同じ中身） */
+  | { readonly kind: 'emotion' };
 
 /** シートの ID（dialog の id。開いたボタンの aria-controls） */
 export const DETAIL_SHEET_ID = {
   actions: 'detail-actions-sheet',
   compare: 'detail-compare-sheet',
   chart: 'detail-chart-viewer',
+  emotion: 'detail-emotion-sheet',
 } as const;
 
 /** 上の帯の「…」の読み上げの名前と、操作のシートの題 */

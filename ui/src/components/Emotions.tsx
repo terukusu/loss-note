@@ -1,0 +1,166 @@
+// 心理のタグの部品（#156・設計書 9.4・C55・docs/ui-guidelines.md 9.3・9.12）。hook を持たない。
+// - EmotionSheetBody: 保存の後のシート「記録しました」と詳細のシート「心理」の中身。上に判定（保存の後だけ。1 件は判定の
+//   理由の先頭の 1 行も）、まとまりの見出し（「i」で一言の並び）の下に押す形のチップ（aria-pressed）、失敗の文言、下に貼り付く
+//   ［あとで］ / ［完了］。良い状態（平常心）はほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）
+// - EmotionCard: 詳細の「心理」のカード（付いているタグの輪郭の札 + ［変更］。無ければ押せる行「＋ 心理を付ける」）
+// 色はどのタグにも付けない（C34）。名前・一言は固定の文字（ID から引く）をテキストのノードで入れる
+import type { EmotionTagId } from '../../../core/emotion-tags';
+import type { EmotionState } from '../lib/emotion-controller';
+import {
+  closeLabelOf,
+  EMOTION_CALM_NOTE,
+  EMOTION_CARD_TITLE,
+  EMOTION_CHANGE,
+  EMOTION_CHANGE_LABEL,
+  EMOTION_EMPTY,
+  EMOTION_HEADING,
+  EMOTION_HINT,
+  emotionGroups,
+  emotionNames,
+  type SavedVerdict,
+} from '../lib/emotion-tags';
+import { formatR } from '../lib/format';
+import { Button, Chip, RowLink } from './Button';
+import { InfoTip } from './InfoTip';
+import { JudgeBadge } from './JudgeBadge';
+import '../styles/emotions.css';
+
+export interface EmotionSheetBodyProps {
+  /** id の接頭辞（record / detail。同じ画面に 2 つ置かないが、「i」・見出しの id を分ける） */
+  readonly prefix: string;
+  /** saved = 保存の後（判定を上に出す・何も付いていなければ ［あとで］）、detail = 詳細から */
+  readonly context: 'saved' | 'detail';
+  readonly state: EmotionState;
+  /** 保存の後の判定（保存した取引の順。context = saved のときだけ） */
+  readonly verdicts?: readonly SavedVerdict[];
+  readonly onToggle: (id: EmotionTagId) => void;
+  readonly onClose: () => void;
+}
+
+export function EmotionSheetBody(p: EmotionSheetBodyProps) {
+  const selected = new Set(p.state.selected);
+  const verdicts = p.context === 'saved' ? (p.verdicts ?? []) : [];
+  const headingId = `${p.prefix}-emotion-heading`;
+  // 2 件以上の件数はシートの題（emotionSheetTitle）が言うので、ここでは繰り返さない
+  const reason = verdicts.length === 1 ? verdicts[0]?.reason : undefined;
+  return (
+    <div class="emotions">
+      {verdicts.length > 0 ? (
+        <div class="emotions__verdicts">
+          <ul class="emotions__badges">
+            {verdicts.map((v, i) => (
+              // 取引の並びは保存の順で変わらない（並びの位置を鍵にする）
+              <li key={i} class="emotions__badge">
+                <JudgeBadge grade={v.grade} />
+                {verdicts.length === 1 ? <span class="emotions__r">{formatR(v.r)}</span> : null}
+              </li>
+            ))}
+          </ul>
+          {reason ? <p class="emotions__reason">{reason}</p> : null}
+        </div>
+      ) : null}
+      {/* 詳細のシートは題が「心理」なので、中の見出しは保存の後だけ */}
+      {p.context === 'saved' ? (
+        <h3 class="emotions__heading" id={headingId}>
+          {EMOTION_HEADING}
+        </h3>
+      ) : null}
+      <p class="emotions__hint">{EMOTION_HINT}</p>
+      {emotionGroups().map((g) => {
+        const gid = `${p.prefix}-emotion-${g.group}`;
+        const good = g.group === 'good';
+        return (
+          <div
+            key={g.group}
+            class={good ? 'emotions__group emotions__group--good' : 'emotions__group'}
+          >
+            <div class="emotions__ghead">
+              <h4 class="emotions__gname" id={gid}>
+                {g.name}
+              </h4>
+              <InfoTip label={g.name} body={g.notes} id={`${gid}-info`} />
+              {/* 平常心を押すとほかが外れる（逆も）ことを先に言う（R3。黙って外れたと見せない） */}
+              {good ? (
+                <span class="emotions__gnote" id={`${gid}-note`}>
+                  {EMOTION_CALM_NOTE}
+                </span>
+              ) : null}
+            </div>
+            {/* まとまりの名前で読み上げる組（fieldset の既定の枠・余白は CSS で消す） */}
+            <fieldset
+              class="chips emotions__chips"
+              aria-labelledby={gid}
+              {...(good ? { 'aria-describedby': `${gid}-note` } : {})}
+            >
+              {g.tags.map((t) => (
+                <Chip key={t.id} selected={selected.has(t.id)} onClick={() => p.onToggle(t.id)}>
+                  {t.name}
+                </Chip>
+              ))}
+            </fieldset>
+          </div>
+        );
+      })}
+      {p.state.error !== null ? (
+        <p class="notice notice--error" role="alert">
+          {p.state.error}
+        </p>
+      ) : null}
+      <div class="emotions__actions">
+        <Button
+          block
+          variant={p.state.selected.length > 0 ? 'primary' : 'secondary'}
+          onClick={p.onClose}
+        >
+          {closeLabelOf(p.context, p.state.selected.length)}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export interface EmotionCardProps {
+  readonly tags: readonly EmotionTagId[];
+  /** シートを閉じた後の失敗（シートの外に出す。閉じている間だけ） */
+  readonly error?: string | null;
+  readonly onOpen: () => void;
+}
+
+export const EMOTION_CARD_TITLE_ID = 'detail-emotion-title';
+
+export function EmotionCard(p: EmotionCardProps) {
+  const names = emotionNames(p.tags);
+  return (
+    <section class="card emotioncard" aria-labelledby={EMOTION_CARD_TITLE_ID}>
+      <div class="emotioncard__head">
+        <h2 class="emotioncard__title" id={EMOTION_CARD_TITLE_ID}>
+          {EMOTION_CARD_TITLE}
+        </h2>
+        {names.length > 0 ? (
+          <Button variant="secondary" size="sm" onClick={p.onOpen} label={EMOTION_CHANGE_LABEL}>
+            {EMOTION_CHANGE}
+          </Button>
+        ) : null}
+      </div>
+      {names.length > 0 ? (
+        // 押せない札（シートの押せるチップと見分ける輪郭の形。判定のカードの答えの札と同じ考え）
+        <ul class="emotioncard__tags">
+          {names.map((n) => (
+            <li key={n} class="emotioncard__tag">
+              {n}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div class="dlist">
+          <RowLink onClick={p.onOpen}>{EMOTION_EMPTY}</RowLink>
+        </div>
+      )}
+      {p.error ? (
+        <p class="notice notice--error" role="alert">
+          {p.error}
+        </p>
+      ) : null}
+    </section>
+  );
+}

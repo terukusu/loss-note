@@ -1,0 +1,27 @@
+{
+  "ids": [
+    "calm",
+    "fear",
+    "nervous",
+    "distress",
+    "lossAversion",
+    "reassurance",
+    "earlyProfit",
+    "wantProfit",
+    "bigWin",
+    "wantPosition",
+    "fomo",
+    "overconfident",
+    "recoup",
+    "frustrated",
+    "anger",
+    "missedMove",
+    "regret",
+    "hope",
+    "cantCut",
+    "confirmation",
+    "bargain"
+  ],
+  "calm": "calm",
+  "maxTrades": 20
+}

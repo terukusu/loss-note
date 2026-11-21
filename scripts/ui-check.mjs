@@ -673,6 +673,12 @@ const TX_FX = exampleTrade(
     },
   },
 );
+/** 心理のタグの付いた取引（#156。外貨建ての取引の写しに 3 つ。一覧の順） */
+const TX_EMO = {
+  ...TX_FX,
+  id: 'x-emo',
+  emotionTags: ['wantPosition', 'overconfident', 'recoup'],
+};
 /** #47 PR-2: USD の口座・USD 建ての取引（明細の損益 −51.50 USD・手数料 1.50 USD。詳細の測りで一時だけ足す。架空の値） */
 const TX_FXU = exampleTrade(
   'x-fxu',
@@ -809,6 +815,23 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
  * 口座の通貨（Issue #47 PR-2）: 口座はいつも currency を返す（無い = JPY）。POST / PUT の currency は任意（PUT の省略は今のまま）。
  * 取引のある口座の通貨を変える PUT は 409 currencyLocked。取引の snapshot に口座の通貨（accountCurrency）を写す
  */
+/** 心理のタグの一覧の順（core/emotion-tags.ts の EMOTION_TAG_IDS と同じ。偽の API が並べ直すのに使う。#156） */
+const EMOTION_ORDER = JSON.parse(
+  readFileSync(new URL('../tests/fixtures/records/emotion-tags.json', import.meta.url), 'utf8'),
+).ids;
+
+/**
+ * 記録の保存の後: 心理のシート「記録しました」（#156）が開くのを待って ［あとで］ で閉じ、保存の後の画面の知らせを待つ
+ * （シートは modal なので、閉じないと後ろの ［次の取引を記録］ などを押せない）
+ */
+async function waitSaved(p, text) {
+  const sheet = p.locator('#record-emotion-sheet[open]');
+  await sheet.waitFor({ timeout: 10000 });
+  await sheet.locator('.emotions__actions button').click();
+  await p.locator('#record-emotion-sheet[open]').waitFor({ state: 'detached', timeout: 10000 });
+  await p.getByRole('status').filter({ hasText: text }).waitFor({ timeout: 10000 });
+}
+
 async function installFakeApi(context, opts = {}) {
   const api = {
     instruments: [FAKE_US30],
@@ -906,6 +929,20 @@ async function installFakeApi(context, opts = {}) {
       } catch {
         return undefined; // 待たせている間に画面を離れた
       }
+    }
+    // 心理のタグ（Issue #156。形は routes.py の put_trade_emotions: 取引の集合のタグを置き換え、空なら鍵ごと消す）
+    if (key === 'PUT /api/trade-emotions') {
+      const b = JSON.parse(req.postData() ?? '{}');
+      const ids = Array.isArray(b.tradeIds) ? b.tradeIds : [];
+      const idx = ids.map((id) => api.trades.findIndex((t) => t.id === id));
+      if (ids.length === 0 || idx.some((i) => i < 0))
+        return json(route, 404, { error: 'not_found' });
+      const tags = EMOTION_ORDER.filter((t) => (b.tags ?? []).includes(t));
+      for (const i of idx) {
+        const { emotionTags: _old, ...rest } = api.trades[i];
+        api.trades[i] = tags.length > 0 ? { ...rest, emotionTags: tags } : rest;
+      }
+      return json(route, 200, { tags });
     }
     const profileM = /^\/api\/statement-profiles\/([0-9a-f]{32})$/.exec(path);
     if (req.method() === 'PUT' && profileM) {
@@ -1769,12 +1806,57 @@ const RECORD_STATES = [
     },
   },
   {
+    // 保存の後は心理のシート「記録しました」が開く（#156。何も選んでいない = ［あとで］）
     slug: 'record-6-saved',
     name: '保存の後',
+    noBar: true,
+    anchor: '#record-emotion-sheet',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      await p.locator('#record-emotion-sheet[open]').waitFor();
+      await p
+        .locator('#record-emotion-sheet .emotions__actions button', { hasText: 'あとで' })
+        .waitFor();
+    },
+  },
+  {
+    slug: 'record-6b-saved-emotion',
+    name: '保存の後・心理 3 つ',
+    noBar: true,
+    anchor: '#record-emotion-sheet',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      const sheet = p.locator('#record-emotion-sheet[open]');
+      await sheet.waitFor();
+      for (const name of ['ポジりたい', '調子に乗った', '取り戻したい']) {
+        // 選ぶ前後でチップの外寸が同じ（✓ の分だけ幅が増えて後ろのチップが動かない。#156 のデザインレビュー 2）
+        const chip = sheet.getByRole('button', { name, exact: true });
+        const before = await chip.boundingBox();
+        await chip.click();
+        await sheet.locator('.chip--toggle[aria-pressed="true"]', { hasText: name }).waitFor();
+        // 押し込み（:active の scale）の戻りの動きが終わってから測る
+        await p.waitForTimeout(300);
+        const after = await chip.boundingBox();
+        if (before && after && Math.abs(before.width - after.width) > 0.5)
+          throw new Error(`${name}: 選ぶと幅が ${before.width}px → ${after.width}px`);
+      }
+      await sheet.locator('.emotions__actions button', { hasText: '完了' }).waitFor();
+    },
+  },
+  {
+    slug: 'record-6c-saved-closed',
+    name: '保存の後・シートを閉じた',
     noBar: true,
     fn: async (p) => {
       await fillRecord(p, EX_E1);
       await p.locator('button[type="submit"]').click();
+      await p.locator('#record-emotion-sheet[open]').waitFor();
+      await p
+        .locator('#record-emotion-sheet .emotions__actions button', { hasText: 'あとで' })
+        .click();
+      await p.locator('#record-emotion-sheet:not([open])').waitFor({ state: 'attached' });
       await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor();
     },
   },
@@ -2509,6 +2591,8 @@ const RECORD_STATES = [
       await p.locator('.rsum__mark').waitFor();
       await fillRecord(p, EX_E1);
       await p.locator('button[type="submit"]').click();
+      // 心理のシート（#156）を閉じてから、保存の後の 1 行を見る
+      await waitSaved(p, '記録しました');
       await p.getByText('次からこの明細は', { exact: false }).waitFor();
       mustEq(api.profiles.length, 1, '覚えの送信');
     },
@@ -4504,6 +4588,36 @@ async function main() {
               await pg.locator('.fields__row', { hasText: '50.00 USD' }).first().waitFor();
             },
           },
+          // 心理のカード（#156）: タグが付いた詳細と、［変更］ で開いたシート
+          {
+            path: '/trades/x-emo',
+            h1: '架空指数U · L',
+            slug: 'trade-x-emotion',
+            name: '心理のカード',
+            trade: TX_EMO,
+            after: async (pg) => {
+              await pg
+                .locator('.emotioncard .emotioncard__tag', { hasText: '調子に乗った' })
+                .waitFor();
+              await pg.locator('.emotioncard').scrollIntoViewIfNeeded();
+            },
+          },
+          {
+            path: '/trades/x-emo',
+            h1: '架空指数U · L',
+            slug: 'trade-x-emotion-sheet',
+            name: '心理のシート',
+            trade: TX_EMO,
+            after: async (pg) => {
+              await pg.locator('.emotioncard').getByRole('button', { name: '心理を変更' }).click();
+              const sheet = pg.locator('#detail-emotion-sheet[open]');
+              await sheet.waitFor();
+              await sheet.getByRole('button', { name: '値ごろ感', exact: true }).click();
+              await sheet
+                .locator('.chip--toggle[aria-pressed="true"]', { hasText: '値ごろ感' })
+                .waitFor();
+            },
+          },
           {
             path: '/trades/x-fx/edit',
             h1: '取引を編集',
@@ -4553,7 +4667,9 @@ async function main() {
             console.log(`${label} 開けない  NG`);
             problems.push(`${label}: 開けない ${msg}`);
           } finally {
-            recApi.trades.splice(recApi.trades.indexOf(fx.trade), 1);
+            // 心理のタグの PUT（#156）は取引を置き換えるので、ID で探して外す
+            const at = recApi.trades.findIndex((t) => t.id === fx.trade.id);
+            if (at >= 0) recApi.trades.splice(at, 1);
             setAccounts(recApi, []);
           }
         }
@@ -5969,7 +6085,7 @@ async function runFlows(browser, base, signedIn) {
       await openRecord(p, base);
       await fillRecord(p, EX_E1);
       await p.locator('button[type="submit"]').dblclick();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       expectEq(fake.posts.length, 1, 'POST /api/trades の数');
       await p.getByRole('button', { name: '次の取引を記録' }).click();
       // 次の取引は 1 段目「スクショを入れる」から（2026-11-21）
@@ -6003,7 +6119,7 @@ async function runFlows(browser, base, signedIn) {
       await fillRecord(p, EX_E1);
       await p.locator('#record-broken').fill('架空の崩れの条件');
       await p.locator('button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       const after = await snap();
       expectEq(JSON.stringify(after.ls), JSON.stringify(before.ls), 'localStorage のキー');
       expectEq(JSON.stringify(after.ss), JSON.stringify(before.ss), 'sessionStorage のキー');
@@ -6392,7 +6508,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('.rsum__mark').waitFor({ timeout: 10000 });
       await fillStatementTaps(p);
       await p.locator('button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       await p.getByRole('button', { name: '次の取引を記録' }).click();
       fake.read = { status: 200, rows: READ_E10, holdMs: 0 };
       await makeImage(p, STATEMENT_SPEC, 'paste');
@@ -6420,7 +6536,7 @@ async function runFlows(browser, base, signedIn) {
       );
       await fillStatementTaps(p, '49');
       await p.locator('button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       expectEq(fake.posts.length, 3, '保存の要求');
       const after = await snap();
       // 端末に書いてよいのは選んだタイムゾーンの ID の鍵 1 つだけ（#58 KEEP-7）
@@ -6514,7 +6630,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('.vline .badge', { hasText: 'A' }).waitFor({ timeout: 5000 });
       await p.locator('.vline .num', { hasText: '−1.0R' }).waitFor({ timeout: 5000 });
       await p.locator('button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       const ms = Date.now() - t0;
       const sent = fake.posts[0];
       expectEq(sent.source, 'statement', '出どころ');
@@ -7153,7 +7269,7 @@ async function runFlows(browser, base, signedIn) {
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
       await p.locator('button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       await p.getByText('チャート 2 枚も保存しました').waitFor();
       await p.getByRole('button', { name: '次の取引を記録' }).click();
       // もう 1 枚貼ってから一覧へ移る（保存しないチャートは送らない。E12）
@@ -7223,7 +7339,7 @@ async function runFlows(browser, base, signedIn) {
       const typed = await fillStatementTaps(p);
       await p.locator('.vline .badge', { hasText: 'A' }).waitFor({ timeout: 5000 });
       await p.locator('button[type="submit"]').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       expectEq(fake.chartPosts.length, 1, 'チャートつきの保存の要求');
       expectEq(fake.chartPosts[0].parts.join(','), 'record,entryChart,exitChart', '部分');
       for (const slot of ['entry', 'exit']) {
@@ -8061,7 +8177,7 @@ async function runFlows(browser, base, signedIn) {
       // 取引の詳細から「用語集で見る」→ 用語集の画面のその項目 → 戻るで詳細（元の項目は auto のまま）
       await fillRecord(p, EX_E1);
       await p.locator('#record-submit').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       await p.goto(`${base}/trades`);
       await waitReady(p, '取引');
       await p.locator('main a[href^="/trades/"]').first().click();
@@ -8492,7 +8608,7 @@ async function runFlows(browser, base, signedIn) {
         await openRecord(p, base);
         await fillRecord(p, EX_E1);
         await p.locator('#record-submit').click();
-        await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+        await waitSaved(p, '記録しました');
         await p.goto(`${base}/trades`);
         await waitReady(p, '取引');
         await p.locator('main a[href^="/trades/"]').first().click();
@@ -8567,10 +8683,7 @@ async function runFlows(browser, base, signedIn) {
           await openRecord(p, base);
           await fillRecord(p, EX_E1);
           await p.locator('#record-submit').click();
-          await p
-            .getByRole('status')
-            .filter({ hasText: '記録しました' })
-            .waitFor({ timeout: 10000 });
+          await waitSaved(p, '記録しました');
           await p.goto(`${base}/trades`);
           await waitReady(p, '取引');
           await p.locator('main a[href^="/trades/"]').first().click();
@@ -8642,10 +8755,7 @@ async function runFlows(browser, base, signedIn) {
       expectEq(h, 0, '横スクロール');
       await closeSheets(p);
       await p.locator('#record-submit').click();
-      await p
-        .getByRole('status')
-        .filter({ hasText: '口座 B に記録しました' })
-        .waitFor({ timeout: 10000 });
+      await waitSaved(p, '口座 B に記録しました');
       expectEq(fake.posts.at(-1)?.accountId, 'acc-b', '本文の口座');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
@@ -8679,7 +8789,7 @@ async function runFlows(browser, base, signedIn) {
       await p.locator('#record-quantity').fill('10000');
       await closeSheets(p);
       await p.locator('#record-submit').click();
-      await p.getByRole('status').filter({ hasText: '記録しました' }).waitFor({ timeout: 10000 });
+      await waitSaved(p, '記録しました');
       expectEq(JSON.stringify(fake.posts.at(-1)?.exit?.fxRate), undefined, '本文の為替');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {

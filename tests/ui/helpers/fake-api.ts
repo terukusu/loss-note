@@ -39,6 +39,13 @@
 // - 明細の特徴の覚え（#66）: PUT /api/statement-profiles/<鍵> 本文 { accountId } = 204。鍵が 16 進 32 文字でなければ 404、
 //   口座が無ければ 400 notFound。覚えは profiles（鍵 → 口座の ID）に残す
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
+
+import {
+  CALM,
+  isEmotionTagId,
+  MAX_EMOTION_TRADES,
+  normalizeEmotions,
+} from '../../../core/emotion-tags';
 import {
   type AccountBody,
   type AccountRecord,
@@ -326,6 +333,38 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       throw new TypeError('ネットワークの誤り（偽物。この文字列は画面に出ないこと）');
     if (typeof f === 'number')
       return json(f, { error: 'unavailable', secret: '応答の本文（偽物）' });
+
+    // 心理のタグ（#156。本物の put_trade_emotions と同じ検査の要点: 一覧の ID・重複・平常心の排他・1 件でも無ければ 404）
+    if (key === 'PUT /api/trade-emotions') {
+      const b = (body ?? {}) as { tradeIds?: unknown; tags?: unknown };
+      const ids = Array.isArray(b.tradeIds) ? (b.tradeIds as unknown[]) : null;
+      const tags = Array.isArray(b.tags) ? (b.tags as unknown[]) : null;
+      if (
+        !ids ||
+        !tags ||
+        ids.length < 1 ||
+        ids.length > MAX_EMOTION_TRADES ||
+        new Set(ids).size !== ids.length ||
+        tags.some((t) => !isEmotionTagId(t)) ||
+        new Set(tags).size !== tags.length ||
+        (tags.includes(CALM) && tags.length > 1)
+      ) {
+        return json(400, { error: 'invalid' });
+      }
+      const idx = ids.map((id) => trades.findIndex((t) => t.id === id));
+      if (idx.some((i) => i < 0)) return json(404, { error: 'not_found' });
+      const ordered = normalizeEmotions(tags);
+      clock += 1;
+      for (const i of idx) {
+        const { emotionTags: _old, ...rest } = trades[i] as StoredTrade;
+        trades[i] = {
+          ...rest,
+          ...(ordered.length > 0 ? { emotionTags: ordered } : {}),
+          updatedAt: Math.max(clock, rest.updatedAt + 1),
+        };
+      }
+      return json(200, { tags: ordered });
+    }
 
     const profilePath = /^\/api\/statement-profiles\/([^/]+)$/.exec(path);
     if (method === 'PUT' && profilePath) {

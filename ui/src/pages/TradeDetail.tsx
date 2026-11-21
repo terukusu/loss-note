@@ -13,12 +13,14 @@
 // TradeDetailView も hook を持たない（開いているシートは TradeDetailScreen が持って渡す）
 import '../styles/detail.css';
 import { Fragment, type JSX } from 'preact';
-import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
+import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { type EmotionTagId, normalizeEmotions } from '../../../core/emotion-tags';
 import { accountCurrencyOf } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button, IconButton, RowLink } from '../components/Button';
 import { EXTRA_TITLE } from '../components/ChartPanel';
+import { EmotionCard, EmotionSheetBody } from '../components/Emotions';
 import { EmptyState } from '../components/EmptyState';
 import { LegTable } from '../components/LegTable';
 import { ResnapshotSummary } from '../components/Resnapshot';
@@ -43,7 +45,14 @@ import {
 import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { editBlock } from '../lib/edit-form';
+import {
+  createEmotionController,
+  type EmotionController,
+  type EmotionState,
+} from '../lib/emotion-controller';
+import { EMOTION_SHEET_TITLE } from '../lib/emotion-tags';
 import { legRows } from '../lib/option-view';
+import { createRequest } from '../lib/request';
 import {
   COMPARE_ROW_LABEL,
   COMPARE_SHEET_TITLE,
@@ -113,14 +122,39 @@ function TradeDetailScreen({
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
   const kept = useContext(DraftsKeptContext);
+  // 心理のタグ（#156）: シートを開くときに作り、閉じても送りが終わるまで残す（画面を離れたら捨てる）
+  const emotion = useRef<EmotionController | null>(null);
+  const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
   useEffect(() => {
     const off = controller.subscribe(setState);
     void controller.load();
     return () => {
       off();
       controller.dispose();
+      emotion.current?.dispose();
+      emotion.current = null;
+      // 別の取引へ移ったとき、前の取引の失敗の文言・集合を残さない
+      setEmotionState(null);
     };
   }, [controller]);
+  const onSheet = (next: DetailSheet | null) => {
+    if (next?.kind === 'emotion') {
+      const cur = controller.getState();
+      // 送っている間は同じ controller を使い続ける（押した集合を捨てない）。ほかは読んだ取引のタグから作り直す
+      if (cur.phase === 'ready' && !emotion.current?.getState().sending) {
+        emotion.current?.dispose();
+        const c = createEmotionController({
+          request: createRequest(api),
+          tradeIds: [cur.trade.id],
+          initial: normalizeEmotions(cur.trade.emotionTags),
+          onSaved: (tags) => controller.applyEmotionTags(tags),
+        });
+        emotion.current = c;
+        c.subscribe(setEmotionState);
+      }
+    }
+    setSheet(next);
+  };
   // 取引が読めたら、タブ・履歴の名前も見出しと同じにする
   const heading =
     state.phase === 'ready'
@@ -136,7 +170,9 @@ function TradeDetailScreen({
       back={backTargetOf(nav, '/trades')}
       state={state}
       sheet={sheet}
-      onSheet={setSheet}
+      onSheet={onSheet}
+      {...(emotionState ? { emotion: emotionState } : {})}
+      onEmotionToggle={(id) => emotion.current?.toggle(id)}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       editDraft={kept.has(editKey(id))}
@@ -191,6 +227,9 @@ export interface TradeDetailViewProps {
   readonly sheet?: DetailSheet | null;
   /** シートを開く・替える・閉じる（null） */
   readonly onSheet?: (sheet: DetailSheet | null) => void;
+  /** 心理のタグの付け外し（#156。省けばシートの中身を出さない） */
+  readonly emotion?: EmotionState;
+  readonly onEmotionToggle?: (id: EmotionTagId) => void;
 }
 
 /** 「…」のボタンの id */
@@ -295,6 +334,13 @@ function DetailBody(p: TradeDetailViewProps) {
       {/* オプションのポジションのレッグ（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
       {t.record.legs !== undefined ? <LegTable rows={legRows(t)} /> : null}
       <ChartsView {...p} />
+      {/* 心理のタグ（#156。設計書 9.4: 付いているチップと ［＋ 追加］、無ければ「＋ 心理を付ける」。押すと同じシート）。
+          判定のカードとチャート 2 枚を最初の画面に収める（#131 の D131）ため、チャートの下に置く */}
+      <EmotionCard
+        tags={normalizeEmotions(t.emotionTags)}
+        error={p.sheet?.kind === 'emotion' ? null : (p.emotion?.error ?? null)}
+        onOpen={() => p.onSheet?.({ kind: 'emotion' })}
+      />
       {/* 「すべての欄」「総評」は次の画面（その場で開かない。設計書 9.2・9.3） */}
       <nav class="dlist detail__links" aria-label="この取引の記録">
         <RowLink href={fieldsHref(t.id)}>すべての欄</RowLink>
@@ -468,6 +514,23 @@ function DetailSheets(
               {EDIT_CURRENT_LABEL}
             </Button>
           </div>
+        ) : null}
+      </Sheet>
+      <Sheet
+        id={DETAIL_SHEET_ID.emotion}
+        open={sheet?.kind === 'emotion' && p.emotion !== undefined}
+        kind="form"
+        title={EMOTION_SHEET_TITLE.detail}
+        onDismiss={() => open(null)}
+      >
+        {p.emotion ? (
+          <EmotionSheetBody
+            prefix="detail"
+            context="detail"
+            state={p.emotion}
+            onToggle={(id) => p.onEmotionToggle?.(id)}
+            onClose={() => open(null)}
+          />
         ) : null}
       </Sheet>
       <Sheet

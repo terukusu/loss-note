@@ -302,6 +302,11 @@ export interface SavedView {
   readonly accountCount: number;
   /** 明細の特徴を覚えた（覚えが無かった・覚えと違う口座で記録した。口座 2 つ以上のときだけ。#66 デザイン 5） */
   readonly learned?: boolean;
+  /**
+   * 保存の後のシートで心理を付ける取引（#156 R4。1 件の記録なら [trade]、複数行の明細なら同じ明細から保存した行すべて。
+   * 保存の順）。controller は常に入れる（任意なのは、手で組む SavedView の形を変えないため。無ければ [trade]）
+   */
+  readonly trades?: readonly StoredTrade[];
 }
 
 /** その場で足す口座の欄（開いている間だけ。#47 B5・U5〜U9） */
@@ -528,6 +533,8 @@ export function createRecordController(deps: {
   let accountTouched = false;
   /** その明細で覚えを新しくした（記録の後の 1 行。#66 デザイン 5） */
   let learnedInStatement = false;
+  /** 同じ明細から保存した取引（保存の順。スキップした行・失敗した行は入らない。保存の後のシートで心理を付ける先。#156 R4） */
+  let statementSaved: StoredTrade[] = [];
   /** その明細で選んだ（当てた）時間帯（同じ明細のほかの行に使う。Z8）。もう 1 枚・やめた・離れたで捨てる */
   let statementZone: TzId | null = null;
   /** 空の下書きに戻すときの既定（開いたとき、保存の後は今保存した取引から） */
@@ -743,6 +750,7 @@ export function createRecordController(deps: {
     profile = null;
     accountTouched = false;
     learnedInStatement = false;
+    statementSaved = [];
     statementZone = null;
     const prev = state.statement;
     if (!prev) return;
@@ -1242,6 +1250,10 @@ export function createRecordController(deps: {
       }
       if (learned) learnedInStatement = true;
       const learnedOnce = learnedInStatement;
+      // 明細の行なら、同じ明細から保存した取引に足す（最後の行の後のシートで、保存した行すべてに心理を付ける。#156 R4）
+      const inStatement = state.statement?.phase === 'ready';
+      if (inStatement) statementSaved = [...statementSaved, found];
+      const savedTrades = inStatement ? statementSaved : [found];
       const name = inst.instruments.find((i) => i.id === found.record.instrumentId)?.name ?? '';
       defaults = {
         instrumentName: name,
@@ -1262,6 +1274,7 @@ export function createRecordController(deps: {
         phase: 'saved',
         saved: {
           trade: found,
+          trades: savedTrades,
           instrumentName: name,
           summary: summarize(found),
           accountName: accountNameOf(accountIdOf(found.record), state.accounts),

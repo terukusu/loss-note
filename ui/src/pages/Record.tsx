@@ -16,6 +16,7 @@
 import type { ComponentChildren } from 'preact';
 import '../styles/record.css';
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { Side, Timeframe } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
 import {
@@ -28,6 +29,7 @@ import { ACCOUNT_FIELD_ID, AccountField } from '../components/AccountField';
 import { SheetBar } from '../components/AppBar';
 import { Button, RowLink } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
+import { EmotionSheetBody } from '../components/Emotions';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
 import { LegEditor } from '../components/LegEditor';
@@ -75,9 +77,15 @@ import {
 } from '../lib/draft-status';
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
+import {
+  createEmotionController,
+  type EmotionController,
+  type EmotionState,
+} from '../lib/emotion-controller';
+import { emotionSheetTitle, type SavedVerdict } from '../lib/emotion-tags';
 import { formatPrice, formatQuantity } from '../lib/format';
 import { editLeg, type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
-import { TIMEFRAME_NAME } from '../lib/reasons';
+import { reasonText, TIMEFRAME_NAME } from '../lib/reasons';
 import {
   createRecordController,
   enterRecordScreen,
@@ -87,13 +95,14 @@ import {
   type TzState,
   watchVisible,
 } from '../lib/record-controller';
-import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
+import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS, summarize } from '../lib/record-form';
 import {
   type ChartLike,
   chartRow,
   FIELD_INPUT_ID,
   focusLcAfterRead,
   miniChartId,
+  opensEmotionSheet,
   type RecordSheet,
   type RecordStage,
   SHEET_ID,
@@ -107,6 +116,7 @@ import {
   tradeSummary,
   verdictLine,
 } from '../lib/record-screen';
+import { createRequest } from '../lib/request';
 import { sheetDismiss } from '../lib/sheet';
 import { accountHintOf, learnedText, pnlFillOf } from '../lib/statement-account';
 import {
@@ -312,6 +322,10 @@ export function RecordScreen() {
   const [legNotice, setLegNotice] = useState<string | null>(null);
   // 枠・行に貼ってチャートを差し替えた知らせ（段が替わる・チャートを選ぶ・消すと消す）
   const [replaced, setReplaced] = useState<string | null>(null);
+  // 保存の後のシートの心理のタグ（#156）。保存のたびに作り直し、シートを閉じても送りが終わるまで残す（画面を離れたら捨てる）
+  const emotion = useRef<EmotionController | null>(null);
+  const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
+  useEffect(() => () => emotion.current?.dispose(), []);
 
   useEffect(() => {
     const off = controller.subscribe((s) => {
@@ -366,9 +380,24 @@ export function RecordScreen() {
     prevPhase.current = state.phase;
     if (before === state.phase) return;
     if (state.phase === 'saved') {
-      setSheet(null);
-      document.getElementById(VERDICT_TITLE_ID)?.focus();
       window.scrollTo({ top: 0 });
+      const saved = state.saved;
+      if (opensEmotionSheet(before, state.phase) && saved) {
+        // 保存の後のシート（#156 R4）: 保存した取引（複数行なら同じ明細から保存した行すべて）に心理を付ける。
+        // 見出しへのフォーカスはシートが移す（閉じたら判定の枠の見出しへ）
+        emotion.current?.dispose();
+        const c = createEmotionController({
+          request: createRequest(api),
+          tradeIds: (saved.trades ?? [saved.trade]).map((t) => t.id),
+          initial: [],
+        });
+        emotion.current = c;
+        c.subscribe(setEmotionState);
+        setSheet({ kind: 'emotion' });
+      } else {
+        setSheet(null);
+        document.getElementById(VERDICT_TITLE_ID)?.focus();
+      }
     } else if (before === 'saved' && state.phase === 'editing') {
       window.scrollTo({ top: 0 });
       document.getElementById(STAGE1_TITLE_ID)?.focus({ preventScroll: true });
@@ -461,7 +490,10 @@ export function RecordScreen() {
     if (next === null) {
       setLegUndo(null);
       setLegNotice(null);
-      setTimeout(focusAfterSheet, 0);
+      // 保存の後のシートを閉じた: 判定の枠の見出しへ（#156。保存の後の画面には LC が無い）
+      if (controller.getState().phase === 'saved') {
+        setTimeout(() => document.getElementById(VERDICT_TITLE_ID)?.focus(), 0);
+      } else setTimeout(focusAfterSheet, 0);
     }
     if (next?.kind === 'fields' && next.focus) {
       const f = next.focus;
@@ -499,6 +531,8 @@ export function RecordScreen() {
       state={state}
       sheet={sheet}
       onSheet={onSheet}
+      {...(emotionState ? { emotion: emotionState } : {})}
+      onEmotionToggle={(id) => emotion.current?.toggle(id)}
       legUndo={legUndo}
       legNotice={legNotice}
       onLegRemoved={setLegUndo}
@@ -612,6 +646,10 @@ export function RecordScreen() {
 
 export interface RecordViewProps {
   readonly state: RecordState;
+  /** 保存の後のシートの心理のタグ（#156。省けば保存の後のシートを出さない） */
+  readonly emotion?: EmotionState;
+  /** チップを押した */
+  readonly onEmotionToggle?: (id: EmotionTagId) => void;
   /** 開いているシート（#130。省けばどれも閉じている） */
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
@@ -805,12 +843,54 @@ function SavedPanel(p: RecordViewProps) {
           return notes.length > 0 ? { note: notes.join('。') } : {};
         })()}
       />
+      {/* シートを閉じた後に送りが失敗したとき（#156。シートの中なら中に出す） */}
+      {p.emotion?.error && p.sheet?.kind !== 'emotion' ? (
+        <p class="notice notice--error" role="alert">
+          {p.emotion.error}
+        </p>
+      ) : null}
       {/* 保存の後はボタン 1 つなので帯（カード）に包まず、判定の枠の下に直に置く */}
       <Button block icon="record" onClick={p.onNext}>
         次の取引を記録
       </Button>
+      {p.emotion ? (
+        <Sheet
+          id={SHEET_ID.emotion}
+          open={p.sheet?.kind === 'emotion'}
+          kind="form"
+          title={emotionSheetTitle((saved.trades ?? [saved.trade]).length)}
+          onDismiss={() => p.onSheet?.(null)}
+        >
+          <EmotionSheetBody
+            prefix="record"
+            context="saved"
+            state={p.emotion}
+            verdicts={savedVerdicts(saved)}
+            onToggle={(id) => p.onEmotionToggle?.(id)}
+            onClose={() => p.onSheet?.(null)}
+          />
+        </Sheet>
+      ) : null}
     </div>
   );
+}
+
+/** 保存の後のシートの上の判定（1 件は今の判定の枠と同じ値、複数行は保存した行ごと。#156） */
+function savedVerdicts(saved: NonNullable<RecordState['saved']>): SavedVerdict[] {
+  const trades = saved.trades ?? [saved.trade];
+  return trades.map((t) => {
+    const s = t.id === saved.trade.id ? saved.summary : summarize(t);
+    // 判定の理由の先頭の 1 つ（1 件のときシートに出す。心理を選ぶ手がかり = 何が崩れたか）
+    const first = s.judgment?.reasons[0];
+    const reason = first
+      ? reasonText(first, t.record.side, s.option?.maxLossPlan ? { maxLossPlan: true } : {})
+      : undefined;
+    return {
+      grade: s.judgment?.grade ?? null,
+      ...(s.r === undefined ? {} : { r: s.r }),
+      ...(reason ? { reason } : {}),
+    };
+  });
 }
 
 /**

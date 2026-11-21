@@ -138,6 +138,10 @@ class Store(Protocol):
     def get_chart(self, uid: str, trade_id: str, slot: str) -> Doc | None: ...
     def put_chart(self, uid: str, trade_id: str, slot: str, chart: Doc, mutate: Mutate) -> Doc | None: ...
     def delete_chart(self, uid: str, trade_id: str, slot: str, mutate: Mutate) -> Doc | None: ...
+    # 心理のタグ（#156・ADR-0022）: trade_ids の取引をすべて読み、1 件でも無ければ何も書かずに None。
+    # 知らない版が 1 件でもあれば何も書かずに UnknownSchemaVersion。mutate は 1 件の文書を受けて新しい文書を返す。
+    # 全件を 1 トランザクションで書く
+    def set_emotion_tags(self, uid: str, trade_ids: list[str], mutate: Mutate) -> list[Doc] | None: ...
 
     def list_instruments(self, uid: str) -> list[tuple[str, Doc]]: ...
     def get_instrument(self, uid: str, instrument_id: str) -> Doc | None: ...
@@ -396,6 +400,27 @@ class FirestoreStore:
             tx.delete(chart_ref)
             tx.set(ref, new)
             return new
+
+        return self._transaction(body)
+
+    # ── 心理のタグ（#156）──
+    @_guard
+    def set_emotion_tags(self, uid, trade_ids, mutate):
+        col = self._user(uid).collection("trades")
+        refs = [col.document(tid) for tid in trade_ids]
+
+        def body(tx):
+            # 読みは書きより先（トランザクションの約束）。1 件でも無い・知らない版なら何も書かない
+            snaps = [ref.get(transaction=tx) for ref in refs]
+            if any(not s.exists for s in snaps):
+                return None
+            docs = [s.to_dict() for s in snaps]
+            for doc in docs:
+                check_known_version(doc)
+            news = [mutate(doc) for doc in docs]
+            for ref, new in zip(refs, news, strict=True):
+                tx.set(ref, new)
+            return news
 
         return self._transaction(body)
 

@@ -212,3 +212,20 @@ def test_b_cannot_use_or_read_a_account(api):
     put = api.put("/api/accounts/default", B, {"name": "口座 1", "capitalYen": 5, "riskTolerancePct": 1})
     assert put.status_code == 200
     assert api.get("/api/accounts/default", A).get_json() == a_default
+
+
+def test_b_cannot_tag_a_trade(world):
+    """KEEP-3（Issue #156・例 #12）: ほかの利用者の取引の心理のタグは 404。B の取引と混ぜても何も書かない"""
+    api, trade = world["api"], world["trade"]
+    tid = trade["id"]
+    assert api.put("/api/trade-emotions", A, {"tradeIds": [tid], "tags": ["hope"]}).status_code == 200
+    before = api.get(f"/api/trades/{tid}", A).get_json()
+    b_inst = api.instrument(B, "US30")
+    b_trade = api.post("/api/trades", B, t1(b_inst["id"])).get_json()
+    for ids in ([tid], [b_trade["id"], tid]):
+        res = api.put("/api/trade-emotions", B, {"tradeIds": ids, "tags": ["fear"]})
+        assert res.status_code == 404
+        assert res.get_json() == {"error": "not_found"}
+        assert_no_a_values(res)
+    assert api.get(f"/api/trades/{tid}", A).get_json() == before
+    assert "emotionTags" not in api.get(f"/api/trades/{b_trade['id']}", B).get_json()

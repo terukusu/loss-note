@@ -208,6 +208,28 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
     expect(byId(expand(<LcFields {...props(naked)} />), 'record-lc-maxloss')).toBeUndefined();
     expect(text(expand(<TapFields {...props(naked)} />))).toContain('LC を動かしたか');
   });
+  it('#171: 「最大損失まで」で止まった LC の欄を押すと「最大損失まで」を外す（トグルを押し直したのと同じ）', () => {
+    const got: unknown[] = [];
+    const tree = expand(<LcFields {...props(spread)} onUpdate={(a) => got.push(a)} />);
+    const lc = byId(tree, 'record-lc') as El;
+    expect(lc.props.readOnly).toBe(true);
+    expect(lc.props.disabled).toBeFalsy();
+    expect(lc.props.placeholder).toBe(MAX_LOSS_LABEL);
+    expect(text(byId(tree, 'record-lc-lock') as El)).toBe(
+      '最大損失まで を選んでいます。押すと価格を入れられます',
+    );
+    const el = { readOnly: true, blur: noop, focus: noop };
+    (lc.props.onClick as (e: unknown) => void)({ currentTarget: el });
+    const toggle = byId(tree, 'record-lc-maxloss') as El;
+    (toggle.props.onClick as () => void)();
+    expect(got).toEqual([
+      { type: 'set', field: 'lcMaxLoss', value: false },
+      { type: 'set', field: 'lcMaxLoss', value: false },
+    ]);
+    // 外した形は止めない
+    const opened = expand(<LcFields {...props({ ...spread, lcMaxLoss: false })} />);
+    expect((byId(opened, 'record-lc') as El).props.readOnly).toBeUndefined();
+  });
   it('売りの裸で 1R が出ないときは見込みの欄を LC の枠に、ほかは「ほかの欄」', () => {
     const lcNaked = expand(<LcFields {...props(naked)} />);
     expect(byId(lcNaked, 'record-loss-plan')).toBeDefined();

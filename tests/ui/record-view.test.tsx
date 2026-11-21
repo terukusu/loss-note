@@ -3,6 +3,7 @@
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
+import { unlockKeyOf } from '../../ui/src/components/NumberField';
 import { CHART_READ_MARK, CHART_READ_MSG, CHART_READ_NOTICE } from '../../ui/src/lib/chart-read';
 import { GLOSSARY } from '../../ui/src/lib/glossary';
 import {
@@ -23,6 +24,7 @@ import {
 } from '../../ui/src/lib/record-form';
 import { fillFromRow, gateReading, READ_MSG } from '../../ui/src/lib/statement-fill';
 import {
+  lcTakesFocus,
   RESUMED_ID,
   RecordBar,
   RecordBarView,
@@ -624,7 +626,10 @@ describe('LC の「なし」', () => {
     expect(toggle.props['aria-pressed']).toBe('true');
     expect(toggle.props['aria-label']).toBe('LC を決めていなかった（なし）');
     const lc = all(tree, (e) => e.type === 'input' && e.props.id === 'record-lc')[0] as El;
-    expect(lc.props.disabled).toBe(true);
+    // 薄い形のまま押せる（disabled はタップを受けない。#171）
+    expect(lc.props.disabled).toBeFalsy();
+    expect(lc.props.readOnly).toBe(true);
+    expect(lc.props.placeholder).toBe('なし');
     const groups = all(tree, (e) => e.props.role === 'radiogroup').map(
       (e) => e.props['aria-label'],
     );
@@ -640,6 +645,111 @@ describe('LC の「なし」', () => {
     expect(toggle.props['aria-pressed']).toBe('false');
     (toggle.props.onClick as () => void)();
     expect(got).toEqual([{ type: 'set', field: 'lcNone', value: true }]);
+  });
+});
+
+describe('#171: 「なし」で止まった LC の欄を押すと「なし」を外して価格の入力へ', () => {
+  const lcOf = (tree: Node[]) =>
+    all(tree, (e) => e.type === 'input' && e.props.id === 'record-lc')[0] as El;
+  const fakeInput = () => {
+    const el = { readOnly: true, focused: 0, blur() {}, focus() {} };
+    el.focus = () => {
+      el.focused++;
+    };
+    return el;
+  };
+  const ev = (el: unknown) => ({ currentTarget: el });
+
+  it('薄い枠の印と、読み上げの説明「なし を選んでいます。押すと価格を入れられます」', () => {
+    const tree = view(stateFor(E16, NO_CAPITAL));
+    const lc = lcOf(tree);
+    expect(all(tree, hasClass('numfield--locked'))).toHaveLength(1);
+    const ids = String(lc.props['aria-describedby']).split(' ');
+    expect(ids[0]).toBe('record-lc-lock');
+    const note = all(tree, (e) => e.props.id === 'record-lc-lock')[0] as El;
+    expect(text(note)).toBe('なし を選んでいます。押すと価格を入れられます');
+    expect(cls(note)).toContain('sr-only');
+    const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-lc')[0] as El;
+    expect(text(label)).toBe('入る前に決めた LC');
+    // 「なし」でなければ止めない
+    const open = view(stateFor(E1, NO_CAPITAL));
+    expect(lcOf(open).props.readOnly).toBeUndefined();
+    expect(all(open, hasClass('numfield--locked'))).toEqual([]);
+    expect(all(open, (e) => e.props.id === 'record-lc-lock')).toEqual([]);
+  });
+
+  it('押す（click。読み上げのダブルタップも click）と 1 回だけ外し、同じ欄にフォーカスし直す', () => {
+    const got: unknown[] = [];
+    const lc = lcOf(view(stateFor(E16, NO_CAPITAL), { onUpdate: (a) => got.push(a) }));
+    const el = fakeInput();
+    (lc.props.onClick as (e: unknown) => void)(ev(el));
+    expect(got).toEqual([{ type: 'set', field: 'lcNone', value: false }]);
+    expect(el.readOnly).toBe(false);
+    expect(el.focused).toBe(1);
+    // 外した後の click は何もしない
+    (lc.props.onClick as (e: unknown) => void)(ev(el));
+    expect(got).toHaveLength(1);
+  });
+
+  it('フォーカスだけでは外さない（読み取りの完了・1 段目 → 2 段目・シートを閉じた後の focus()、Tab で通る、読み上げのスワイプ）', () => {
+    const lc = lcOf(view(stateFor(E16, NO_CAPITAL)));
+    // フォーカス・ポインタの押下に応じるものを持たない = プログラムの focus() で状態は変わらない
+    for (const k of ['onFocus', 'onFocusIn', 'onPointerDown', 'onMouseDown', 'onTouchStart']) {
+      expect(lc.props[k]).toBeUndefined();
+    }
+    // シートを閉じた後の行き先は、止めた欄を避けて要約の ［編集］（前の disabled と同じ）
+    expect(lcTakesFocus({ disabled: false, readOnly: true })).toBe(false);
+    expect(lcTakesFocus({ disabled: true, readOnly: false })).toBe(false);
+    expect(lcTakesFocus({ disabled: false, readOnly: false })).toBe(true);
+  });
+
+  it('キー: Enter / Space で外し、数字は外してその 1 文字を打つ。Tab・矢印・修飾キー・変換中は外さない', () => {
+    const got: unknown[] = [];
+    const lc = lcOf(view(stateFor(E16, NO_CAPITAL), { onUpdate: (a) => got.push(a) }));
+    const key = (k: string, over: Record<string, unknown> = {}) => {
+      const el = fakeInput();
+      let prevented = false;
+      (lc.props.onKeyDown as (e: unknown) => void)({
+        key: k,
+        currentTarget: el,
+        preventDefault: () => {
+          prevented = true;
+        },
+        ...over,
+      });
+      return { el, prevented };
+    };
+    for (const k of ['Tab', 'ArrowDown', 'Shift', 'Escape']) {
+      expect(key(k).el.readOnly).toBe(true);
+    }
+    expect(key('v', { ctrlKey: true }).el.readOnly).toBe(true);
+    expect(key('9', { isComposing: true }).el.readOnly).toBe(true);
+    expect(got).toEqual([]);
+    const enter = key('Enter');
+    expect(enter.el.readOnly).toBe(false);
+    expect(enter.prevented).toBe(true);
+    expect(got).toEqual([{ type: 'set', field: 'lcNone', value: false }]);
+    got.length = 0;
+    expect(key(' ').prevented).toBe(true);
+    expect(got).toEqual([{ type: 'set', field: 'lcNone', value: false }]);
+    got.length = 0;
+    const nine = key('9');
+    expect(nine.prevented).toBe(true);
+    expect(got).toEqual([
+      { type: 'set', field: 'lcNone', value: false },
+      { type: 'set', field: 'lc', value: '9' },
+    ]);
+    expect(unlockKeyOf({ key: 'a', metaKey: true })).toBeNull();
+    expect(unlockKeyOf({ key: '.' })).toBe('type');
+  });
+
+  it('［なし］ のトグルは今のまま（押した状態・押すと外す）', () => {
+    const got: unknown[] = [];
+    const tree = view(stateFor(E16, NO_CAPITAL), { onUpdate: (a) => got.push(a) });
+    const toggle = all(tree, hasClass('lcnone'))[0] as El;
+    expect(toggle.props['aria-pressed']).toBe('true');
+    (toggle.props.onClick as () => void)();
+    expect(got).toEqual([{ type: 'set', field: 'lcNone', value: false }]);
   });
 });
 

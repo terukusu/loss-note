@@ -10,6 +10,7 @@ import type { Grade } from '../../../core/judge';
 import type { AnySlot } from './charts';
 import { formatPrice, formatQuantity } from './format';
 import { hasYearInferred } from './legs-form';
+import type { RecordPhase } from './record-controller';
 import {
   type Draft,
   type DraftField,
@@ -279,7 +280,9 @@ export type RecordSheet =
     }
   | { readonly kind: 'tz' }
   | { readonly kind: 'verdict' }
-  | { readonly kind: 'chart' };
+  | { readonly kind: 'chart' }
+  /** 保存の後のシート「記録しました」（心理のタグ。#156・設計書 9.4） */
+  | { readonly kind: 'emotion' };
 
 /** シートの ID（dialog の id。開いたボタンの aria-controls） */
 export const SHEET_ID = {
@@ -287,7 +290,17 @@ export const SHEET_ID = {
   tz: 'record-tz-sheet',
   verdict: 'record-verdict-sheet',
   chart: 'record-chart-sheet',
+  emotion: 'record-emotion-sheet',
 } as const;
+
+/**
+ * 保存の後のシートを開くか（#156 R4・AC-4）: 保存の後（saved）に移ったときだけ = 記録の保存のたびに 1 度。複数行の明細は
+ * 途中の行の保存では editing のまま次の行へ進むので開かず、最後の行の後に 1 度だけ。保存の後のまま画面に戻った（借り直した）
+ * ときは移りが無いので開かない
+ */
+export function opensEmotionSheet(before: RecordPhase, after: RecordPhase): boolean {
+  return before !== 'saved' && after === 'saved';
+}
 
 /** 取引の欄のシートで、名指した欄へフォーカスする要素の id（L / S は Segment の先頭の radio を画面が探す） */
 export const FIELD_INPUT_ID: Readonly<Record<NamedFieldId | 'accountId', string>> = {

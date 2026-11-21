@@ -63,10 +63,13 @@ function screenStrings(file: string, src: string): string[] {
 function bannedHits(
   files: readonly (readonly [string, string])[],
   words: readonly string[],
+  keep: ReadonlySet<string> = new Set(),
 ): string[] {
   const hits: string[] = [];
   for (const [file, src] of files) {
     for (const s of screenStrings(file, src)) {
+      // 8.4 の変えない言葉と一字一句同じ文字列（心理のタグの名前など）は、使わない言葉を含んでいても別の言葉として扱う
+      if (keep.has(s)) continue;
       for (const w of words) {
         // [〜] の形はボタンの名前: 文の中の [〜] と、ボタンの文字そのもの（〜 だけの文字列）の両方を拾う
         const button = /^\[(.+)\]$/.exec(w)?.[1];
@@ -106,6 +109,8 @@ const OPS = tableRows('8.1 操作の言葉');
 const TERMS = tableRows('8.2 相場の用語');
 const MAP = tableRows('8.3 内部の呼び名と画面の言い方');
 const KEEP = tableRows('8.4 変えない言葉');
+/** 8.4 の変えない言葉（一字一句同じ文字列だけ、使わない言葉の検査から外す） */
+const KEEP_WORDS: ReadonlySet<string> = new Set(KEEP.flatMap((r) => codes(r[0])));
 
 const BANNED = [...OPS.flatMap((r) => codes(r[1])), ...TERMS.flatMap((r) => codes(r[2]))];
 const ALL_STRINGS = SCREEN.flatMap(([f, s]) => screenStrings(f, s));
@@ -207,7 +212,14 @@ describe('使わない言葉が画面に出ない（#74 AC-1）', () => {
   });
 
   it('画面のソースの文字列に使わない言葉が 0 件', () => {
-    expect(bannedHits(SCREEN, BANNED)).toEqual([]);
+    expect(bannedHits(SCREEN, BANNED, KEEP_WORDS)).toEqual([]);
+  });
+
+  it('8.4 の変えない言葉の一字一句の例外は、その文字列だけを通す（含む文は拾う）', () => {
+    const src = "const a = '利確を急ぐ'; const b = '利確を急ぐ前に';";
+    expect(bannedHits([['x.ts', src]], ['利確'], KEEP_WORDS)).toEqual([
+      'x.ts: 利確: 利確を急ぐ前に',
+    ]);
   });
 });
 

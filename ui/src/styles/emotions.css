@@ -1,0 +1,153 @@
+/* 心理のタグ（#156・設計書 9.4・ui-guidelines 9.12）。色はどのタグにも付けない（C34）。色の値は tokens.css だけ */
+
+/* シートの中身 */
+.emotions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* 保存の後の判定（1 件 = バッジと R、2 件以上 = 件数とバッジの並び） */
+.emotions__verdicts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 判定の理由の先頭の 1 つ（1 件のときだけ。1 行で切る） */
+.emotions__reason {
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emotions__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.emotions__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.emotions__r {
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.emotions__heading {
+  margin: 0 0 calc(-1 * var(--sp-3));
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.emotions__hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.emotions__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.emotions__ghead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.emotions__gname {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* 良い状態（平常心）: 見出しとチップを横に並べ（チップが 1 個）、下の区切りの線でほかの 20 個と 2 つの塊に分ける（色は使わない） */
+.emotions__group--good {
+  flex-flow: row wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-3);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.emotions__gnote {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+}
+
+/* ［あとで］ / ［完了］ の帯: シートの中身の下に貼り付ける（21 個のチップでシートの中がスクロールしても残る。
+   設定の口座・銘柄のシートの帯と同じ考え方 = settings.css の .setform__actions） */
+.emotions__actions {
+  position: sticky;
+  bottom: calc(-1 * (var(--sp-6) + var(--safe-bottom)));
+  z-index: 1;
+  margin-bottom: calc(-1 * (var(--sp-6) + var(--safe-bottom)));
+  padding-block: var(--sp-3) calc(var(--sp-3) + var(--safe-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--s2);
+}
+
+/* 詳細の「心理」のカード */
+.emotioncard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.emotioncard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.emotioncard__title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+/* 付いているタグの札（押せない。シートの押せるチップの面ではなく輪郭の形。判定のカードの答えの札 .taps__chip と同じ） */
+.emotioncard__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.emotioncard__tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-sm);
+}
+
+/* まとまりのチップの組（fieldset の既定の枠・余白を消す） */
+.emotions__chips {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

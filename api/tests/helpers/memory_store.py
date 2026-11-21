@@ -197,6 +197,19 @@ class MemoryStore:
             trades[trade_id] = copy.deepcopy(new)
             return new
 
+    # ── 心理のタグ（#156）──
+    def set_emotion_tags(self, uid, trade_ids, mutate):
+        with self._lock:
+            trades = self._col(uid, "trades")
+            if any(tid not in trades for tid in trade_ids):
+                return None
+            for tid in trade_ids:
+                check_known_version(trades[tid])  # 1 件でも知らない版なら何も書かない（FirestoreStore と同じ）
+            news = [mutate(copy.deepcopy(trades[tid])) for tid in trade_ids]
+            for tid, new in zip(trade_ids, news, strict=True):
+                trades[tid] = copy.deepcopy(new)
+            return news
+
     # ── 口座（#47）──
     def _read_account(self, uid, account_id, build_default):
         """(口座, 作る既定の口座の (設定, 文書) or None)。既定の口座が無ければ設定から作る文書を返す（まだ書かない）"""

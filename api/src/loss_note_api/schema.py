@@ -13,6 +13,8 @@ import unicodedata
 from collections.abc import Callable
 from typing import Any
 
+from loss_note_api import emotion_tags
+
 MAX_ABS = 1e12
 MAX_TIME_MS = 4_102_444_800_000  # 2100-01-01T00:00:00Z
 MAX_ENTRIES = 20
@@ -687,3 +689,69 @@ def validate_statement_profile(body: Any) -> tuple[dict | None, list[Issue]]:
     if c.issues:
         return None, c.issues
     return out, []
+
+
+# ── 心理のタグ（#156・C55・ADR-0022）─────────────────────────
+
+_EMOTION_FIELDS = ("tradeIds", "tags")
+
+
+def validate_emotion_tags(body: Any) -> tuple[dict | None, list[Issue], bool]:
+    """``PUT /api/trade-emotions`` の本文 → ``(値, issues, 取引の ID の形が崩れている)``。
+
+    値は ``{"tradeIds": [...], "tags": [一覧の順]}``。tradeIds は 1〜20 件・重複なし。tags は 0〜21 個の一覧の ID・
+    重複なし・平常心はほかと同時に付かない（exclusive）。取引の ID の形が崩れていれば 3 つ目を True にする（呼び出し側は
+    経路の ID と同じく、保存先に触れずに 404 にする）。issues は道筋と種類だけ（送った値を映さない）
+    """
+    c = _Checker()
+    src = c.obj(body, "", _EMOTION_FIELDS)
+    if src is None:
+        return None, c.issues, False
+    bad_id = False
+
+    def trade_ids(v: Any, path: str) -> Any:
+        nonlocal bad_id
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if not 1 <= len(v) <= emotion_tags.MAX_TRADES:
+            c.add(path, "count")
+            return INVALID
+        if any(not isinstance(x, str) or not ID_PATTERN.match(x) for x in v):
+            bad_id = True
+            return INVALID
+        if len(set(v)) != len(v):
+            c.add(path, "duplicate")
+            return INVALID
+        return list(v)
+
+    def tags(v: Any, path: str) -> Any:
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if len(v) > len(emotion_tags.EMOTION_TAG_IDS):
+            c.add(path, "count")
+            return INVALID
+        ok = True
+        for i, x in enumerate(v):
+            if not isinstance(x, str) or x not in emotion_tags.ORDER:
+                c.add(f"{path}.{i}", "enum")
+                ok = False
+        if not ok:
+            return INVALID
+        if len(set(v)) != len(v):
+            c.add(path, "duplicate")
+            return INVALID
+        if emotion_tags.CALM in v and len(v) > 1:
+            c.add(path, "exclusive")
+            return INVALID
+        return emotion_tags.ordered(list(v))
+
+    out: dict = {}
+    _put(out, "tradeIds", c.field(src, "tradeIds", "", trade_ids, required=True))
+    _put(out, "tags", c.field(src, "tags", "", tags, required=True))
+    if c.issues:
+        return None, c.issues, False
+    if bad_id:
+        return None, [], True
+    return out, [], False

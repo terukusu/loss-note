@@ -253,13 +253,46 @@
   text-decoration: none;
 }
 
-.chip:hover {
-  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+/* hover はポインタが重なれる端末だけ（タッチでは押した後も hover が残り、選んだチップの面が灰色に替わって「選んだ」が
+   2 種類に見えるため。#156 のデザインレビュー 1）。選んだチップの hover はアクセントの面を少し濃くするだけ */
+@media (hover: hover) {
+  .chip:hover {
+    background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+  }
+
+  .chip--selected:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
 }
 
 .chip--selected {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+/* 押す形のチップ（Button.tsx の Chip の onClick。#156）: button の既定の見た目を消す。押し込みの手応え */
+.chip--toggle {
+  gap: 2px;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  transition: scale var(--dur-fast) var(--ease);
+}
+
+.chip--toggle:active {
+  scale: 0.97;
+}
+
+/* 選んでも外寸を変えない（✓ 12px + 間 2px の分だけ左右の余白を詰める: 12 + 12 = 4 + 12 + 2 + 6。押すたびに後ろの
+   チップが次の行へ動かない。#156 のデザインレビュー 2） */
+.chip--toggle.chip--selected {
+  padding-inline: 4px 6px;
+}
+
+.chip__check {
+  flex: none;
+  width: 12px;
+  height: 12px;
 }
 
 .btn--lg {

@@ -4,6 +4,7 @@
 //   preview（画面は statement-image.ts の browserCodec.preview）で canvas に描ける handle にする。object URL・data URL を
 //   作らない。読めなかった枠は failed（その枠だけ [もう一度読み込む]）。画面を離れたら（dispose）handle を close する
 // - 画像・取引は記憶の中だけ（端末の保存先・URL・履歴に書かない）。失敗は決まった文言だけ
+import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
 import { ALL_SLOTS, type AnySlot, type ChartSlot, type ExtraSlot } from './charts';
 import { type ImageType, imageInfo } from './image-limits';
@@ -56,6 +57,8 @@ export interface DetailController {
   load(): Promise<void>;
   /** 読めなかった枠を読み直す */
   reloadChart(slot: AnySlot): Promise<void>;
+  /** 心理のタグを保存できた: 読んだ取引のタグだけを差し替える（#156。判定・チャートは変えない） */
+  applyEmotionTags(tags: readonly EmotionTagId[]): void;
   /** 画面を離れた: チャートの handle を close し、後で届いた応答を捨てる */
   dispose(): void;
 }
@@ -194,6 +197,11 @@ export function createTradeDetailController(deps: {
       const c = state.charts[slot];
       if (c?.phase === 'ready' || c?.phase === 'loading') return;
       await readChart(slot);
+    },
+    applyEmotionTags(tags) {
+      if (disposed || state.phase !== 'ready') return;
+      const { emotionTags: _old, ...rest } = state.trade;
+      set({ ...state, trade: tags.length > 0 ? { ...rest, emotionTags: [...tags] } : rest });
     },
     dispose() {
       disposed = true;

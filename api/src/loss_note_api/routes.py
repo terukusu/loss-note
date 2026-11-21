@@ -29,6 +29,10 @@
 だけ。直しは保存先のトランザクションの中で、保存済みにレッグがある取引への ``legs`` の無い本文を 409 ``legsMissing``
 （決定 7 の (b)。レッグを知らない画面がレッグを落とさない）、前からの取引にレッグを足す本文を 400 ``legacyTrade``
 にする。チャートの入口は ``legs`` を書き換えない。
+
+心理のタグ（Issue #156・設計書 C55・ADR-0022）: 取引の文書の最上位の ``emotionTags``（``record`` の外）。書くのは
+``PUT /api/trade-emotions`` 本文 ``{tradeIds, tags}`` だけで、集合を置き換える。取引の PUT・チャートの入口は文書を
+``{**doc, ...}`` で組むのでタグを保つ（前の版の API も同じ作りなので、切り戻してもタグは消えない。版は上げない）。
 """
 
 from collections.abc import Callable
@@ -72,6 +76,8 @@ UNKNOWN_SCHEMA_VERSION = "unknownSchemaVersion"
 LEGS_MISSING = "legsMissing"
 # レッグを持てる銘柄の商品の形（ADR-0020 の決定 9。原資産 + オプション）
 LEGS_PRODUCT_FORM = "option"
+# 心理のタグの鍵（#156・ADR-0022。取引の文書の最上位 = record の外）
+EMOTION_TAGS_KEY = "emotionTags"
 # 取引の PUT のクエリ snapshot の決まった値（#31。今の口座・銘柄の値で写し直す）
 SNAPSHOT_CURRENT = "current"
 
@@ -131,6 +137,9 @@ def trade_response(trade_id: str, doc: dict) -> dict:
     # チャートのある取引だけ要約（形式と大きさ）を足す。無い取引は今と同じ形（Issue #12 KEEP-2）
     if doc.get("charts"):
         res["charts"] = doc["charts"]
+    # 心理のタグ（#156）: 付いている取引だけ。無い取引は今と同じ形（KEEP-4）
+    if doc.get(EMOTION_TAGS_KEY):
+        res[EMOTION_TAGS_KEY] = doc[EMOTION_TAGS_KEY]
     return res
 
 
@@ -508,6 +517,39 @@ def make_blueprint(
         if doc is None:
             return error(404, "not_found")
         return trade_response(trade_id, doc)
+
+    # ── 心理のタグ（Issue #156・ADR-0022）──
+    # 取引の集合（1〜20 件。複数行の明細なら保存した行すべて）のタグを 1 トランザクションで置き換える。
+    # record・snapshot・charts・schemaVersion は変えない（判定・R に入らない）。
+    # 空の集合なら鍵ごと消す（タグの無い取引は今と同じ形）
+    @bp.put("/trade-emotions")
+    def put_trade_emotions():
+        body, err = read_body()
+        if err:
+            return err
+        value, issues, bad_id = schema.validate_emotion_tags(body)
+        if bad_id:
+            # 取引の ID の形が崩れている: 経路の ID と同じく、保存先に触れずに「無い」
+            return error(404, "not_found")
+        if value is None:
+            return invalid(issues)
+        tags = value["tags"]
+
+        def mutate(doc: dict) -> dict:
+            new = {k: v for k, v in doc.items() if k != EMOTION_TAGS_KEY}
+            if tags:
+                new[EMOTION_TAGS_KEY] = list(tags)
+            new["updatedAt"] = next_updated_at(clock(), doc.get("updatedAt"))
+            return new
+
+        try:
+            docs = store.set_emotion_tags(g.uid, value["tradeIds"], mutate)
+        except UnknownSchemaVersion:
+            return unknown_version()
+        if docs is None:
+            # 1 件でも無い（ほかの利用者の取引も「無い」と同じ）: 何も書いていない
+            return error(404, "not_found")
+        return {"tags": tags}
 
     # ── 銘柄 ──
     @bp.get("/instruments")

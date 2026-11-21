@@ -3,7 +3,7 @@
 // - Button: 1 番目 primary（面の塗り。1 画面に 1 つ）/ 2 番目 secondary（枠と薄い面）・tonal（薄い面だけ。文字はアクセント）
 // - IconButton: 3 番目（アイコンだけ。読み上げの名前を必ず付ける。✕・‹・…・i）
 // - RowLink: 押せる行（行全体が当たり、右に ›）
-// - Chip: 角の丸い面（関係する言葉の札など）
+// - Chip: 角の丸い面（関係する言葉の札など）。onClick を渡すと押す形（選ぶ・外す。aria-pressed。#156）
 // href があればアプリの中のリンクとして描く
 import type { ComponentChildren } from 'preact';
 import { Link } from '../lib/router';
@@ -157,9 +157,27 @@ export function RowLink(p: RowLinkProps) {
 export function Chip(p: {
   readonly href?: string;
   readonly selected?: boolean;
+  /**
+   * 押す形（#156。心理のタグなど、選ぶ・外すチップ）: button と aria-pressed。選ぶと面 + アクセントの輪 + ✓（✓ は読み上げから
+   * 隠す。押されているかは aria-pressed が伝える）
+   */
+  readonly onClick?: () => void;
   readonly children: ComponentChildren;
 }) {
   const cls = p.selected ? 'chip chip--selected' : 'chip';
+  if (p.onClick !== undefined) {
+    return (
+      <button
+        type="button"
+        class={`${cls} chip--toggle`}
+        aria-pressed={p.selected ? 'true' : 'false'}
+        onClick={p.onClick}
+      >
+        {p.selected ? <Icon name="check" class="chip__check" /> : null}
+        <span>{p.children}</span>
+      </button>
+    );
+  }
   if (p.href !== undefined) {
     // ページの中のリンク（#…）はブラウザに任せる（用語集の項目へ。Glossary.tsx が履歴に積む）
     return p.href.startsWith('#') ? (

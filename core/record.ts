@@ -4,6 +4,7 @@
 // 価格は銘柄の価格の通貨、金額は口座の通貨、時点はエポックからのミリ秒（core/trade.ts と同じ）。表示の丸めはしない。
 // 金額の鍵の名前（capitalYen・statementPnlYen・amountYen・valueYen）は歴史的に `…Yen` のまま。外貨の口座ではその通貨の金額
 // （#47 PR-2・C43。鍵を変えると保存済みの取引・口座を書き換えることになるため。円の口座では今と同じ円）
+import type { EmotionTagId } from './emotion-tags';
 import type {
   Entry,
   ExitOrderType,
@@ -152,6 +153,11 @@ export interface StoredTrade {
   readonly record: TradeRecord;
   /** 根拠の足のチャート（エントリー時・決済時・付属 x1〜x5。ある枠だけ。チャートの無い取引には鍵が無い） */
   readonly charts?: { readonly [K in 'entry' | 'exit' | ExtraChartSlot]?: ChartMeta };
+  /**
+   * 心理のタグ（#156・C55・ADR-0022）。record の外に持ち、判定・R・集計の入力には入らない。付いている取引だけ鍵がある
+   * （一覧の順・重複なし・平常心はほかと同時に無い）。書くのは PUT /api/trade-emotions だけ
+   */
+  readonly emotionTags?: readonly EmotionTagId[];
 }
 
 /** 銘柄の本文（省いた欄は API が既定を入れる） */

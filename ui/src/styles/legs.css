@@ -1,0 +1,206 @@
+/* オプションのポジションのレッグ（#117。components/LegList.tsx・LegEditor.tsx・LegTable.tsx が読み込む。設計書 7.6）。
+   色の値は書かない（トークンだけ）。数字は無色（C34） */
+
+/* 一覧: 見出しの行・2 行のカード（押せる行）・[＋ レッグ] */
+.legs {
+  display: grid;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.legs__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+
+.legs__count {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+.legs__list {
+  display: grid;
+  gap: var(--sp-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legs__item {
+  min-width: 0;
+}
+
+.legs__item .rowlink__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.legs__line {
+  overflow-wrap: anywhere;
+}
+
+.legs__line--head {
+  font-weight: var(--fw-medium);
+}
+
+.legs__line--prices {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.legs > .btn {
+  justify-self: start;
+}
+
+/* 1 本の欄 */
+.legedit {
+  display: grid;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.legedit__expired {
+  display: grid;
+  align-content: end;
+  justify-items: start;
+  min-width: 0;
+}
+
+/* LC の「なし」と同じ押す形（枚数の欄の右。欄の下の端にそろえる） */
+.legedit__toggle {
+  margin-top: 0;
+}
+
+/* 満期で消滅の説明は 2 列の段の下に詰める */
+.legedit__hint {
+  margin-top: calc(var(--sp-1) - var(--sp-4));
+}
+
+/* 削除は区切りの下に離す（［満期で消滅］ と押し間違えない。デザインレビュー B1） */
+.legedit > .btn {
+  justify-self: start;
+  margin-top: var(--sp-2);
+  padding-top: 0;
+}
+
+.legedit__sep {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: var(--sp-2) 0 0;
+}
+
+/* 消した後の戻す行（live region は常に描き、空の間は並びの隙間を打ち消す） */
+.legs__removed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.legs__removed:empty {
+  margin-top: calc(-1 * var(--sp-2));
+}
+
+/* LC の「最大損失まで」（押す形 + 「i」。LC の欄の下の段） */
+.lcmaxloss {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.lcmaxloss__toggle {
+  margin-top: 0;
+}
+
+/* 詳細のレッグの表: 列の幅で 2 行のカード / 1 行の表を替える（窓ではなく列の幅。7.6） */
+.legtable__box {
+  container-type: inline-size;
+}
+
+.legtable__cards {
+  display: grid;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legtable__card {
+  display: grid;
+  gap: 2px;
+  padding: var(--sp-2) 0;
+  border-top: 1px solid var(--line);
+}
+
+.legtable__card:first-child {
+  border-top: 0;
+}
+
+.legtable__head {
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+
+.legtable__sub {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.legtable__pnl {
+  color: var(--ink);
+}
+
+.legtable__table {
+  display: none;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.legtable__table th {
+  color: var(--ink-2);
+  font-weight: var(--fw-medium);
+  text-align: left;
+}
+
+.legtable__table th,
+.legtable__table td {
+  padding: var(--sp-2) var(--sp-2);
+  border-top: 1px solid var(--line);
+}
+
+.legtable__table .num {
+  text-align: right;
+}
+
+/* 数の列の見出しも右寄せ（値と並ぶ） */
+.legtable__table th.num {
+  text-align: right;
+}
+
+.legtable__expired {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+@container (min-width: 720px) {
+  .legtable__cards {
+    display: none;
+  }
+
+  .legtable__table {
+    display: table;
+  }
+}

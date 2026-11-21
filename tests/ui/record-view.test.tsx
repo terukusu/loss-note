@@ -29,6 +29,7 @@ import {
   Record as RecordPage,
   RecordView,
   type RecordViewProps,
+  STAGE1_CANCEL_ID,
   STATEMENT_NOTICE,
   STATEMENT_NOTICE_MORE,
 } from '../../ui/src/pages/Record';
@@ -2519,5 +2520,45 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(all(none, hasClass('appbar__meta'))).toEqual([]);
     expect(all(none, hasClass('appbar__sub'))).toEqual([]);
     expect(all(none, (e) => e.props.id === 'record-to-input')).toEqual([]);
+  });
+});
+
+describe('2 段化のレビューの指摘（1 段目。2026-11-21）', () => {
+  it('指摘 1: 保存に失敗した後に 1 段目へ戻っても、下の端に失敗の文（role="alert"）と、ログイン切れなら ［もう一度ログイン］', () => {
+    const f = filledE1();
+    const tree = view({
+      ...withStatement(f.draft, { marks: f.marks }),
+      stage: 'input',
+      error: '保存できませんでした。',
+      errorKind: 'auth',
+    });
+    const foot = all(tree, hasClass('rin__foot'))[0] as El;
+    expect(text(all([foot], (e) => e.props.role === 'alert'))).toContain('保存できませんでした。');
+    expect(text(foot)).toContain('もう一度ログイン');
+  });
+
+  it('指摘 2: 読み取り中に 1 段目へ戻ると ［読み取りをキャンセル］（onCancelRead）。読み取りの後は出さない', () => {
+    let cancel = 0;
+    const reading = view(
+      { ...withStatement(E1, { phase: 'reading' }, true), stage: 'input' },
+      { onCancelRead: () => cancel++ },
+    );
+    const btn = all(reading, (e) => e.props.id === STAGE1_CANCEL_ID)[0] as El;
+    expect(text(btn)).toBe('読み取りをキャンセル');
+    (btn.props.onClick as () => void)();
+    expect(cancel).toBe(1);
+    const f = filledE1();
+    const after = view({ ...withStatement(f.draft, { marks: f.marks }), stage: 'input' });
+    expect(all(after, (e) => e.props.id === STAGE1_CANCEL_ID)).toEqual([]);
+  });
+
+  it('指摘 3: 1 段目の状態の文は明細の有無によらず role="status" を持ち、中身だけが替わる', () => {
+    const empty = view({ ...stateFor(draft({}), NO_CAPITAL), stage: 'input' });
+    const reading = view({ ...withStatement(E1, { phase: 'reading' }, true), stage: 'input' });
+    for (const t of [empty, reading]) {
+      const desc = all(t, hasClass('rin__desc'))[0] as El;
+      expect(desc.props.role).toBe('status');
+    }
+    expect(text(all(reading, hasClass('rin__desc'))[0] as El)).toBe('読み取り中…');
   });
 });

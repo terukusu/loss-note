@@ -1,8 +1,9 @@
 // オプションのポジション（レッグつきの取引。Issue #116・設計書 4.7・C46・C54・ADR-0020）の、共有の合成の fixture
 // `tests/fixtures/records/option-legs.json`。値・名前はすべて架空（架空の指数 XYZ・ABC のオプション）。
 // API のテスト（api/tests/test_option_legs.py）が同じ fixture を本物の API に通し、POST / GET / PUT / 範囲の一覧で
-// record が値と型を変えずに往復すること・snapshot が期待どおりなこと・legacyEdit（今の直す画面が作る本文）の PUT が 409 で
-// レッグを落とさないことを確かめる（EPIC #120 の終了条件 4・4b）。
+// record が値と型を変えずに往復すること・snapshot が期待どおりなこと・legacyEdit（レッグを知らない画面が作る本文）の PUT が
+// 409 でレッグを落とさないことを確かめる（EPIC #120 の終了条件 4・4b）。#117 の画面の本文（screenCreate = 記録する画面で手で
+// 入れたポジション、screenEdits = 直す画面で開いて何も変えずに保存した本文）も、API のテストが本物に通す（201 / 200）。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/option-legs-fixture.test.ts` で書き直す
 import { describe, expect, it } from 'vitest';
 import { evaluateTrade } from '../../core/evaluate';
@@ -18,7 +19,8 @@ import type {
 import { toTradeInput } from '../../core/record';
 import type { Leg } from '../../core/trade';
 import { draftFromStored, editContext, mergeEdit } from '../../ui/src/lib/edit-form';
-import { readDraft } from '../../ui/src/lib/record-form';
+import { EMPTY_LEG } from '../../ui/src/lib/legs-form';
+import { EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
 
 const node = (
   globalThis as unknown as {
@@ -70,10 +72,14 @@ interface Item {
 interface Fixture {
   readonly items: readonly Item[];
   /**
-   * 今の直す画面（レッグを知らない。#117 より前・切り戻した後・古いタブ）が P1 を開いて何も変えずに保存したときの本文
-   * （draftFromStored → readDraft → mergeEdit）。legs・riskPlan・lcLossPlanYen を落とすので、API は 409 で止める
+   * レッグを知らない画面（#117 より前の直す画面・切り戻した後・古いタブ）が P1 を開いて何も変えずに保存したときの本文
+   * （#117 の直す画面の本文から legs・riskPlan・lcLossPlanYen を落としたもの = 前の直す画面の本文と同じ）。API は 409 で止める
    */
   readonly legacyEdit: { readonly of: string; readonly body: TradeRecord };
+  /** 記録する画面で手で入れたポジション（#117。readDraft の本文 + 銘柄の ID の印）。API は 201 で値を変えずに保存する */
+  readonly screenCreate: { readonly instrument: InstrumentBody; readonly body: TradeRecord };
+  /** 直す画面（#117）で各件を開いて何も変えずに保存した本文。元の記録と同じで、API は 200 */
+  readonly screenEdits: readonly { readonly of: string; readonly body: TradeRecord }[];
 }
 
 const settings: SettingsBody = {
@@ -317,7 +323,7 @@ function item(name: string, instrument: InstrumentBody, record: TradeRecord): It
   };
 }
 
-function legacyEdit(of: Item): Fixture['legacyEdit'] {
+function screenEdit(of: Item): { readonly of: string; readonly body: TradeRecord } {
   const instrument: InstrumentRecord = {
     id: PLACEHOLDER,
     name: of.instrument.name,
@@ -339,8 +345,74 @@ function legacyEdit(of: Item): Fixture['legacyEdit'] {
   };
   const draft = draftFromStored(trade, [instrument]);
   const read = readDraft(draft, editContext(trade, [instrument]));
-  if (!read.body) throw new Error(`${of.name}: 今の直す画面で本文が作れない`);
+  if (!read.body) throw new Error(`${of.name}: 直す画面で本文が作れない`);
   return { of: of.name, body: mergeEdit(trade.record, draft, draft, read.body, PLACEHOLDER) };
+}
+
+function legacyEdit(of: Item): Fixture['legacyEdit'] {
+  const { legs: _l, riskPlan: _r, lcLossPlanYen: _p, ...body } = screenEdit(of).body;
+  return { of: of.name, body };
+}
+
+/**
+ * 記録する画面で手で入れるポジション（設計書 5.7 の (3) の例と同じ形・架空）: 建てたとき 38,500・決済 39,100・LC 37,800、
+ * P 37,000 買い 1（300 → 180）・P 36,000 売り 2（120 → 60）・C 40,000 買い 1（80 → 150）、限月 2027-01
+ */
+function screenCreate(): Fixture['screenCreate'] {
+  const instrument: InstrumentRecord = {
+    id: PLACEHOLDER,
+    name: XYZ.name,
+    underlyingKind: 'index',
+    productForm: 'option',
+    priceCurrency: 'JPY',
+    multiplier: 1_000,
+    quantityStep: 1,
+    createdAt: 1,
+    updatedAt: 1,
+  };
+  const leg = (o: Partial<typeof EMPTY_LEG>) => ({ ...EMPTY_LEG, contractMonth: '2027-01', ...o });
+  const read = readDraft(
+    {
+      ...EMPTY_DRAFT,
+      instrumentName: XYZ.name,
+      entryPrice: '38500',
+      exitPrice: '39100',
+      exitTime: '2027-01-06T13:30',
+      lc: '37800',
+      lcDecided: true,
+      lcMove: 'none',
+      timeframeChange: 'none',
+      legs: [
+        leg({
+          optionType: 'P',
+          strike: '37000',
+          side: 'buy',
+          quantity: '1',
+          entryPrice: '300',
+          exitPrice: '180',
+        }),
+        leg({
+          optionType: 'P',
+          strike: '36000',
+          side: 'sell',
+          quantity: '2',
+          entryPrice: '120',
+          exitPrice: '60',
+        }),
+        leg({
+          optionType: 'C',
+          strike: '40000',
+          side: 'buy',
+          quantity: '1',
+          entryPrice: '80',
+          exitPrice: '150',
+        }),
+      ],
+    },
+    { instruments: [instrument], accounts: [] },
+  );
+  if (!read.body) throw new Error('記録する画面で本文が作れない');
+  return { instrument: XYZ, body: { ...read.body, instrumentId: PLACEHOLDER } };
 }
 
 function build(): Fixture {
@@ -350,7 +422,12 @@ function build(): Fixture {
     item('P3', XYZ, p3),
     item('P4', ABC, p4),
   ];
-  return { items, legacyEdit: legacyEdit(items[0] as Item) };
+  return {
+    items,
+    legacyEdit: legacyEdit(items[0] as Item),
+    screenCreate: screenCreate(),
+    screenEdits: items.map(screenEdit),
+  };
 }
 
 describe('レッグつきの取引の共有の fixture（option-legs.json。#116）', () => {
@@ -423,7 +500,32 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(p?.pnlYen).toBe(749_500);
   });
 
-  it('今の直す画面（レッグを知らない）は legs・riskPlan・lcLossPlanYen を落とす → API が 409 で止める（守り (b)）', () => {
+  it('直す画面（#117）で開いて何も変えずに保存した本文は、元の記録と同じ（レッグ・見込み・「最大損失まで」を落とさない）', () => {
+    for (const e of built.screenEdits) {
+      const of = built.items.find((x) => x.name === e.of);
+      expect(e.body, e.of).toEqual(of?.record);
+    }
+  });
+
+  it('記録する画面で手で入れたポジション: レッグ 3 本・数量 1・向き L（LC から）・1R は満期の損益から 140,000 円・+0.5R・計画どおりの勝ち', () => {
+    const b = built.screenCreate.body;
+    expect(b.legs?.map((l) => l.id)).toEqual(['l1', 'l2', 'l3']);
+    expect(b.entries).toEqual([{ price: 38_500, quantity: 1 }]);
+    expect(b.side).toBe('L');
+    expect(b.exit.orderType).toBe('unknown');
+    expect('riskPlan' in b).toBe(false);
+    expect('lcLossPlanYen' in b).toBe(false);
+    const ev = evaluateTrade(toTradeInput({ record: b, snapshot: snapshotOf(XYZ) }));
+    if (!ev.ok) throw new Error('受け付けられなかった');
+    // 損益 = (180 − 300) × 1,000 − (60 − 120) × 2 × 1,000 + (150 − 80) × 1,000 = −120,000 + 120,000 + 70,000
+    expect(ev.pnlYen).toBe(70_000);
+    expect(ev.oneRSource).toBe('expiry');
+    expect(ev.oneRYen).toBe(140_000);
+    expect(ev.r).toBeCloseTo(0.5, 12);
+    expect(ev.judgment?.grade).toBe('safeWin');
+  });
+
+  it('レッグを知らない画面の本文は legs・riskPlan・lcLossPlanYen を落とす → API が 409 で止める（守り (b)）', () => {
     const body = built.legacyEdit.body;
     expect(built.legacyEdit.of).toBe('P1');
     expect('legs' in body).toBe(false);

@@ -52,8 +52,19 @@ const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
       : '1R が出ないため、過剰リスクは判定していません',
 };
 
-/** 理由の文言。side は文言の関数へ渡す向き（今はどの理由も向きで言葉を変えない。L / S で同じ言葉。#56） */
-export function reasonText(reason: Reason, side: Side): string {
+/** 「最大損失まで」で負けた A の注記（#117・#114 の 3。LC の価格を置かない計画なので「決めた LC で」と言わない） */
+export const MAX_LOSS_AS_PLANNED = '最大損失までの計画どおり';
+
+/**
+ * 理由の文言。side は文言の関数へ渡す向き（今はどの理由も向きで言葉を変えない。L / S で同じ言葉。#56）。
+ * opts.maxLossPlan = オプションのポジションで「最大損失まで」が効いている（asPlannedLc の文言を替える）
+ */
+export function reasonText(
+  reason: Reason,
+  side: Side,
+  opts: { readonly maxLossPlan?: boolean } = {},
+): string {
+  if (opts.maxLossPlan && reason.kind === 'asPlannedLc') return MAX_LOSS_AS_PLANNED;
   const fn = TEXT[reason.kind] as (r: Reason, s: Side) => string;
   return fn(reason, side);
 }

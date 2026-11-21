@@ -129,6 +129,34 @@ def test_fixture_round_trip(api):
     assert {t["id"]: t["record"] for t in page} == sent_by_id
 
 
+def test_screen_create_body(api):
+    """記録する画面（#117）で手で入れたポジションの本文（fixture の screenCreate）は 201 で、値と型を変えずに保存する"""
+    sc = FIXTURE["screenCreate"]
+    iid = add_instrument(api, A, sc["instrument"])
+    put_default_account(api, A, ITEMS["P1"]["settings"])
+    sent = copy.deepcopy(sc["body"])
+    assert sent["instrumentId"] == PLACEHOLDER and len(sent["legs"]) == 3
+    sent["instrumentId"] = iid
+    res = api.post("/api/trades", A, sent)
+    assert res.status_code == 201, res.get_json()
+    got = api.get(f"/api/trades/{res.get_json()['id']}", A).get_json()
+    assert got["schemaVersion"] == 2
+    assert got["record"] == sent and same_typed(got["record"], sent)
+
+
+def test_screen_edit_bodies(api):
+    """直す画面（#117）で開いて何も変えずに保存した本文（fixture の screenEdits）は 200 で、文書の record は前のまま"""
+    assert [e["of"] for e in FIXTURE["screenEdits"]] == list(ITEMS)
+    for e in FIXTURE["screenEdits"]:
+        tid, iid, sent = create(api, e["of"])
+        body = copy.deepcopy(e["body"])
+        body["instrumentId"] = iid
+        res = api.put(f"/api/trades/{tid}", A, body)
+        assert res.status_code == 200, (e["of"], res.get_json())
+        again = api.get(f"/api/trades/{tid}", A).get_json()
+        assert again["record"] == sent and same_typed(again["record"], sent), e["of"]
+
+
 def test_multipart_create_with_charts(api, option_iid):
     """チャートつきの作成（multipart）でもレッグを受ける"""
     rec = p1_body(option_iid, entryChartTimeframe="1h")

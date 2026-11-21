@@ -28,6 +28,9 @@ const IDS: readonly GlossaryId[] = [
   'risk',
   'riskTolerance',
   'capital',
+  'leg',
+  'underlyingLc',
+  'maxLoss',
   'timeframe',
   'gapSlip',
   'lcDecided',
@@ -51,8 +54,8 @@ const DESIGN_SECTIONS = new Set(
 );
 
 describe('用語のデータの形', () => {
-  it('17 項目・ID は重複なし・すべての ID がある（#88 で計画どおり率・規律コストを足した）', () => {
-    expect(GLOSSARY).toHaveLength(17);
+  it('20 項目・ID は重複なし・すべての ID がある（#88 で計画どおり率・規律コスト、#117 でレッグ・原資産の LC・最大損失を足した）', () => {
+    expect(GLOSSARY).toHaveLength(20);
     expect(GLOSSARY.map((g) => g.id).sort()).toEqual([...IDS].sort());
     expect(isGlossaryId('lc')).toBe(true);
     expect(isGlossaryId('nope')).toBe(false);

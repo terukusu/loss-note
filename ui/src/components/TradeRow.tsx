@@ -25,6 +25,7 @@ export function TradeRow({ row }: { readonly row: Row }) {
           <span class="traderow__head">
             <span class="traderow__name">{row.instrumentName}</span>
             <span class="traderow__side">{row.sideText}</span>
+            {row.legsText !== undefined ? <span class="traderow__side">{row.legsText}</span> : null}
           </span>
           {row.accountName !== undefined ? (
             <span class="traderow__account">{row.accountName}</span>

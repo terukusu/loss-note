@@ -2704,8 +2704,11 @@ async function settleSheet(page) {
     .catch(() => {});
 }
 
-/** 開いているシートの箱と窓の大きさ（#129。窓の中か・下からか・最大の高さを見る） */
-async function sheetBox(page) {
+/**
+ * 開いているシートの箱と窓の大きさ（#129。窓の中か・下からか・最大の高さを見る）。sel を渡せばそのシート（既定は記録する画面の
+ * 全画面の中のシートを除く OPEN_SHEET）
+ */
+async function sheetBox(page, sel = OPEN_SHEET) {
   return page.evaluate((sel) => {
     // 重なっているときは一番上（後に開いた方。#130）
     const d = [...document.querySelectorAll(sel)].at(-1);
@@ -2725,7 +2728,7 @@ async function sheetBox(page) {
       form: document.documentElement.getAttribute('data-form') ?? 'compact',
       scrollable: body ? body.scrollHeight - body.clientHeight : 0,
     };
-  }, OPEN_SHEET);
+  }, sel);
 }
 
 /** シートが窓の中（上下左右）にある・縦の形は最大 86%（#110・9.3） */
@@ -10658,6 +10661,190 @@ async function runFlows(browser, base, signedIn) {
       }
     }
     return `詳細の 1 画面目に判定とチャート 2 枠・R 44px・R / リスク / 損益が 1 行・折りたたみ 0、操作・比較のシートが窓の中（${out.join(' / ')}）`;
+  });
+
+  // OPT117（#117）: オプションのポジションのレッグ。架空の銘柄（商品の形 = オプション）と、合成の fixture（option-legs.json の P1）の
+  // 取引で、記録する画面の 2 段目の取引の欄のシートの段 leg（［＋ レッグ］）・詳細のレッグの表・編集の段 leg を開き、シートが窓の中・
+  // 横のスクロール 0 を見る。編集は何も変えずに保存し、PUT の本文にレッグが載る（#116 の 409 legsMissing を避ける）。
+  // --shots なら 3 つ（記録の段 leg・詳細・編集の段 leg）だけ撮る（ダーク）
+  await check('OPT117', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await setupContext(c, 'dark');
+      const fx = JSON.parse(
+        readFileSync(join(ROOT, 'tests/fixtures/records/option-legs.json'), 'utf8'),
+      ).items.find((x) => x.name === 'P1');
+      const inst = {
+        id: 'inst-xyzopt',
+        ...fx.instrument,
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+      };
+      delete inst.underlying;
+      fake.instruments.push(inst);
+      // 10 本（架空。P1 の 3 本を写して行使価格をずらす）
+      const ten = Array.from({ length: 10 }, (_, i) => {
+        const b = fx.record.legs[i % fx.record.legs.length];
+        return { ...b, id: `l${i + 1}`, strike: b.strike + 100 * i };
+      });
+      fake.trades.push({
+        id: 'x-opt10',
+        schemaVersion: 2,
+        createdAt: 1700000000021,
+        updatedAt: 1700000000021,
+        record: { ...fx.record, instrumentId: inst.id, legs: ten },
+        snapshot: fx.snapshot,
+      });
+      fake.trades.push({
+        id: 'x-opt1',
+        schemaVersion: 2,
+        createdAt: 1700000000020,
+        updatedAt: 1700000000020,
+        record: { ...fx.record, instrumentId: inst.id },
+        snapshot: fx.snapshot,
+      });
+      const shot = async (slug) => {
+        if (!opts.shots) return;
+        await p.mouse.move(0, 0);
+        await p.screenshot({ path: join(opts.shots, `390x844-dark-${slug}.png`) });
+      };
+      // 記録する・編集の取引の欄のシート（OPEN_SHEET は record-*-sheet を除くので、id で見る）
+      const titleOf = async (id) =>
+        ((await p.locator(`#${id}[open] .sheet__title`).textContent()) ?? '').trim();
+      const hscroll = () =>
+        p.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+      // 記録する画面: ［明細なしで手入力］ → 銘柄をオプションに → レッグの一覧 → ［＋ レッグ］ で段 leg
+      await openRecord(p, base);
+      await openFields(p);
+      await p.locator('#record-instrument').fill(inst.name);
+      await p.locator('#record-legs-add').waitFor({ state: 'visible', timeout: 5000 });
+      expectEq(
+        await p.locator('#record-fields-sheet[open] #record-quantity').count(),
+        0,
+        '数量の欄',
+      );
+      await p.locator('#record-legs-add').click();
+      await expectPollAsync(
+        async () => (await titleOf('record-fields-sheet')) === 'レッグ 1',
+        '段 leg の題',
+      );
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), '記録の段 leg');
+      expectEq(await hscroll(), 0, '記録の横のスクロール');
+      // 1 本の欄は幅 390 でも 2 列で、決済と ［満期で消滅］ まで 1 画面に入る（デザインレビュー N1）
+      const below = await p.evaluate(() =>
+        ['leg-0-expired', 'leg-0-exit']
+          .map((id) => document.getElementById(id)?.getBoundingClientRect())
+          .filter((r) => !r || r.bottom > window.innerHeight)
+          .map((r) => (r ? Math.round(r.bottom) : 'なし')),
+      );
+      expectEq(below.length, 0, `決済・満期で消滅が窓の下（${below.join(' / ')}）`);
+      await shot('opt-record-leg');
+      const toMain = async () => {
+        await p.keyboard.press('Escape');
+        await expectPollAsync(
+          async () => (await titleOf('record-fields-sheet')) === '取引の欄',
+          '段 1 へ戻る',
+        );
+      };
+      await toMain();
+      // 10 本まで足す（AC-13: 10 本でも横にスクロールしない。11 本目は押せない）
+      for (let i = 1; i < 10; i++) {
+        await p.locator('#record-legs-add').click();
+        await expectPollAsync(
+          async () => (await titleOf('record-fields-sheet')) === `レッグ ${i + 1}`,
+          `レッグ ${i + 1} の段`,
+        );
+        await toMain();
+      }
+      expectEq(await p.locator('#record-legs .legs__item').count(), 10, 'レッグの行');
+      expectEq(await p.locator('#record-legs-add').isDisabled(), true, '11 本目の ［＋ レッグ］');
+      expectEq(await hscroll(), 0, '10 本の横のスクロール');
+      // 消して ［元に戻す］（P4。デザインレビュー B1）
+      await p.locator('#record-legs-9').click();
+      await expectPollAsync(
+        async () => (await titleOf('record-fields-sheet')) === 'レッグ 10',
+        'レッグ 10 の段',
+      );
+      await p.locator('#leg-9-remove').click();
+      await expectPollAsync(
+        async () => (await titleOf('record-fields-sheet')) === '取引の欄',
+        '消した後は段 1',
+      );
+      await p.locator('#record-legs-undo').waitFor({ state: 'visible', timeout: 5000 });
+      expectEq(await p.locator('#record-legs .legs__item').count(), 9, '消した後の行');
+      await p.locator('#record-legs-undo').scrollIntoViewIfNeeded();
+      await settleSheet(p);
+      await shot('opt-record-undo');
+      await p.locator('#record-legs-undo').click();
+      expectEq(await p.locator('#record-legs .legs__item').count(), 10, '戻した後の行');
+      // 再レビュー B2: 消してから ［＋ レッグ］ で 10 本に戻すと、［元に戻す］ は押せず理由を出す（11 本目を作らない）
+      await p.locator('#record-legs-9').click();
+      await expectPollAsync(
+        async () => (await titleOf('record-fields-sheet')) === 'レッグ 10',
+        'レッグ 10 の段（2 回目）',
+      );
+      await p.locator('#leg-9-remove').click();
+      await p.locator('#record-legs-undo').waitFor({ state: 'visible', timeout: 5000 });
+      await p.locator('#record-legs-add').click();
+      await toMain();
+      expectEq(await p.locator('#record-legs .legs__item').count(), 10, '足し直した後の行');
+      expectEq(await p.locator('#record-legs-undo').isDisabled(), true, '10 本の ［元に戻す］');
+      await p.locator('#record-legs-undo').scrollIntoViewIfNeeded();
+      await settleSheet(p);
+      await shot('opt-record-undo-full');
+      await closeSheets(p);
+      // 10 本の取引の詳細: 幅 390 はカード、1440 は表。どちらも横 0
+      await p.goto(`${base}/trades/x-opt10`);
+      await waitDetail(p);
+      await p.locator('.legtable').waitFor({ state: 'visible', timeout: 10000 });
+      expectEq(await p.locator('.legtable__card').count(), 10, '10 本のカード');
+      expectEq(await hscroll(), 0, '10 本の詳細の横（390）');
+      await p.setViewportSize({ width: 1440, height: 900 });
+      await expectPollAsync(
+        async () => await p.locator('.legtable__table').isVisible(),
+        '1440 は表',
+      );
+      expectEq(await hscroll(), 0, '10 本の詳細の横（1440）');
+      await p.locator('.legtable').scrollIntoViewIfNeeded();
+      if (opts.shots) {
+        await p.mouse.move(0, 0);
+        await p.screenshot({ path: join(opts.shots, '1440x900-dark-opt-detail-10.png') });
+      }
+      await p.setViewportSize({ width: 390, height: 844 });
+      // 詳細: 判定のカードの下にレッグの表
+      await p.goto(`${base}/trades/x-opt1`);
+      await waitDetail(p);
+      await p.locator('.legtable').waitFor({ state: 'visible', timeout: 10000 });
+      expectEq(await hscroll(), 0, '詳細の横のスクロール');
+      await p.locator('.legtable').scrollIntoViewIfNeeded();
+      await shot('opt-detail');
+      // 編集: 取引の欄のシートのレッグの行 → 段 leg。閉じて何も変えずに保存 → PUT にレッグ
+      await p.goto(`${base}/trades/x-opt1/edit`);
+      await waitReady(p, '取引を編集');
+      await p.locator('#edit-submit').waitFor();
+      await openEditFields(p);
+      await p.locator('#record-legs-1').click();
+      await expectPollAsync(
+        async () => (await titleOf('edit-fields-sheet')) === 'レッグ 2',
+        '編集の段 leg の題',
+      );
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#edit-fields-sheet[open]'), '編集の段 leg');
+      expectEq(await hscroll(), 0, '編集の横のスクロール');
+      await shot('opt-edit-leg');
+      await closeSheets(p);
+      await p.locator('#edit-submit').click();
+      await expectPollAsync(async () => fake.puts.length === 1, 'PUT が届く');
+      const legs = fake.puts[0].body?.legs;
+      expectEq(Array.isArray(legs) ? legs.length : -1, fx.record.legs.length, 'PUT のレッグの数');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '記録の段 leg（2 列で決済・満期で消滅まで窓の中）・10 本で横 0 と 11 本目は押せない・消して ［元に戻す］、詳細のレッグの表（390 カード / 1440 表・10 本で横 0）・編集の段 leg が窓の中で横 0、編集の保存の PUT にレッグ 3 本';
   });
 
   await check('T-X1', async () => {

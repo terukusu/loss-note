@@ -9,8 +9,13 @@ import { type VerdictLine, verdictLine } from './record-screen';
 export type EditSheet =
   | {
       readonly kind: 'fields';
-      /** main = 取引の欄、more = ほかの欄（任意。同じシートの次の段） */
-      readonly step: 'main' | 'more';
+      /**
+       * main = 取引の欄、more = ほかの欄（任意。同じシートの次の段）、leg = レッグ 1 本の欄（#117。同じシートの次の段。
+       * 同時に開くのは 1 本。設計書 7.6。記録する画面の RecordSheet と同じ形）
+       */
+      readonly step: 'main' | 'more' | 'leg';
+      /** step = leg のときのレッグの並びの番号（0 から） */
+      readonly leg?: number;
       readonly focus?: DraftField;
     }
   | { readonly kind: 'chart' }

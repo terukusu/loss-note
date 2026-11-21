@@ -22,6 +22,8 @@ import { SheetBar } from '../components/AppBar';
 import { Button, RowLink } from '../components/Button';
 import { addExtraId, ChartPanel, chartBoxId, restoreId } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
+import { LegEditor } from '../components/LegEditor';
+import { LEG_LIST_ID } from '../components/LegList';
 import { MiniCharts, partIds, SummaryCard, VerdictLineButton } from '../components/RecordParts';
 import { ResnapshotBody } from '../components/Resnapshot';
 import { Segment } from '../components/Segment';
@@ -53,6 +55,7 @@ import { DraftsContext } from '../lib/drafts-context';
 import { createEditController, type EditController, type EditState } from '../lib/edit-controller';
 import { bandText, changeText } from '../lib/edit-form';
 import { EDIT_SHEET_ID, type EditSheet, editValuesNote, editVerdictLine } from '../lib/edit-screen';
+import { type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import { FIELD_INPUT_ID, tradeSummary } from '../lib/record-screen';
@@ -82,7 +85,7 @@ const IDS = partIds('edit');
 /** 「今の値と比べる」の行（比較のシートを閉じたらここへフォーカスが戻る） */
 export const COMPARE_ROW_ID = 'edit-compare';
 const MORE_ROW_ID = 'edit-more';
-/** 取引の欄のシートの段 2（ほかの欄）の戻るの層 */
+/** 取引の欄のシートの段 2（ほかの欄・レッグ 1 本の欄。#117）の戻るの層 */
 const MORE_LAYER = `${EDIT_SHEET_ID.fields}~more`;
 
 function TradeEditScreen({
@@ -122,6 +125,8 @@ function TradeEditScreen({
   const [state, setState] = useState<EditState>(controller.getState());
   // 開いているシート（取引の欄・チャート・判定・比較。#131。書きかけには残さない）
   const [sheet, setSheet] = useState<EditSheet | null>(null);
+  // 直前に消したレッグ（［元に戻す］。シートを閉じたら忘れる。#117）
+  const [legUndo, setLegUndo] = useState<LegUndo | null>(null);
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
   const prev = useRef(state.phase);
@@ -170,7 +175,7 @@ function TradeEditScreen({
     }
   }, [state.phase, state.error, id, nav]);
 
-  // 取引の欄のシートの段 2（ほかの欄）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。記録する画面と同じ。ui-guidelines 9.3・9.7）
+  // 取引の欄のシートの段 2（ほかの欄・レッグ 1 本の欄）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。記録する画面と同じ。ui-guidelines 9.3・9.7）
   const moreLayered = useRef(false);
   useEffect(
     () => () => {
@@ -183,7 +188,7 @@ function TradeEditScreen({
   useLayoutEffect(() => {
     const layers = backLayers();
     if (!layers) return;
-    const want = sheet?.kind === 'fields' && sheet.step === 'more';
+    const want = sheet?.kind === 'fields' && (sheet.step === 'more' || sheet.step === 'leg');
     if (want && !moreLayered.current) {
       layers.open(MORE_LAYER, () => {
         moreLayered.current = false;
@@ -199,6 +204,7 @@ function TradeEditScreen({
   /** シートを開く・替える・閉じる。名指した欄から開いたら、開いた後にその欄へフォーカスを移す */
   const onSheet = (next: EditSheet | null) => {
     setSheet(next);
+    if (next === null) setLegUndo(null);
     if (next?.kind === 'fields' && next.focus) {
       const f = next.focus;
       setTimeout(() => {
@@ -219,6 +225,19 @@ function TradeEditScreen({
       state={state}
       sheet={sheet}
       onSheet={onSheet}
+      legUndo={legUndo}
+      onLegRemoved={setLegUndo}
+      onLegUndo={() => {
+        if (!legUndo) return;
+        controller.update({
+          type: 'set',
+          field: 'legs',
+          value: undoLegRemove(controller.getState().draft.legs, legUndo),
+        });
+        setLegUndo(null);
+        // ボタンは消えるので、戻したレッグの行へ
+        focusLater(`${LEG_LIST_ID}-${legUndo.index}`);
+      }}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       onUpdate={controller.update}
@@ -299,6 +318,12 @@ export interface TradeEditViewProps {
   readonly resumedAt?: number | null;
   /** 今の時刻（「N 分前」。省けば Date.now） */
   readonly now?: number;
+  /** 直前に消したレッグ（一覧の「レッグ 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
+  readonly legUndo?: LegUndo | null;
+  /** ［このレッグを削除］ で消した（戻すために覚える） */
+  readonly onLegRemoved?: (u: LegUndo) => void;
+  /** ［元に戻す］（元の位置・ID・時刻ごと戻す） */
+  readonly onLegUndo?: () => void;
   /** 開いているシート（#131。省けばどれも閉じている） */
   readonly sheet?: EditSheet | null;
   /** シートを開く・替える・閉じる（null） */
@@ -354,8 +379,11 @@ function moreMeta(
   d: EditState['draft'],
   errors: EditState['read']['errors'],
   cleared: boolean,
+  /** LC での損失の見込みが「ほかの欄」にある（オプションの形で、LC の枠に上げていない。#117） */
+  lossPlanInMore = false,
 ): string | null {
   if (OPTIONAL_FIELDS.some((f) => errors[f] !== undefined)) return '誤りあり';
+  if (lossPlanInMore && errors.lcLossPlan !== undefined) return '誤りあり';
   if (cleared) return '空に戻しました';
   const filled = [d.pnlYen, d.feeYen].filter((v) => v.trim() !== '').length;
   return filled > 0 ? `${filled} 欄` : null;
@@ -410,6 +438,11 @@ function TradeEditBody(p: TradeEditViewProps) {
     <K extends keyof typeof d>(field: K) =>
     (value: (typeof d)[K]) =>
       p.onUpdate({ type: 'set', field, value } as DraftAction);
+  // オプションのポジション（#117。元の取引にレッグがある）: レッグの行・[＋ レッグ] は取引の欄のシートの段 2（レッグ 1 本の欄）
+  const legAt = sheet?.kind === 'fields' && sheet.step === 'leg' ? (sheet.leg ?? 0) : null;
+  const legIndex = legAt !== null && d.legs[legAt] !== undefined ? legAt : null;
+  const openLeg = (i: number) => openSheet({ kind: 'fields', step: 'leg', leg: i });
+  const setLegs = (value: typeof d.legs) => p.onUpdate({ type: 'set', field: 'legs', value });
   const fields: TradeFieldsProps = {
     draft: d,
     errors: e,
@@ -417,7 +450,22 @@ function TradeEditBody(p: TradeEditViewProps) {
     marks: {},
     onUpdate: p.onUpdate,
     ...(currency ? { currency } : {}),
+    ...(read.option
+      ? {
+          option: {
+            reading: read.option,
+            onOpenLeg: openLeg,
+            onAddLeg: () => {
+              setLegs([...d.legs, nextLeg(d.legs)]);
+              openLeg(d.legs.length);
+            },
+            removed: p.legUndo ? legRemovedText(p.legUndo) : null,
+            ...(p.onLegUndo ? { onUndoRemove: p.onLegUndo } : {}),
+          },
+        }
+      : {}),
   };
+  const step2 = sheet?.kind === 'fields' && (sheet.step === 'more' || legIndex !== null);
   const choice = accountChoiceKind(state.accounts.length);
   const account = findAccount(accountId, state.accounts);
   const line = editVerdictLine(read, state.preview, errorLabels);
@@ -443,7 +491,7 @@ function TradeEditBody(p: TradeEditViewProps) {
           </h2>
           <SummaryCard
             prefix="edit"
-            summary={tradeSummary(d, e, {})}
+            summary={tradeSummary(d, e, {}, read.option)}
             accountChip={choice === 'select' && account ? account.name : null}
             onFields={(focus) =>
               openSheet({ kind: 'fields', step: 'main', ...(focus ? { focus } : {}) })
@@ -515,10 +563,14 @@ function TradeEditBody(p: TradeEditViewProps) {
           open={sheet?.kind === 'fields'}
           kind="form"
           title={
-            sheet?.kind === 'fields' && sheet.step === 'more' ? 'ほかの欄（任意）' : '取引の欄'
+            sheet?.kind === 'fields' && sheet.step === 'more'
+              ? 'ほかの欄（任意）'
+              : legIndex !== null
+                ? `レッグ ${legIndex + 1}`
+                : '取引の欄'
           }
           lead={
-            sheet?.kind === 'fields' && sheet.step === 'more' ? (
+            step2 ? (
               <button
                 type="button"
                 class="info__up"
@@ -530,16 +582,36 @@ function TradeEditBody(p: TradeEditViewProps) {
               </button>
             ) : null
           }
-          focusKey={sheet?.kind === 'fields' ? sheet.step : 'none'}
+          focusKey={
+            sheet?.kind === 'fields'
+              ? sheet.step === 'leg'
+                ? `leg-${legIndex}`
+                : sheet.step
+              : 'none'
+          }
           onDismiss={(reason) => {
-            const up =
-              sheet?.kind === 'fields' && sheet.step === 'more'
-                ? sheetDismiss(reason, 1) === 'up'
-                : false;
+            const up = step2 ? sheetDismiss(reason, 1) === 'up' : false;
             openSheet(up ? { kind: 'fields', step: 'main' } : null);
           }}
         >
-          {sheet?.kind === 'fields' && sheet.step === 'more' ? (
+          {legIndex !== null && d.legs[legIndex] ? (
+            <div class="record__sheetbody">
+              <LegEditor
+                leg={d.legs[legIndex]}
+                index={legIndex}
+                {...(read.option?.legErrors[legIndex]
+                  ? { errors: read.option.legErrors[legIndex] }
+                  : {})}
+                onChange={(leg) => setLegs(d.legs.map((x, i) => (i === legIndex ? leg : x)))}
+                onRemove={() => {
+                  const leg = d.legs[legIndex];
+                  if (leg) p.onLegRemoved?.({ leg, index: legIndex });
+                  setLegs(d.legs.filter((_, i) => i !== legIndex));
+                  openSheet({ kind: 'fields', step: 'main' });
+                }}
+              />
+            </div>
+          ) : sheet?.kind === 'fields' && sheet.step === 'more' ? (
             <div class="record__sheetbody">
               <TradeMoreBody {...fields} />
             </div>
@@ -554,7 +626,7 @@ function TradeEditBody(p: TradeEditViewProps) {
               <RowLink
                 id={MORE_ROW_ID}
                 onClick={() => openSheet({ kind: 'fields', step: 'more' })}
-                meta={moreMeta(d, e, state.currencyCleared)}
+                meta={moreMeta(d, e, state.currencyCleared, read.option?.lossPlanUp === false)}
               >
                 ほかの欄（任意）
               </RowLink>
@@ -599,10 +671,11 @@ function TradeEditBody(p: TradeEditViewProps) {
         >
           <Verdict
             summary={state.preview}
-            side={d.side ?? 'L'}
+            side={read.option?.autoSide ?? d.side ?? 'L'}
             pending={state.preview.judgment === undefined}
             hasErrors={errorFields.length > 0}
             before={state.before}
+            legsEdited={read.option?.legsEdited === true}
             note={editValuesNote(refresh)}
             {...(offer?.nearVerdict && !refresh
               ? {

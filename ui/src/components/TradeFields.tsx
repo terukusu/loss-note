@@ -18,11 +18,14 @@ import {
   FIELD_LABEL,
   type LcMoveKind,
   lcMoveLabel,
+  OPTION_LABEL,
+  type ReadingOption,
 } from '../lib/record-form';
 import { MARK_LABEL, type Marks } from '../lib/statement-fill';
 import { AccountField } from './AccountField';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
+import { LegList } from './LegList';
 import { NumberField } from './NumberField';
 import { Segment } from './Segment';
 import { TextField } from './TextField';
@@ -53,7 +56,30 @@ export interface TradeFieldsProps {
   readonly moveHintInInfo?: boolean;
   /** 通貨と為替（#47 PR-2）。省けば円の口座・円建てと同じ（欄も文言も増えない） */
   readonly currency?: CurrencyView;
+  /**
+   * オプションのポジション（#117。readDraft の option があるときだけ画面が渡す）。渡すと数量の欄を出さず、L / S は自動の向きが
+   * 出ないときだけ、イン / 決済 / LC は原資産の言葉、イン | 決済の下にレッグの一覧、LC に「最大損失まで」を出す
+   */
+  readonly option?: OptionFields;
 }
+
+export interface OptionFields {
+  readonly reading: ReadingOption;
+  /** レッグの行を押した（そのレッグの欄を開く。同時に開くのは 1 本） */
+  readonly onOpenLeg: (index: number) => void;
+  /** [＋ レッグ]（直前のレッグを写した行を足して開く） */
+  readonly onAddLeg: () => void;
+  /** 直前に消したレッグの 1 行と ［元に戻す］（P4。省けば出さない） */
+  readonly removed?: string | null;
+  readonly onUndoRemove?: () => void;
+}
+
+/** 「最大損失まで」の押す形の名前（C50） */
+export const MAX_LOSS_LABEL = '最大損失まで';
+export const LOSS_PLAN_LABEL = 'LC での損失の見込み（任意）';
+/** 売りの裸で 1R が出ないときに LC の枠へ出した見込みの欄の下の 1 行（オーナーの決定 2026-11-21） */
+export const LOSS_PLAN_HINT =
+  '売りの裸は 1R が表示されないことがあります。入力すると R とリスクが表示されます';
 
 /** 通貨と為替の見せ方（画面が lib/currency.ts の純関数で作る） */
 export interface CurrencyView {
@@ -177,30 +203,36 @@ export function TradeCoreFields(p: TradeFieldsProps) {
       ) : null}
       {/* 銘柄と数量は前の取引から入る既定の値の対なので、幅 360px でも 2 列に並べて画面の全長を詰める（#58。R12）。
         通貨が違っても同じ段に置き、欄の位置を変えない（為替は価格の下に段を足す。#58 デザインレビュー 1） */}
-      <div class="record__pair record__pair--prices">
-        {instrument}
-        {quantity}
-      </div>
+      {p.option ? (
+        instrument
+      ) : (
+        <div class="record__pair record__pair--prices">
+          {instrument}
+          {quantity}
+        </div>
+      )}
       <datalist id={INSTRUMENT_LIST_ID}>
         {p.instruments.map((i) => (
           <option key={i.id} value={i.name} />
         ))}
       </datalist>
-      <Segment
-        label="L / S"
-        id="record-side"
-        {...mark('side')}
-        value={d.side}
-        onChange={set('side')}
-        options={[
-          { value: 'L', label: 'L ロング' },
-          { value: 'S', label: 'S ショート' },
-        ]}
-      />
+      {p.option && !p.option.reading.askSide ? null : (
+        <Segment
+          label="L / S"
+          id="record-side"
+          {...mark('side')}
+          value={d.side}
+          onChange={set('side')}
+          options={[
+            { value: 'L', label: 'L ロング' },
+            { value: 'S', label: 'S ショート' },
+          ]}
+        />
+      )}
       <div class="record__pair record__pair--prices">
         <NumberField
           id="record-entry"
-          label="イン"
+          label={p.option ? OPTION_LABEL.entryPrice : 'イン'}
           size="lg"
           value={d.entryPrice}
           onInput={set('entryPrice')}
@@ -210,7 +242,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
         />
         <NumberField
           id="record-exit"
-          label="決済"
+          label={p.option ? OPTION_LABEL.exitPrice : '決済'}
           size="lg"
           value={d.exitPrice}
           onInput={set('exitPrice')}
@@ -236,25 +268,40 @@ export function TradeCoreFields(p: TradeFieldsProps) {
           </p>
         </div>
       ) : null}
+      {p.option ? (
+        <LegList
+          legs={d.legs}
+          errors={p.option.reading.legErrors}
+          onOpen={p.option.onOpenLeg}
+          onAdd={p.option.onAddLeg}
+          removed={p.option.removed ?? null}
+          {...(p.option.onUndoRemove ? { onUndo: p.option.onUndoRemove } : {})}
+          {...(e.legs ? { error: e.legs } : {})}
+        />
+      ) : null}
       {times}
     </>
   );
 }
 
-/** 入る前に決めた LC（+ なし）と崩れの条件の一言 */
+/** 入る前に決めた LC（+ なし。オプションは + 最大損失まで・見込み）と崩れの条件の一言 */
 export function LcFields(p: TradeFieldsProps) {
   const { d, e, set, onUpdate } = fieldHelpers(p);
+  const o = p.option;
+  // 「最大損失まで」は最大損失が定まるときだけ出す（選んだ後にレッグを変えて定まらなくなっても、外せるよう出したまま）
+  const maxLossShown = o !== undefined && (o.reading.maxLossSelectable || d.lcMaxLoss);
+  const maxLossOn = o !== undefined && d.lcMaxLoss;
   return (
     <>
       <div class="lcrow">
         <NumberField
           id="record-lc"
-          label="入る前に決めた LC"
+          label={o ? '入る前に決めた LC（原資産）' : '入る前に決めた LC'}
           size="lg"
           value={d.lc}
           onInput={set('lc')}
-          disabled={d.lcNone}
-          placeholder={d.lcNone ? 'なし' : '0.00'}
+          disabled={d.lcNone || maxLossOn}
+          placeholder={d.lcNone ? 'なし' : maxLossOn ? MAX_LOSS_LABEL : '0.00'}
           hint="思惑が外れたと確認できる価格"
           {...(e.lc ? { error: e.lc } : {})}
         />
@@ -269,6 +316,22 @@ export function LcFields(p: TradeFieldsProps) {
           <span>なし</span>
         </button>
       </div>
+      {maxLossShown ? (
+        <div class="lcmaxloss">
+          <button
+            type="button"
+            class="lcnone lcmaxloss__toggle"
+            id="record-lc-maxloss"
+            aria-pressed={maxLossOn ? 'true' : 'false'}
+            onClick={() => onUpdate({ type: 'set', field: 'lcMaxLoss', value: !maxLossOn })}
+          >
+            {maxLossOn ? <Icon name="check" /> : null}
+            <span>{MAX_LOSS_LABEL}</span>
+          </button>
+          <InfoTip term="maxLoss" size="sm" />
+        </div>
+      ) : null}
+      {o?.reading.lossPlanUp && !maxLossOn ? <LossPlanField {...p} hint={LOSS_PLAN_HINT} /> : null}
       <TextField
         id="record-broken"
         label="根拠が崩れる条件（任意）"
@@ -278,6 +341,22 @@ export function LcFields(p: TradeFieldsProps) {
         {...(e.brokenCondition ? { error: e.brokenCondition } : {})}
       />
     </>
+  );
+}
+
+/** LC での損失の見込み（任意。K15。口座の通貨） */
+export function LossPlanField(p: TradeFieldsProps & { readonly hint?: string }) {
+  const { d, e, set } = fieldHelpers(p);
+  return (
+    <NumberField
+      id="record-loss-plan"
+      label={LOSS_PLAN_LABEL}
+      value={d.lcLossPlan}
+      onInput={set('lcLossPlan')}
+      unit={p.currency?.moneyUnit ?? '円'}
+      {...(p.hint ? { hint: p.hint } : {})}
+      {...(e.lcLossPlan ? { error: e.lcLossPlan } : {})}
+    />
   );
 }
 
@@ -302,20 +381,25 @@ export function TapFields(p: TradeFieldsProps) {
               { value: 'no', label: '決めていない' },
             ]}
           />
-          <Segment
-            label="LC を動かしたか"
-            info={<InfoTip term="lcMove" prefer="above" />}
-            value={d.lcMove}
-            onChange={set('lcMove')}
-            options={MOVE_OPTIONS}
-            {...(p.moveHintInInfo ? {} : { describedBy: LC_MOVE_HINT_ID })}
-          />
-          {p.moveHintInInfo ? null : (
-            <p id={LC_MOVE_HINT_ID} class="field__hint record__movehint">
-              {LC_MOVE_HINT}
-            </p>
+          {/* 「最大損失まで」は LC を動かしたかを聞かない（5.7 の 5。本文は none。#114 の 1） */}
+          {p.option && d.lcMaxLoss ? null : (
+            <>
+              <Segment
+                label="LC を動かしたか"
+                info={<InfoTip term="lcMove" prefer="above" />}
+                value={d.lcMove}
+                onChange={set('lcMove')}
+                options={MOVE_OPTIONS}
+                {...(p.moveHintInInfo ? {} : { describedBy: LC_MOVE_HINT_ID })}
+              />
+              {p.moveHintInInfo ? null : (
+                <p id={LC_MOVE_HINT_ID} class="field__hint record__movehint">
+                  {LC_MOVE_HINT}
+                </p>
+              )}
+            </>
           )}
-          {d.lcMove === 'widened' ? (
+          {d.lcMove === 'widened' && !(p.option && d.lcMaxLoss) ? (
             <NumberField
               id="record-lc-after"
               label={`${FIELD_LABEL.lcAfter}（任意）`}
@@ -373,6 +457,8 @@ export function TradeMoreBody(p: TradeFieldsProps) {
           {note}
         </p>
       ) : null}
+      {/* LC での損失の見込み（K15。売りの裸で 1R が出ないときは LC の枠に出す。「最大損失まで」とは同時に持たない） */}
+      {p.option && !p.option.reading.lossPlanUp && !d.lcMaxLoss ? <LossPlanField {...p} /> : null}
       <Segment
         label="LC の根拠"
         value={d.lcBasis}

@@ -13,7 +13,9 @@ import {
   type DraftReading,
   EMPTY_DRAFT,
   FIELD_LABEL,
+  lcLockOf,
   lcMoveLabel,
+  lcUnlockAction,
   MISSING_LABEL,
   MSG,
   OPTIONAL_FIELDS,
@@ -460,6 +462,32 @@ describe('下書きの更新 applyDraft', () => {
 
   it('空白だけの LC では「なし」を外さない', () => {
     expect(applyDraft(E16, { type: 'set', field: 'lc', value: ' ' }).lcNone).toBe(true);
+  });
+
+  it('#171: 止まった LC の欄を押すと「なし」を外し、価格は空で入力できる（トグルを押し直したのと同じ）', () => {
+    expect(lcLockOf(E1, false)).toBeNull();
+    expect(lcLockOf(E16, false)).toBe('none');
+    // 前に価格を入れていても「なし」を選んだ時点で空にしている
+    const chosen = applyDraft(E1, { type: 'set', field: 'lcNone', value: true });
+    expect(lcLockOf(chosen, false)).toBe('none');
+    const action = lcUnlockAction('none');
+    expect(action).toEqual({ type: 'set', field: 'lcNone', value: false });
+    const opened = applyDraft(chosen, action);
+    expect(opened).toEqual(
+      applyDraft(chosen, { type: 'set', field: 'lcNone', value: !chosen.lcNone }),
+    );
+    expect(opened).toMatchObject({ lcNone: false, lc: '', lcAfter: '' });
+    expect(lcLockOf(opened, false)).toBeNull();
+  });
+
+  it('#171: 「最大損失まで」はオプションの形のときだけ欄を止める', () => {
+    const d = { ...E1, lc: '', lcMaxLoss: true };
+    expect(lcLockOf(d, false)).toBeNull();
+    expect(lcLockOf(d, true)).toBe('maxLoss');
+    // 「なし」が先（両方は作らないが、あっても「なし」を外す）
+    expect(lcLockOf({ ...d, lcNone: true }, true)).toBe('none');
+    const opened = applyDraft(d, lcUnlockAction('maxLoss'));
+    expect(opened).toMatchObject({ lcMaxLoss: false, lcNone: false, lc: '' });
   });
 
   it('reset は空の下書き + 渡した値', () => {

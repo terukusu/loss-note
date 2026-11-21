@@ -16,8 +16,11 @@ import {
   type DraftField,
   type DraftReading,
   FIELD_LABEL,
+  type LcLock,
   type LcMoveKind,
+  lcLockOf,
   lcMoveLabel,
+  lcUnlockAction,
   OPTION_LABEL,
   type ReadingOption,
 } from '../lib/record-form';
@@ -134,6 +137,14 @@ const TIMEFRAME_OPTIONS: readonly { value: TimeframeChange; label: string }[] = 
   { value: 'longer', label: '長い足へ' },
   { value: 'shorter', label: '短い足へ' },
 ];
+
+/**
+ * 止まった LC の欄の読み上げの説明（ラベル「入る前に決めた LC」に続けて読む。#171）。「押す」= タップ・ダブルタップ・Enter
+ * （数字を打ち始めても外れる。フォーカスだけでは外れない）
+ */
+export function lcLockNote(lock: LcLock): string {
+  return `${lock === 'none' ? 'なし' : MAX_LOSS_LABEL} を選んでいます。押すと価格を入れられます`;
+}
 
 function fieldHelpers(p: TradeFieldsProps) {
   const d = p.draft;
@@ -329,6 +340,8 @@ export function LcFields(p: TradeFieldsProps) {
   // 「最大損失まで」は最大損失が定まるときだけ出す（選んだ後にレッグを変えて定まらなくなっても、外せるよう出したまま）
   const maxLossShown = o !== undefined && (o.reading.maxLossSelectable || d.lcMaxLoss);
   const maxLossOn = o !== undefined && d.lcMaxLoss;
+  // 「なし」「最大損失まで」で止まった価格の欄は薄いまま押せ、押すとその選択を外して価格を入れられる（#171）
+  const lock = lcLockOf(d, o !== undefined);
   return (
     <>
       <div class="lcrow">
@@ -338,8 +351,10 @@ export function LcFields(p: TradeFieldsProps) {
           size="lg"
           value={d.lc}
           onInput={set('lc')}
-          disabled={d.lcNone || maxLossOn}
           placeholder={d.lcNone ? 'なし' : maxLossOn ? MAX_LOSS_LABEL : '0.00'}
+          {...(lock
+            ? { locked: { note: lcLockNote(lock), onUnlock: () => onUpdate(lcUnlockAction(lock)) } }
+            : {})}
           hint="思惑が外れたと確認できる価格"
           {...(e.lc ? { error: e.lc } : {})}
         />

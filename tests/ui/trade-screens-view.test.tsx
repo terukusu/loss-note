@@ -738,6 +738,23 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     }
   });
 
+  it('#171: 直す画面でも「なし」で止まった LC の欄を押すと「なし」を外し、価格は空で入力できる', async () => {
+    let c: ReturnType<typeof createEditController> | undefined;
+    const tree = await editTree(E1, (x) => {
+      c = x;
+      x.update({ type: 'set', field: 'lcNone', value: true });
+    });
+    const lc = all(tree, (e) => e.type === 'input' && e.props.id === 'record-lc')[0] as El;
+    expect(lc.props.readOnly).toBe(true);
+    expect(lc.props.disabled).toBeFalsy();
+    expect(text(all(tree, (e) => e.props.id === 'record-lc-lock')[0] as El)).toBe(
+      'なし を選んでいます。押すと価格を入れられます',
+    );
+    const el = { readOnly: true, blur: noop, focus: noop };
+    (lc.props.onClick as (e: unknown) => void)({ currentTarget: el });
+    expect(c?.getState().draft).toMatchObject({ lcNone: false, lc: '' });
+  });
+
   it('E1: 保存した値が入り、直す前 B →「そのまま」でプレビュー A・−1.0R・0.5%', async () => {
     const before = await editTree(E1);
     expect(verdictText(before)).toContain('B 悪い損失');

@@ -467,6 +467,16 @@
   cursor: not-allowed;
 }
 
+/* 止まった欄（LC の「なし」「最大損失まで」。#171）は disabled と同じ薄い形のまま、押すと入力に戻る */
+.numfield--locked {
+  background: var(--s1);
+  border-style: dashed;
+}
+
+.numfield--locked .numfield__input {
+  cursor: pointer;
+}
+
 /* 選ぶ欄の ▼（.select と、候補つきの文字の欄 = 銘柄）。1 つの形（幅 12・高さ 6px）・右の余白 var(--sp-4)・縦の中央に
    そろえる（再レビュー N3）。銘柄の欄のブラウザの ▼ は透明にして押せるまま残す（押すと候補が開く） */
 .select,

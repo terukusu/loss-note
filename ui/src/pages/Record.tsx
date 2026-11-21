@@ -716,6 +716,17 @@ const LC_ID = 'record-lc';
 const IDS = partIds('record');
 
 /**
+ * シートを閉じた後に LC の欄へ移すか。使えない欄と、「なし」「最大損失まで」で止めた欄（readOnly。#171）は避けて要約の ［編集］ へ
+ * （止めた欄はフォーカスでは外れないが、前の disabled のときと同じ行き先にする）
+ */
+export function lcTakesFocus(lc: {
+  readonly disabled: boolean;
+  readonly readOnly: boolean;
+}): boolean {
+  return !lc.disabled && !lc.readOnly;
+}
+
+/**
  * シートを閉じた後、フォーカスが body に落ちていたら LC（使えなければ要約の ［編集］）へ。開いたボタンへ戻せた・ほかへ移した
  * ときは何もしない
  */
@@ -725,7 +736,9 @@ function focusAfterSheet() {
   if (a && a !== document.body) return;
   const lc = document.getElementById(LC_ID);
   const target =
-    lc instanceof HTMLInputElement && !lc.disabled ? lc : document.getElementById(IDS.editFields);
+    lc instanceof HTMLInputElement && lcTakesFocus(lc)
+      ? lc
+      : document.getElementById(IDS.editFields);
   target?.focus({ preventScroll: true });
 }
 const MANUAL_ID = 'record-manual';

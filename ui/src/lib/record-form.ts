@@ -172,6 +172,25 @@ export function applyDraft(draft: Draft, action: DraftAction): Draft {
   return next;
 }
 
+/**
+ * LC の価格の欄を止めている選択（#171）。「なし」（C37）か、オプションの「最大損失まで」（#117。optionMode のときだけ）。
+ * 止まった欄は薄いまま押せ、押すとその選択を外して価格を入れられる（lcUnlockAction）
+ */
+export type LcLock = 'none' | 'maxLoss';
+
+export function lcLockOf(draft: Draft, optionMode: boolean): LcLock | null {
+  if (draft.lcNone) return 'none';
+  if (optionMode && draft.lcMaxLoss) return 'maxLoss';
+  return null;
+}
+
+/** 止まった LC の欄を押したときの更新。選択のトグルをもう一度押して外したのと同じ（価格は空のまま） */
+export function lcUnlockAction(lock: LcLock): DraftAction {
+  return lock === 'none'
+    ? { type: 'set', field: 'lcNone', value: false }
+    : { type: 'set', field: 'lcMaxLoss', value: false };
+}
+
 /** 読み取りの文脈: 自分の銘柄の一覧と口座の一覧（資金・許容リスク。#47） */
 export interface DraftContext {
   readonly instruments: readonly InstrumentRecord[];

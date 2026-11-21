@@ -9,6 +9,7 @@
 // SA1 は安全域の差し替え（上 47・下 34。トークン --safe-* を差し替える）で押せるものが安全域の内側にあることを見る。
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
+// LC の ［なし］ で止めた欄（#171）は手順 LN1（読み取りが終わっても「なし」のまま）・LN2（欄をタップすると外れてフォーカス）。
 // 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（タイムゾーンの確認）・読み取りの失敗の状態を同じ幅とテーマで
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
 // バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
@@ -6505,6 +6506,79 @@ async function runFlows(browser, base, signedIn) {
 
   // ── 決済明細の読み取り（R6〜R10。Issue #15）。偽の読み取りの API で流す（実際の AI は呼ばない）
   const synthetic = readFileSync(join(ROOT, SYNTHETIC_STATEMENT));
+
+  // LN1・LN2（#171）: LC の ［なし］ で止めた価格の欄。LN1 = 「なし」を選んだ後に読み取りが終わって LC へフォーカスが移っても
+  // 「なし」のまま（フォーカスだけでは外さない）。LN2 = 止めた欄をタップすると「なし」が外れ、同じ欄にフォーカスして打てる
+  const lcLockState = (p) =>
+    p.evaluate(() => {
+      const el = document.querySelector('#record-lc');
+      return {
+        readOnly: el.readOnly,
+        disabled: el.disabled,
+        value: el.value,
+        focused: document.activeElement === el,
+        none: document.querySelector('.lcnone')?.getAttribute('aria-pressed'),
+      };
+    });
+  await check('LN1', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await openRecord(p, base);
+      fake.read = { status: 200, rows: [READ_E1], holdMs: 2000 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await p.locator('.lcnone').first().click();
+      await p.locator('.rsum__mark').waitFor({ timeout: 15000 });
+      await p.waitForTimeout(300);
+      const s = await lcLockState(p);
+      expectEq(s.none, 'true', '読み取りの後の ［なし］');
+      expectEq(s.readOnly, true, '読み取りの後の LC の欄（止めたまま）');
+      expectEq(s.disabled, false, 'LC の欄の disabled');
+      expectEq(s.value, '', 'LC の欄の値');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '［なし］ → 読み取りの完了 → 「なし」のまま（欄は止めたまま・値は空）';
+  });
+  await check('LN2', async () => {
+    const c = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      hasTouch: true,
+      isMobile: true,
+      storageState: signedIn,
+    });
+    await installFakeApi(c, { trades: [] });
+    const p = await c.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    try {
+      await openRecord(p, base);
+      await toReview(p);
+      await p.locator('.lcnone').first().tap();
+      const before = await lcLockState(p);
+      expectEq(before.none, 'true', '［なし］ を押した後');
+      expectEq(before.readOnly, true, '止めた LC の欄');
+      const note = await p
+        .locator('#record-lc-lock')
+        .textContent()
+        .catch(() => null);
+      expectEq(note, 'なし を選んでいます。押すと価格を入れられます', '読み上げの説明');
+      await p.locator('#record-lc').tap();
+      await p.waitForTimeout(150);
+      const after = await lcLockState(p);
+      expectEq(after.none, 'false', '欄をタップした後の ［なし］');
+      expectEq(after.readOnly, false, '欄をタップした後の LC の欄');
+      expectEq(after.focused, true, 'LC の欄のフォーカス');
+      expectEq(after.value, '', 'LC の欄の値');
+      await p.keyboard.type('99.5');
+      expectEq(await p.locator('#record-lc').inputValue(), '99.5', '打った LC');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '［なし］ → 止めた欄をタップ → 「なし」が外れ、LC の欄にフォーカスして 99.5 を打てる';
+  });
 
   await check('R6', async () => {
     const { c, p, fake, errors } = await recordContext();

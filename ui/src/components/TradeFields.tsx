@@ -25,7 +25,7 @@ import { MARK_LABEL, type Marks } from '../lib/statement-fill';
 import { AccountField } from './AccountField';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
-import { LegList } from './LegList';
+import { LegList, type NextPosition } from './LegList';
 import { NumberField } from './NumberField';
 import { Segment } from './Segment';
 import { TextField } from './TextField';
@@ -72,7 +72,17 @@ export interface OptionFields {
   /** 直前に消したレッグの 1 行と ［元に戻す］（P4。省けば出さない） */
   readonly removed?: string | null;
   readonly onUndoRemove?: () => void;
+  /** 明細の次のポジションと ［このポジションに入れる］（記録する画面だけ。#118） */
+  readonly nextPosition?: NextPosition | null;
+  readonly onMergeNext?: () => void;
+  /** 一覧の直前の操作の知らせ（［別のポジションにする］ の後。#118） */
+  readonly legNotice?: string | null;
 }
+
+/** 明細のポジションで足すオプションの銘柄の乗数の欄（#118） */
+export const NEW_MULTIPLIER_ID = 'record-new-multiplier';
+export const newInstrumentText = (name: string, currency: string) =>
+  `「${name}」をオプションの銘柄（価格の通貨 ${currency}）として追加します`;
 
 /** 「最大損失まで」の押す形の名前（C50） */
 export const MAX_LOSS_LABEL = '最大損失まで';
@@ -204,7 +214,32 @@ export function TradeCoreFields(p: TradeFieldsProps) {
       {/* 銘柄と数量は前の取引から入る既定の値の対なので、幅 360px でも 2 列に並べて画面の全長を詰める（#58。R12）。
         通貨が違っても同じ段に置き、欄の位置を変えない（為替は価格の下に段を足す。#58 デザインレビュー 1） */}
       {p.option ? (
-        instrument
+        <>
+          {instrument}
+          {p.option.reading.newInstrument !== undefined ? (
+            // 明細のポジションでオプションの銘柄が一覧に無い: この名前・取引の形態 オプションで足す。乗数は推さない（#118 の B1）
+            // 乗数は 2 列の 1 列目（価格と同じ幅）、案内の 1 行は全幅
+            <>
+              <div class="record__pair record__pair--prices">
+                <NumberField
+                  id={NEW_MULTIPLIER_ID}
+                  label="乗数"
+                  value={d.instrumentMultiplier}
+                  onInput={set('instrumentMultiplier')}
+                  placeholder="例: 1000"
+                  describedBy={`${NEW_MULTIPLIER_ID}-what`}
+                  {...(e.instrumentMultiplier ? { error: e.instrumentMultiplier } : {})}
+                />
+              </div>
+              <p id={`${NEW_MULTIPLIER_ID}-what`} class="field__hint record__movehint">
+                {newInstrumentText(
+                  p.option.reading.newInstrument,
+                  p.option.reading.newInstrumentCurrency ?? 'JPY',
+                )}
+              </p>
+            </>
+          ) : null}
+        </>
       ) : (
         <div class="record__pair record__pair--prices">
           {instrument}
@@ -276,6 +311,9 @@ export function TradeCoreFields(p: TradeFieldsProps) {
           onAdd={p.option.onAddLeg}
           removed={p.option.removed ?? null}
           {...(p.option.onUndoRemove ? { onUndo: p.option.onUndoRemove } : {})}
+          {...(p.option.nextPosition ? { nextPosition: p.option.nextPosition } : {})}
+          {...(p.option.onMergeNext ? { onMergeNext: p.option.onMergeNext } : {})}
+          {...(p.option.legNotice ? { notice: p.option.legNotice } : {})}
           {...(e.legs ? { error: e.legs } : {})}
         />
       ) : null}

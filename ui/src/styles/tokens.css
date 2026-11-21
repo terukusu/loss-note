@@ -122,6 +122,10 @@
 
   /* 入力の誤り（判定の色とは別の役割） */
   --danger: #ff8f8f;
+  /* 確かめてほしい読み取り（限月の年を推定した など。誤りではない。#118） */
+  --warn-ink: #f7c063;
+  --warn-bg: #2e2310;
+  --warn-line: #6a4d16;
 
   /* Google でログインするボタン（Sign in with Google のブランドガイドラインのダークの配色。Issue #52）。値を変えない */
   --gsi-bg: #131314;
@@ -188,6 +192,9 @@
   --tier-neutral-line: #cbd0d9;
 
   --danger: #b4232f;
+  --warn-ink: #855400;
+  --warn-bg: #fcefd6;
+  --warn-line: #ecc77f;
 
   /* Google でログインするボタン（ガイドラインのライトの配色。Issue #52）。値を変えない */
   --gsi-bg: #ffffff;

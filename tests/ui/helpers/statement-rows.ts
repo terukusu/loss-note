@@ -205,3 +205,100 @@ export function preparedImage(preview: PreviewHandle = fakePreview()): PreparedI
     preview,
   };
 }
+
+// ── オプションの行（#118。API の normalize._option の形。値はすべて架空） ──
+
+/** オプションの行の応答の形（option つき。putCall = put / call・side = buy / sell） */
+export interface OptionRowSpec {
+  readonly putCall: 'put' | 'call';
+  readonly strike: number;
+  readonly side: 'buy' | 'sell';
+  readonly qty: number;
+  readonly entry: number;
+  readonly exit: number;
+  readonly pnl: number;
+  readonly fee: number;
+  readonly opened: ReadTime;
+  readonly closed: ReadTime;
+  readonly position: number;
+  readonly expiry?: string;
+  readonly inferred?: boolean;
+  readonly underlying?: string;
+  readonly order?: ReadRow['exitOrderType'];
+}
+
+/** 応答の 1 行（JSON の形。parseReadResponse に通す） */
+export function optionRowJson(s: OptionRowSpec): Record<string, unknown> {
+  const underlying = s.underlying ?? '架空指数XYZOP';
+  return {
+    symbol: `${underlying} ${s.putCall === 'put' ? 'P' : 'C'} ${s.strike}`,
+    side: s.side === 'sell' ? 'S' : 'L',
+    entryPrice: s.entry,
+    exitPrice: s.exit,
+    quantity: s.qty,
+    pnl: s.pnl,
+    pnlCurrency: 'JPY',
+    pnlYen: s.pnl,
+    entryTime: s.opened,
+    exitTime: s.closed,
+    timeZoneNeedsCheck: s.opened.epochMs === null || s.closed.epochMs === null,
+    fees: [s.fee],
+    feesTotal: s.fee,
+    feesTotalYen: s.fee,
+    exitOrderType: s.order ?? 'unknown',
+    option: {
+      underlying,
+      expiry: s.expiry ?? '2027-01',
+      expiryYearInferred: s.inferred ?? false,
+      putCall: s.putCall,
+      strike: s.strike,
+      side: s.side,
+      position: s.position,
+    },
+  };
+}
+
+/**
+ * 例のポジション（架空指数XYZOP・乗数 1,000・円）:
+ * A1 = P 36,000 売り 2（240 → 110。明細の損益 +259,000・手数料 1,000）、A2 = P 35,500 買い 2（150 → 70。−161,000・1,000）
+ * は同じ日（position 0）、B1 = C 41,000 買い 1（60 → 35。−25,300・300）は別の日（position 1）
+ */
+export const OPT_A1: OptionRowSpec = {
+  putCall: 'put',
+  strike: 36_000,
+  side: 'sell',
+  qty: 2,
+  entry: 240,
+  exit: 110,
+  pnl: 259_000,
+  fee: 1_000,
+  opened: jst(2026, 12, 8, 9, 40),
+  closed: jst(2026, 12, 22, 13, 15),
+  position: 0,
+};
+export const OPT_A2: OptionRowSpec = {
+  putCall: 'put',
+  strike: 35_500,
+  side: 'buy',
+  qty: 2,
+  entry: 150,
+  exit: 70,
+  pnl: -161_000,
+  fee: 1_000,
+  opened: jst(2026, 12, 8, 9, 41),
+  closed: jst(2026, 12, 22, 13, 16),
+  position: 0,
+};
+export const OPT_B1: OptionRowSpec = {
+  putCall: 'call',
+  strike: 41_000,
+  side: 'buy',
+  qty: 1,
+  entry: 60,
+  exit: 35,
+  pnl: -25_300,
+  fee: 300,
+  opened: jst(2026, 12, 9, 10, 20),
+  closed: jst(2026, 12, 18, 14, 5),
+  position: 1,
+};

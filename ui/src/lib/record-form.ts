@@ -27,6 +27,7 @@ import { statementFxRate } from '../../../core/pnl';
 import type {
   AccountRecord,
   GapSlip,
+  InstrumentBody,
   InstrumentRecord,
   InstrumentSnapshot,
   RecordSource,
@@ -56,6 +57,7 @@ import { fxFieldVisible } from './currency';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
 import { type LegDraft, type LegField, legsChanged, readLegs } from './legs-form';
+import { statementPnlWithLegs } from './statement-positions';
 
 export type LcMoveKind = LcMove['kind'];
 
@@ -103,6 +105,10 @@ export interface Draft {
   readonly lcMaxLoss: boolean;
   /** LC での損失の見込み（口座の通貨。任意。C49 の (1)・K15） */
   readonly lcLossPlan: string;
+  /**
+   * 明細から読んだポジションで、オプションの銘柄が一覧に無いときに足す銘柄の乗数（#118。推さない = 本人が入れる）
+   */
+  readonly instrumentMultiplier: string;
 }
 
 export type DraftField = keyof Draft;
@@ -138,6 +144,7 @@ export const EMPTY_DRAFT: Draft = {
   legs: [],
   lcMaxLoss: false,
   lcLossPlan: '',
+  instrumentMultiplier: '',
 };
 
 export type DraftAction =
@@ -183,6 +190,15 @@ export interface DraftContext {
     /** 元の取引のレッグ（#117。ある = 直す画面はオプションの形。無い = 前からの取引の形のまま。KEEP-3） */
     readonly legs?: readonly Leg[];
   };
+  /**
+   * 損益の欄が明細の値のまま（印「読み取り」。#118）。false なら手で足した決済のレッグの損益を足さない（本人が打った・直した
+   * 損益に二重に数えない）。省けば明細の値とみなす
+   */
+  readonly statementPnl?: boolean;
+  /**
+   * 明細の損益の通貨（読めたときだけ。#118）。その場で足すオプションの銘柄の価格の通貨にする（無ければ口座の通貨）
+   */
+  readonly statementCurrency?: string;
 }
 
 /** 口座が見つからないときの資金・許容リスク・通貨（資金なし・1%・JPY。API の既定の口座の既定と同じ） */
@@ -254,7 +270,12 @@ export interface DraftReading {
   /** 保存できない理由の文（足りない欄・誤りのほか。明細の読み取り中など。#15） */
   readonly notice?: string;
   readonly body?: TradeBody;
-  readonly instrument: { readonly name: string; readonly matchedId?: string };
+  readonly instrument: {
+    readonly name: string;
+    readonly matchedId?: string;
+    /** 一覧に無い銘柄を足すときの名前以外の欄（明細から読んだポジションのオプションの銘柄。#118） */
+    readonly create?: Omit<InstrumentBody, 'name'>;
+  };
   readonly preview: Preview;
   /**
    * 通貨と為替（#47 PR-2）: 銘柄の価格の通貨（一覧に無い名前は null）・口座の通貨・為替の欄を出すか・読めた為替。
@@ -281,6 +302,13 @@ export interface ReadingOption {
   readonly lossPlanUp: boolean;
   /** 直す画面でレッグを直した（明細の損益を本文に入れず、レッグの合計に切り替えた。4.7） */
   readonly legsEdited: boolean;
+  /**
+   * 明細から読んだポジションで、オプションの銘柄が一覧に無い: この名前で取引の形態 オプションの銘柄を足す（#118。
+   * 乗数は本人が入れる）
+   */
+  readonly newInstrument?: string;
+  /** その場で足す銘柄の価格の通貨（明細の損益の通貨か口座の通貨） */
+  readonly newInstrumentCurrency?: string;
 }
 
 export interface ReadingCurrency {
@@ -336,6 +364,7 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   lcAfter: '広げた後の LC',
   brokenCondition: '根拠が崩れる条件',
   legs: 'レッグ',
+  instrumentMultiplier: '乗数',
   lcMaxLoss: 'LC',
   lcLossPlan: 'LC での損失の見込み',
   lcDecided: 'LC を入る前に決めていたか',
@@ -370,6 +399,9 @@ export const MSG = {
       : 'ショートの LC はインより上にしてください',
   legs: 'レッグの欄に誤りがあります',
   legsTooMany: 'レッグは 10 本までです。1 本を削除してください',
+  /** レッグの時刻がポジションの時刻の外（API の outOfPosition を保存の前に止める。4.7・#118） */
+  legEntryBefore: 'エントリーの時刻は、最初のレッグのエントリーの時刻以前にしてください',
+  legExitAfter: '決済の時刻は、最後のレッグの決済の時刻以後にしてください',
   lcAfterDirection: (side: Side) =>
     side === 'L'
       ? '広げた後の LC は、入る前の LC より下にしてください'
@@ -583,7 +615,39 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   if (name === '') missing.push(MISSING_LABEL.instrumentName);
   else if (lengthOf(name) > NAME_MAX || hasBadChar(name)) errors.instrumentName = MSG.nameInvalid;
   const matched = errors.instrumentName ? undefined : findInstrument(name, ctx.instruments);
-  const snapshot = snapshotOf(ctx, matched, draft.accountId);
+  // 明細から読んだポジションで、名前がどの銘柄にも当たらない: 取引の形態 オプションの銘柄として足す（乗数は本人が入れる。
+  // 価格の通貨は口座の通貨。#118）
+  const newOption =
+    ctx.base === undefined &&
+    matched === undefined &&
+    name !== '' &&
+    errors.instrumentName === undefined &&
+    draft.legs.some((l) => l.read !== undefined);
+  const newMultiplier = newOption
+    ? num(
+        'instrumentMultiplier',
+        draft.instrumentMultiplier,
+        'positive',
+        FIELD_LABEL.instrumentMultiplier,
+      )
+    : undefined;
+  const newCurrency =
+    ctx.statementCurrency ??
+    (ctx.accounts.find((a) => a.id === draftAccountId(draft, ctx))?.currency || DEFAULT_CURRENCY);
+  const pending: InstrumentRecord | undefined = newOption
+    ? {
+        id: '',
+        name,
+        underlyingKind: 'other',
+        productForm: 'option',
+        priceCurrency: newCurrency,
+        multiplier: newMultiplier ?? 1,
+        quantityStep: 1,
+        createdAt: 0,
+        updatedAt: 0,
+      }
+    : undefined;
+  const snapshot = snapshotOf(ctx, matched ?? pending, draft.accountId);
   // オプションの形（#117）: 記録する画面は商品の形がオプションの銘柄、直す画面は元の取引にレッグがあるとき
   // （レッグの無い前からの取引は今の形のまま。レッグを足す PUT は API が受けない。4.7）
   const optionMode =
@@ -662,6 +726,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       maxLossSelectable,
       lossPlanUp: naked,
       legsEdited: base !== undefined && legs !== undefined && legsChanged(base, legs),
+      ...(newOption ? { newInstrument: name, newInstrumentCurrency: newCurrency } : {}),
     };
   }
   const side = sideChoice;
@@ -710,7 +775,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     }
   }
   // 直す画面でレッグを直したら明細の損益はどのレッグの分か分からなくなるので、レッグの合計に切り替える（4.7）
-  const pnlYen = option?.legsEdited ? undefined : num('pnlYen', draft.pnlYen, 'signed');
+  let pnlYen = option?.legsEdited ? undefined : num('pnlYen', draft.pnlYen, 'signed');
   const feeYen = num('feeYen', draft.feeYen, 'nonNegative');
   // LC での損失の見込み（任意・オプションの形だけ。「最大損失まで」とは同時に持たない。C49・C50）
   const lcLossPlanYen =
@@ -720,11 +785,62 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   const entryChartTimeframe = ctx.charts?.entry ? draft.entryChartTimeframe : null;
   const exitChartTimeframe = ctx.charts?.exit ? draft.exitChartTimeframe : null;
 
-  const instrument = { name, ...(matched ? { matchedId: matched.id } : {}) };
+  const underlying = name.replace(/オプション$/u, '').trim();
+  const instrument = {
+    name,
+    ...(matched ? { matchedId: matched.id } : {}),
+    ...(newOption && newMultiplier !== undefined
+      ? {
+          create: {
+            productForm: 'option' as const,
+            multiplier: newMultiplier,
+            priceCurrency: newCurrency,
+            ...(underlying === '' || underlying === name ? {} : { underlying }),
+          },
+        }
+      : {}),
+  };
 
   // 為替（任意。価格の通貨 ≠ 口座の通貨のときだけ欄を出し、読む。0 以下・数でない は誤り。F12）
   const fxShown = fxVisibleOf(snapshot);
   const fxRate = fxShown ? num('fxRate', draft.fxRate, 'positive') : undefined;
+
+  // 明細から作ったポジション（#118）: 手で足した決済のレッグの損益を明細の損益に足す。明細のレッグが欠けた・満期で消滅にした、
+  // 為替が要るのに無いときは明細の損益を空にしてレッグの合計に切り替える（4.7）
+  const readLegsOk = legsRead?.legs;
+  if (
+    option !== undefined &&
+    readLegsOk !== undefined &&
+    !option.legsEdited &&
+    ctx.statementPnl !== false
+  ) {
+    const sameCurrency =
+      snapshot.instrument.priceCurrency !== null &&
+      snapshot.instrument.priceCurrency === accountCurrencyOf(snapshot);
+    const r = statementPnlWithLegs(
+      pnlYen,
+      draft.legs,
+      readLegsOk,
+      snapshot.instrument.multiplier,
+      sameCurrency ? 1 : fxRate,
+    );
+    pnlYen = r.pnl;
+    if (r.dropped) option = { ...option, legsEdited: true };
+  }
+  // レッグの時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えたレッグの決済は見ない。API の outOfPosition。4.7）
+  if (readLegsOk !== undefined) {
+    const opened = readLegsOk.map((l) => l.entry.time).filter((t): t is number => t !== undefined);
+    const closed = readLegsOk
+      .filter((l) => l.exit.kind === 'closed')
+      .map((l) => l.exit.time)
+      .filter((t): t is number => t !== undefined);
+    if (entryTime !== undefined && opened.some((t) => t < entryTime)) {
+      errors.entryTime = MSG.legEntryBefore;
+    }
+    if (exitTime !== undefined && !errors.exitTime && closed.some((t) => t > exitTime)) {
+      errors.exitTime = MSG.legExitAfter;
+    }
+  }
   // 口座が 2 つ以上のときだけ本文に口座を入れる（1 つなら今と同じ本文。KEEP-3）
   const accountId = ctx.accounts.length >= 2 ? draftAccountId(draft, ctx) : undefined;
   const hasErrors = Object.keys(errors).length > 0;

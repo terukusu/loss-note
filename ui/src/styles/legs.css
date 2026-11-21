@@ -107,6 +107,58 @@
   margin-top: calc(-1 * var(--sp-2));
 }
 
+/* 年を補った限月の札（価格の行の後ろ。#118） */
+.legs__warn {
+  margin-left: var(--sp-2);
+}
+
+/* 直前の操作の知らせ（「レッグ 2 を別のポジションにしました」） */
+.legs__notice {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+/* 明細の次のポジション（#118）: 一覧との間に区切りの線を引き、ここから下はこのポジションでないと分かるようにする */
+.legs__next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed var(--line-2);
+}
+
+.legs__nexttext {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.legs__nexttitle {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
+.legs__nextline {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.legs__nextwhy {
+  flex-basis: 100%;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+/* [別のポジションにする]（区切りの上。削除とは離す。#118） */
+.legedit__split {
+  display: flex;
+}
+
 /* LC の「最大損失まで」（押す形 + 「i」。LC の欄の下の段） */
 .lcmaxloss {
   display: flex;

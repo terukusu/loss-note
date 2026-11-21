@@ -4,12 +4,14 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade } from '../../core/record';
 import { LegEditor } from '../../ui/src/components/LegEditor';
-import { LEG_LIST_ID, LEG_UNDO_ID, LegList } from '../../ui/src/components/LegList';
+import { LEG_LIST_ID, LEG_MERGE_ID, LEG_UNDO_ID, LegList } from '../../ui/src/components/LegList';
 import { LEG_TABLE_TITLE_ID, LegTable } from '../../ui/src/components/LegTable';
 import {
   LcFields,
   LOSS_PLAN_HINT,
   MAX_LOSS_LABEL,
+  NEW_MULTIPLIER_ID,
+  newInstrumentText,
   TapFields,
   TradeCoreFields,
   type TradeFieldsProps,
@@ -19,18 +21,35 @@ import { TradeRow } from '../../ui/src/components/TradeRow';
 import { Verdict } from '../../ui/src/components/Verdict';
 import { createEditController } from '../../ui/src/lib/edit-controller';
 import { EDIT_SHEET_ID, type EditSheet } from '../../ui/src/lib/edit-screen';
-import { EMPTY_LEG, type LegDraft, type LegUndo } from '../../ui/src/lib/legs-form';
+import {
+  EMPTY_LEG,
+  type LegDraft,
+  type LegUndo,
+  YEAR_INFERRED_HINT,
+} from '../../ui/src/lib/legs-form';
 import { legRows, SIDE_MISMATCH } from '../../ui/src/lib/option-view';
+import { createRecordController } from '../../ui/src/lib/record-controller';
 import { type Draft, EMPTY_DRAFT, readDraft, summarize } from '../../ui/src/lib/record-form';
 import type { RecordSheet } from '../../ui/src/lib/record-screen';
 import { Link } from '../../ui/src/lib/router';
 import { fillFromRow, parseReadResponse } from '../../ui/src/lib/statement-fill';
 import { recordFields, tapAnswers, tradeRow } from '../../ui/src/lib/trade-view';
-import { RecordView } from '../../ui/src/pages/Record';
+import { NEXT_POSITION_NOTE, RecordView } from '../../ui/src/pages/Record';
 import { notFoundState, TradeDetailView } from '../../ui/src/pages/TradeDetail';
 import { TradeEditView } from '../../ui/src/pages/TradeEdit';
 import { createFakeApi } from './helpers/fake-api';
 import { closedInfoTip } from './helpers/info-tip';
+import {
+  blobOf,
+  fakePreview,
+  OPT_A1,
+  OPT_A2,
+  OPT_B1,
+  optionRowJson,
+  pngBytes,
+  preparedImage,
+  statementBody,
+} from './helpers/statement-rows';
 
 interface El {
   readonly type: string;
@@ -393,7 +412,8 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
     });
     const row = res?.rows[0];
     if (!row) throw new Error('行が無い');
-    expect(row.option).toBe(true);
+    // option は検査した形で写す（API の putCall は put / call。'P' は形の外なので null。#118）
+    expect(row.option).toMatchObject({ underlying: 'XYZ', expiry: '2027-01', putCall: null });
     const f = fillFromRow(EMPTY_DRAFT, row, new Set());
     expect(f.draft).toMatchObject({ side: null, entryPrice: '', exitPrice: '', quantity: '' });
     expect(f.draft.pnlYen).toBe('100000');
@@ -545,5 +565,136 @@ describe('記録する画面の 2 段目（振り返る段。取引の欄のシ�
     const sheet = sheetOf(record(fut, { kind: 'fields', step: 'main' }));
     expect(byId([sheet], LEG_LIST_ID)).toBeUndefined();
     expect(labels([sheet])).toContain('数量');
+  });
+});
+
+describe('明細から読んだポジション（#118。取引の欄のシートの印・まとめ直し）', () => {
+  const XYZOP: InstrumentRecord = { ...XYZ, id: 'i-xyzop', name: '架空指数XYZOP' };
+  async function read(instruments: readonly InstrumentRecord[] = [XYZOP]) {
+    const fake = createFakeApi({
+      instruments,
+      capitalYen: 20_000_000,
+      reads: [
+        {
+          status: 200,
+          body: statementBody([
+            optionRowJson({ ...OPT_A1, inferred: true }),
+            optionRowJson(OPT_A2),
+            optionRowJson(OPT_B1),
+          ]),
+        },
+      ],
+    });
+    const c = createRecordController({
+      api: fake.api,
+      now: () => new Date(2026, 11, 24, 10, 0).getTime(),
+      prepare: async () => ({ ok: true, image: preparedImage(fakePreview()) }),
+    });
+    await c.load();
+    await c.readImage(blobOf(pngBytes(1200, 800, 2048)));
+    return c;
+  }
+  const view = (
+    c: Awaited<ReturnType<typeof read>>,
+    sheet: RecordSheet,
+    calls: { split: number[]; merged: number },
+  ) =>
+    expand(
+      RecordView({
+        state: c.getState(),
+        sheet,
+        onSheet: noop,
+        onUpdate: noop,
+        onSave: noop,
+        onNext: noop,
+        onReload: noop,
+        onRelogin: noop,
+        onSplitLeg: (i) => calls.split.push(i),
+        onMergeNext: () => {
+          calls.merged++;
+        },
+      }),
+    );
+
+  it('レッグの行に「読み取り」と年の札、一覧の下に区切り + 次のポジションの見出し ［このポジションに入れる］', async () => {
+    const c = await read();
+    const calls = { split: [] as number[], merged: 0 };
+    const tree = view(c, { kind: 'fields', step: 'main' }, calls);
+    const metas = all(
+      [byId(tree, LEG_LIST_ID) as El],
+      (e) => e.props.class === 'rowlink__meta',
+    ).map((e) => text(e));
+    expect(metas).toEqual(['読み取り', '読み取り']);
+    // 年を補った限月は注意の札（一覧の 1 本目と 2 段目の要約）
+    const warns = all(tree, (e) => String(e.props.class ?? '').includes('field__mark--warn'));
+    expect(warns.map((e) => text(e))).toEqual(['限月の年は推定', '限月の年は推定']);
+    // 次のポジションの見出し: エントリーの日と 1 本目のレッグの 1 行（区切りの下）
+    const next = all(tree, (e) => e.props.class === 'legs__next')[0] as El;
+    expect(text(next)).toContain('明細の次のポジション · エントリー 12/9');
+    expect(text(next)).toContain('買い 1 · C 41,000 · 2027-01');
+    expect((byId(tree, LEG_MERGE_ID) as El).props.disabled).toBe(false);
+    // 2 段目の 1 行「次の件も同じ原資産のポジション」
+    expect(text(tree)).toContain(NEXT_POSITION_NOTE);
+    ((byId(tree, LEG_MERGE_ID) as El).props.onClick as () => void)();
+    expect(calls.merged).toBe(1);
+    // 明細の行の進み具合は「件目」、スキップは「このポジションをスキップ」
+    expect(text(tree)).toContain('1 / 2 件目');
+    expect(text(tree)).toContain('このポジションをスキップ');
+  });
+
+  it('オプションの銘柄が無ければ、取引の欄に乗数の欄と足す銘柄の 1 行（B1）', async () => {
+    const c = await read([]);
+    const calls = { split: [] as number[], merged: 0 };
+    const tree = view(c, { kind: 'fields', step: 'main' }, calls);
+    expect(byId(tree, NEW_MULTIPLIER_ID)).toBeDefined();
+    expect(text(tree)).toContain(newInstrumentText('架空指数XYZOPオプション', 'JPY'));
+    expect(
+      byId(view(await read(), { kind: 'fields', step: 'main' }, calls), NEW_MULTIPLIER_ID),
+    ).toBeUndefined();
+  });
+
+  it('レッグの段: 年を補った限月の 1 行と ［別のポジションにする］', async () => {
+    const c = await read();
+    const calls = { split: [] as number[], merged: 0 };
+    const tree = view(c, { kind: 'fields', step: 'leg', leg: 0 }, calls);
+    expect(text(tree)).toContain(YEAR_INFERRED_HINT);
+    ((byId(tree, 'leg-0-split') as El).props.onClick as () => void)();
+    expect(calls.split).toEqual([0]);
+    // 1 本のポジションでは出さない
+    c.splitLeg(1);
+    const one = view(c, { kind: 'fields', step: 'leg', leg: 0 }, calls);
+    expect(byId(one, 'leg-0-split')).toBeUndefined();
+  });
+});
+
+describe('レッグの一覧の部品（#118 のデザインレビュー 3・4）', () => {
+  const next = { legs: 2, head: '売り 1 · P 34,000 · 2027-01', opened: '12/9' };
+  it('入れると 10 本を超えるときは押せず、理由の 1 行', () => {
+    const legs = Array.from({ length: 9 }, () => leg({}));
+    const tree = expand(
+      <LegList legs={legs} onOpen={noop} onAdd={noop} nextPosition={next} onMergeNext={noop} />,
+    );
+    expect((byId(tree, LEG_MERGE_ID) as El).props.disabled).toBe(true);
+    expect(text(tree)).toContain('レッグは 10 本までです');
+    expect(text(tree)).toContain('売り 1 · P 34,000 · 2027-01（ほか 1 本）');
+  });
+  it('［別のポジションにする］ は区切りの上の tonal、削除は区切りの下。分けた後の知らせ', () => {
+    const tree = expand(
+      <LegEditor leg={leg({})} index={0} onChange={noop} onRemove={noop} onSplit={noop} />,
+    );
+    const btns = all(tree, (e) => e.type === 'button' || e.type === 'hr').map((e) =>
+      e.type === 'hr' ? 'hr' : String(e.props.id),
+    );
+    expect(btns.slice(-3)).toEqual(['leg-0-split', 'hr', 'leg-0-remove']);
+    expect(String((byId(tree, 'leg-0-split') as El).props.class)).toContain('tonal');
+    const list = expand(
+      <LegList
+        legs={[leg({})]}
+        onOpen={noop}
+        onAdd={noop}
+        notice="レッグ 2 を別のポジションにしました"
+      />,
+    );
+    expect(text(list)).toContain('レッグ 2 を別のポジションにしました');
   });
 });

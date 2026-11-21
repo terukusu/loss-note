@@ -4,7 +4,13 @@
 // - 下に [＋ レッグ]（tonal。10 本で押せない）。10 本まで並べても横にスクロールしない（行の中で折る）
 // - 損益の内訳は出さない（記録の画面は判定が主役。7.6）
 import type { LegDraft, LegField } from '../lib/legs-form';
-import { LEG_UNDO_FULL, legCardText, MAX_LEGS } from '../lib/legs-form';
+import {
+  LEG_UNDO_FULL,
+  legCardText,
+  legReadText,
+  MAX_LEGS,
+  YEAR_INFERRED_CHIP,
+} from '../lib/legs-form';
 import '../styles/legs.css';
 import { Button, RowLink } from './Button';
 
@@ -21,18 +27,45 @@ export interface LegListProps {
   /** 直前に消したレッグ（「レッグ 2 を削除しました ［元に戻す］」。P4）。省けば出さない */
   readonly removed?: string | null;
   readonly onUndo?: () => void;
+  /**
+   * 明細の次のポジション（同じ原資産。#118・7.6）のレッグの本数。あれば一覧の下に「次のポジション（レッグ N 本）
+   * ［このポジションに入れる］」を出す（ナイト・セッションの 0 時またぎなどで分かれたまとまりを 1 タップでまとめる）
+   */
+  readonly nextPosition?: NextPosition | null;
+  readonly onMergeNext?: () => void;
+  /** 直前の操作の知らせ（「レッグ 2 を別のポジションにしました」。デザインレビュー 4）。省けば出さない */
+  readonly notice?: string | null;
 }
+
+/** 明細の次のポジション（同じ原資産。#118・7.6）の見出しの中身 */
+export interface NextPosition {
+  /** レッグの本数 */
+  readonly legs: number;
+  /** 1 本目のレッグの 1 行（一覧の行と同じ書き方「売り 1 · C 41,000 · 2027-01」） */
+  readonly head: string;
+  /** エントリーの日（「12/09」。読めなければ null） */
+  readonly opened: string | null;
+}
+
+export const LEG_MERGE_ID = `${LEG_LIST_ID}-merge`;
+export const MERGE_LABEL = 'このポジションに入れる';
+export const MERGE_FULL = `レッグは ${MAX_LEGS} 本までです`;
+export const nextPositionTitle = (n: NextPosition) =>
+  `明細の次のポジション${n.opened === null ? '' : ` · エントリー ${n.opened}`}`;
+export const nextPositionLine = (n: NextPosition) =>
+  n.legs >= 2 ? `${n.head}（ほか ${n.legs - 1} 本）` : n.head;
 
 export const LEG_UNDO_ID = `${LEG_LIST_ID}-undo`;
 
-/** 行の右の添え（誤り > 未入力） */
+/** 行の右の添え（誤り > 未入力 > 明細から読んだ印「読み取り · 年を補った」。#118） */
 export function legMeta(
   leg: LegDraft,
   errors: Partial<Record<LegField, string>> | undefined,
 ): string | null {
   if (errors && Object.keys(errors).length > 0) return '誤りあり';
   const { head, prices } = legCardText(leg);
-  return head.includes('?') || prices.includes('?') ? '未入力あり' : null;
+  if (head.includes('?') || prices.includes('?')) return '未入力あり';
+  return legReadText(leg);
 }
 
 export function LegList(p: LegListProps) {
@@ -58,7 +91,14 @@ export function LegList(p: LegListProps) {
                   {...(meta ? { meta } : {})}
                 >
                   <span class="legs__line legs__line--head">{head}</span>
-                  <span class="legs__line legs__line--prices">{prices}</span>
+                  <span class="legs__line legs__line--prices">
+                    {prices}
+                    {l.read?.yearInferred ? (
+                      <span class="field__mark field__mark--warn legs__warn">
+                        {YEAR_INFERRED_CHIP}
+                      </span>
+                    ) : null}
+                  </span>
                 </RowLink>
               </li>
             );
@@ -85,6 +125,18 @@ export function LegList(p: LegListProps) {
           </>
         ) : null}
       </div>
+      {p.notice ? (
+        <p class="legs__notice" role="status">
+          {p.notice}
+        </p>
+      ) : null}
+      {p.nextPosition ? (
+        <NextPositionRow
+          next={p.nextPosition}
+          full={p.legs.length + p.nextPosition.legs > MAX_LEGS}
+          onMerge={() => p.onMergeNext?.()}
+        />
+      ) : null}
       <Button
         variant="tonal"
         size="sm"
@@ -96,6 +148,39 @@ export function LegList(p: LegListProps) {
       >
         レッグ
       </Button>
+    </div>
+  );
+}
+
+/** 一覧の下の区切り + 明細の次のポジション（エントリーの日・1 本目のレッグ）と ［このポジションに入れる］ */
+function NextPositionRow(p: {
+  readonly next: NextPosition;
+  readonly full: boolean;
+  readonly onMerge: () => void;
+}) {
+  const whatId = `${LEG_MERGE_ID}-what`;
+  const whyId = `${LEG_MERGE_ID}-why`;
+  return (
+    <div class="legs__next">
+      <div class="legs__nexttext" id={whatId}>
+        <span class="legs__nexttitle">{nextPositionTitle(p.next)}</span>
+        <span class="legs__nextline">{nextPositionLine(p.next)}</span>
+      </div>
+      <Button
+        variant="secondary"
+        size="sm"
+        id={LEG_MERGE_ID}
+        describedBy={p.full ? `${whatId} ${whyId}` : whatId}
+        disabled={p.full}
+        onClick={p.onMerge}
+      >
+        {MERGE_LABEL}
+      </Button>
+      {p.full ? (
+        <span class="legs__nextwhy" id={whyId}>
+          {MERGE_FULL}
+        </span>
+      ) : null}
     </div>
   );
 }

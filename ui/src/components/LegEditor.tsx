@@ -4,7 +4,7 @@
 // 収める。#117 のデザインレビュー N1。削除は区切りの下に離して置き、押し間違えても一覧の ［元に戻す］ で戻せる）
 // 満期で消滅は押す形のトグル（LC の「なし」と同じ形。aria-pressed）。決済の時刻は持たない（満期で消えたら SQ の日。C54）
 import type { LegDraft, LegField } from '../lib/legs-form';
-import { LEG_FIELD_LABEL, toggleExpired } from '../lib/legs-form';
+import { LEG_FIELD_LABEL, toggleExpired, YEAR_INFERRED_HINT } from '../lib/legs-form';
 import '../styles/legs.css';
 import { Button } from './Button';
 import { Icon } from './Icon';
@@ -19,7 +19,11 @@ export interface LegEditorProps {
   readonly errors?: Readonly<Partial<Record<LegField, string>>>;
   readonly onChange: (leg: LegDraft) => void;
   readonly onRemove: () => void;
+  /** [別のポジションにする]（明細から読んだレッグで、ポジションに明細のレッグが 2 本以上のときだけ。#118・7.6） */
+  readonly onSplit?: () => void;
 }
+
+export const SPLIT_LABEL = '別のポジションにする';
 
 export const EXPIRED_LABEL = '満期で消滅';
 export const EXPIRED_HINT = '決済明細に出ないレッグ。決済は SQ での価値（OTM なら 0）';
@@ -65,6 +69,7 @@ export function LegEditor(p: LegEditorProps) {
           onInput={set('contractMonth')}
           placeholder="2027-01"
           inputMode="numeric"
+          {...(l.read?.yearInferred ? { hint: YEAR_INFERRED_HINT } : {})}
           {...err('contractMonth')}
         />
         <NumberField
@@ -117,6 +122,14 @@ export function LegEditor(p: LegEditorProps) {
           {...err('exitPrice')}
         />
       </div>
+      {/* [別のポジションにする] は削除より軽い重さ（tonal）で、区切りの上に置く（削除と並べない。デザインレビュー 4） */}
+      {p.onSplit ? (
+        <div class="legedit__split">
+          <Button variant="tonal" size="sm" id={id('split')} onClick={p.onSplit}>
+            {SPLIT_LABEL}
+          </Button>
+        </div>
+      ) : null}
       <hr class="legedit__sep" />
       <Button variant="secondary" size="sm" icon="trash" id={id('remove')} onClick={p.onRemove}>
         このレッグを削除

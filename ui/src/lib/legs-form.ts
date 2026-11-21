@@ -35,6 +35,55 @@ export interface LegDraft {
    */
   readonly expiredTime?: number;
   readonly expiredMonth?: string;
+  /** 明細から読んだレッグ（記録する画面だけ。#118。手で足したレッグには無い） */
+  readonly read?: LegRead;
+}
+
+/** 明細から読んだレッグの出どころ（#118。statement-positions.ts が作る） */
+export interface LegRead {
+  /** 明細の行の番号（0 から。ポジションをまとめ直したときに、本人が直したレッグを保つ目印） */
+  readonly raw: number;
+  /** そのポジションの明細の行の番号（明細の損益がどのレッグの分か = すべてそろっているかを確かめる） */
+  readonly unit: readonly number[];
+  /** 限月の年を建てた日から補った（明細に年が無い。7.6 の 1） */
+  readonly yearInferred: boolean;
+  /** 読んだ後に本人が欄を直した（印「修正済み」） */
+  readonly edited?: true;
+}
+
+/** 明細から読んだレッグの印（一覧の行の右の添え。「読み取り」/「修正済み」。年を補った印は別の札 = YEAR_INFERRED_CHIP） */
+export function legReadText(d: LegDraft): string | null {
+  if (d.read === undefined) return null;
+  return d.read.edited ? '修正済み' : '読み取り';
+}
+
+/** 限月の年を補ったレッグの札（注意の色。一覧の行と 2 段目の要約。デザインレビュー 1） */
+export const YEAR_INFERRED_CHIP = '限月の年は推定';
+
+/** 年を補ったまま（本人が限月を直していない）のレッグがあるか */
+export const hasYearInferred = (legs: readonly LegDraft[]): boolean =>
+  legs.some((l) => l.read?.yearInferred === true);
+
+/** 限月の年を補ったときの欄の下の 1 行 */
+export const YEAR_INFERRED_HINT =
+  '明細に年が無いので、エントリーした日から補いました。違えば直してください';
+
+/**
+ * レッグの欄を直した（LegEditor の onChange）: 明細から読んだレッグなら印を「修正済み」にし、限月を直したら年を補った印を外す
+ */
+export function editLeg(prev: LegDraft, next: LegDraft): LegDraft {
+  if (prev.read === undefined || next.read === undefined) return next;
+  const changed = (Object.keys(LEG_FIELD_LABEL) as LegField[]).some((f) => prev[f] !== next[f]);
+  const expiredChanged = prev.expired !== next.expired;
+  if (!changed && !expiredChanged) return next;
+  return {
+    ...next,
+    read: {
+      ...next.read,
+      edited: true,
+      yearInferred: next.read.yearInferred && prev.contractMonth === next.contractMonth,
+    },
+  };
 }
 
 export type LegField =

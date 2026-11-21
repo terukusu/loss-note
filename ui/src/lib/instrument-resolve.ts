@@ -1,7 +1,7 @@
 // 保存するときの銘柄の ID の決め方（記録する画面 #13 と直す画面 #9 が共有する）。
 // 一覧に同じ名前（nameKey）があればその ID、無ければ名前だけで足す（既定は API が埋める。C21）。
 // 409（ほかの端末が同じ名前を先に足した）なら一覧を取り直して照合する
-import type { InstrumentRecord } from '../../../core/record';
+import type { InstrumentBody, InstrumentRecord } from '../../../core/record';
 import { findInstrument } from './instrument-name';
 import { Failed, getJson, JSON_HEADERS, type RequestFn } from './request';
 
@@ -10,12 +10,14 @@ export async function resolveInstrument(
   name: string,
   matchedId: string | undefined,
   instruments: readonly InstrumentRecord[],
+  /** 名前のほかに送る欄（明細のポジションのオプションの銘柄。#118）。省けば名前だけ（既定は API が埋める） */
+  create?: Omit<InstrumentBody, 'name'>,
 ): Promise<{ id: string; instruments: readonly InstrumentRecord[] }> {
   if (matchedId !== undefined) return { id: matchedId, instruments };
   const res = await request('/api/instruments', {
     method: 'POST',
     headers: JSON_HEADERS,
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(create ?? {}) }),
   });
   if (res.status === 409) {
     const again = await getJson<{ items: InstrumentRecord[] }>(

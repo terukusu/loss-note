@@ -31,7 +31,7 @@ import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/Chart
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
 import { LegEditor } from '../components/LegEditor';
-import { LEG_LIST_ID } from '../components/LegList';
+import { LEG_LIST_ID, LEG_MERGE_ID } from '../components/LegList';
 import { CandleArt, StatementArt } from '../components/RecordArt';
 import { MiniChart, partIds, SummaryCard, VerdictLineButton } from '../components/RecordParts';
 import { Segment } from '../components/Segment';
@@ -76,13 +76,14 @@ import {
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
 import { formatPrice, formatQuantity } from '../lib/format';
-import { type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
+import { editLeg, type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import {
   createRecordController,
   enterRecordScreen,
   type RecordController,
   type RecordState,
+  rowUnitOf,
   type TzState,
   watchVisible,
 } from '../lib/record-controller';
@@ -117,6 +118,7 @@ import {
   rowLabel,
 } from '../lib/statement-fill';
 import { browserCodec, prepareImage } from '../lib/statement-image';
+import { nextPositionView } from '../lib/statement-positions';
 import {
   gapText,
   isOtherZone,
@@ -240,7 +242,7 @@ function focusSoonId(id: string) {
 function rowTextOf(s: RecordState | undefined): string | null {
   const st = s?.statement;
   if (st?.phase !== 'ready' || st.rows.length < 2) return null;
-  return rowLabel(st.index, st.rows.length);
+  return rowLabel(st.index, st.rows.length, rowUnitOf(st));
 }
 
 function useRowText(c: RecordController | undefined): string | null {
@@ -306,6 +308,8 @@ export function RecordScreen() {
   const [sheet, setSheet] = useState<RecordSheet | null>(null);
   // 直前に消したレッグ（［元に戻す］。シートを閉じたら忘れる。#117）
   const [legUndo, setLegUndo] = useState<LegUndo | null>(null);
+  /** ［別のポジションにする］ の後の知らせ（シートを閉じたら忘れる。#118 のデザインレビュー 4） */
+  const [legNotice, setLegNotice] = useState<string | null>(null);
   // 枠・行に貼ってチャートを差し替えた知らせ（段が替わる・チャートを選ぶ・消すと消す）
   const [replaced, setReplaced] = useState<string | null>(null);
 
@@ -456,6 +460,7 @@ export function RecordScreen() {
     // ［編集］ へ（キーボード・読み上げで迷わない。2 段化のレビュー指摘 4）
     if (next === null) {
       setLegUndo(null);
+      setLegNotice(null);
       setTimeout(focusAfterSheet, 0);
     }
     if (next?.kind === 'fields' && next.focus) {
@@ -495,6 +500,7 @@ export function RecordScreen() {
       sheet={sheet}
       onSheet={onSheet}
       legUndo={legUndo}
+      legNotice={legNotice}
       onLegRemoved={setLegUndo}
       onLegUndo={() => {
         if (!legUndo) return;
@@ -578,6 +584,20 @@ export function RecordScreen() {
           if (!controller.getState().addAccount) focusAccount();
         });
       }}
+      onSplitLeg={(i) => {
+        controller.splitLeg(i);
+        setLegUndo(null);
+        setLegNotice(`レッグ ${i + 1} を別のポジションにしました。次の件で記録します`);
+        onSheet({ kind: 'fields', step: 'main' });
+        // 分けたレッグは「次のポジション ［このポジションに入れる］」の行になる（押せば戻る）
+        focusSoon(LEG_MERGE_ID);
+      }}
+      onMergeNext={() => {
+        controller.mergeNextPosition();
+        setLegUndo(null);
+        setLegNotice(null);
+        focusSoon(`${LEG_LIST_ID}-0`);
+      }}
       onSkipRow={() => {
         controller.skipRow();
         // 最後の行を飛ばすとボタンは消える（読み取りを終えて空の下書き）。枠の見出しへ
@@ -598,6 +618,8 @@ export interface RecordViewProps {
   readonly onSheet?: (sheet: RecordSheet | null) => void;
   /** 直前に消したレッグ（一覧の「レッグ 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
   readonly legUndo?: LegUndo | null;
+  /** レッグの一覧の直前の操作の知らせ（［別のポジションにする］ の後。#118） */
+  readonly legNotice?: string | null;
   /** ［このレッグを削除］ で消した（戻すために覚える） */
   readonly onLegRemoved?: (u: LegUndo) => void;
   /** ［元に戻す］（元の位置・ID・時刻ごと戻す） */
@@ -630,6 +652,10 @@ export interface RecordViewProps {
   readonly onOpenOtherZones?: () => void;
   /** [この行を飛ばす] */
   readonly onSkipRow?: () => void;
+  /** [別のポジションにする]（下書きのレッグの番号。#118） */
+  readonly onSplitLeg?: (legIndex: number) => void;
+  /** ［このポジションに入れる］（#118） */
+  readonly onMergeNext?: () => void;
   /** チャートを枠に選んだ（#12） */
   readonly onPickChart?: (slot: AnySlot, file: File) => void;
   /** チャートの [削除] */
@@ -849,6 +875,13 @@ function RecordForm(p: RecordViewProps) {
   const legIndex = legAt !== null && d.legs[legAt] !== undefined ? legAt : null;
   const openLeg = (i: number) => openSheet({ kind: 'fields', step: 'leg', leg: i });
   const setLegs = (value: typeof d.legs) => onUpdate({ type: 'set', field: 'legs', value });
+  // 明細のポジション（#118）: 次の同じ原資産のポジションのレッグの本数と、今のポジションの明細のレッグの本数
+  const unitsNow = st?.phase === 'ready' ? st.units : undefined;
+  const nextPosition =
+    st?.phase === 'ready' && st.raw && unitsNow
+      ? nextPositionView(st.raw, unitsNow, st.index)
+      : null;
+  const unitLegCount = st?.phase === 'ready' ? (unitsNow?.[st.index]?.length ?? 0) : 0;
   const fields: TradeFieldsProps = {
     draft: d,
     errors: e,
@@ -867,6 +900,9 @@ function RecordForm(p: RecordViewProps) {
             },
             removed: p.legUndo ? legRemovedText(p.legUndo) : null,
             ...(p.onLegUndo ? { onUndoRemove: p.onLegUndo } : {}),
+            nextPosition,
+            legNotice: p.legNotice ?? null,
+            ...(p.onMergeNext ? { onMergeNext: p.onMergeNext } : {}),
           },
         }
       : {}),
@@ -986,7 +1022,12 @@ function RecordForm(p: RecordViewProps) {
                 {...(read.option?.legErrors[legIndex]
                   ? { errors: read.option.legErrors[legIndex] }
                   : {})}
-                onChange={(leg) => setLegs(d.legs.map((x, i) => (i === legIndex ? leg : x)))}
+                onChange={(leg) =>
+                  setLegs(d.legs.map((x, i) => (i === legIndex ? editLeg(x, leg) : x)))
+                }
+                {...(p.onSplitLeg && d.legs[legIndex]?.read && unitLegCount >= 2
+                  ? { onSplit: () => p.onSplitLeg?.(legIndex) }
+                  : {})}
                 onRemove={() => {
                   const leg = d.legs[legIndex];
                   if (leg) p.onLegRemoved?.({ leg, index: legIndex });
@@ -1256,9 +1297,23 @@ function StatementNotices({ state }: { readonly state: RecordState }) {
           {st.notice}
         </p>
       ) : null}
+      {/* 次の件も同じ原資産のポジション（#118 のレビュー指摘 1）: 記録した後は編集でレッグを足すしかないので、記録の前に知らせる */}
+      {st?.phase === 'ready' &&
+      st.raw &&
+      st.units &&
+      nextPositionView(st.raw, st.units, st.index) ? (
+        <p class="statement__text" id={NEXT_POSITION_NOTE_ID}>
+          {NEXT_POSITION_NOTE}
+        </p>
+      ) : null}
     </>
   );
 }
+
+const NEXT_POSITION_NOTE_ID = 'record-next-position-note';
+/** 2 段目の 1 行（取引の欄のシートの ［このポジションに入れる］ へ導く） */
+export const NEXT_POSITION_NOTE =
+  '次の件も同じ原資産です。同じポジションなら ［編集］ からまとめられます';
 
 function RecordSummary(
   p: RecordViewProps & {
@@ -1364,10 +1419,10 @@ function StatementDetails(p: RecordViewProps) {
       {st && rows >= 2 ? (
         <div class="statement__rows">
           <p class="statement__row" id={STATEMENT_ROW_ID} tabIndex={-1}>
-            {rowLabel(st.index, rows)}
+            {rowLabel(st.index, rows, rowUnitOf(st))}
           </p>
           <Button variant="secondary" onClick={() => p.onSkipRow?.()}>
-            この行をスキップ
+            {st.rows[st.index]?.legs ? 'このポジションをスキップ' : 'この行をスキップ'}
           </Button>
         </div>
       ) : null}

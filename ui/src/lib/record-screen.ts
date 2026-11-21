@@ -9,6 +9,7 @@
 import type { Grade } from '../../../core/judge';
 import type { AnySlot } from './charts';
 import { formatPrice, formatQuantity } from './format';
+import { hasYearInferred } from './legs-form';
 import {
   type Draft,
   type DraftField,
@@ -57,7 +58,12 @@ export const SUMMARY_FIELDS = [
 export type SummaryField = (typeof SUMMARY_FIELDS)[number];
 
 /** 要約の 2 行には出さないが、誤りなら名指す取引の欄（取引の欄のシートの中。#130 のレビュー N4） */
-export const NAMED_EXTRA_FIELDS = ['fxRate', 'entryTime'] as const satisfies readonly DraftField[];
+export const NAMED_EXTRA_FIELDS = [
+  'fxRate',
+  'entryTime',
+  // 明細のポジションでその場で足すオプションの銘柄の乗数（#118）
+  'instrumentMultiplier',
+] as const satisfies readonly DraftField[];
 
 export type NamedFieldId = SummaryField | (typeof NAMED_EXTRA_FIELDS)[number];
 
@@ -73,6 +79,11 @@ export interface NamedField {
 export interface TradeSummary {
   /** 1 行目: 銘柄 · L / S · 数量（無い欄は「—」） */
   readonly line1: string;
+  /** 1 行目の銘柄（長ければこちらを省略する）と、残り（「 · L / S · 数量」。切らない。#118 のデザインレビュー 5） */
+  readonly name?: string;
+  readonly tail?: string;
+  /** 限月の年を補ったまま（本人が直していない）のレッグがある（注意の札。#118 のデザインレビュー 1） */
+  readonly yearInferred?: boolean;
   /** 2 行目: イン → 決済 · 決済の時刻 */
   readonly line2: string;
   /** 読み取りの値が入っている（印「読み取り」） */
@@ -120,9 +131,8 @@ export function tradeSummary(
   const side =
     (option ? (option.autoSide ?? (option.askSide ? draft.side : null)) : draft.side) ?? DASH;
   const qty = numText(draft.quantity, formatQuantity);
-  const line1 = option
-    ? `${name} · ${side} · レッグ ${draft.legs.length}`
-    : `${name} · ${side} · 数量 ${qty}`;
+  const tail = option ? ` · ${side} · レッグ ${draft.legs.length}` : ` · ${side} · 数量 ${qty}`;
+  const line1 = `${name}${tail}`;
   const time = errors.exitTime !== undefined ? DASH : timeText(draft.exitTime);
   const line2 = `${numText(draft.entryPrice, formatPrice)} → ${numText(draft.exitPrice, formatPrice)} · ${time}`;
   const named: NamedField[] = [];
@@ -138,8 +148,28 @@ export function tradeSummary(
   for (const f of NAMED_EXTRA_FIELDS) {
     if (errors[f] !== undefined) named.push({ field: f, label: FIELD_LABEL[f], kind: 'error' });
   }
+  // その場で足すオプションの銘柄の乗数（推さない = 空なら未入力として名指す。#118）
+  if (
+    option?.newInstrument !== undefined &&
+    errors.instrumentMultiplier === undefined &&
+    draft.instrumentMultiplier.trim() === ''
+  ) {
+    named.push({
+      field: 'instrumentMultiplier',
+      label: FIELD_LABEL.instrumentMultiplier,
+      kind: 'missing',
+    });
+  }
   const read = SUMMARY_FIELDS.some((f) => READ_MARKS.includes(marks[f] as FieldMark));
-  return { line1, line2, read, named };
+  return {
+    line1,
+    name,
+    tail,
+    line2,
+    read,
+    named,
+    ...(option && hasYearInferred(draft.legs) ? { yearInferred: true } : {}),
+  };
 }
 
 function isEmpty(d: Draft, f: SummaryField): boolean {
@@ -269,6 +299,7 @@ export const FIELD_INPUT_ID: Readonly<Record<NamedFieldId | 'accountId', string>
   exitTime: 'record-exit-time',
   fxRate: 'record-fx',
   entryTime: 'record-entry-time',
+  instrumentMultiplier: 'record-new-multiplier',
   accountId: 'record-account',
 };
 
@@ -322,15 +353,25 @@ export type Stage1Statement =
 
 export function stage1Statement(
   st:
-    | { readonly phase: StatementPhaseLike; readonly rows: { readonly length: number } }
+    | {
+        readonly phase: StatementPhaseLike;
+        readonly rows: { readonly length: number };
+        /** 応答の行（オプションのレッグをポジションにまとめる前。#118）。省けば rows */
+        readonly raw?: { readonly length: number } | undefined;
+      }
     | undefined,
 ): Stage1Statement {
   if (!st || st.phase === 'done' || st.phase === 'failed') return { kind: 'empty' };
   if (st.phase === 'preparing' || st.phase === 'reading')
     return { kind: 'filled', text: '読み取り中…' };
+  const n = st.raw?.length ?? st.rows.length;
+  // オプションのポジションにまとめた明細は「件」で数える（2 段目の「1 / 2 件目」と揃える。#118 のデザインレビュー 6）
+  if (st.raw !== undefined && st.raw.length !== st.rows.length) {
+    return { kind: 'filled', text: `${st.rows.length} 件（明細の ${n} 行）を読み取りました` };
+  }
   return {
     kind: 'filled',
-    text: st.rows.length >= 2 ? `${st.rows.length} 行を読み取りました` : '読み取りました',
+    text: n >= 2 ? `${n} 行を読み取りました` : '読み取りました',
   };
 }
 

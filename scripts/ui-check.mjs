@@ -46,7 +46,8 @@
 // 数え、幅 360 の記録する画面の全状態で下の帯の高さ（判定の 1 行 + [記録する] の 112px まで。#130）と状態の文の行数（1 行まで）・
 // 切れ（scrollWidth）、直す画面の帯の高さ（変える前の 161.1px まで）を測る。手順 R11（最後のタップの直後に下の帯の判定の 1 行の
 // バッジと R が窓の中。スクロールしない）・R12（1 画面に収まる: 390×844 の 1 段目と 2 段目の 4 つの状態で縦のスクロール 0、
-// 読み取りが流れ込んでも LC が動かない、注意 3 行以下、360×780 は 120px 以下）・R13（大きな R は 44px（#131。前は 36px）・本文の書体、ラベルの
+// 読み取りが流れ込んでも LC が動かない、注意 3 行以下、360×780 は 120px 以下）・KB1（キーボードで欄が隠れない: 390×844 → 420 の
+// Android の形と iOS の形で LC・一言・広げた後の LC が上下 16px 以上の余白で見え、下の帯を隠す。決定キーで LC → 一言 → 閉じる。#172）・R13（大きな R は 44px（#131。前は 36px）・本文の書体、ラベルの
 // 上端が揃う）・R14（向きを変えても LC・取引の欄のシートの欄の要素・値・フォーカスが残る）を流す。#130 で取引の欄・ほかの欄・
 // タイムゾーン・判定・チャートの詳細は下のシートに置いたので、手順はシートを開いてから欄を入れる。幅 720 未満の画面は指で触る端末（hasTouch）として開く。
 // 言葉の説明の「i」（Issue #57。#129 で吹き出しから説明のシートへ）: 記録する画面で説明を 1 つ開いた状態（時間足・判定）を同じ幅と
@@ -7463,6 +7464,253 @@ async function runFlows(browser, base, signedIn) {
       }
     }
     return out.join(' / ');
+  });
+
+  // KB1（#172。ui-guidelines 9.6）: キーボードで入力の欄が隠れない。390×844 で、明細を読み取った後・口座 2 つ・「広げた」で
+  // 広げた後の LC の欄まで出した 2 段目（1 画面より長い。オーナーの実機の形）。LC・一言・広げた後の LC にフォーカスして、
+  // Android の形（窓が 844 → 420 に縮む = resizes-content）と、iOS の形（窓はそのまま visualViewport だけが 844 → 420。
+  // visualViewport を偽物に替えて resize を送る）で、欄が上の帯の下・見えている領域の中に上下 16px 以上の余白で入る。
+  // キーボードの間は下の帯（判定の 1 行・［記録する］）を隠す。閉じたら印が外れ、帯が戻る。LC の決定キー（次へ）で一言へ、
+  // 一言の決定キー（完了）でフォーカスが外れて帯が戻る。閉じた後はスクロール 0・中身の高さが前と同じ。あわせて書きかけの案内・
+  // 編集の画面の ［保存］ の帯・設定のシートの ［保存］ の帯が隠れて、閉じると戻る（#172 のレビュー N7）。段階的に縮める
+  // （844 → 600 → 420）各段でも一言・広げた後の LC が窓の中
+  await check('KB1', async () => {
+    const out = [];
+    const c = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      storageState: signedIn,
+      hasTouch: true,
+      reducedMotion: 'reduce',
+    });
+    try {
+      await c.addInitScript(() => {
+        const vv = new EventTarget();
+        window.__kbdH = null;
+        Object.defineProperties(vv, {
+          height: { get: () => window.__kbdH ?? document.documentElement.clientHeight },
+          width: { get: () => document.documentElement.clientWidth },
+          offsetTop: { get: () => 0 },
+          offsetLeft: { get: () => 0 },
+          pageTop: { get: () => window.scrollY },
+          pageLeft: { get: () => window.scrollX },
+          scale: { get: () => 1 },
+        });
+        Object.defineProperty(window, 'visualViewport', { get: () => vv, configurable: true });
+        window.__kbdSet = (h) => {
+          window.__kbdH = h;
+          vv.dispatchEvent(new Event('resize'));
+        };
+      });
+      await setupContext(c, 'dark');
+      const fake = await installFakeApi(c, { accounts: ACCOUNTS_2 });
+      const p = await c.newPage();
+      await openRecord(p, base);
+      fake.read = { status: 200, rows: [READ_REAL], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+      await seg(p, 'LC を動かしたか', '広げた').click();
+      await p.locator('#record-lc-after').waitFor({ state: 'visible', timeout: 5000 });
+      const geo = (sel, viewH) =>
+        p.evaluate(
+          ([s, vh]) => {
+            const r = (q) => {
+              const e = document.querySelector(q);
+              if (!e) return null;
+              const b = e.getBoundingClientRect();
+              return { top: b.top, bottom: b.bottom, h: b.height };
+            };
+            return {
+              f: r(s),
+              app: r('.appbar'),
+              bar: r('.record__submit--bar'),
+              line: r('#record-verdict-line'),
+              submit: r('#record-submit'),
+              vh: vh ?? window.innerHeight,
+              kb: document.documentElement.getAttribute('data-keyboard'),
+              focus: document.activeElement?.id ?? '',
+              y: window.scrollY,
+              sh: document.documentElement.scrollHeight,
+            };
+          },
+          [sel, viewH],
+        );
+      const fields = ['#record-lc', '#record-broken', '#record-lc-after'];
+      for (const form of ['android', 'ios']) {
+        for (const sel of fields) {
+          await p.evaluate(() => window.scrollTo(0, 0));
+          const before = await geo(sel, null);
+          await p.locator(sel).focus();
+          if (form === 'android') await p.setViewportSize({ width: 390, height: 420 });
+          else await p.evaluate(() => window.__kbdSet(420));
+          await p.waitForTimeout(500);
+          const g = await geo(sel, form === 'ios' ? 420 : null);
+          const where = `${form} ${sel}`;
+          const want = form === 'android' ? 'resize' : 'overlay';
+          if (g.kb !== want) throw new Error(`${where}: 印が ${g.kb}（${want}）`);
+          if (g.focus !== sel.slice(1)) throw new Error(`${where}: フォーカスが ${g.focus}`);
+          // 帯は隠れている（高さ 0 の箱は数えない）ので、見える範囲の下の端は窓（iOS は visualViewport）の下の端
+          const barTop = g.bar && g.bar.h > 0 && g.bar.top < g.vh ? g.bar.top : g.vh;
+          const above = g.f.top - g.app.bottom;
+          const below = Math.min(barTop, g.vh) - g.f.bottom;
+          if (above < 16 - 0.5 || below < 16 - 0.5)
+            throw new Error(
+              `${where}: 欄が見える所に無い（上の余白 ${above.toFixed(1)}px・下の余白 ${below.toFixed(1)}px）`,
+            );
+          if (g.bar && g.bar.h > 0) throw new Error(`${where}: キーボードの間に下の帯が出ている`);
+          if (opts.shots && sel === '#record-lc')
+            await p.screenshot({ path: join(opts.shots, `kb1-${form}.png`) });
+          out.push(`${form} ${sel.slice(8)} 上 ${Math.round(above)} / 下 ${Math.round(below)}`);
+          await p.locator(sel).blur();
+          if (form === 'android') await p.setViewportSize({ width: 390, height: 844 });
+          else await p.evaluate(() => window.__kbdSet(null));
+          await p.waitForTimeout(400);
+          const back = await geo(sel, null);
+          if (back.kb !== null) throw new Error(`${where}: 閉じた後も印 ${back.kb}`);
+          if (!(back.submit && back.submit.h > 0))
+            throw new Error(`${where}: 閉じた後に ［記録する］ が戻らない`);
+          // 元の位置・形に戻る（スクロール 0・中身の高さがキーボードの前と同じ。iOS の余白 --kbd-room が残らない）
+          if (back.y !== 0 || back.sh !== before.sh)
+            throw new Error(
+              `${where}: 閉じた後に元に戻らない（scrollY ${back.y}・中身の高さ ${back.sh} / 前 ${before.sh}）`,
+            );
+        }
+      }
+      // キーボードが段階的に上がる（窓 / visualViewport が 844 → 600 → 420）: 各段で欄が窓の中（上の帯の下・下に 16px 以上）。
+      // 寄せはフォーカスした瞬間の 1 回で終わらず、resize のたびに寄せ直す（オーナー「ソフトキーがズルっと上がってきたら…」）
+      for (const form of ['android', 'ios']) {
+        for (const sel of ['#record-broken', '#record-lc-after']) {
+          await p.evaluate(() => window.scrollTo(0, 0));
+          await p.locator(sel).focus();
+          const steps = [];
+          for (const h of [600, 420]) {
+            if (form === 'android') await p.setViewportSize({ width: 390, height: h });
+            else await p.evaluate((v) => window.__kbdSet(v), h);
+            await p.waitForTimeout(250);
+            const g = await geo(sel, form === 'ios' ? h : null);
+            const above = g.f.top - g.app.bottom;
+            const below = g.vh - g.f.bottom;
+            if (above < -0.5 || below < 16 - 0.5)
+              throw new Error(
+                `段階 ${form} ${sel} ${h}: 欄が窓の中に無い（上 ${above.toFixed(1)}px・下 ${below.toFixed(1)}px）`,
+              );
+            steps.push(`${h}:${Math.round(below)}`);
+          }
+          out.push(`段階 ${form} ${sel.slice(8)} 下 ${steps.join(' → ')}`);
+          await p.locator(sel).blur();
+          if (form === 'android') await p.setViewportSize({ width: 390, height: 844 });
+          else await p.evaluate(() => window.__kbdSet(null));
+          await p.waitForTimeout(300);
+        }
+      }
+      // 決定キー: LC（次へ）→ 一言、一言（完了）→ フォーカスが外れて帯が戻る（Android の形）
+      await p.evaluate(() => window.scrollTo(0, 0));
+      await p.locator('#record-lc').focus();
+      await p.setViewportSize({ width: 390, height: 420 });
+      await p.waitForTimeout(400);
+      const hints = await p.evaluate(() => [
+        document.getElementById('record-lc')?.getAttribute('enterkeyhint'),
+        document.getElementById('record-broken')?.getAttribute('enterkeyhint'),
+      ]);
+      if (hints[0] !== 'next' || hints[1] !== 'done')
+        throw new Error(`enterkeyhint が ${hints.join(' / ')}（next / done）`);
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(400);
+      const g1 = await geo('#record-broken', null);
+      if (g1.focus !== 'record-broken')
+        throw new Error(`LC の決定キーの後のフォーカスが ${g1.focus}`);
+      if (g1.f.top - g1.app.bottom < 15.5 || g1.vh - g1.f.bottom < 15.5)
+        throw new Error('LC の決定キーの後、一言の欄が見える所に無い');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(400);
+      await p.setViewportSize({ width: 390, height: 844 });
+      await p.waitForTimeout(400);
+      const g2 = await geo('#record-broken', null);
+      if (g2.focus === 'record-broken') throw new Error('一言の決定キーでフォーカスが外れない');
+      if (g2.kb !== null || !(g2.bar && g2.bar.h > 0))
+        throw new Error('一言の決定キーの後に帯が戻らない');
+      out.push('決定キー LC → 一言 → 閉じる');
+    } finally {
+      await c.close();
+    }
+    // 書きかけの案内・編集の画面の ［保存］ の帯・設定のシートの ［保存］ の帯（Android の形。#172 のレビュー N7）
+    const c2 = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      storageState: signedIn,
+      hasTouch: true,
+      reducedMotion: 'reduce',
+    });
+    try {
+      await setupContext(c2, 'dark');
+      const api = await installFakeApi(c2);
+      seedSettings(api);
+      setAccounts(api, [{ ...ACC_ONE, capitalHistory: api.settings.capitalHistory }, ACC_B]);
+      const p = await c2.newPage();
+      const shown = (sel) =>
+        p.evaluate((s) => {
+          const e = document.querySelector(s);
+          return !!e && e.getBoundingClientRect().height > 0;
+        }, sel);
+      const inView = (sel) =>
+        p.evaluate((s) => {
+          const r = document.querySelector(s)?.getBoundingClientRect();
+          return !!r && r.top >= 16 - 0.5 && r.bottom <= window.innerHeight - 16 + 0.5;
+        }, sel);
+      const open = async (field) => {
+        await p.locator(field).focus();
+        await p.setViewportSize({ width: 390, height: 420 });
+        await p.waitForTimeout(500);
+      };
+      const close = async (field) => {
+        await p.locator(field).blur();
+        await p.setViewportSize({ width: 390, height: 844 });
+        await p.waitForTimeout(400);
+      };
+      // 書きかけの案内（記録する画面を離れて戻る）
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引');
+      await p.locator('.appnav a[href="/record"]').click();
+      await waitReady(p, '記録する');
+      await toReview(p);
+      await p.locator('#record-lc').fill('100.5');
+      await p.goBack();
+      await waitReady(p, '取引');
+      await p.locator('.appnav a[href="/record"]').click();
+      await waitReady(p, '記録する');
+      await p
+        .locator('#record-resumed', { hasText: '前の入力の続きです' })
+        .waitFor({ timeout: 5000 });
+      await open('#record-lc');
+      if (await shown('#record-resumed'))
+        throw new Error('キーボードの間に書きかけの案内が出ている');
+      if (!(await inView('#record-lc'))) throw new Error('書きかけの案内の形で LC の欄が見えない');
+      await close('#record-lc');
+      if (!(await shown('#record-resumed'))) throw new Error('閉じた後に書きかけの案内が戻らない');
+      out.push('書きかけの案内を隠して戻す');
+      // 編集の画面の ［保存］ の帯
+      await p.goto(`${base}/trades/x-e1/edit`);
+      await p.locator('#edit-submit').waitFor({ timeout: 15000 });
+      await open('#record-lc');
+      if (await shown('.edit__submit')) throw new Error('キーボードの間に編集の画面の帯が出ている');
+      if (!(await inView('#record-lc'))) throw new Error('編集の画面で LC の欄が見えない');
+      await close('#record-lc');
+      if (!(await shown('.edit__submit'))) throw new Error('閉じた後に編集の画面の帯が戻らない');
+      out.push('編集の ［保存］ の帯を隠して戻す');
+      // 設定のシートの ［保存］ の帯
+      await p.goto(`${base}/settings/accounts`);
+      await p.getByRole('button', { name: '口座 1 を編集' }).click();
+      await waitSettingsSheet(p, 'settings-account-sheet');
+      await open('#settings-account-name');
+      if (await shown('#settings-account-sheet .setform__actions'))
+        throw new Error('キーボードの間にシートの ［保存］ の帯が出ている');
+      if (!(await inView('#settings-account-name'))) throw new Error('シートの欄が見えない');
+      await close('#settings-account-name');
+      if (!(await shown('#settings-account-sheet .setform__actions')))
+        throw new Error('閉じた後にシートの ［保存］ の帯が戻らない');
+      out.push('シートの ［保存］ の帯を隠して戻す');
+    } finally {
+      await c2.close();
+    }
+    return `キーボードで欄が隠れない（390×844 → 420）: ${out.join(' / ')}`;
   });
 
   // R14（#130 AC-11。ui-guidelines 9.5「形が替わっても View を包む DOM を同じに保つ」）: 記録する画面で LC に入力中に向きを

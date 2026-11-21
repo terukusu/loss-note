@@ -7,6 +7,7 @@ import { DEV_AUTH_DEFAULTS } from './auth/devDefaults';
 import { UNAVAILABLE } from './auth/errors';
 import { type AuthSession, createFirebaseSession, unavailableSession } from './auth/session';
 import { createBackLayers, installBackLayers, windowBackEnv } from './lib/back-layers';
+import { installKeyboardReveal } from './lib/keyboard-reveal';
 import { createNavigator, windowEnv } from './lib/router';
 import { applyTheme, readTheme, safeStorage } from './lib/theme';
 import './styles/tokens.css';
@@ -33,6 +34,8 @@ try {
 // 開いて閉じる層（「i」の吹き出し）を戻るで閉じる記録（#57）。画面が移ったら記録を捨てる
 const layers = createBackLayers(windowBackEnv(window));
 installBackLayers(layers);
+// キーボードで入力の欄が隠れないように寄せる（#172。ui-guidelines 9.6）
+installKeyboardReveal(window);
 const nav = createNavigator(
   windowEnv(window),
   { dev },

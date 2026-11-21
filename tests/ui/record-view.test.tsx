@@ -3,7 +3,7 @@
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
-import { unlockKeyOf } from '../../ui/src/components/NumberField';
+import { numberFieldKeyOf, unlockKeyOf } from '../../ui/src/components/NumberField';
 import { SummaryCard } from '../../ui/src/components/RecordParts';
 import { CHART_READ_MARK, CHART_READ_MSG, CHART_READ_NOTICE } from '../../ui/src/lib/chart-read';
 import { GLOSSARY } from '../../ui/src/lib/glossary';
@@ -358,6 +358,37 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     expect(submit(tree).props.disabled).toBe(false);
     const form = all(tree, (e) => e.type === 'form')[0] as El;
     (form.props.onSubmit as (e: { preventDefault(): void }) => void)({ preventDefault: noop });
+    expect(saved).toBe(1);
+  });
+
+  it('#172: キーボードの印（<html data-keyboard>）の間は、フォームの暗黙の送信（欄の Enter）で保存しない。印が外れれば送る', () => {
+    let saved = 0;
+    const tree = view(stateFor(E1, NO_CAPITAL), {
+      onSave: () => {
+        saved++;
+      },
+    });
+    const form = all(tree, (e) => e.type === 'form')[0] as El;
+    const submitWith = (mark: string | null) => {
+      let prevented = false;
+      (form.props.onSubmit as (e: unknown) => void)({
+        preventDefault: () => {
+          prevented = true;
+        },
+        currentTarget: {
+          ownerDocument: {
+            documentElement: {
+              hasAttribute: (n: string) => n === 'data-keyboard' && mark !== null,
+            },
+          },
+        },
+      });
+      return prevented;
+    };
+    expect(submitWith('resize')).toBe(true);
+    expect(submitWith('overlay')).toBe(true);
+    expect(saved).toBe(0);
+    expect(submitWith(null)).toBe(true);
     expect(saved).toBe(1);
   });
 
@@ -743,6 +774,94 @@ describe('#171: 「なし」で止まった LC の欄を押すと「なし」を
     ]);
     expect(unlockKeyOf({ key: 'a', metaKey: true })).toBeNull();
     expect(unlockKeyOf({ key: '.' })).toBe('type');
+  });
+
+  it('#172 と合わせて: 止まった LC の Enter は「なし」を外してその場に残り（一言へ移らない）、外れた後の Enter は一言へ。変換中はどちらもしない', () => {
+    const got: unknown[] = [];
+    const focused: string[] = [];
+    const doc = {
+      getElementById: (id: string) =>
+        id === 'record-broken'
+          ? {
+              focus: () => {
+                focused.push(id);
+              },
+            }
+          : null,
+    };
+    const press = (lc: El, el: { readOnly: boolean }, over: Record<string, unknown> = {}) => {
+      let prevented = false;
+      (lc.props.onKeyDown as (e: unknown) => void)({
+        key: 'Enter',
+        keyCode: 13,
+        isComposing: false,
+        currentTarget: { ...el, ownerDocument: doc, blur() {}, focus() {} },
+        preventDefault: () => {
+          prevented = true;
+        },
+        ...over,
+      });
+      return prevented;
+    };
+    // 止まっている: 外す（#171）。一言へは移らない
+    const locked = lcOf(view(stateFor(E16, NO_CAPITAL), { onUpdate: (a) => got.push(a) }));
+    expect(locked.props.enterKeyHint).toBe('next');
+    expect(press(locked, { readOnly: true })).toBe(true);
+    expect(got).toEqual([{ type: 'set', field: 'lcNone', value: false }]);
+    expect(focused).toEqual([]);
+    // 外れた後（同じ欄で readOnly が外れた）: 一言へ（#172）
+    got.length = 0;
+    expect(press(locked, { readOnly: false })).toBe(true);
+    expect(got).toEqual([]);
+    expect(focused).toEqual(['record-broken']);
+    // 止まっていない LC の欄: 一言へ
+    focused.length = 0;
+    const open = lcOf(view(stateFor(E1, NO_CAPITAL), { onUpdate: (a) => got.push(a) }));
+    expect(press(open, { readOnly: false })).toBe(true);
+    expect(focused).toEqual(['record-broken']);
+    // 変換中（isComposing・keyCode 229）は、止まっていても止まっていなくても何もしない（送信も止めない）
+    focused.length = 0;
+    for (const over of [{ isComposing: true }, { keyCode: 229 }]) {
+      expect(press(locked, { readOnly: true }, over)).toBe(false);
+      expect(press(open, { readOnly: false }, over)).toBe(false);
+    }
+    expect(got).toEqual([]);
+    expect(focused).toEqual([]);
+    // 振り分けの純関数
+    expect(numberFieldKeyOf({ key: 'Enter' }, { locked: true, onEnter: true })).toBe('press');
+    expect(numberFieldKeyOf({ key: 'Enter' }, { locked: false, onEnter: true })).toBe('enter');
+    expect(numberFieldKeyOf({ key: 'Enter' }, { locked: false, onEnter: false })).toBeNull();
+    expect(numberFieldKeyOf({ key: '9' }, { locked: false, onEnter: true })).toBeNull();
+    expect(unlockKeyOf({ key: 'Enter', keyCode: 229 })).toBeNull();
+  });
+
+  it('#172: 一言の欄は「完了」。決定キーでフォーカスを外し（送信しない）、変換の確定では外さない', () => {
+    const tree = view(stateFor(E1, NO_CAPITAL));
+    const broken = all(tree, (e) => e.type === 'input' && e.props.id === 'record-broken')[0] as El;
+    expect(broken.props.enterKeyHint).toBe('done');
+    const press = (over: Record<string, unknown> = {}) => {
+      let prevented = false;
+      let blurred = 0;
+      (broken.props.onKeyDown as (e: unknown) => void)({
+        key: 'Enter',
+        keyCode: 13,
+        isComposing: false,
+        currentTarget: {
+          blur: () => {
+            blurred++;
+          },
+        },
+        preventDefault: () => {
+          prevented = true;
+        },
+        ...over,
+      });
+      return { prevented, blurred };
+    };
+    expect(press()).toEqual({ prevented: true, blurred: 1 });
+    expect(press({ isComposing: true })).toEqual({ prevented: false, blurred: 0 });
+    expect(press({ keyCode: 229 })).toEqual({ prevented: false, blurred: 0 });
+    expect(press({ key: 'a' })).toEqual({ prevented: false, blurred: 0 });
   });
 
   it('［なし］ のトグルは今のまま（押した状態・押すと外す）', () => {

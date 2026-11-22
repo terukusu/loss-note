@@ -7,6 +7,8 @@
 // - 危ない勝ち（運）は両方の曲線にそのまま入れ、件数と R の合計を別に出す
 // - 曲線の並びは決済の古い順 → 作った古い順 → ID の降順（一覧の並び = API の trade_sort_key のちょうど逆）
 // 累積は途中で丸めない（丸めは表示だけ）
+// 心理のタグごとの行（reviewByEmotion。#162）は、タグごとの部分集合に reviewPeriod を当てる（定義を二重に持たない）
+import { CALM, EMOTION_TAG_IDS, type EmotionTagId } from './emotion-tags';
 import type { Grade } from './judge';
 import { TOL } from './numeric';
 
@@ -20,6 +22,8 @@ export interface ReviewItem {
   readonly r?: number;
   /** 取り込んだ取引（record.source === 'import'） */
   readonly imported: boolean;
+  /** 心理のタグ（付いている取引だけ。一覧の順・重複なし = normalizeEmotions の後。#162） */
+  readonly emotions?: readonly EmotionTagId[];
 }
 
 /** 判定の内訳の鍵（判定 + 判定なし） */
@@ -131,6 +135,73 @@ export function reviewPeriod(
     cost,
     luck: { count: luckCount, r: luckR },
     noR,
+  };
+}
+
+/** 心理のタグ 1 つの行（#162） */
+export interface EmotionRow {
+  readonly id: EmotionTagId;
+  /** そのタグが付いた取引だけの期間の集計（total = 行の件数） */
+  readonly review: PeriodReview;
+}
+
+export interface EmotionReview {
+  /** 集計の対象の件数（取り込みを外した後。reviewPeriod の total と同じ） */
+  readonly total: number;
+  /** 対象のうちタグが 1 つ以上付いた件数（見出しの「記入」） */
+  readonly tagged: number;
+  /** 外した取り込みの件数（含めるなら 0） */
+  readonly excludedImports: number;
+  /** 2 つ以上のタグが付いた取引がある（行の件数の和が tagged より多くなる） */
+  readonly overlap: boolean;
+  /** 平常心 → 件数の多い順 → 一覧（C55）の順。0 件のタグは無い */
+  readonly rows: readonly EmotionRow[];
+}
+
+const EMOTION_ORDER: ReadonlyMap<EmotionTagId, number> = new Map(
+  EMOTION_TAG_IDS.map((id, i) => [id, i]),
+);
+
+/**
+ * 心理のタグごとの規律の集計（Issue #162・設計書 6.1・9.4）。対象は reviewPeriod と同じ（取り込みは includeImports のときだけ）。
+ * タグごとに、そのタグが付いた取引を 1 件ずつ数える（2 つ以上のタグの取引は付いたタグすべての行に入る。重みで割らない）。
+ * 行の値は、その部分集合への reviewPeriod（計画どおり率・5 件未満の null・規律コストの定義をそのまま使う）
+ */
+export function reviewByEmotion(
+  items: readonly ReviewItem[],
+  opts: { readonly includeImports: boolean },
+): EmotionReview {
+  const target = opts.includeImports ? items : items.filter((i) => !i.imported);
+  const byTag = new Map<EmotionTagId, ReviewItem[]>();
+  let tagged = 0;
+  let overlap = false;
+  for (const i of target) {
+    const tags = new Set(i.emotions ?? []);
+    if (tags.size === 0) continue;
+    tagged += 1;
+    if (tags.size > 1) overlap = true;
+    for (const t of tags) {
+      const list = byTag.get(t);
+      if (list) list.push(i);
+      else byTag.set(t, [i]);
+    }
+  }
+  const rows: EmotionRow[] = [...byTag].map(([id, list]) => ({
+    id,
+    review: reviewPeriod(list, { includeImports: true }),
+  }));
+  rows.sort(
+    (a, b) =>
+      Number(b.id === CALM) - Number(a.id === CALM) ||
+      b.review.total - a.review.total ||
+      (EMOTION_ORDER.get(a.id) ?? 0) - (EMOTION_ORDER.get(b.id) ?? 0),
+  );
+  return {
+    total: target.length,
+    tagged,
+    excludedImports: opts.includeImports ? 0 : items.length - target.length,
+    overlap,
+    rows,
   };
 }
 

@@ -3,7 +3,7 @@
 // - 日の境目は端末の時間帯の暦日（new Date(年, 月, 日) のローカルの 0 時）。決済の時刻で数える
 // - 1 日 = 今日。7 日 = 今日を含む 7 暦日。1 か月 / 3 か月 = 1 / 3 か月前の同じ日の翌日から（その日が無ければ末日の翌日から）。
 //   任意 = 開始日の 0 時から終了日の翌日の 0 時まで（開始日 ≦ 終了日、長さ 366 日まで）。終了は含まない
-// - 選んだ期間は URL の検索部分（?period=1d|7d|1m|3m、任意は &from=YYYY-MM-DD&to=YYYY-MM-DD、取り込みを含めるは &imports=1）。
+// - 選んだ期間は URL の検索部分（?period=1d|7d|1m|3m、任意は &from=YYYY-MM-DD&to=YYYY-MM-DD、取り込みを含めるは &imports=1、振り返りの気づきのセグメントは &view=insight。#162）。
 //   無い・読めないときは 7 日。端末には保存しない（P6）
 
 import { formatDayRange } from './format';
@@ -232,9 +232,21 @@ export function periodActions(
   };
 }
 
-/** 選択 → 振り返りのタブの URL（パス + 検索部分） */
-export function reviewHref(sel: PeriodSelection): string {
-  return `/review${periodSearch(sel)}`;
+/** 振り返りのタブの上のセグメント（規律 / 気づき。#162・設計書 9.2）。期間は 2 つで共通 */
+export type ReviewViewKey = 'discipline' | 'insight';
+export const REVIEW_VIEW_LABEL: Readonly<Record<ReviewViewKey, string>> = {
+  discipline: '規律',
+  insight: '気づき',
+};
+
+/** URL の検索部分 → セグメント（`&view=insight` のときだけ気づき。ほかは規律） */
+export function parseReviewView(search: string): ReviewViewKey {
+  return new URLSearchParams(search).get('view') === 'insight' ? 'insight' : 'discipline';
+}
+
+/** 選択 → 振り返りのタブの URL（パス + 検索部分）。気づきは末尾に `&view=insight`（規律は鍵なし = 今までの URL） */
+export function reviewHref(sel: PeriodSelection, view: ReviewViewKey = 'discipline'): string {
+  return `/review${periodSearch(sel)}${view === 'insight' ? '&view=insight' : ''}`;
 }
 
 /** 選択 → 「数で見る」（振り返りの次の画面。#128）の URL。振り返りのタブと同じ検索部分 */

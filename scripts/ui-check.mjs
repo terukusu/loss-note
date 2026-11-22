@@ -622,6 +622,69 @@ const REVIEW_BIG = [
   ...REVIEW_S1,
   reviewTrade(6, 'rv-big', 96, { lcMove: { kind: 'widened', after: 95.5 } }),
 ];
+/**
+ * 振り返りの気づき（#162）の心理ごとの集計の取引（架空の値。Issue の例 E1 の形）: 平常心 5 件（A 3・計画どおりの勝ち 2）、
+ * 取り戻したい 5 件（B 3・危ない勝ち 1・C 1）、ほかは 1〜2 件（件数が少ない行。長めの名前も入れる）、タグなし 1 件
+ */
+const withTags = (t, tags) => ({ ...t, emotionTags: tags });
+const REVIEW_INSIGHT = [
+  withTags(reviewTrade(0, 'rvi-1', 99.5), ['calm']),
+  withTags(reviewTrade(0, 'rvi-2', 99.55), ['calm']),
+  withTags(reviewTrade(1, 'rvi-3', 101), ['calm']),
+  withTags(reviewTrade(1, 'rvi-4', 99.5), ['calm']),
+  withTags(reviewTrade(2, 'rvi-5', 100.75), ['calm']),
+  withTags(reviewTrade(2, 'rvi-6', 99.2, { lcMove: { kind: 'widened', after: 99.2 } }), [
+    'wantPosition',
+    'recoup',
+  ]),
+  withTags(reviewTrade(3, 'rvi-7', 99, { lcMove: { kind: 'widened', after: 99 } }), ['recoup']),
+  withTags(reviewTrade(3, 'rvi-8', 100.5, { timeframeChange: 'longer' }), [
+    'overconfident',
+    'recoup',
+  ]),
+  withTags(reviewTrade(4, 'rvi-9', 99, { lc: undefined, lcDecidedBeforeEntry: false }), [
+    'recoup',
+    'cantCut',
+  ]),
+  reviewTrade(4, 'rvi-10', 99.5),
+  withTags(reviewTrade(5, 'rvi-11', 99.4, { lcMove: { kind: 'widened', after: 99.4 } }), [
+    'fomo',
+    'recoup',
+    'confirmation',
+  ]),
+  withTags(reviewTrade(6, 'rvi-12', 99.5), ['lossAversion']),
+  withTags(reviewTrade(6, 'rvi-13', 100.6), ['lossAversion']),
+];
+/**
+ * 名前の長い心理が値の出る行になる期間（#162 のデザインレビュー）: 乗り遅れ怖い 5 件（B 2・A 3）・都合よく解釈 5 件（A 4・C 1）と、
+ * 件数の少ない平常心 2 件（平常心は件数が少なくても基準の場所に出る）
+ */
+const REVIEW_INSIGHT_LONG = [
+  ...[0, 1, 2, 3, 4].map((i) =>
+    withTags(
+      reviewTrade(
+        i,
+        `rvl-f${i}`,
+        i < 2 ? 99.2 : 99.5,
+        i < 2 ? { lcMove: { kind: 'widened', after: 99.2 } } : {},
+      ),
+      ['fomo'],
+    ),
+  ),
+  ...[0, 1, 2, 3, 4].map((i) =>
+    withTags(
+      reviewTrade(
+        i,
+        `rvl-c${i}`,
+        99.5,
+        i === 4 ? { lc: undefined, lcDecidedBeforeEntry: false } : {},
+      ),
+      ['confirmation'],
+    ),
+  ),
+  withTags(reviewTrade(5, 'rvl-k1', 101), ['calm']),
+  withTags(reviewTrade(6, 'rvl-k2', 99.5), ['calm']),
+];
 /** 取引の多い期間（合成 120 件。決済は今日から 0〜84 日前。10 件に 1 件が LC を広げた −1.5R の B） */
 const REVIEW_MANY = Array.from({ length: 120 }, (_, i) => {
   const daysAgo = Math.floor((119 - i) * 0.7);
@@ -4525,6 +4588,15 @@ async function main() {
               'review-imports-on',
             ],
             ['/review?period=7d', REVIEW_IMPORTS, '.review__toggle', 'review-imports-only'],
+            // 気づき（#162）: 心理ごとの集計（件数が十分な行・件数が少ない行・平常心）と、心理の付いた取引が無い期間
+            ['/review?period=7d&view=insight', REVIEW_INSIGHT, '.insight__row', 'review-insight'],
+            ['/review?period=7d&view=insight', REVIEW_S1, '.insight', 'review-insight-none'],
+            [
+              '/review?period=7d&view=insight',
+              REVIEW_INSIGHT_LONG,
+              '.insight__row',
+              'review-insight-long',
+            ],
             ['/review/table?period=7d', REVIEW_S1, '.review__table table', 'review-table'],
             ['/review/table?period=7d', [], '.review__empty', 'review-table-empty'],
             ['/review?period=7d', REVIEW_S1, '.review .notice--error', 'review-failed', null, 503],

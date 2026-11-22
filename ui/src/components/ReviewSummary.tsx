@@ -1,13 +1,20 @@
 // 振り返りのタブ（`/review`）の規律の振り返り（Issue #88 契約 U-1。#128 でホームから移して作り直した。設計書 6.1・6.2・6.3・
 // 9.2 の振り返りの行・C44・ui-guidelines 9.3・9.11）。hook を持たない。
-// 縦の順は 期間（上に貼り付く）→ 範囲と件数（・取り込みの切り替え）→ 1 枚目（一言の見出し = 規律コスト・守っていれば · 実際 →
+// 縦の順は 規律 / 気づき のセグメント（#162。気づきは本文だけ InsightCard に替える）→ 期間（上に貼り付く）→ 範囲と件数（・取り込みの切り替え）→ 1 枚目（一言の見出し = 規律コスト・守っていれば · 実際 →
 // 規律コストの曲線と凡例）→ 2 枚目（計画どおり率の主役の数字・判定の内訳の帯と凡例・運と R が出ない件数）→「数で見る ›」
 // （次の画面 `/review/table`。表）。指定の日付の欄と取り込みの切り替えは、期間のシート（U3（#129） の下のシート）ができるまで期間の下。
 // 成績は R だけ（円を出さない）。R・% は無色の .num（P3）。色は判定の段（内訳の帯・凡例の記号・差の面・崩れの印）と文字・線だけ（P2）。
 // 図（内訳の帯・曲線）は読み上げから外し、同じ中身を文字（見出しの文・凡例・「数で見る」の表）で読ませる（P5）。
 // 表示の形（model）は hook の層が作って渡す（描画のたびに集計しない。読み終えた範囲が今の期間と違えば null = 読み込み中）
 import { splitUnit } from '../lib/home-view';
-import type { PeriodKey, PeriodRange, PeriodSelection } from '../lib/period';
+import type { InsightModel } from '../lib/insight-view';
+import {
+  type PeriodKey,
+  type PeriodRange,
+  type PeriodSelection,
+  REVIEW_VIEW_LABEL,
+  type ReviewViewKey,
+} from '../lib/period';
 import type { ReviewState } from '../lib/review-controller';
 import { NO_CURVE, type ReviewModel, ROWS_CAPTION } from '../lib/review-view';
 import '../styles/review.css';
@@ -16,7 +23,9 @@ import { Button, RowLink } from './Button';
 import { CurveLegend, DisciplineCurve } from './DisciplineCurve';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
+import { InsightCard } from './InsightCard';
 import { PeriodDates, PeriodSegment } from './PeriodPicker';
+import { Segment } from './Segment';
 
 export interface ReviewSlot {
   readonly selection: PeriodSelection;
@@ -36,7 +45,20 @@ export interface ReviewSlot {
   readonly onImports: (include: boolean) => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
+  /** 上のセグメント（規律 / 気づき。#162）。無ければ規律 */
+  readonly view?: ReviewViewKey;
+  /** 気づきの表示の形（`insightModelFor`。気づきを開いているときだけ作る。読み込み中は null） */
+  readonly insight?: InsightModel | null;
+  /** 期間を切り替えて読んでいる間に残す前の期間の気づき（previous と同じ扱い） */
+  readonly previousInsight?: InsightModel | null;
+  /** セグメントを替えた（URL を置き換える。期間はそのまま）。無ければセグメントを出さない（振り返りのタブの hook は必ず渡す） */
+  readonly onView?: (view: ReviewViewKey) => void;
 }
+
+const VIEW_OPTIONS = (['discipline', 'insight'] as const).map((v) => ({
+  value: v,
+  label: REVIEW_VIEW_LABEL[v],
+}));
 
 /** 見出しの前の記号（差あり = 崩れの △、差 0 = 計画どおりの ○、差 0 だが曲線の外の取引あり = 極悪の ×） */
 const HEADLINE_SYMBOL = { gap: 'triangle', none: 'circle', measured: 'cross' } as const;
@@ -63,6 +85,19 @@ export function ReviewSection(p: ReviewSlot) {
   const m = p.model;
   return (
     <div class="review">
+      {/* 規律 / 気づき（#162。設計書 9.2）。流れる（貼り付くのは期間の行だけ）。期間・取り込みの切り替えは 2 つで共通 */}
+      {p.onView ? (
+        <div class="review__view">
+          <Segment
+            label="表示"
+            name="review-view"
+            showLabel={false}
+            options={VIEW_OPTIONS}
+            value={p.view ?? 'discipline'}
+            onChange={p.onView}
+          />
+        </div>
+      ) : null}
       {/* 貼り付くのは 5 つの選択肢の行だけ。指定の日付の欄は流れる（デザイン a5） */}
       <div class="review__period-bar">
         <PeriodSegment
@@ -138,8 +173,11 @@ function ReviewBody(p: ReviewSlot) {
       </section>
     );
   }
-  const loading = s.phase === 'loading' || !p.model;
-  const shown = loading ? (p.previous ?? null) : p.model;
+  const insight = p.view === 'insight';
+  const current = insight ? (p.insight ?? null) : p.model;
+  const loading = s.phase === 'loading' || !current;
+  const prev = insight ? (p.previousInsight ?? null) : (p.previous ?? null);
+  const shown = loading ? prev : current;
   if (loading && (!shown || shown.empty)) {
     // 最初の読み込み: 中身の形の高さを先に取る骨組み（読み終えて中身が出てもカードの高さが大きく跳ばない）
     return (
@@ -159,16 +197,22 @@ function ReviewBody(p: ReviewSlot) {
           読み込んでいます…
         </p>
         <div class="review__cards" aria-hidden="true" inert>
-          <ReviewContent {...p} m={shown} />
+          <ViewContent {...p} shown={shown} />
         </div>
       </div>
     );
   }
   return (
     <div class="review__cards">
-      <ReviewContent {...p} m={shown} />
+      <ViewContent {...p} shown={shown} />
     </div>
   );
+}
+
+/** 開いているセグメントの中身（規律 = 2 枚のカード、気づき = 心理ごとの集計のカード） */
+function ViewContent(p: ReviewSlot & { readonly shown: ReviewModel | InsightModel }) {
+  if (p.view === 'insight') return <InsightCard m={p.shown as InsightModel} />;
+  return <ReviewContent {...p} m={p.shown as ReviewModel} />;
 }
 
 function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {

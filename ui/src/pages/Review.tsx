@@ -1,6 +1,7 @@
 // 振り返りのタブ（タブ 3。`/review`。#128 = U2。設計書 9.2 の振り返りの行・ui-guidelines 9.3・9.11）と、次の画面
 // 「数で見る」（`/review/table`）。規律の振り返り（#88・C44）をホームから移して作り直した: 期間（上に貼り付く）→ 範囲と件数 →
-// 1 枚目（規律コストの見出しと曲線）→ 2 枚目（計画どおり率と内訳）→「数で見る ›」。期間は URL の検索部分（置き換え。履歴を積まない。
+// 1 枚目（規律コストの見出しと曲線）→ 2 枚目（計画どおり率と内訳）→「数で見る ›」。上のセグメント 規律 / 気づき（#162）の気づきは
+// 心理ごとの集計（`&view=insight`。期間・取り込みは共通）。期間は URL の検索部分（置き換え。履歴を積まない。
 // `/review?period=…`）で、「数で見る」も同じ検索部分（`/review/table?period=…`。戻ると同じ期間の振り返り）。
 // 銘柄の値と消した印は、直近の取引と同じ読み込み（決済の新しい順の先頭 10 件）から取る（#88 のまま）。
 // 3 層: 純関数（lib/period.ts・lib/review-view.ts）→ 通信と状態（lib/review-controller.ts）→ hook を持たない View
@@ -12,11 +13,14 @@ import { type BackTarget, TopBar } from '../components/AppBar';
 import { EmptyState } from '../components/EmptyState';
 import { PageHeader } from '../components/PageHeader';
 import { ReviewSection, type ReviewSlot, ReviewTable } from '../components/ReviewSummary';
+import { type InsightModel, insightModelFor } from '../lib/insight-view';
 import {
   type PeriodSelection,
   parsePeriod,
+  parseReviewView,
   periodActions,
   periodRange,
+  type ReviewViewKey,
   reviewHref,
   reviewTableHref,
 } from '../lib/period';
@@ -44,11 +48,13 @@ function useSearch(nav: Navigator | null): string {
 export function useReview(
   instruments: readonly InstrumentRecord[],
   hidden: ReadonlySet<string>,
-  hrefOf: (sel: PeriodSelection) => string = reviewHref,
+  hrefOf: (sel: PeriodSelection, view: ReviewViewKey) => string = reviewHref,
 ): ReviewSlot {
   const nav = useContext(NavigatorContext);
   const search = useSearch(nav);
   const selection = useMemo(() => parsePeriod(search), [search]);
+  // 規律 / 気づき（#162）。期間の操作は今のセグメントを保った URL へ置き換える（期間は 2 つで共通）
+  const view = useMemo(() => parseReviewView(search), [search]);
   // 「今」は期間を変えるたびに読み直す（開いたまま日をまたいでも、次の操作で今日に合う）
   const now = useMemo(() => Date.now(), [search]);
   const range = useMemo(() => periodRange(selection, now), [selection, now]);
@@ -88,14 +94,30 @@ export function useReview(
   // 期間を切り替えて読んでいる間は、前の期間の表示を薄く残す（カードの高さを跳ばさない）
   const last = useRef<ReviewModel | null>(null);
   if (model) last.current = model;
+  // 気づきの表示の形は気づきを開いているときだけ作る（規律と同じ対象・同じ読み込み。#162）
+  const insight = useMemo(
+    () =>
+      view === 'insight'
+        ? insightModelFor(state, range, { hidden, includeImports: selection.imports })
+        : null,
+    [view, state, range, hidden, selection.imports],
+  );
+  const lastInsight = useRef<InsightModel | null>(null);
+  if (insight) lastInsight.current = insight;
   return {
     selection,
     range,
     state,
     model,
     previous: model ? null : last.current,
+    view,
+    insight,
+    previousInsight: insight ? null : lastInsight.current,
+    onView: (next) => {
+      if (next !== view) nav?.replace(reviewHref(selection, next));
+    },
     tableHref: reviewTableHref(selection),
-    ...periodActions(selection, Date.now, (next) => nav?.replace(hrefOf(next))),
+    ...periodActions(selection, Date.now, (next) => nav?.replace(hrefOf(next, view))),
     onReload: () => {
       void controller.reload();
     },

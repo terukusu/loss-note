@@ -602,3 +602,200 @@
     grid-template-rows: 250px auto;
   }
 }
+
+/* 規律 / 気づき のセグメント（#162。設計書 9.2）。流れる（貼り付くのは期間の行だけ）。見る中身の切り替えは期間より軽い見た目
+   （文字を小さく。枠は入力の部品の 3:1 を保つので消さない。当たりは 44px のまま）にして、2 つの段の上下を分ける（#162 デザインレビュー 6） */
+.review__view {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--sp-1);
+}
+
+.review__view .seg__item {
+  font-size: var(--fs-sm);
+}
+
+/* 気づきの心理ごとの集計（#162）。行は押せない。区切りは 1 辺の線（カードの中に内枠を作らない）。色・棒は付けない（C34） */
+.insight {
+  container-type: inline-size;
+}
+
+.insight__table {
+  display: flex;
+  flex-direction: column;
+  /* 広い形で名前と値が離れすぎない（目で行をたどれる幅） */
+  max-width: 36rem;
+}
+
+/* 値の行と列の見出しは同じ格子（狭い = 2 段: 名前と件数 / 率（左）・規律コスト（右）） */
+.insight__cols,
+.insight__cells {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "name name"
+    "rate cost";
+  align-items: baseline;
+  gap: var(--sp-1) var(--sp-3);
+}
+
+.insight__cols {
+  grid-template-areas: "rate cost";
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.insight__colname {
+  display: none;
+}
+
+.insight__colrate,
+.insight__colcost {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
+}
+
+.insight__colrate {
+  grid-area: rate;
+}
+
+.insight__colcost {
+  grid-area: cost;
+  justify-self: end;
+}
+
+@container (min-width: 30em) {
+  /* 広い = 名前 | 率 | 規律コスト の 3 列。列の位置はどの行も同じ（縦に比べられる） */
+  .insight__cols,
+  .insight__cells {
+    grid-template-columns: minmax(0, 1fr) 9em 13em;
+    grid-template-areas: "name rate cost";
+  }
+
+  .insight__colname {
+    display: block;
+    grid-area: name;
+  }
+
+  .insight__colrate,
+  .insight__rate {
+    justify-self: end;
+  }
+}
+
+.insight__rows {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insight__row {
+  padding: var(--sp-3) 0;
+  border-top: 1px solid var(--line);
+}
+
+.insight__row:first-child {
+  border-top: none;
+}
+
+/* 平常心 = 比べる基準: 下の区切りを太くして、ほかの心理の行と分ける */
+.insight__row--base + .insight__row {
+  border-top: 2px solid var(--line-2);
+}
+
+.insight__name {
+  grid-area: name;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-2);
+  min-width: 0;
+}
+
+.insight__tag {
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+.insight__base {
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+
+.insight__count {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.insight__rate,
+.insight__cost {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-md);
+  white-space: nowrap;
+}
+
+.insight__rate {
+  grid-area: rate;
+}
+
+.insight__cost {
+  grid-area: cost;
+  justify-self: end;
+}
+
+.insight__sub,
+.insight__missing {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+/* 件数が少ない行のまとまり: 見出し 1 回 + 名前と件数を詰めて折り返す（値のある行より軽く） */
+.insight__fewbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+.insight__few {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.insight__fewrow {
+  white-space: nowrap;
+}
+
+.insight__fewname {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.insight__none {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.insight__none > div {
+  margin-top: var(--sp-2);
+}

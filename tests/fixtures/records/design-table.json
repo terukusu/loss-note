@@ -2037,5 +2037,229 @@
       "capitalYen": 1000000,
       "riskTolerancePct": 1
     }
+  },
+  {
+    "scene": "33",
+    "index": 0,
+    "record": {
+      "status": "closed",
+      "source": "manual",
+      "instrumentId": "INSTRUMENT",
+      "side": "L",
+      "lc": 99.5,
+      "lcBasis": "chart",
+      "stopOrderPlaced": "unanswered",
+      "lcDecidedBeforeEntry": true,
+      "lcMove": {
+        "kind": "cancelled"
+      },
+      "timeframeChange": "none",
+      "entries": [
+        {
+          "price": 100,
+          "quantity": 10000
+        }
+      ],
+      "exit": {
+        "time": 1700000000000,
+        "price": 99.1,
+        "orderType": "market",
+        "reason": "other",
+        "gapSlip": "unanswered"
+      },
+      "fees": []
+    },
+    "instrument": {
+      "name": "scene-33-0",
+      "underlyingKind": "index",
+      "productForm": "spotCfd",
+      "priceCurrency": "JPY",
+      "multiplier": 1,
+      "quantityStep": 1
+    },
+    "settings": {
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1,
+      "performanceUnit": "R"
+    },
+    "snapshot": {
+      "instrument": {
+        "multiplier": 1,
+        "quantityStep": 1,
+        "priceCurrency": "JPY",
+        "underlyingKind": "index",
+        "productForm": "spotCfd"
+      },
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1
+    }
+  },
+  {
+    "scene": "34",
+    "index": 0,
+    "record": {
+      "status": "closed",
+      "source": "manual",
+      "instrumentId": "INSTRUMENT",
+      "side": "L",
+      "lc": 99.5,
+      "lcBasis": "chart",
+      "stopOrderPlaced": "unanswered",
+      "lcDecidedBeforeEntry": true,
+      "lcMove": {
+        "kind": "cancelled"
+      },
+      "timeframeChange": "none",
+      "entries": [
+        {
+          "price": 100,
+          "quantity": 10000
+        }
+      ],
+      "exit": {
+        "time": 1700000000000,
+        "price": 99.5,
+        "orderType": "unknown",
+        "reason": "brokeManual",
+        "gapSlip": "unanswered"
+      },
+      "fees": []
+    },
+    "instrument": {
+      "name": "scene-34-0",
+      "underlyingKind": "index",
+      "productForm": "spotCfd",
+      "priceCurrency": "JPY",
+      "multiplier": 1,
+      "quantityStep": 1
+    },
+    "settings": {
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1,
+      "performanceUnit": "R"
+    },
+    "snapshot": {
+      "instrument": {
+        "multiplier": 1,
+        "quantityStep": 1,
+        "priceCurrency": "JPY",
+        "underlyingKind": "index",
+        "productForm": "spotCfd"
+      },
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1
+    }
+  },
+  {
+    "scene": "35",
+    "index": 0,
+    "record": {
+      "status": "closed",
+      "source": "manual",
+      "instrumentId": "INSTRUMENT",
+      "side": "L",
+      "lc": 99.5,
+      "lcBasis": "chart",
+      "stopOrderPlaced": "unanswered",
+      "lcDecidedBeforeEntry": true,
+      "lcMove": {
+        "kind": "cancelled"
+      },
+      "timeframeChange": "none",
+      "entries": [
+        {
+          "price": 100,
+          "quantity": 10000
+        }
+      ],
+      "exit": {
+        "time": 1700000000000,
+        "price": 100.4,
+        "orderType": "unknown",
+        "reason": "tp",
+        "gapSlip": "unanswered"
+      },
+      "fees": []
+    },
+    "instrument": {
+      "name": "scene-35-0",
+      "underlyingKind": "index",
+      "productForm": "spotCfd",
+      "priceCurrency": "JPY",
+      "multiplier": 1,
+      "quantityStep": 1
+    },
+    "settings": {
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1,
+      "performanceUnit": "R"
+    },
+    "snapshot": {
+      "instrument": {
+        "multiplier": 1,
+        "quantityStep": 1,
+        "priceCurrency": "JPY",
+        "underlyingKind": "index",
+        "productForm": "spotCfd"
+      },
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1
+    }
+  },
+  {
+    "scene": "36",
+    "index": 0,
+    "record": {
+      "status": "closed",
+      "source": "manual",
+      "instrumentId": "INSTRUMENT",
+      "side": "L",
+      "lc": 99.5,
+      "lcBasis": "chart",
+      "stopOrderPlaced": "unanswered",
+      "lcDecidedBeforeEntry": true,
+      "lcMove": {
+        "kind": "none"
+      },
+      "timeframeChange": "none",
+      "entries": [
+        {
+          "price": 100,
+          "quantity": 10000
+        }
+      ],
+      "exit": {
+        "time": 1700000000000,
+        "price": 99.5,
+        "orderType": "market",
+        "reason": "lc",
+        "gapSlip": "unanswered"
+      },
+      "fees": []
+    },
+    "instrument": {
+      "name": "scene-36-0",
+      "underlyingKind": "index",
+      "productForm": "spotCfd",
+      "priceCurrency": "JPY",
+      "multiplier": 1,
+      "quantityStep": 1
+    },
+    "settings": {
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1,
+      "performanceUnit": "R"
+    },
+    "snapshot": {
+      "instrument": {
+        "multiplier": 1,
+        "quantityStep": 1,
+        "priceCurrency": "JPY",
+        "underlyingKind": "index",
+        "productForm": "spotCfd"
+      },
+      "capitalYen": 1000000,
+      "riskTolerancePct": 1
+    }
   }
 ]

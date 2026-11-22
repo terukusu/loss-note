@@ -10,6 +10,7 @@ import {
   EMPTY_DRAFT,
   parseNum,
   readDraft,
+  stopOrderPlacedOf,
 } from '../../ui/src/lib/record-form';
 import {
   fillFromRow,
@@ -158,6 +159,14 @@ describe('parseReadResponse（応答の形を画面の側でも確かめる）',
 });
 
 describe('fillFromRow', () => {
+  it('#165: 読み取りの前に押した逆指値の未設定（本人の答え）は、明細の逆指値の行でも消えず本文は notPlaced', () => {
+    const before = applyDraft(OPENED, { type: 'set', field: 'stopNotPlaced', value: true });
+    const f = fillFromRow(before, { ...ROW_E1, exitOrderType: 'stop' }, NONE);
+    expect(f.draft.stopNotPlaced).toBe(true);
+    expect(f.draft.stopOrderPlaced).toBe('placed');
+    expect(stopOrderPlacedOf(f.draft)).toBe('notPlaced');
+  });
+
   it('E1: 9 欄に応答の値と「読み取り」の印。既定（架空指数B・数量 1・開いた時刻）を置き換える。出どころ = 明細', () => {
     const f = fillFromRow(OPENED, ROW_E1, NONE);
     expect(f.draft).toMatchObject({

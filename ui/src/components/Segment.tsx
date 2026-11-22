@@ -10,6 +10,8 @@ export interface SegmentOption<V extends string> {
   readonly value: V;
   readonly label: string;
   readonly icon?: IconName;
+  /** 選べない項目（理由は部品の下の 1 行で言い、describedBy で結ぶ。#165 の「取消」） */
+  readonly disabled?: boolean;
 }
 
 export interface SegmentProps<V extends string> {
@@ -87,7 +89,13 @@ export function Segment<V extends string>(p: SegmentProps<V>) {
         {p.options.map((o, i) => (
           <label
             key={o.value}
-            class={fit && i === p.grow ? 'seg__item seg__item--grow' : 'seg__item'}
+            class={[
+              'seg__item',
+              fit && i === p.grow ? 'seg__item--grow' : '',
+              o.disabled ? 'seg__item--off' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             title={p.truncate ? o.label : undefined}
           >
             <input
@@ -96,6 +104,7 @@ export function Segment<V extends string>(p: SegmentProps<V>) {
               name={name}
               value={o.value}
               checked={o.value === p.value}
+              disabled={o.disabled === true}
               onChange={() => p.onChange(o.value)}
             />
             {o.value === p.value ? (

@@ -89,8 +89,13 @@ export interface Draft {
   readonly source: Extract<RecordSource, 'manual' | 'statement'>;
   /** 決済の注文の種類（明細の証拠だけ。手では選ばない。C26） */
   readonly exitOrderType: ExitOrderType;
-  /** 逆指値を入れたか（明細で逆指値と読めたときだけ placed） */
+  /**
+   * 逆指値を入れたか（明細の証拠。明細で逆指値と読めたときだけ placed）。本人の答え（未設定）は stopNotPlaced に分けて持ち、
+   * 明細の流し込み・削除・読み直しがこの欄を書き換えても本人の答えを消さない。本文の値は stopOrderPlacedOf で決める（C56）
+   */
   readonly stopOrderPlaced: StopOrderPlaced;
+  /** 逆指値を置いていなかった（LC の欄の行の切り替え「逆指値 未設定」。任意・判定に効かない。C56・#165） */
+  readonly stopNotPlaced: boolean;
   /** チャートの時間足（任意。チャートのある枠でだけ選べ、本文に入る。#12） */
   readonly entryChartTimeframe: Timeframe | null;
   readonly exitChartTimeframe: Timeframe | null;
@@ -138,6 +143,7 @@ export const EMPTY_DRAFT: Draft = {
   source: 'manual',
   exitOrderType: 'unknown',
   stopOrderPlaced: 'unanswered',
+  stopNotPlaced: false,
   entryChartTimeframe: null,
   exitChartTimeframe: null,
   accountId: '',
@@ -165,6 +171,10 @@ export function applyDraft(draft: Draft, action: DraftAction): Draft {
       ? { ...draft, ...action.values }
       : ({ ...draft, [action.field]: action.value } as Draft);
   const touched = action.type === 'fill' ? action.values : { [action.field]: action.value };
+  // 取り消した（置いた逆指値を外した）と未設定（置いていなかった）は同時に持たない（C56・#165 の R4）
+  if (touched.lcMove === 'cancelled') return { ...next, stopNotPlaced: false };
+  if (touched.stopNotPlaced === true && next.lcMove === 'cancelled')
+    return { ...next, lcMove: null };
   if (touched.lcNone === true) return { ...next, lc: '', lcAfter: '', lcMaxLoss: false };
   if (touched.lcMaxLoss === true) return { ...next, lc: '', lcAfter: '', lcNone: false };
   if (typeof touched.lc === 'string' && touched.lc.trim() !== '')
@@ -395,6 +405,7 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   source: '入力元',
   exitOrderType: '注文の種類',
   stopOrderPlaced: '逆指値を入れたか',
+  stopNotPlaced: '逆指値 未設定',
   entryChartTimeframe: 'エントリー時のチャートの時間足',
   exitChartTimeframe: '決済時のチャートの時間足',
   accountId: '口座',
@@ -892,7 +903,12 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       ...(lc === undefined ? {} : { lc }),
       ...(brokenCondition === '' ? {} : { brokenCondition }),
       lcBasis: draft.lcBasis,
-      stopOrderPlaced: draft.stopOrderPlaced,
+      // 「LC なし」「最大損失まで」の間は切り替えを出さないので、見えない未設定を送らない（下書きには残し、外したら戻る。#165 のレビュー 1）
+      stopOrderPlaced: stopOrderPlacedOf({
+        ...draft,
+        lcMove: move.kind,
+        stopNotPlaced: draft.stopNotPlaced && !lcNone && !draft.lcMaxLoss,
+      }),
       lcDecidedBeforeEntry: lcNone ? false : taps.lcDecided,
       lcMove: move,
       timeframeChange: taps.timeframeChange,
@@ -1074,5 +1090,18 @@ export function fxVisibleOf(
 export function lcMoveLabel(kind: LcMoveKind): string {
   if (kind === 'none') return 'そのまま';
   if (kind === 'tightened') return '狭めた';
+  if (kind === 'cancelled') return '取消';
   return '広げた';
+}
+
+/**
+ * 本文の「逆指値を入れたか」（C56・#165）: 本人の未設定 → notPlaced / 取り消した（置いた逆指値を外した）か明細の逆指値 →
+ * placed / ほか → unanswered（不明を未設定にしない。C26）
+ */
+export function stopOrderPlacedOf(
+  d: Pick<Draft, 'stopNotPlaced' | 'stopOrderPlaced'> & { readonly lcMove: LcMoveKind | null },
+): StopOrderPlaced {
+  if (d.stopNotPlaced) return 'notPlaced';
+  if (d.lcMove === 'cancelled' || d.stopOrderPlaced === 'placed') return 'placed';
+  return 'unanswered';
 }

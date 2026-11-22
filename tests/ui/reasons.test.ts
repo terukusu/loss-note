@@ -8,6 +8,7 @@ const MINUS = '−';
 /** 理由の種類ごとの例（種類が増えたら、この表に足さないと下のテストが落ちる） */
 const TABLE: ReadonlyArray<readonly [ReasonKind, Reason, 'L' | 'S', string]> = [
   ['noLc', { kind: 'noLc' }, 'L', 'LC を決めずに入った'],
+  ['lcCancelled', { kind: 'lcCancelled' }, 'S', '持っている間に逆指値を取消'],
   ['lcWidened', { kind: 'lcWidened', from: 99.5, to: 99.2 }, 'L', 'LC を広げた（99.5 → 99.2）'],
   ['timeframeLonger', { kind: 'timeframeLonger', source: 'tap' }, 'L', '時間足を変えた'],
   ['heldPastLc', { kind: 'heldPastLc', r: -1.2 }, 'L', `LC で切らずに持ち続けた（${MINUS}1.2R）`],

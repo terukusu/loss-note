@@ -186,6 +186,192 @@
         "r": -1,
         "riskPct": 0.5
       }
+    },
+    {
+      "name": "cancelled",
+      "instrument": {
+        "name": "架空指数cancelled"
+      },
+      "settings": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "settingsNow": {
+        "capitalYen": 2000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "original": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "placed",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "cancelled"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "statementPnlYen": -5000
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "body": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "placed",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "cancelled"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -5000,
+        "fees": []
+      },
+      "expect": {
+        "before": "B",
+        "grade": "B",
+        "r": -1,
+        "riskPct": 0.5
+      }
+    },
+    {
+      "name": "stopNotPlaced",
+      "instrument": {
+        "name": "架空指数stopNotPlaced"
+      },
+      "settings": {
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "settingsNow": {
+        "capitalYen": 2000000,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "original": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "notPlaced",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "statementPnlYen": -5000,
+        "entryChartTimeframe": "4h",
+        "exitChartTimeframe": "1d"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": 1000000,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "body": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "INSTRUMENT",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "notPlaced",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1794268800000,
+          "price": 99.5,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "statementPnlYen": -5000,
+        "fees": []
+      },
+      "expect": {
+        "before": "B",
+        "grade": "A",
+        "r": -1,
+        "riskPct": 0.5
+      }
     }
   ],
   "accountScenes": [

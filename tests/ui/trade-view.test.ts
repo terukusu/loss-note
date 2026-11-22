@@ -307,6 +307,39 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(f['LC を動かしたか']).toBe('広げた（101）');
   });
 
+  it('#165 AC-10: 取消は札で「取消」+ 計画から外れた、すべての欄の逆指値は 置いた / 未設定 / —', () => {
+    const cancelled = stored('c1', {
+      lc: 99.5,
+      lcMove: { kind: 'cancelled' },
+      stopOrderPlaced: 'placed',
+      exit: { ...L1.record.exit, price: 99.1 },
+    });
+    const f = Object.fromEntries(recordFields(cancelled, 'X').map((r) => [r.label, r.value]));
+    expect(f['LC を動かしたか']).toBe('取消');
+    // 上の行の「取消」と矛盾に見えないよう 1 つの値にする（#165 のデザインレビュー 6）
+    expect(f.逆指値).toBe('置いた → 取消');
+    const move = tapAnswers(cancelled, summarize(cancelled).judgment).find(
+      (a) => a.label === 'LC を動かしたか',
+    );
+    // 札は「逆指値: 取消」（「LC: 取消」は LC なしと読める。#165 のデザインレビュー 5）
+    expect(move).toMatchObject({ short: '逆指値', value: '取消', offPlan: true });
+    const notPlaced = stored('n1', { lc: 99.5, stopOrderPlaced: 'notPlaced' });
+    // 判定のカードの札にも「逆指値: 未設定」（外れの印なし。#165 のデザインレビュー 4）。置いた・未回答は札なし
+    expect(tapAnswers(notPlaced).filter((a) => a.label === '逆指値')).toEqual([
+      { label: '逆指値', short: '逆指値', value: '未設定', offPlan: false, term: 'lcMove' },
+    ]);
+    expect(tapAnswers(cancelled).filter((a) => a.label === '逆指値')).toEqual([]);
+    expect(
+      Object.fromEntries(recordFields(notPlaced, 'X').map((r) => [r.label, r.value])).逆指値,
+    ).toBe('未設定');
+    const unanswered = stored('u1', { lc: 99.5, stopOrderPlaced: 'unanswered' });
+    expect(
+      Object.fromEntries(recordFields(unanswered, 'X').map((r) => [r.label, r.value])).逆指値,
+    ).toBe('—');
+    // LC の無い取引には逆指値の行を出さない
+    expect(recordFields(L3, 'US30').map((r) => r.label)).not.toContain('逆指値');
+  });
+
   it('#47 U18: 口座・記録したときの資金と許容リスクを口座の数によらず出す（付いていない取引は既定の口座の名前）', () => {
     const f = Object.fromEntries(
       recordFields({ ...L1, snapshot: SNAP_1M }, 'US30').map((r) => [r.label, r.value]),

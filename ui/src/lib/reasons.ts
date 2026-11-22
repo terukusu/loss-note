@@ -23,6 +23,8 @@ type Of<K extends ReasonKind> = Extract<Reason, { readonly kind: K }>;
 
 const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
   noLc: () => 'LC を決めずに入った',
+  // 置いた逆指値を持っている間に外した（C56。#165。L / S で同じ言葉）
+  lcCancelled: () => '持っている間に逆指値を取消',
   lcWidened: (r) =>
     r.from !== undefined && r.to !== undefined
       ? `LC を広げた（${formatPrice(r.from)} → ${formatPrice(r.to)}）`

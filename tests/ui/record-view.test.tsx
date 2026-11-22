@@ -522,13 +522,20 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
     ['E1（L）', L],
     ['E2（S）', S],
   ] as const)(
-    'AC-1 %s: 選択肢は「そのまま」「狭めた」「広げた」の順で、上げた・下げた・詰めたが無い',
+    'AC-1 %s: 選択肢は「そのまま」「狭めた」「広げた」「取消」の順で、上げた・下げた・詰めたが無い（#165 で取消）',
     (_id, base) => {
       const labels = moveLabels(view(stateFor(draft({ ...base, lcMove: 'none' }), NO_CAPITAL)));
-      expect(labels).toEqual(['そのまま', '狭めた', '広げた']);
+      expect(labels).toEqual(['そのまま', '狭めた', '広げた', '取消']);
       for (const w of ['上げた', '下げた', '詰めた']) expect(labels.join()).not.toContain(w);
     },
   );
+
+  it('#165 AC-6: 取消を選んでも「広げた後の LC」の欄は出ない', () => {
+    const tree = view(stateFor(draft({ ...L, lcMove: 'cancelled' }), NO_CAPITAL));
+    expect(all(tree, (e) => e.type === 'label' && e.props.for === 'record-lc-after')).toHaveLength(
+      0,
+    );
+  });
 
   it.each([
     ['E3（L）', L],
@@ -640,7 +647,8 @@ describe('LC の「なし」', () => {
     const tree = view(stateFor(E16, NO_CAPITAL));
     const toggle = all(tree, hasClass('lcnone'))[0] as El;
     expect(toggle.props['aria-pressed']).toBe('true');
-    expect(toggle.props['aria-label']).toBe('LC を決めていなかった（なし）');
+    expect(toggle.props['aria-label']).toBe('LC なし（LC を決めていなかった）');
+    expect(text(toggle)).toBe('LC なし');
     const lc = all(tree, (e) => e.type === 'input' && e.props.id === 'record-lc')[0] as El;
     // 薄い形のまま押せる（disabled はタップを受けない。#171）
     expect(lc.props.disabled).toBeFalsy();
@@ -3049,5 +3057,54 @@ describe('読み直しの途中（#184 のデザインレビュー 5）', () => 
         e.type === 'button' && e.props['aria-label'] === '読み取りをキャンセルして前の明細に戻す',
     );
     expect(cancel).toHaveLength(1);
+  });
+});
+
+describe('#165 逆指値の未設定の切り替え（AC-9・AC-12 の描画）', () => {
+  /** 架空の値。L: イン 100.00・LC 99.50 */
+  const base = { side: 'L', entryPrice: '100.00', lc: '99.50', lcDecided: true } as const;
+  const toggle = (tree: Node[]) => all(tree, (e) => e.props.id === 'record-stop-not-placed');
+
+  it('LC の価格のときは LC の欄の行に出て、押していない = aria-pressed false・読み上げの名前つき', () => {
+    const t = toggle(view(stateFor(draft({ ...base, lcMove: 'none' }), NO_CAPITAL)));
+    expect(t).toHaveLength(1);
+    expect(t[0]?.props['aria-pressed']).toBe('false');
+    // 見える文字を名前の先頭にそのまま入れる（WCAG 2.5.3）
+    expect(t[0]?.props['aria-label']).toBe('逆指値 未設定（逆指値を置いていなかった）');
+    expect(text(t)).toBe('逆指値未設定');
+  });
+
+  it('押した状態（未設定）は aria-pressed true。4 択の「取消」は選べず、その理由の 1 行を 4 択に結ぶ', () => {
+    const tree = view(stateFor(draft({ ...base, stopNotPlaced: true }), NO_CAPITAL));
+    expect(toggle(tree)[0]?.props['aria-pressed']).toBe('true');
+    const group = all(
+      tree,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+    )[0] as El;
+    const off = all([group], hasClass('seg__item--off'));
+    expect(off.map(text)).toEqual(['取消']);
+    expect(all(off, (e) => e.type === 'input')[0]?.props.disabled).toBe(true);
+    const note = all(tree, (e) => e.props.id === 'record-lc-move-stop-note')[0] as El;
+    expect(text(note)).toBe('逆指値が未設定のため「取消」は選べません');
+    expect(note.props['aria-live']).toBe('polite');
+    expect(String(group.props['aria-describedby'])).toContain('record-lc-move-stop-note');
+  });
+
+  it('押していない間は「取消」を選べ、理由の 1 行は空（読み上げの領域だけ残す）', () => {
+    const tree = view(stateFor(draft({ ...base, lcMove: 'none' }), NO_CAPITAL));
+    expect(all(tree, hasClass('seg__item--off'))).toHaveLength(0);
+    const note = all(tree, (e) => e.props.id === 'record-lc-move-stop-note')[0] as El;
+    expect(text(note)).toBe('');
+  });
+
+  it('E14: LC なしでは切り替えも「LC を動かしたか」も出ない', () => {
+    const tree = view(stateFor(draft({ ...base, lc: '', lcNone: true }), NO_CAPITAL));
+    expect(toggle(tree)).toHaveLength(0);
+    expect(
+      all(
+        tree,
+        (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+      ),
+    ).toHaveLength(0);
   });
 });

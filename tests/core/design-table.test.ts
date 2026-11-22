@@ -23,6 +23,7 @@ const REASON_WORDS: ReadonlyArray<{ word: string; kind: ReasonKind; inParen?: bo
   { word: 'LC を決めずに', kind: 'noLc' },
   { word: '持ち続けた', kind: 'heldPastLc' },
   { word: 'LC を広げた', kind: 'lcWidened' },
+  { word: '逆指値を取消', kind: 'lcCancelled' },
   { word: '時間足を変えた', kind: 'timeframeLonger' },
   { word: '過剰リスク', kind: 'overRisk' },
   { word: '金額ありき', kind: 'amountBasedLc' },

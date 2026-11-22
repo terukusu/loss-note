@@ -194,6 +194,26 @@ def test_widened_after_must_be_on_unfavorable_side():
     assert validate_trade(body)[1] == []
 
 
+def test_lc_cancelled_and_stop_not_placed():
+    """#165（C56）: 取り消した は広げた後の値を持たず、未設定と同時に持たない。それぞれは受け付ける"""
+    body = t1()
+    body["lcMove"] = {"kind": "cancelled"}
+    value, issues = validate_trade(body)
+    assert issues == []
+    assert value["lcMove"] == {"kind": "cancelled"}
+    body["stopOrderPlaced"] = "notPlaced"
+    assert ("stopOrderPlaced", "lcMoveCancelledNotPlaced") in kinds(validate_trade(body)[1])
+    body["stopOrderPlaced"] = "placed"
+    assert validate_trade(body)[1] == []
+    body["lcMove"] = {"kind": "cancelled", "after": 99.2}
+    assert ("lcMove", "unknownField") in kinds(validate_trade(body)[1])
+    body = t1()
+    body["stopOrderPlaced"] = "notPlaced"
+    value, issues = validate_trade(body)
+    assert issues == []
+    assert value["stopOrderPlaced"] == "notPlaced"
+
+
 def test_short_lc_direction():
     body = t1()
     body["side"] = "S"

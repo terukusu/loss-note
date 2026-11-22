@@ -8,6 +8,8 @@ import { isLongerTimeframe, type Timeframe, type TradeInput } from './trade';
 
 export type Reason =
   | { readonly kind: 'noLc' }
+  /** 置いた逆指値を持っている間に外した（C56。B） */
+  | { readonly kind: 'lcCancelled' }
   | { readonly kind: 'lcWidened'; readonly from?: number; readonly to?: number }
   | {
       readonly kind: 'timeframeLonger';
@@ -36,6 +38,7 @@ export type Grade = 'A' | 'B' | 'C' | 'riskyWin' | 'safeWin';
 /** 理由の並び（5.3 の表の順、その後に注記） */
 export const REASON_ORDER: readonly ReasonKind[] = [
   'noLc',
+  'lcCancelled',
   'lcWidened',
   'timeframeLonger',
   'heldPastLc',
@@ -52,6 +55,7 @@ export const REASON_ORDER: readonly ReasonKind[] = [
 /** 理由の重さ（note は判定の重さに数えない） */
 export const REASON_WEIGHT: Readonly<Record<ReasonKind, 'C' | 'B' | 'note'>> = {
   noLc: 'C',
+  lcCancelled: 'B',
   lcWidened: 'B',
   timeframeLonger: 'B',
   heldPastLc: 'B',
@@ -99,7 +103,10 @@ export function outcomeOf(t: TradeInput, nums: JudgeNumbers): Outcome | undefine
   return move >= 0 ? 'win' : 'loss';
 }
 
-/** 「持ち続けた」の比較先（C30）: 広げたなら広げた後の値（無ければ無し）、買い増しは最後のエントリーの LC、ほかは LC */
+/**
+ * 「持ち続けた」の比較先（C30）: 広げたなら広げた後の値（無ければ無し）、買い増しは最後のエントリーの LC、ほかは LC。
+ * 取り消した（C56）は新しい線が無いので入る前の LC（買い増しは最後のエントリーの LC）と比べる
+ */
 function heldReference(t: TradeInput): number | undefined {
   if (t.lcMove.kind === 'widened') return t.lcMove.after;
   if (t.entries.length > 1) {
@@ -175,6 +182,7 @@ function weightedReasons(t: TradeInput, nums: JudgeNumbers, outcome: Outcome): R
   // 「最大損失まで」（最大損失が定まる）は損失の上限を入る前に決めた計画なので、LC が無いことでは C にしない（C50）
   const planned = hasLc || isMaxLossPlan(t);
   if (!planned || !t.lcDecidedBeforeEntry) reasons.push({ kind: 'noLc' });
+  if (t.lcMove.kind === 'cancelled') reasons.push({ kind: 'lcCancelled' });
   if (t.lcMove.kind === 'widened') {
     const { after } = t.lcMove;
     reasons.push({

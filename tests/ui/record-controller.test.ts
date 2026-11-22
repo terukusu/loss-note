@@ -1349,6 +1349,18 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
     expect(s.draft.stopOrderPlaced).toBe('unanswered');
   });
 
+  it('#165: 逆指値の未設定（本人の答え）は、明細の削除・［元に戻す］・2 枚目の読み直しでも消えない', async () => {
+    const { c } = await openedForRead([ok([ROW_E7]), ok([ROW_E8])]);
+    await c.readImage(img());
+    c.update({ type: 'set', field: 'stopNotPlaced', value: true });
+    c.removeStatement();
+    expect(c.getState().draft.stopNotPlaced).toBe(true);
+    c.undoRemoveStatement();
+    expect(c.getState().draft.stopNotPlaced).toBe(true);
+    await c.readImage(img());
+    expect(c.getState().draft.stopNotPlaced).toBe(true);
+  });
+
   it('指摘 5: 本人が選び直した「決めていた」は 2 枚目でも戻さない', async () => {
     const { c } = await openedForRead([ok([ROW_E7]), ok([ROW_E8])]);
     await c.readImage(img());

@@ -715,3 +715,122 @@ describe('#58 エントリーの時刻は任意の「取引」の欄', () => {
     expect(r.canSave).toBe(false);
   });
 });
+
+// #165・C56: LC を動かしたか = 取消（置いた逆指値の注文を持っている間に取り消した）と、逆指値の未設定の切り替え。値はすべて架空
+describe('取消と逆指値の未設定（#165 の例 E9〜E11・E14）', () => {
+  /** L: イン 100.00・LC 99.50、成行で 99.10（−1.8R） */
+  const base = draft({ side: 'L', entryPrice: '100.00', lc: '99.50', exitPrice: '99.10' });
+  const tapped = (d: Draft) =>
+    applyDraft(applyDraft(d, { type: 'set', field: 'lcDecided', value: true }), {
+      type: 'set',
+      field: 'timeframeChange',
+      value: 'none',
+    });
+
+  it('E9 取消を選ぶと本文は lcMove {kind: cancelled}（広げた後の値なし）・逆指値 = placed で、判定は B', () => {
+    const d = applyDraft(
+      tapped(applyDraft(base, { type: 'set', field: 'lcAfter', value: '99.2' })),
+      {
+        type: 'set',
+        field: 'lcMove',
+        value: 'cancelled',
+      },
+    );
+    const r = readDraft(d, NO_CAPITAL);
+    expect(r.body?.lcMove).toEqual({ kind: 'cancelled' });
+    expect(r.body?.stopOrderPlaced).toBe('placed');
+    expect(r.preview.judgment?.grade).toBe('B');
+    expect(texts(r)).toContain('持っている間に逆指値を取消');
+    expect(lcMoveLabel('cancelled')).toBe('取消');
+  });
+
+  it('E9 未設定を押した後に取消を選ぶと、未設定は外れる', () => {
+    const d = applyDraft(
+      applyDraft(tapped(base), { type: 'set', field: 'stopNotPlaced', value: true }),
+      {
+        type: 'set',
+        field: 'lcMove',
+        value: 'cancelled',
+      },
+    );
+    expect(d.stopNotPlaced).toBe(false);
+    expect(readDraft(d, NO_CAPITAL).body?.stopOrderPlaced).toBe('placed');
+  });
+
+  it('E10 取消の状態で未設定を押すと、LC を動かしたかは未回答に戻り、未入力の欄に入る', () => {
+    const cancelled = applyDraft(tapped(base), {
+      type: 'set',
+      field: 'lcMove',
+      value: 'cancelled',
+    });
+    const d = applyDraft(cancelled, { type: 'set', field: 'stopNotPlaced', value: true });
+    expect(d.lcMove).toBeNull();
+    expect(d.stopNotPlaced).toBe(true);
+    const r = readDraft(d, NO_CAPITAL);
+    expect(r.body).toBeUndefined();
+    expect(r.missing).toContain(MISSING_LABEL.lcMove);
+    // 選び直すと記録でき、逆指値は未設定のまま
+    const again = readDraft(
+      applyDraft(d, { type: 'set', field: 'lcMove', value: 'none' }),
+      NO_CAPITAL,
+    );
+    expect(again.body?.stopOrderPlaced).toBe('notPlaced');
+  });
+
+  it('E11 逆指値を押さなくても記録でき、本文は unanswered。未入力の欄に逆指値は入らない', () => {
+    const r = readDraft(
+      applyDraft(tapped(base), { type: 'set', field: 'lcMove', value: 'none' }),
+      NO_CAPITAL,
+    );
+    expect(r.body?.stopOrderPlaced).toBe('unanswered');
+    expect(r.missing.join()).not.toContain('逆指値');
+  });
+
+  it('未設定を押してもう一度押すと外れ、明細の逆指値（placed）は残る', () => {
+    const fromStatement = applyDraft(tapped(base), {
+      type: 'fill',
+      values: { lcMove: 'none', stopOrderPlaced: 'placed', exitOrderType: 'stop' },
+    });
+    const on = applyDraft(fromStatement, { type: 'set', field: 'stopNotPlaced', value: true });
+    expect(readDraft(on, NO_CAPITAL).body?.stopOrderPlaced).toBe('notPlaced');
+    const off = applyDraft(on, { type: 'set', field: 'stopNotPlaced', value: false });
+    expect(readDraft(off, NO_CAPITAL).body?.stopOrderPlaced).toBe('placed');
+  });
+
+  it('#165 レビュー 1: 未設定を押した後に LC なしを選ぶと、見えない未設定は送らない（未回答）。外すと前の答え（未設定）に戻る', () => {
+    const on = applyDraft(
+      applyDraft(tapped(base), { type: 'set', field: 'lcMove', value: 'none' }),
+      {
+        type: 'set',
+        field: 'stopNotPlaced',
+        value: true,
+      },
+    );
+    const none = applyDraft(on, { type: 'set', field: 'lcNone', value: true });
+    expect(readDraft(none, NO_CAPITAL).body?.stopOrderPlaced).toBe('unanswered');
+    const back = applyDraft(none, { type: 'set', field: 'lc', value: '99.50' });
+    expect(readDraft(back, NO_CAPITAL).body?.stopOrderPlaced).toBe('notPlaced');
+    // 明細の逆指値（placed）の取引で LC なしにしたときは、今の扱いのまま placed
+    const stop = applyDraft(none, { type: 'fill', values: { stopOrderPlaced: 'placed' } });
+    expect(readDraft(stop, NO_CAPITAL).body?.stopOrderPlaced).toBe('placed');
+  });
+
+  it('E14 LC なしでは LC を動かしたかは none で送る（取消は残らない）', () => {
+    const d = applyDraft(
+      applyDraft(tapped(base), { type: 'set', field: 'lcMove', value: 'cancelled' }),
+      { type: 'set', field: 'lcNone', value: true },
+    );
+    const r = readDraft(d, NO_CAPITAL);
+    expect(r.body?.lcMove).toEqual({ kind: 'none' });
+  });
+
+  it('取消・未設定は判定の入力に入らない: 未設定・未回答で判定が同じ（E7・E8）', () => {
+    const planned = applyDraft(tapped(base), { type: 'set', field: 'lcMove', value: 'none' });
+    const a = readDraft(planned, NO_CAPITAL);
+    const b = readDraft(
+      applyDraft(planned, { type: 'set', field: 'stopNotPlaced', value: true }),
+      NO_CAPITAL,
+    );
+    expect(b.preview.judgment).toEqual(a.preview.judgment);
+  });
+});

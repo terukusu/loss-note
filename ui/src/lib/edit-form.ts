@@ -92,7 +92,9 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
     // 取り込み（import）の出どころは下書きでは manual に見せ、本文では元の値に戻す（mergeEdit）
     source: r.source === 'statement' ? 'statement' : 'manual',
     exitOrderType: x.orderType,
-    stopOrderPlaced: r.stopOrderPlaced,
+    // 本人の未設定（notPlaced）は切り替えの欄に分ける（本文は stopOrderPlacedOf で同じ値に戻る。C56・#165）
+    stopOrderPlaced: r.stopOrderPlaced === 'placed' ? 'placed' : 'unanswered',
+    stopNotPlaced: r.stopOrderPlaced === 'notPlaced',
     entryChartTimeframe: r.entryChartTimeframe ?? null,
     exitChartTimeframe: r.exitChartTimeframe ?? null,
     accountId: accountIdOf(r),

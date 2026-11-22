@@ -142,6 +142,9 @@ describe('sheetEscapeKey（#129 のレビュー N1: Esc の keydown を自分で
   it('Escape だけを扱う。変換中・ほかが扱った keydown は見ない', () => {
     expect(sheetEscapeKey({ key: 'Escape' })).toBe(true);
     expect(sheetEscapeKey({ key: 'Escape', isComposing: true })).toBe(false);
+    // 変換中に来る keyCode 229 も変換中（#175。isEnterCommit と同じ判定）
+    expect(sheetEscapeKey({ key: 'Escape', keyCode: 229 })).toBe(false);
+    expect(sheetEscapeKey({ key: 'Escape', isComposing: false, keyCode: 27 })).toBe(true);
     expect(sheetEscapeKey({ key: 'Escape', defaultPrevented: true })).toBe(false);
     expect(sheetEscapeKey({ key: 'Enter' })).toBe(false);
     expect(sheetEscapeKey({ key: 'Esc' })).toBe(false);

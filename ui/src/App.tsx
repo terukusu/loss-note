@@ -142,7 +142,7 @@ export function restoreScroll(win: Window, y: number): () => void {
 export function Loading() {
   return (
     <p class="loading" role="status">
-      読み込み中…
+      読み込んでいます…
     </p>
   );
 }

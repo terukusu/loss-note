@@ -879,7 +879,7 @@ export function RecordView(p: RecordViewProps) {
     return (
       <>
         <p class="loading" role="status">
-          読み込み中…
+          読み込んでいます…
         </p>
         {blocked}
       </>

@@ -359,7 +359,7 @@ export function LoadState(p: {
   }
   return (
     <p class="loading" role="status">
-      読み込み中…
+      読み込んでいます…
     </p>
   );
 }

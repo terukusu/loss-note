@@ -1,10 +1,11 @@
 // 記録する画面で口座をその場で足す（Issue #47 PR-1 B5。画面の決定 U5〜U9・3.2）。
 // [＋ 口座を足す]（「取引」の見出しの行の右端。口座の数によらず同じ場所）と、その下にインラインで開く 2 欄
 // （名前・資金（任意））+ [足す] [やめる]。ダイアログ・画面の移動は無い。外側の記録の form の中に置くので form は入れ子に
-// しない: Enter = [足す]（記録の送信にしない）、Esc = 閉じて [＋ 口座を足す] へフォーカスを戻す（戻すのは画面の側）。
+// しない: Enter = [足す]（記録の送信にしない。変換中は除く。#175）、Esc = 閉じて [＋ 口座を足す] へフォーカスを戻す（戻すのは画面の側。変換を取り消す Esc は除く。#175）。
 // hook を持たない
 
 import { NEW_ACCOUNT_CAPITAL_HINT } from '../lib/accounts';
+import { accountAddKey } from '../lib/keyboard';
 import type { AddAccountState } from '../lib/record-controller';
 import { Button } from './Button';
 import { NumberField } from './NumberField';
@@ -56,13 +57,17 @@ export function AccountAddForm(p: AccountAddFormProps) {
     <fieldset
       class="accountadd"
       onKeyDown={(ev) => {
-        if (ev.key === 'Enter' && (ev.target as HTMLElement).tagName === 'INPUT') {
-          ev.preventDefault();
-          p.onAdd();
-        } else if (ev.key === 'Escape') {
-          ev.preventDefault();
-          p.onClose();
-        }
+        // 変換中の Enter / Esc は変換の確定・取り消しなので何もしない（#175。isEnterCommit と同じ判定）
+        const act = accountAddKey(
+          ev.key,
+          ev.isComposing,
+          ev.keyCode,
+          (ev.target as HTMLElement).tagName === 'INPUT',
+        );
+        if (act === null) return;
+        ev.preventDefault();
+        if (act === 'add') p.onAdd();
+        else p.onClose();
       }}
     >
       <legend class="sr-only">口座を追加</legend>

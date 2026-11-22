@@ -888,8 +888,8 @@ describe('失敗の文言（AC-10）', () => {
     expect(reloaded).toBe(1);
   });
 
-  it('読み込み中は「読み込み中…」だけ', () => {
-    expect(text(view(stateFor(E1, NO_CAPITAL, { phase: 'loading' })))).toBe('読み込み中…');
+  it('読み込み中は「読み込んでいます…」だけ（#177）', () => {
+    expect(text(view(stateFor(E1, NO_CAPITAL, { phase: 'loading' })))).toBe('読み込んでいます…');
   });
 });
 
@@ -1451,7 +1451,7 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
       expect(all(tree, (e) => e.props.role === 'status').map(text)).toContain(msg);
     }
     expect(text(view(stateFor(E1, NO_CAPITAL, { phase: 'loading', readBlocked: null })))).toBe(
-      '読み込み中…',
+      '読み込んでいます…',
     );
   });
 
@@ -2116,6 +2116,37 @@ describe('その場で足す（#47 U5〜U9・B5）', () => {
     keydown({ key: 'Enter', target: { tagName: 'INPUT' }, preventDefault: () => prevented++ });
     keydown({ key: 'Escape', target: { tagName: 'INPUT' }, preventDefault: () => prevented++ });
     expect([added, closed, saved, prevented]).toEqual([1, 1, 0, 2]);
+  });
+
+  it('#175: 変換中の Enter（確定）・Esc（取り消し）は [追加] も閉じるもせず、既定の動きも止めない', () => {
+    let added = 0;
+    let closed = 0;
+    let saved = 0;
+    const tree = view(open(), {
+      onAddAccount: () => added++,
+      onCloseAddAccount: () => closed++,
+      onSave: () => saved++,
+    });
+    const box = all(tree, hasClass('accountadd'))[0];
+    const keydown = box?.props.onKeyDown as (e: unknown) => void;
+    let prevented = 0;
+    const input = { tagName: 'INPUT' };
+    const pd = () => prevented++;
+    keydown({ key: 'Enter', isComposing: true, keyCode: 13, target: input, preventDefault: pd });
+    keydown({ key: 'Enter', isComposing: false, keyCode: 229, target: input, preventDefault: pd });
+    keydown({ key: 'Escape', isComposing: true, keyCode: 27, target: input, preventDefault: pd });
+    keydown({ key: 'Escape', isComposing: false, keyCode: 229, target: input, preventDefault: pd });
+    expect([added, closed, saved, prevented]).toEqual([0, 0, 0, 0]);
+    // 変換の後の Enter（変換中でない）は [追加]。ボタンの上の Enter はボタンに任せる
+    keydown({ key: 'Enter', isComposing: false, keyCode: 13, target: input, preventDefault: pd });
+    keydown({
+      key: 'Enter',
+      isComposing: false,
+      keyCode: 13,
+      target: { tagName: 'BUTTON' },
+      preventDefault: pd,
+    });
+    expect([added, closed, saved, prevented]).toEqual([1, 0, 0, 1]);
   });
 
   it('U8: 誤りは欄の下に文言、通信の失敗は欄の中の知らせ（値は残る）', () => {

@@ -10,6 +10,8 @@
 // - 閉じたら、開いたボタンへフォーカスを戻す（画面が移ってボタンが外れた・ほかへ移したときは戻さない）
 // - 開いているシートの数が 0 → 1 でトーストの取り消しの時間を止め、1 → 0 で動かす（モーダルの間はトーストを押せないため。9.3）
 
+import { isEscapeClose } from './keyboard';
+
 export type SheetDismiss = 'button' | 'escape' | 'backdrop' | 'back' | 'native';
 
 /** dialog の cancel を自分で扱うか（取り消せる = preventDefault して Esc と同じ）、ブラウザに閉じさせるか（close で native） */
@@ -83,6 +85,8 @@ export interface KeyLike {
   readonly key: string;
   /** 入力の変換中（IME）。変換を取り消す Esc はシートを閉じない */
   readonly isComposing?: boolean;
+  /** 変換中に来る 229 も変換中と数える（#175。isEnterCommit と同じ判定） */
+  readonly keyCode?: number;
   readonly defaultPrevented?: boolean;
 }
 
@@ -92,7 +96,9 @@ export interface KeyLike {
  * Esc の閉じ方（たどった段なら 1 つ前へ）を呼ぶ。変換中・ほかが扱った keydown は見ない
  */
 export function sheetEscapeKey(e: KeyLike): boolean {
-  return e.key === 'Escape' && e.isComposing !== true && e.defaultPrevented !== true;
+  return (
+    isEscapeClose(e.key, e.isComposing === true, e.keyCode ?? 0) && e.defaultPrevented !== true
+  );
 }
 
 /**

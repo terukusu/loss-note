@@ -47,7 +47,7 @@ export function SettingsLoad({
   if (state.phase === 'loading') {
     return (
       <p class="loading" role="status">
-        読み込み中…
+        読み込んでいます…
       </p>
     );
   }

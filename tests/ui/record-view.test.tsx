@@ -59,6 +59,7 @@ import {
   NO_CAPITAL,
 } from './helpers/record-drafts';
 import { fakePreview, ROW_E1, ROW_E9, unknownTz } from './helpers/statement-rows';
+import { checkSubmitGate } from './helpers/submit-gate';
 
 interface El {
   readonly type: string;
@@ -361,35 +362,14 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     expect(saved).toBe(1);
   });
 
-  it('#172: キーボードの印（<html data-keyboard>）の間は、フォームの暗黙の送信（欄の Enter）で保存しない。印が外れれば送る', () => {
+  it('#172・#183: キーボードの印（<html data-keyboard>）の間は、欄の Enter の暗黙の送信では保存せず、本文の最後の ［記録する］ を押したときだけ送る。送る前にフォーカス中の欄を外す。印が外れれば送る', () => {
     let saved = 0;
     const tree = view(stateFor(E1, NO_CAPITAL), {
       onSave: () => {
         saved++;
       },
     });
-    const form = all(tree, (e) => e.type === 'form')[0] as El;
-    const submitWith = (mark: string | null) => {
-      let prevented = false;
-      (form.props.onSubmit as (e: unknown) => void)({
-        preventDefault: () => {
-          prevented = true;
-        },
-        currentTarget: {
-          ownerDocument: {
-            documentElement: {
-              hasAttribute: (n: string) => n === 'data-keyboard' && mark !== null,
-            },
-          },
-        },
-      });
-      return prevented;
-    };
-    expect(submitWith('resize')).toBe(true);
-    expect(submitWith('overlay')).toBe(true);
-    expect(saved).toBe(0);
-    expect(submitWith(null)).toBe(true);
-    expect(saved).toBe(1);
+    checkSubmitGate(all(tree, (e) => e.type === 'form')[0] as El, () => saved);
   });
 
   it('#127（#75 AC-4 の置き換え）: キャンセルは全画面のシートの左上の ✕ のアイコンのボタン（読み上げの名前「キャンセル」）。押すと onCancel、保存中は押せない。下の帯には置かない', () => {

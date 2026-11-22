@@ -7470,10 +7470,107 @@ async function runFlows(browser, base, signedIn) {
   // 広げた後の LC の欄まで出した 2 段目（1 画面より長い。オーナーの実機の形）。LC・一言・広げた後の LC にフォーカスして、
   // Android の形（窓が 844 → 420 に縮む = resizes-content）と、iOS の形（窓はそのまま visualViewport だけが 844 → 420。
   // visualViewport を偽物に替えて resize を送る）で、欄が上の帯の下・見えている領域の中に上下 16px 以上の余白で入る。
-  // キーボードの間は下の帯（判定の 1 行・［記録する］）を隠す。閉じたら印が外れ、帯が戻る。LC の決定キー（次へ）で一言へ、
-  // 一言の決定キー（完了）でフォーカスが外れて帯が戻る。閉じた後はスクロール 0・中身の高さが前と同じ。あわせて書きかけの案内・
-  // 編集の画面の ［保存］ の帯・設定のシートの ［保存］ の帯が隠れて、閉じると戻る（#172 のレビュー N7）。段階的に縮める
-  // （844 → 600 → 420）各段でも一言・広げた後の LC が窓の中
+  // キーボードの間は下の帯（判定の 1 行・［記録する］）を貼り付けず、本文の最後に置く（#183。［記録する］ は 1 つのまま・欄より
+  // 後ろ）。閉じたら印が外れ、帯が下の端に戻る。LC の決定キー（次へ）で一言へ、一言の決定キー（完了）でフォーカスが外れて帯が
+  // 戻る。閉じた後はスクロール 0・中身の高さが前と同じ。あわせて書きかけの案内が隠れ、編集の画面の ［保存］ の帯・設定のシートの
+  // ［保存］ の帯が本文の最後に移って、閉じると戻る（#172 のレビュー N7）。段階的に縮める（844 → 600 → 420）各段でも一言・
+  // 広げた後の LC が窓の中。キーボードを出したまま一言に打ち、下へスクロールして本文の最後の ［記録する］ を押すと、打った値で
+  // 保存される（Android / iOS の形。#183）。編集の画面の ［保存］ も同じ（Android の形）
+  const kbdShim = () => {
+    const vv = new EventTarget();
+    window.__kbdH = null;
+    Object.defineProperties(vv, {
+      height: { get: () => window.__kbdH ?? document.documentElement.clientHeight },
+      width: { get: () => document.documentElement.clientWidth },
+      offsetTop: { get: () => 0 },
+      offsetLeft: { get: () => 0 },
+      pageTop: { get: () => window.scrollY },
+      pageLeft: { get: () => window.scrollX },
+      scale: { get: () => 1 },
+    });
+    Object.defineProperty(window, 'visualViewport', { get: () => vv, configurable: true });
+    window.__kbdSet = (h) => {
+      window.__kbdH = h;
+      vv.dispatchEvent(new Event('resize'));
+    };
+  };
+  /** キーボードを出す / 閉じる（android = 窓が縮む、ios = visualViewport だけが縮む） */
+  const kbdUp = async (p, form, h = 420) => {
+    if (form === 'android') await p.setViewportSize({ width: 390, height: h });
+    else await p.evaluate((v) => window.__kbdSet(v), h);
+  };
+  const kbdDown = async (p, form) => {
+    if (form === 'android') await p.setViewportSize({ width: 390, height: 844 });
+    else await p.evaluate(() => window.__kbdSet(null));
+  };
+  /**
+   * キーボードの間の本文の最後の送るボタン（#183）: 1 つだけ・貼り付いていない・最後の欄より後ろ。下へスクロールして（見える
+   * 高さ vh の下から 16px に送るボタンの下の端を合わせる）、落ち着いた後も引き戻されず、判定の 1 行と送るボタンが見える範囲に
+   * あり、フォーカスは欄に残り押せることを確かめる
+   */
+  const bodyEndSubmit = async (p, where, { submit, bar, line, field, vh }) => {
+    const g = await p.evaluate(
+      ([submit, bar, field]) => {
+        const r = (q) => document.querySelector(q)?.getBoundingClientRect() ?? null;
+        const shownButtons = Array.from(document.querySelectorAll('button[type="submit"]')).filter(
+          (b) => b.getBoundingClientRect().height > 0,
+        ).length;
+        const barEl = document.querySelector(bar);
+        return {
+          shownButtons,
+          pos: barEl ? getComputedStyle(barEl).position : null,
+          bar: r(bar),
+          field: r(field),
+          kb: document.documentElement.getAttribute('data-keyboard'),
+          disabled: document.querySelector(submit)?.disabled ?? null,
+        };
+      },
+      [submit, bar, field],
+    );
+    if (!g.kb) throw new Error(`${where}: キーボードの印が無い`);
+    if (g.shownButtons !== 1) throw new Error(`${where}: 送るボタンが ${g.shownButtons} 個`);
+    if (g.pos !== 'static')
+      throw new Error(`${where}: キーボードの間に帯が貼り付いている（${g.pos}）`);
+    if (!g.bar || !g.field || g.bar.top < g.field.bottom)
+      throw new Error(`${where}: 本文の最後の帯が欄より前にある`);
+    if (g.disabled !== false) throw new Error(`${where}: 送るボタンが押せない`);
+    // キーボードが上がりきって落ち着いた後（落ち着く間は欄へ寄せ直し続ける。ui-guidelines 10.1 の「作り」）にスクロールする
+    await p.waitForTimeout(1200);
+    await p.evaluate(
+      ([submit, vh]) => {
+        const r = document.querySelector(submit).getBoundingClientRect();
+        window.scrollBy(0, r.bottom - (vh - 16));
+      },
+      [submit, vh],
+    );
+    await p.waitForTimeout(1200);
+    const after = await p.evaluate(
+      ([submit, line, field]) => {
+        const r = (q) => document.querySelector(q)?.getBoundingClientRect() ?? null;
+        return {
+          submit: r(submit),
+          line: r(line),
+          app: r('.appbar'),
+          focus: document.activeElement?.id ?? '',
+          field: field.slice(1),
+          kb: document.documentElement.getAttribute('data-keyboard'),
+        };
+      },
+      [submit, line, field],
+    );
+    const top = after.app?.bottom ?? 0;
+    if (after.submit.top < top - 0.5 || after.submit.bottom > vh + 0.5)
+      throw new Error(
+        `${where}: スクロールしても送るボタンが見える所に無い（${Math.round(after.submit.top)}〜${Math.round(after.submit.bottom)}・窓 ${vh}）`,
+      );
+    if (after.line.top < top - 0.5 || after.line.bottom > after.submit.top + 0.5)
+      throw new Error(`${where}: 判定の 1 行が送るボタンのすぐ上に見えない`);
+    if (after.focus !== after.field || !after.kb)
+      throw new Error(
+        `${where}: スクロールでフォーカス・印が替わった（${after.focus}・${after.kb}）`,
+      );
+    return Math.round(vh - after.submit.bottom);
+  };
   await check('KB1', async () => {
     const out = [];
     const c = await browser.newContext({
@@ -7483,24 +7580,7 @@ async function runFlows(browser, base, signedIn) {
       reducedMotion: 'reduce',
     });
     try {
-      await c.addInitScript(() => {
-        const vv = new EventTarget();
-        window.__kbdH = null;
-        Object.defineProperties(vv, {
-          height: { get: () => window.__kbdH ?? document.documentElement.clientHeight },
-          width: { get: () => document.documentElement.clientWidth },
-          offsetTop: { get: () => 0 },
-          offsetLeft: { get: () => 0 },
-          pageTop: { get: () => window.scrollY },
-          pageLeft: { get: () => window.scrollX },
-          scale: { get: () => 1 },
-        });
-        Object.defineProperty(window, 'visualViewport', { get: () => vv, configurable: true });
-        window.__kbdSet = (h) => {
-          window.__kbdH = h;
-          vv.dispatchEvent(new Event('resize'));
-        };
-      });
+      await c.addInitScript(kbdShim);
       await setupContext(c, 'dark');
       const fake = await installFakeApi(c, { accounts: ACCOUNTS_2 });
       const p = await c.newPage();
@@ -7519,10 +7599,13 @@ async function runFlows(browser, base, signedIn) {
               const b = e.getBoundingClientRect();
               return { top: b.top, bottom: b.bottom, h: b.height };
             };
+            const barEl = document.querySelector('.record__submit--bar');
             return {
               f: r(s),
               app: r('.appbar'),
               bar: r('.record__submit--bar'),
+              barPos: barEl ? getComputedStyle(barEl).position : null,
+              submits: document.querySelectorAll('#record-submit').length,
               line: r('#record-verdict-line'),
               submit: r('#record-submit'),
               vh: vh ?? window.innerHeight,
@@ -7548,15 +7631,18 @@ async function runFlows(browser, base, signedIn) {
           const want = form === 'android' ? 'resize' : 'overlay';
           if (g.kb !== want) throw new Error(`${where}: 印が ${g.kb}（${want}）`);
           if (g.focus !== sel.slice(1)) throw new Error(`${where}: フォーカスが ${g.focus}`);
-          // 帯は隠れている（高さ 0 の箱は数えない）ので、見える範囲の下の端は窓（iOS は visualViewport）の下の端
-          const barTop = g.bar && g.bar.h > 0 && g.bar.top < g.vh ? g.bar.top : g.vh;
+          // 帯は貼り付かず本文の最後（欄より後ろ）にあるので、見える範囲の下の端は窓（iOS は visualViewport）の下の端（#183）
           const above = g.f.top - g.app.bottom;
-          const below = Math.min(barTop, g.vh) - g.f.bottom;
+          const below = g.vh - g.f.bottom;
           if (above < 16 - 0.5 || below < 16 - 0.5)
             throw new Error(
               `${where}: 欄が見える所に無い（上の余白 ${above.toFixed(1)}px・下の余白 ${below.toFixed(1)}px）`,
             );
-          if (g.bar && g.bar.h > 0) throw new Error(`${where}: キーボードの間に下の帯が出ている`);
+          if (g.barPos !== 'static')
+            throw new Error(`${where}: キーボードの間に下の帯が貼り付いている（${g.barPos}）`);
+          if (!g.bar || g.bar.top < g.f.bottom)
+            throw new Error(`${where}: キーボードの間の帯が欄より前にある`);
+          if (g.submits !== 1) throw new Error(`${where}: ［記録する］ が ${g.submits} 個`);
           if (opts.shots && sel === '#record-lc')
             await p.screenshot({ path: join(opts.shots, `kb1-${form}.png`) });
           out.push(`${form} ${sel.slice(8)} 上 ${Math.round(above)} / 下 ${Math.round(below)}`);
@@ -7566,8 +7652,10 @@ async function runFlows(browser, base, signedIn) {
           await p.waitForTimeout(400);
           const back = await geo(sel, null);
           if (back.kb !== null) throw new Error(`${where}: 閉じた後も印 ${back.kb}`);
-          if (!(back.submit && back.submit.h > 0))
-            throw new Error(`${where}: 閉じた後に ［記録する］ が戻らない`);
+          if (!(back.submit && back.submit.h > 0) || back.barPos !== 'sticky')
+            throw new Error(
+              `${where}: 閉じた後に ［記録する］ の帯が下の端に戻らない（${back.barPos}）`,
+            );
           // 元の位置・形に戻る（スクロール 0・中身の高さがキーボードの前と同じ。iOS の余白 --kbd-room が残らない）
           if (back.y !== 0 || back.sh !== before.sh)
             throw new Error(
@@ -7626,11 +7714,53 @@ async function runFlows(browser, base, signedIn) {
       await p.waitForTimeout(400);
       const g2 = await geo('#record-broken', null);
       if (g2.focus === 'record-broken') throw new Error('一言の決定キーでフォーカスが外れない');
-      if (g2.kb !== null || !(g2.bar && g2.bar.h > 0))
+      if (g2.kb !== null || !(g2.bar && g2.bar.h > 0) || g2.barPos !== 'sticky')
         throw new Error('一言の決定キーの後に帯が戻らない');
       out.push('決定キー LC → 一言 → 閉じる');
     } finally {
       await c.close();
+    }
+    // キーボードを出したまま、本文の最後の ［記録する］ を押して保存する（#183。Android / iOS の形）。一言に打った値が本文に入る
+    for (const form of ['android', 'ios']) {
+      const c3 = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+        storageState: signedIn,
+        hasTouch: true,
+        reducedMotion: 'reduce',
+      });
+      try {
+        await c3.addInitScript(kbdShim);
+        await setupContext(c3, 'dark');
+        const fake = await installFakeApi(c3, { accounts: ACCOUNTS_2 });
+        const p = await c3.newPage();
+        await openRecord(p, base);
+        fake.read = { status: 200, rows: [READ_REAL], holdMs: 0 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+        await fillStatementTaps(p);
+        await p.evaluate(() => window.scrollTo(0, 0));
+        await p.locator('#record-broken').focus();
+        await kbdUp(p, form);
+        await p.waitForTimeout(500);
+        await p.locator('#record-broken').press('End');
+        await p.keyboard.type('（KB1 追記）');
+        const left = await bodyEndSubmit(p, `本文の最後 ${form}`, {
+          submit: '#record-submit',
+          bar: '.record__submit--bar',
+          line: '#record-verdict-line',
+          field: '#record-broken',
+          vh: 420,
+        });
+        await p.locator('#record-submit').tap();
+        await waitSaved(p, '記録しました');
+        expectEq(fake.posts.length, 1, `本文の最後 ${form}: 保存の要求`);
+        if (!JSON.stringify(fake.posts[0]).includes('押し目の安値を割ったら（KB1 追記）'))
+          throw new Error(`本文の最後 ${form}: 押したときの一言の値が保存の本文に無い`);
+        await kbdDown(p, form);
+        out.push(`本文の最後の ［記録する］ で保存 ${form}（下の余白 ${left}）`);
+      } finally {
+        await c3.close();
+      }
     }
     // 書きかけの案内・編集の画面の ［保存］ の帯・設定のシートの ［保存］ の帯（Android の形。#172 のレビュー N7）
     const c2 = await browser.newContext({
@@ -7649,6 +7779,12 @@ async function runFlows(browser, base, signedIn) {
         p.evaluate((s) => {
           const e = document.querySelector(s);
           return !!e && e.getBoundingClientRect().height > 0;
+        }, sel);
+      /** 帯の position（キーボードの間は static = 本文の最後、閉じたら sticky。#183） */
+      const pos = (sel) =>
+        p.evaluate((s) => {
+          const e = document.querySelector(s);
+          return e && e.getBoundingClientRect().height > 0 ? getComputedStyle(e).position : null;
         }, sel);
       const inView = (sel) =>
         p.evaluate((s) => {
@@ -7690,23 +7826,43 @@ async function runFlows(browser, base, signedIn) {
       await p.goto(`${base}/trades/x-e1/edit`);
       await p.locator('#edit-submit').waitFor({ timeout: 15000 });
       await open('#record-lc');
-      if (await shown('.edit__submit')) throw new Error('キーボードの間に編集の画面の帯が出ている');
+      if ((await pos('.edit__submit')) !== 'static')
+        throw new Error('キーボードの間に編集の画面の帯が貼り付いている');
       if (!(await inView('#record-lc'))) throw new Error('編集の画面で LC の欄が見えない');
       await close('#record-lc');
-      if (!(await shown('.edit__submit'))) throw new Error('閉じた後に編集の画面の帯が戻らない');
-      out.push('編集の ［保存］ の帯を隠して戻す');
+      if ((await pos('.edit__submit')) !== 'sticky')
+        throw new Error('閉じた後に編集の画面の帯が下の端に戻らない');
+      out.push('編集の ［保存］ の帯を本文の最後へ移して戻す');
+      // キーボードを出したまま一言に打ち、本文の最後の ［保存］ を押して保存する（#183）
+      await p.locator('#record-broken').fill('架空の条件（KB1 編集）');
+      await open('#record-broken');
+      const left = await bodyEndSubmit(p, '編集の本文の最後', {
+        submit: '#edit-submit',
+        bar: '.edit__submit',
+        line: '#edit-verdict-line',
+        field: '#record-broken',
+        vh: 420,
+      });
+      const putsBefore = api.puts.length;
+      await p.locator('#edit-submit').tap();
+      await expectPollAsync(async () => api.puts.length > putsBefore, '編集の ［保存］ の要求');
+      if (!JSON.stringify(api.puts.at(-1).body).includes('架空の条件（KB1 編集）'))
+        throw new Error('編集の本文の最後: 押したときの一言の値が保存の本文に無い');
+      await p.setViewportSize({ width: 390, height: 844 });
+      await p.waitForTimeout(300);
+      out.push(`編集の本文の最後の ［保存］ で保存（下の余白 ${left}）`);
       // 設定のシートの ［保存］ の帯
       await p.goto(`${base}/settings/accounts`);
       await p.getByRole('button', { name: '口座 1 を編集' }).click();
       await waitSettingsSheet(p, 'settings-account-sheet');
       await open('#settings-account-name');
-      if (await shown('#settings-account-sheet .setform__actions'))
-        throw new Error('キーボードの間にシートの ［保存］ の帯が出ている');
+      if ((await pos('#settings-account-sheet .setform__actions')) !== 'static')
+        throw new Error('キーボードの間にシートの ［保存］ の帯が貼り付いている');
       if (!(await inView('#settings-account-name'))) throw new Error('シートの欄が見えない');
       await close('#settings-account-name');
-      if (!(await shown('#settings-account-sheet .setform__actions')))
-        throw new Error('閉じた後にシートの ［保存］ の帯が戻らない');
-      out.push('シートの ［保存］ の帯を隠して戻す');
+      if ((await pos('#settings-account-sheet .setform__actions')) !== 'sticky')
+        throw new Error('閉じた後にシートの ［保存］ の帯が下の端に戻らない');
+      out.push('シートの ［保存］ の帯を本文の最後へ移して戻す');
     } finally {
       await c2.close();
     }

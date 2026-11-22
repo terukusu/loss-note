@@ -514,11 +514,16 @@
   margin-top: auto;
 }
 
-/* キーボードが出ている間（lib/keyboard-reveal.ts の印。overlay / resize のどちらも）は、下に貼り付いた帯（「あと N 欄」・
-   判定の 1 行・［記録する］ / ［保存］）と上の書きかけの案内を隠し、入れている欄の見える所を広げる。キーボードの上に貼り付いた
-   帯を置かない（オーナー「ソフトキーの上にスティッキーなuiを置くのもその他のuiをはいちする画面が狭くなってきつくない」）。
-   閉じたらすぐ戻す（動きを付けない）。#172・ui-guidelines 9.6 */
-:root[data-keyboard] .record--one .record__submit--bar,
+/* キーボードが出ている間（lib/keyboard-reveal.ts の印。overlay / resize のどちらも）は、下の帯（「あと N 欄」・判定の 1 行・
+   ［記録する］ / ［保存］）を貼り付けず、スクロールする本文の最後に置く（同じ要素の位置だけを替える。ボタンは 1 つのまま）。
+   キーボードの上に貼り付いた帯を置かず入力の欄の場所を狭めない（オーナー「ソフトキーの上にスティッキーなuiを置くのも
+   …きつくない」#172）が、下へスクロールすれば押せる（オーナー「スクロールしてもかくていぼたんでてこない」#183）。
+   上の書きかけの案内はたたむ。閉じたらすぐ下の端の帯に戻す（動きを付けない）。ui-guidelines 10.1 */
+:root[data-keyboard] .record--one .record__submit--bar {
+  position: static;
+  margin-top: var(--sp-2);
+}
+
 :root[data-keyboard] .record--one .draft__resumed {
   display: none;
 }

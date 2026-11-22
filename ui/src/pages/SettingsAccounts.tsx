@@ -27,6 +27,7 @@ import {
 import { currencyLockedText, unitOf } from '../lib/currency';
 import { formatDateTime } from '../lib/datetime';
 import { formatAmount } from '../lib/format';
+import { commitFocusedEntry } from '../lib/keyboard-reveal';
 import { NavigatorContext } from '../lib/router';
 import {
   ACCOUNT_FIELD_ID,
@@ -211,6 +212,8 @@ function AccountForm(
       aria-label={rec ? `${rec.name} を編集` : '口座を追加'}
       onSubmit={(ev) => {
         ev.preventDefault();
+        // 送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183。キーボードの間は ［保存］ が本文の最後）
+        commitFocusedEntry(ev.currentTarget);
         p.onSaveAccount();
       }}
     >

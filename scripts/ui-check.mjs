@@ -944,7 +944,9 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
  * 入口で api.settings から作る（本物の移し替えと同じ）。取引の snapshot の資金・許容リスクは取引の口座から写し、PUT で口座を
  * 付け替えたときだけ付け替え先の今の値で写し直す。opts.failAccounts は PUT /api/accounts/<id> の状態
  * POST /api/chart-reads（Issue #27）は api.chartTimeframes の先頭から順に時間足を返す（無ければ null = 読めなかった）。
- * api.chartRead（{ status, kind, holdMs }。後から書き換えてよい）で状態・種類・待ちを変える。要求の数を api.chartReads に残す
+ * api.chartRead（{ status, kind, holdMs }。後から書き換えてよい）で状態・種類・待ちを変える。要求の数を api.chartReads に残す。
+ * 返す時間足は要求が届いた時点で取り出す（待たせた後に取り出すと、画面を離れた後に目覚めた前の状態の要求が、次の状態の
+ * 時間足を横取りする。#149）
  * 口座の通貨（Issue #47 PR-2）: 口座はいつも currency を返す（無い = JPY）。POST / PUT の currency は任意（PUT の省略は今のまま）。
  * 取引のある口座の通貨を変える PUT は 409 currencyLocked。取引の snapshot に口座の通貨（accountCurrency）を写す
  */
@@ -1085,6 +1087,10 @@ async function installFakeApi(context, opts = {}) {
     if (key === 'POST /api/chart-reads') {
       api.chartReads++;
       const r = api.chartRead;
+      // 時間足は届いた時点で取り出す（#149。「チャートの読み取り中」の状態は 20 秒待たせたまま次の状態へ移るので、待った後に
+      // 取り出すと、同じ窓で後に流れる状態（「2 段目（読み取りの後・判定）」など）の時間足を横取りして、その状態が開けない）
+      const timeframe =
+        r.status === 200 && r.kind === 'chart' ? (api.chartTimeframes.shift() ?? null) : null;
       if (r.holdMs) {
         await new Promise((ok) => {
           const t = setTimeout(ok, r.holdMs);
@@ -1093,7 +1099,6 @@ async function installFakeApi(context, opts = {}) {
       }
       try {
         if (r.status !== 200) return await json(route, r.status, { error: 'read_unavailable' });
-        const timeframe = r.kind === 'chart' ? (api.chartTimeframes.shift() ?? null) : null;
         return await json(route, 200, { kind: r.kind, timeframe });
       } catch {
         return undefined; // 待たせている間に画面を離れた

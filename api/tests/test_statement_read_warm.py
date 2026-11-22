@@ -109,6 +109,39 @@ def files(d) -> list[str]:
     return sorted(str(p.relative_to(d)) for p in d.rglob("*"))
 
 
+def wait_finished(slot, timeout: float = 5.0) -> None:
+    """捨てた先立ての task が終わるまで待つ（#148）。``finished`` は一時ディレクトリを消し、終わりの印（ログ
+    ``statement_read_warm_end``）を書いた後に立つ。``_active`` から外れるのは印より前なので、それを待っても印は
+    まだ書かれていないことがある。また、背後のスレッドが標準エラーに書く途中で ``capfd.readouterr()`` を呼ぶと、
+    読み取りの位置が共有されているため、すでに書いた行の頭が上書きされて読めなくなる（ログの行が 0 件に見える）。
+    標準エラーを読む前にこれで後始末を待つ"""
+    assert slot.finished.wait(timeout)
+
+
+async def taken_then(holder: list, delay: float) -> None:
+    """先立てが読み取りに取られるまで待ち、取られてから delay 秒眠る（偽の CLI の起動の途中の真似。#148）。
+    起動の時間を準備・起動の段から数えると、要求が取るまでの処理（負荷のある CI で数百 ms）の分だけ取った後の
+    残りが短くなり、時間のしきい値が揺れる。holder[0] は待つ slot（start の後に入れる）"""
+    while not (holder and holder[0].taken):
+        await anyio.sleep(0.01)
+    await anyio.sleep(delay)
+
+
+def after_taken(holder: list, orig, delay: float):
+    """最初の CLI（先立て）だけ、取られてから delay 秒後に立ち上がるようにする（taken_then の後に orig）。2 回目以降
+    （その場で立てる CLI）は包まない（先立てを取らない退行があっても、締め切りまで止まらずにすぐ外れる）"""
+    n = [0]
+
+    async def run(call, prompt, options):
+        n[0] += 1
+        if n[0] == 1:
+            await taken_then(holder, delay)
+        async for m in orig(call, prompt, options):
+            yield m
+
+    return run
+
+
 # ── AC-1（例 #1）: 準備の後の読み取りは起動を待たない ──
 def test_warm_read_skips_startup(make, sdk, sys_tmp, capfd):
     sdk.startup_delay = STARTUP
@@ -233,15 +266,14 @@ def test_expired_slot_is_discarded(make, sdk, sys_tmp, capfd, monkeypatch):
     now = [1000.0]
     monkeypatch.setattr(w.pool, "_clock", lambda: now[0])
     assert w.prepare().get_json() == {"ready": True}
+    slot = w.pool._slot
     now[0] += app_settings.APP_WARM_TTL_SECONDS
     capfd.readouterr()
     res = w.read()
     assert res.status_code == 200
+    # 捨てた先立ては背後で閉じ、一時ディレクトリを消して終わりの印を書く。それを待ってから標準エラーを読む（#148）
+    wait_finished(slot)
     assert [ln["cli"] for ln in read_logs(capfd)] == ["cold"]
-    deadline = time.monotonic() + 5
-    # 捨てた先立ては、閉じた後に一時ディレクトリを消す（閉じた数だけを待つと、消す前に確かめて揺れる）
-    while (sdk.closed < 2 or files(sys_tmp)) and time.monotonic() < deadline:
-        time.sleep(0.01)
     assert sdk.closed == 2 and files(sys_tmp) == []
     assert sdk.calls[0]["message"] is None  # 捨てた先立てには何も送っていない
 
@@ -276,25 +308,29 @@ def test_taken_slot_failing_before_send_falls_back(make, sdk, capfd):
     orig = sdk._run
     n = [0]
 
+    holder: list = []
+
     async def first_fails(call, prompt, options):
         n[0] += 1
-        if n[0] == 1:  # 先立て: 起動の途中で失敗（prompt を読む前）
-            await anyio.sleep(0.3)
+        if n[0] == 1:  # 先立て: 読み取りに取られた後、起動の途中で失敗（prompt を読む前）
+            # 取られる前に失敗すると、読み取りは先立てを取らずに cold になる（取るまでの処理の時間で揺れる。#148）
+            await taken_then(holder, 0.3)
             raise ConnectionError("startup failed")
         async for m in orig(call, prompt, options):
             yield m
 
     sdk._run = first_fails
     assert w.pool.start()
+    holder.append(w.pool._slot)
     calls_before = 1
     capfd.readouterr()
     res = w.read()
     assert res.status_code == 200
-    # #99: 先立てを取ったが送る前に失敗した回は cold_retry。wait_ms は先立てを取った時刻から（先立ての 0.3 秒のうち、
-    # 取った後の残りを含む）
+    # #99: 先立てを取ったが送る前に失敗した回は cold_retry。wait_ms は先立てを取った時刻から（取った後に先立てを待った
+    # 時間を含む）
     (log,) = read_logs(capfd)
-    # 偽の先立ての 0.3 秒は取るより前に数え始めるので、取るまでの要求の処理の分だけ短く見える（負荷で揺れない幅をとる）
-    assert log["cli"] == "cold_retry" and log["wait_ms"] >= 250
+    # 偽の先立ては取られてから 0.3 秒後に失敗する（取った時刻から数える wait_ms は 0.3 秒 + その場で立てる時間）
+    assert log["cli"] == "cold_retry" and log["wait_ms"] >= 300
     assert log["read_ms"] >= log["wait_ms"] + log["result_ms"] + log["close_ms"] - 1
     assert len(sdk.calls) == calls_before + 1
     assert sum(1 for c in sdk.calls if c["message"] is not None) == 1
@@ -399,9 +435,13 @@ def test_warm_read_stage_timings(make, sdk, capfd):
 
 # ── AC-2（例 #2）: 立ち上げ中の先立てを取ると、残りの立ち上がりが wait_ms に出る ──
 def test_warm_read_while_starting_shows_wait(make, sdk, capfd):
-    sdk.startup_delay = 1.0
+    # 先立ては取られた時点でまだ立ち上がりの途中で、取られてから 1.0 秒後に立ち上がる（起動の段から数えると、
+    # 取るまでの要求の処理の分だけ残りが短くなって揺れる。#148）
+    holder: list = []
+    sdk._run = after_taken(holder, sdk._run, 1.0)
     w = make()
     assert w.pool.start()  # 起動の段と同じく立て始めるだけ
+    holder.append(w.pool._slot)
     capfd.readouterr()
     assert w.read().status_code == 200
     (log,) = read_logs(capfd)
@@ -576,6 +616,7 @@ def test_startup_slot_past_limit_without_cpu_logs_idle(make, sdk, capfd, monkeyp
     sdk.startup_delay = 5.0
     w = make()
     assert w.pool.start()  # 起動の段と同じ（待たない）
+    slot = w.pool._slot
     real = w.pool._clock
     # 時計だけが 60 秒進んだ（loop はまだ締め切りを処理していない）
     monkeypatch.setattr(w.pool, "_clock", lambda: real() + 60)
@@ -586,8 +627,7 @@ def test_startup_slot_past_limit_without_cpu_logs_idle(make, sdk, capfd, monkeyp
     sdk.startup_delay = 0.0  # その場で立てる CLI はすぐ立ち上がる
     capfd.readouterr()
     assert w.read().status_code == 200
-    while w.pool._active and time.monotonic() < deadline:  # 捨てた先立ての後始末（終わりの印）を待つ
-        time.sleep(0.02)
+    wait_finished(slot)  # 捨てた先立ての後始末（終わりの印）を待つ（#148）
     _out, err = capfd.readouterr()
     lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
     (log,) = [ln for ln in lines if ln.get("event") == "statement_read"]
@@ -607,6 +647,7 @@ def test_prepare_replaces_startup_slot_past_limit(make, sdk, capfd, monkeypatch)
     sdk.startup_delay = 5.0
     w = make()
     assert w.pool.start()  # 起動の段と同じ（待たない）
+    slot = w.pool._slot
     deadline = time.monotonic() + 5
     while not sdk.calls and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -617,9 +658,7 @@ def test_prepare_replaces_startup_slot_past_limit(make, sdk, capfd, monkeypatch)
     capfd.readouterr()
     assert w.prepare().get_json() == {"ready": True}
     assert len(sdk.calls) == 2 and all(c["message"] is None for c in sdk.calls)
-    deadline = time.monotonic() + 5
-    while len(w.pool._active) > 1 and time.monotonic() < deadline:  # 捨てた先立ての後始末（終わりの印）を待つ
-        time.sleep(0.02)
+    wait_finished(slot)  # 捨てた先立ての後始末（終わりの印）を待つ（#148）
     _out, err = capfd.readouterr()
     lines = [json.loads(ln) for ln in err.splitlines() if ln.startswith("{")]
     (prep,) = [ln for ln in lines if ln.get("event") == "statement_read_prepare"]

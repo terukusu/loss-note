@@ -36,6 +36,9 @@ import {
   STAGE1_CANCEL_ID,
   STATEMENT_NOTICE,
   STATEMENT_NOTICE_MORE,
+  STATEMENT_REMOVE_ID,
+  STATEMENT_REMOVED,
+  STATEMENT_UNDO_ID,
 } from '../../ui/src/pages/Record';
 import { account, defaultAccount } from './helpers/accounts';
 import { CTX_A, CTX_D, INST_JPY, INST_NONE, pDraft } from './helpers/currency-examples';
@@ -2944,5 +2947,107 @@ describe('読み取りが終わったことの知らせ（#166。例は Issue �
     expect(all(t, hasClass('rsum__status'))).toHaveLength(0);
     expect(text(all(t, hasClass('rsum__mark')))).toBe('読み取り');
     expect(cls(all(t, hasClass('rsum__head'))[0] as El)).toBe('rsum__head');
+  });
+});
+
+describe('明細の削除と ［元に戻す］（#184。1 段目の明細の枠）', () => {
+  const byId = (t: Node[], id: string) => all(t, (e) => e.props.id === id);
+
+  it('読めた明細は ［スクショを変更］ の横に 2 番目の重さの ［削除］（読み上げ「明細を削除」）。押すと onRemoveStatement', () => {
+    let removed = 0;
+    const f = filledE1();
+    const tree = view(
+      { ...withStatement(f.draft, { marks: f.marks }), stage: 'input' },
+      { onRemoveStatement: () => removed++ },
+    );
+    const btn = byId(tree, STATEMENT_REMOVE_ID)[0] as El;
+    expect(text(btn)).toBe('削除');
+    expect(btn.props['aria-label']).toBe('明細を削除');
+    expect(String(btn.props.class)).toContain('btn--secondary');
+    // ［スクショを変更］ も小さい形で 1 行に（デザインレビュー 4）
+    const change = all(
+      tree,
+      (e) => e.type === 'label' && e.props.for === 'record-statement-file',
+    )[0] as El;
+    expect(String(change.props.class)).toContain('btn--sm');
+    (btn.props.onClick as () => void)();
+    expect(removed).toBe(1);
+    const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-statement-file');
+    expect(text(label)).toBe('スクショを変更');
+    // 削除の前は知らせの 1 行は空（読み上げの領域だけ）
+    const live = all(tree, hasClass('rin__removed'))[0] as El;
+    expect(live.props.role).toBe('status');
+    expect(text(live)).toBe('');
+  });
+
+  it('例 #11: 読み取り中は ［削除］ を出さない（［読み取りをキャンセル］）', () => {
+    const tree = view({ ...withStatement(E1, { phase: 'reading' }, true), stage: 'input' });
+    expect(byId(tree, STATEMENT_REMOVE_ID)).toEqual([]);
+    expect(byId(tree, STAGE1_CANCEL_ID)).toHaveLength(1);
+  });
+
+  it('削除の後: 枠は空の形（主の ［スクショを選ぶ］）と 1 行「明細を削除しました」・［元に戻す］。押すと onUndoRemoveStatement', () => {
+    let undo = 0;
+    const tree = view(
+      { ...stateFor(draft({ lc: '99.5' }), NO_CAPITAL), stage: 'input', statementRemoved: true },
+      { onUndoRemoveStatement: () => undo++ },
+    );
+    const label = all(tree, (e) => e.type === 'label' && e.props.for === 'record-statement-file');
+    expect(text(label)).toBe('スクショを選ぶ');
+    expect(String((label[0] as El).props.class)).toContain('btn--primary');
+    expect(byId(tree, STATEMENT_REMOVE_ID)).toEqual([]);
+    const live = all(tree, hasClass('rin__removed'))[0] as El;
+    expect(live.props.role).toBe('status');
+    expect(text(live)).toContain(STATEMENT_REMOVED);
+    // 何が消えて何が残るかを言う（デザインレビュー 2）
+    expect(STATEMENT_REMOVED).toBe(
+      '明細の値を削除しました。LC・一言・タップ・チャートは残っています',
+    );
+    // 文のすぐ右に ［元に戻す］、置き場は枠の本文の直後（注意より前。デザインレビュー 3）
+    const card = all(tree, hasClass('rin__card'))[0] as El;
+    const kids = card.children.filter((c): c is El => typeof c !== 'string');
+    const order = kids.map((k) => String(k.props.class ?? ''));
+    expect(order.indexOf('rin__removed')).toBe(order.indexOf('rin__body') + 1);
+    expect(
+      live.children.filter((c) => typeof c !== 'string').map((c) => (c as El).props.id),
+    ).toEqual([undefined, STATEMENT_UNDO_ID]);
+    // 説明の文は 1 行に任せる（読み上げの領域だけ残す）
+    const desc = all([card], hasClass('rin__desc'))[0] as El;
+    expect(text(desc)).toBe('');
+    const btn = byId(tree, STATEMENT_UNDO_ID)[0] as El;
+    expect(text(btn)).toBe('元に戻す');
+    expect(btn.props['aria-label']).toBe('明細の削除を元に戻す');
+    (btn.props.onClick as () => void)();
+    expect(undo).toBe(1);
+  });
+
+  it('R6: 読み直しが失敗して前の明細に戻した → 1 段目・2 段目の明細の枠に「…。前の明細に戻しました。」の警告（「手入力」は無い）。要約は出たまま', () => {
+    const f = filledE1();
+    const st = withStatement(f.draft, {
+      marks: f.marks,
+      reverted: { kind: 'failed', message: READ_MSG.limited },
+    });
+    for (const t of [view({ ...st, stage: 'input' }), view(st)]) {
+      const alerts = all(t, (e) => e.props.role === 'alert');
+      expect(alerts.map(text)).toContain(
+        '今日の読み取りの上限に達しました。前の明細に戻しました。',
+      );
+      expect(alerts.map(text).join('')).not.toContain('手入力');
+    }
+    const area = all(view(st), hasClass('rstmt'))[0] as El;
+    expect(area.props['data-area']).toBe('summary');
+  });
+});
+
+describe('読み直しの途中（#184 のデザインレビュー 5）', () => {
+  it('「別の明細を読み取り中…」と、読み上げ「読み取りをキャンセルして前の明細に戻す」の ［キャンセル］', () => {
+    const tree = view(withStatement(E1, { phase: 'reading', rereading: true }, true));
+    expect(text(all(tree, hasClass('rsum__status--reading')))).toBe('別の明細を読み取り中…');
+    const cancel = all(
+      tree,
+      (e) =>
+        e.type === 'button' && e.props['aria-label'] === '読み取りをキャンセルして前の明細に戻す',
+    );
+    expect(cancel).toHaveLength(1);
   });
 });

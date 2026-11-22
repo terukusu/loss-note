@@ -388,3 +388,35 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(c.getState().draft.legs[0]?.optionType).toBe('C');
   });
 });
+
+describe('明細の削除とレッグ（#184 例 #10・AC-6）', () => {
+  it('明細から読んだレッグ 2 本 + 手で足したレッグ 1 本で削除 → 手で足した 1 本だけ残る。［元に戻す］ で 3 本', async () => {
+    const { c } = await opened([optionRowJson(OPT_A1), optionRowJson(OPT_A2)]);
+    const hand: LegDraft = { ...EMPTY_LEG, optionType: 'C', strike: '40000', quantity: '1' };
+    c.update({ type: 'set', field: 'legs', value: [...c.getState().draft.legs, hand] });
+    const before = c.getState().draft.legs;
+    expect(before).toHaveLength(3);
+    c.removeStatement();
+    expect(c.getState().draft.legs).toEqual([hand]);
+    c.undoRemoveStatement();
+    expect(c.getState().draft.legs).toEqual(before);
+  });
+
+  it('本人が入れた原資産のイン・決済は、削除・［元に戻す］ で残る（明細から来たものではない。設計書 7.5・13.2）', async () => {
+    const { c } = await opened([optionRowJson(OPT_A1), optionRowJson(OPT_A2)]);
+    c.update({ type: 'set', field: 'entryPrice', value: '38500' });
+    c.update({ type: 'set', field: 'exitPrice', value: '39100' });
+    c.removeStatement();
+    const s = c.getState().draft;
+    expect(s).toMatchObject({ entryPrice: '38500', exitPrice: '39100', instrumentName: '' });
+    expect(s.legs).toEqual([]);
+    c.update({ type: 'set', field: 'exitPrice', value: '39200' });
+    c.undoRemoveStatement();
+    expect(c.getState().draft).toMatchObject({
+      entryPrice: '38500',
+      exitPrice: '39200',
+      instrumentName: '架空指数XYZOP',
+    });
+    expect(c.getState().draft.legs).toHaveLength(2);
+  });
+});

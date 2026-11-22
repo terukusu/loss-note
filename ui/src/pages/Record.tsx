@@ -104,9 +104,12 @@ import {
   focusLcAfterRead,
   miniChartId,
   opensEmotionSheet,
+  REREAD_CANCEL_LABEL,
+  REREADING,
   type RecordSheet,
   type RecordStage,
   readFinished,
+  revertedMessage,
   SHEET_ID,
   type StatementStatus,
   showProceed,
@@ -610,6 +613,15 @@ export function RecordScreen() {
       onPickFile={(file) => {
         void controller.readImage(file);
       }}
+      onRemoveStatement={() => {
+        controller.removeStatement();
+        // 押したボタンは消えるので、同じ枠の ［元に戻す］ へ
+        focusSoon(STATEMENT_UNDO_ID);
+      }}
+      onUndoRemoveStatement={() => {
+        controller.undoRemoveStatement();
+        focusSoon(STATEMENT_REMOVE_ID);
+      }}
       onCancelRead={() => {
         controller.cancelRead();
         // 2 段目は LC へ、1 段目（読み取り中に ［スクショ］ で戻った）は明細を選ぶ欄へ（段は替わらない）
@@ -724,6 +736,10 @@ export interface RecordViewProps {
   readonly onPickFile?: (file: File) => void;
   /** [やめて手で入れる] */
   readonly onCancelRead?: () => void;
+  /** 1 段目の明細の枠の ［削除］（#184） */
+  readonly onRemoveStatement?: () => void;
+  /** 削除の後の ［元に戻す］（#184） */
+  readonly onUndoRemoveStatement?: () => void;
   /**
    * 明細の行の 1 回だけの動き（読み取りが読めた・失敗した直後。#166 R3）。動きが終わったら onReadFlashEnd で外す。
    * 省けば動かない
@@ -814,6 +830,11 @@ export const STATEMENT_STATUS_ID = 'record-statement-status';
 const STAGE1_TITLE_ID = 'record-stage1-title';
 /** 1 段目の ［読み取りをキャンセル］（読み取り中に 1 段目へ戻ったとき） */
 export const STAGE1_CANCEL_ID = 'record-stage1-cancel';
+/** 1 段目の明細の枠の ［削除］ と、削除の後の ［元に戻す］（#184） */
+export const STATEMENT_REMOVE_ID = 'record-statement-remove';
+export const STATEMENT_UNDO_ID = 'record-statement-undo';
+/** 削除の後の 1 行（#184 R3。何が消えて何が残るかを言う。デザインレビュー 2） */
+export const STATEMENT_REMOVED = '明細の値を削除しました。LC・一言・タップ・チャートは残っています';
 /** 上の帯の ［スクショ］・1 段目の ［振り返りへ進む］・2 段目の ［スクショを選ぶ］ */
 const TO_INPUT_ID = 'record-to-input';
 const PROCEED_ID = 'record-proceed';
@@ -1390,12 +1411,7 @@ function StatementArea(
     status?.kind === 'done' && p.spokenNamed !== undefined
       ? statementStatus(st, p.spokenNamed, cancelled)
       : status;
-  const message =
-    st?.phase === 'failed' && st.message ? (
-      <p class="notice notice--error" role="alert">
-        {st.message}
-      </p>
-    ) : null;
+  const message = statementMessage(st);
   const notices = <StatementNotices state={state} />;
   return (
     <section
@@ -1446,13 +1462,13 @@ function StatementArea(
               {/* 下の帯が「明細を読み取っています」と言うので、枠の中は短く（幅 360 でも切れない。#130 のデザインレビュー a2）。
                   読み取りの後の完了の文と同じ場所（名前の上の 1 行）。読み上げは上の領域（#166） */}
               <p class="rsum__status rsum__status--reading" aria-hidden="true">
-                <span>読み取り中…</span>
+                <span>{st?.rereading ? REREADING : '読み取り中…'}</span>
               </p>
               <p class="rsum__l1 rsum__skeleton rsum__skeleton--name" aria-hidden="true" />
               <Button
                 variant="secondary"
                 size="sm"
-                label="明細の読み取りをキャンセル"
+                label={st?.rereading ? REREAD_CANCEL_LABEL : '明細の読み取りをキャンセル'}
                 onClick={() => p.onCancelRead?.()}
               >
                 キャンセル
@@ -1476,6 +1492,23 @@ function StatementArea(
       )}
     </section>
   );
+}
+
+/**
+ * 明細の失敗の決まった文言（読み取りの失敗と、別の明細の読み直しが失敗して前の明細に戻したとき。#184 R6）。無ければ null
+ */
+function statementMessage(st: RecordState['statement']): ComponentChildren {
+  const text =
+    st?.phase === 'failed' && st.message
+      ? st.message
+      : st?.reverted?.kind === 'failed'
+        ? revertedMessage(st.reverted.message)
+        : null;
+  return text ? (
+    <p class="notice notice--error" role="alert">
+      {text}
+    </p>
+  ) : null;
 }
 
 /** 2 段目の要約（明細の行と、完了の文の数の hook の層が同じものを数える） */
@@ -1573,12 +1606,14 @@ function RecordSummary(
  */
 function StatementPick(p: {
   readonly primary?: boolean;
+  /** 小さい形（読めた後の ［スクショを変更］。［削除］ と 1 行に並べる。#184 のデザインレビュー 4） */
+  readonly small?: boolean;
   readonly text: string;
   readonly onPickFile?: ((file: File) => void) | undefined;
 }) {
   return (
     <label
-      class={`btn ${p.primary ? 'btn--primary' : 'btn--secondary'} rin__btn statement__file`}
+      class={`btn ${p.primary ? 'btn--primary' : 'btn--secondary'}${p.small ? ' btn--sm' : ''} rin__btn statement__file`}
       for={STATEMENT_FILE_ID}
     >
       <Icon name="image" />
@@ -1670,12 +1705,9 @@ function StageInput(p: RecordViewProps) {
   const preview = filled ? (st?.preview ?? null) : null;
   const charts = state.charts ?? {};
   const anyChart = charts.entry !== undefined || charts.exit !== undefined;
-  const message =
-    st?.phase === 'failed' && st.message ? (
-      <p class="notice notice--error" role="alert">
-        {st.message}
-      </p>
-    ) : null;
+  const message = statementMessage(st);
+  const ready = st?.phase === 'ready';
+  const removed = state.statementRemoved === true;
   return (
     <section class="rin" aria-labelledby={STAGE1_TITLE_ID}>
       <div class="rin__head">
@@ -1712,27 +1744,61 @@ function StageInput(p: RecordViewProps) {
             <h3 class="rin__name">決済明細のスクショ</h3>
             {/* 状態の文の live region は常に描き、中身だけを替える（役割と中身を同時に替えると読み上げられないことがある。
               2 段化のレビュー指摘 3） */}
-            <p class="rin__desc" role="status">
-              {filled ? s1.text : '決済した後の、約定と損益が載っている画面'}
+            {/* 削除の後は説明の文を下の 1 行（何が消えて何が残るか）に任せる（1 段目の縦 0px。#184） */}
+            <p class={removed ? 'rin__desc sr-only' : 'rin__desc'} role="status">
+              {filled ? s1.text : removed ? '' : '決済した後の、約定と損益が載っている画面'}
             </p>
-            <StatementPick
-              primary={!filled}
-              text={filled ? 'スクショを変更' : 'スクショを選ぶ'}
-              onPickFile={p.onPickFile}
-            />
+            <div class="rin__acts">
+              <StatementPick
+                primary={!filled}
+                small={filled}
+                text={filled ? 'スクショを変更' : 'スクショを選ぶ'}
+                onPickFile={p.onPickFile}
+              />
+              {/* 読めた明細だけを削除できる（読み取り中は ［読み取りをキャンセル］。#184 例 #11） */}
+              {ready ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  id={STATEMENT_REMOVE_ID}
+                  label="明細を削除"
+                  onClick={() => p.onRemoveStatement?.()}
+                >
+                  削除
+                </Button>
+              ) : null}
+            </div>
             {/* 読み取り中に 1 段目へ戻っても、ここでやめられる（2 段化のレビュー指摘 2） */}
             {stage1Reading(st) ? (
               <Button
                 variant="secondary"
                 size="sm"
                 id={STAGE1_CANCEL_ID}
-                label="明細の読み取りをキャンセル"
+                label={st?.rereading ? REREAD_CANCEL_LABEL : '明細の読み取りをキャンセル'}
                 onClick={() => p.onCancelRead?.()}
               >
                 読み取りをキャンセル
               </Button>
             ) : null}
           </div>
+        </div>
+        {/* 削除の後の 1 行（その場の ［元に戻す］。押した ［削除］ のすぐ下 = 枠の本文の直後に、文と ［元に戻す］ を 1 つの面で。
+            全画面のシートの中なのでトーストにしない = レッグの削除と同じ形。P4・10.2・#184）。読み上げの領域は常に描き、中身だけを替える */}
+        <div class="rin__removed" role="status">
+          {removed ? (
+            <>
+              <span class="rin__removedtext">{STATEMENT_REMOVED}</span>
+              <Button
+                variant="secondary"
+                size="sm"
+                id={STATEMENT_UNDO_ID}
+                label="明細の削除を元に戻す"
+                onClick={() => p.onUndoRemoveStatement?.()}
+              >
+                元に戻す
+              </Button>
+            </>
+          ) : null}
         </div>
         {/* 送る前の注意（畳まない・3 行以下。7.5・C38）。補足は末尾の「i」 */}
         <p class="statement__notice rin__notice">

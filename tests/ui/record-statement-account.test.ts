@@ -471,3 +471,47 @@ describe('レビュー後（#66 デザイン 1・4・5、P3）', () => {
     expect(c.getState().draft.pnlYen).toBe('-2000');
   });
 });
+
+describe('明細の削除と口座（#184 例 #8・AC-6）', () => {
+  it('自動で選んだ口座 B は、削除で選ぶ前の口座 A に戻る。［元に戻す］ で B・印「自動で選択」に戻る', async () => {
+    const { c } = await openedWith([read([ROW_E1], { key: KX, accountId: ACC_B.id })], {
+      last: ACC_A.id,
+    });
+    await c.readImage(img());
+    expect(c.getState().draft.accountId).toBe(ACC_B.id);
+    expect(c.getState().statement?.marks.accountId).toBe('auto');
+    c.removeStatement();
+    expect(c.getState().draft.accountId).toBe(ACC_A.id);
+    c.undoRemoveStatement();
+    expect(c.getState().draft.accountId).toBe(ACC_B.id);
+    expect(c.getState().statement?.marks.accountId).toBe('auto');
+  });
+
+  it('本人が口座 B を選び直していたら、削除しても口座 B のまま', async () => {
+    const { c } = await openedWith([read([ROW_E1], { key: KX, accountId: ACC_B.id })], {
+      last: ACC_A.id,
+    });
+    await c.readImage(img());
+    c.update({ type: 'set', field: 'accountId', value: ACC_B.id });
+    c.removeStatement();
+    expect(c.getState().draft.accountId).toBe(ACC_B.id);
+  });
+
+  it('削除の後に本人が選んだ口座は、［元に戻す］ でも次の明細の提案でも上書きしない', async () => {
+    const { c } = await openedWith(
+      [
+        read([ROW_E1], { key: KX, accountId: ACC_B.id }),
+        read([ROW_E1], { key: KX, accountId: ACC_B.id }),
+      ],
+      { last: ACC_A.id },
+    );
+    await c.readImage(img());
+    c.removeStatement();
+    c.update({ type: 'set', field: 'accountId', value: ACC_A.id });
+    c.undoRemoveStatement();
+    expect(c.getState().draft.accountId).toBe(ACC_A.id);
+    expect(c.getState().statement?.marks.accountId).toBeUndefined();
+    await c.readImage(img());
+    expect(c.getState().draft.accountId).toBe(ACC_A.id);
+  });
+});

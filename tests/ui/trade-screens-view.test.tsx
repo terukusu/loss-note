@@ -21,6 +21,7 @@ import { TRADES_MORE_ID, Trades, TradesView } from '../../ui/src/pages/Trades';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi } from './helpers/fake-api';
 import { closedInfoTip } from './helpers/info-tip';
+import { checkSubmitGate } from './helpers/submit-gate';
 import {
   CAPITAL_NOW,
   D1,
@@ -591,6 +592,29 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     );
   }
   const verdictText = (tree: Node[]) => text(all(tree, hasClass('verdict'))[0] as El);
+
+  it('#183: 編集の画面もキーボードの印の間は、欄の Enter の暗黙の送信では保存せず、本文の最後の ［保存］ を押したときだけ送る（記録する画面と同じ門）', async () => {
+    const fake = createFakeApi({ trades: [E1], instruments: [US30], capitalYen: CAPITAL_NOW });
+    const c = createEditController({ api: fake.api, id: E1.id });
+    await c.load();
+    let saved = 0;
+    const tree = expand(
+      <TradeEditView
+        id={E1.id}
+        state={c.getState()}
+        hidden={EMPTY}
+        notFound={notFoundState()}
+        onUpdate={c.update}
+        onSave={() => {
+          saved++;
+        }}
+        onReload={noop}
+        onRelogin={noop}
+        sheet={null}
+      />,
+    );
+    checkSubmitGate(all(tree, (e) => e.type === 'form')[0] as El, () => saved);
+  });
   const sheetOf = (tree: Node[], id: string) =>
     all(tree, (e) => e.props['data-sheet'] === id)[0] as El;
 

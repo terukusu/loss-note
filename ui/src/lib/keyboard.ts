@@ -209,3 +209,16 @@ const NON_TEXT_INPUTS: ReadonlySet<string> = new Set([
 export function isEnterCommit(key: string, isComposing: boolean, keyCode: number): boolean {
   return key === 'Enter' && !isComposing && keyCode !== 229;
 }
+
+/** 送るボタンを押し始めてから送信までを「押した」と数える長さ（ms。指で押して離すまで。#183） */
+export const SUBMIT_PRESS_MS = 2000;
+
+/**
+ * キーボードが出ている間の送信を通すか（#183。ui-guidelines 10.1）。印が無ければ通す。印の間は、送るボタン（本文の最後に
+ * 置いた ［記録する］ / ［保存］）を指で押し始めてから SUBMIT_PRESS_MS 以内の送信だけを通し、欄の Enter によるフォームの
+ * 暗黙の送信（押し始めが無い）は止める。pressedAt = 押し始めの時刻（無ければ null）
+ */
+export function submitAllowed(keyboard: boolean, pressedAt: number | null, now: number): boolean {
+  if (!keyboard) return true;
+  return pressedAt !== null && now >= pressedAt && now - pressedAt <= SUBMIT_PRESS_MS;
+}

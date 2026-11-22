@@ -15,6 +15,7 @@ import { Segment } from '../components/Segment';
 import { SetAddRow, SetRow, SettingsLoad, SettingsNotice } from '../components/SettingsParts';
 import { Sheet } from '../components/Sheet';
 import { TextField } from '../components/TextField';
+import { commitFocusedEntry } from '../lib/keyboard-reveal';
 import { NavigatorContext } from '../lib/router';
 import {
   createSettingsController,
@@ -220,6 +221,8 @@ function InstrumentForm(
       aria-label={`${rec.name} を編集`}
       onSubmit={(ev) => {
         ev.preventDefault();
+        // 送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183。キーボードの間は ［保存］ が本文の最後）
+        commitFocusedEntry(ev.currentTarget);
         p.onSaveInstrument();
       }}
     >
@@ -316,6 +319,8 @@ function AddForm(p: SettingsInstrumentsViewProps & { readonly notice: SettingsSt
       aria-label="銘柄を追加"
       onSubmit={(ev) => {
         ev.preventDefault();
+        // 送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183。キーボードの間は ［保存］ が本文の最後）
+        commitFocusedEntry(ev.currentTarget);
         p.onAdd();
       }}
     >

@@ -21,18 +21,75 @@ import {
   type RevealLevel,
   type Span,
   shouldReveal,
+  submitAllowed,
 } from './keyboard';
 
 /** 貼り付いて欄を覆いうる帯（position が sticky / fixed のものだけ数える） */
 const COVERS =
   '.appbar, .record__submit, .setform__actions, .emotions__actions, .review__period-bar';
 
-/**
- * キーボードが出ている印があるか（記録する・編集の onSubmit が見る）。印の間は下の帯が隠れているので、決定キーを渡していない欄の
- * Enter（フォームの暗黙の送信）で保存を送らない（ui-guidelines 10.1「主の流れの決定キーでは保存を送らない」。#172 のレビュー N3）
- */
+/** キーボードが出ている印があるか（<html data-keyboard>） */
 export function keyboardShown(root: Element | null | undefined): boolean {
   return root?.hasAttribute('data-keyboard') ?? false;
+}
+
+/** フォームごとの、送るボタンを指で押し始めた時刻（Date.now。#183） */
+const presses = new WeakMap<object, number>();
+
+interface PressEvent {
+  readonly type: string;
+  readonly currentTarget: EventTarget | null;
+  readonly target: EventTarget | null;
+}
+
+/**
+ * フォームの pointerdown / pointerup / pointercancel / keydown（記録する・編集の画面が渡す。#183）。送るボタンの上で押し
+ * 始めたら時刻を覚え、押すのをやめた（スクロールに替わった pointercancel・ボタンの外で離した pointerup）・キーを押した
+ * （keydown。欄の Enter の暗黙の送信はこの後に来る）ら忘れる。キーボードの間に本文の最後の ［記録する］ / ［保存］ を押した
+ * のか、欄の Enter の暗黙の送信（ブラウザが送るボタンを押したことにする）なのかを分ける
+ */
+export function notePress(ev: PressEvent): void {
+  const form = ev.currentTarget as (Element & object) | null;
+  if (!form) return;
+  if (ev.type === 'pointercancel' || ev.type === 'keydown') {
+    presses.delete(form);
+    return;
+  }
+  const t = ev.target as Element | null;
+  const btn = typeof t?.closest === 'function' ? t.closest('button[type="submit"]') : null;
+  const onButton = btn !== null && form.contains(btn);
+  if (!onButton) presses.delete(form);
+  else if (ev.type === 'pointerdown') presses.set(form, Date.now());
+}
+
+/**
+ * 記録する・編集の onSubmit が保存を送るか（#183。ui-guidelines 10.1）。キーボードの印の間は、送るボタンを押した送信だけを
+ * 通し、欄の Enter による暗黙の送信では送らない（主の流れの決定キーでは保存を送らない。#172 のレビュー N3）。通すときは
+ * フォーカス中の文字の欄を外して、変換中の文字を確定させてから返す（押したときの欄の値が保存の本文に入る）
+ */
+export function takeSubmit(form: HTMLFormElement | null | undefined, now = Date.now()): boolean {
+  if (!form) return true;
+  const ok = submitAllowed(
+    keyboardShown(form.ownerDocument?.documentElement),
+    presses.get(form) ?? null,
+    now,
+  );
+  presses.delete(form);
+  if (ok) commitFocusedEntry(form);
+  return ok;
+}
+
+/**
+ * キーボードの印の間だけ、フォームの中でフォーカスしている文字の欄を外す（#183。変換中の文字を確定させ、input の後の値で
+ * 保存する）。iPhone の Safari はボタンを押してもフォーカスが欄に残るため。外すとキーボードが閉じ、印が外れて帯が下の端に戻る。
+ * 印の無い送信（PC の Enter・クリック）では外さない（保存が誤りで止まったときにフォーカスを欄に残す。#183 のレビュー N5）
+ */
+export function commitFocusedEntry(form: Element | null | undefined): void {
+  if (!keyboardShown(form?.ownerDocument?.documentElement)) return;
+  const a = form?.ownerDocument?.activeElement as HTMLElement | null | undefined;
+  if (!a || a === form || typeof a.blur !== 'function' || !form?.contains(a)) return;
+  if (!isTextEntry(a.tagName, a.getAttribute('type'), a.isContentEditable)) return;
+  a.blur();
 }
 
 export function installKeyboardReveal(win: Window): () => void {
@@ -78,7 +135,8 @@ export function installKeyboardReveal(win: Window): () => void {
     if (next !== mode) {
       mode = next;
       settleUntil = nextSettleUntil(settleUntil, t, 'focus');
-      // 帯が隠れる・戻るとレイアウトが変わる。下の getBoundingClientRect は替わった後の形で測る（同期のレイアウト）
+      // 帯が本文の最後へ移る・下の端に戻る（書きかけの案内がたたまれる）とレイアウトが変わる。下の getBoundingClientRect は
+      // 替わった後の形で測る（同期のレイアウト）
       if (next) root.setAttribute('data-keyboard', next);
       else root.removeAttribute('data-keyboard');
     }
@@ -87,7 +145,7 @@ export function installKeyboardReveal(win: Window): () => void {
     const again = shouldReveal(last, now, settling);
     last = next ? now : null;
     if (again && field?.isConnected) reveal(field, settling);
-    // 落ち着く間は、次の resize が来なくてももう 1 フレーム見る（帯を隠した後のレイアウト・キーボードの最後の位置で寄せ直す）
+    // 落ち着く間は、次の resize が来なくてももう 1 フレーム見る（帯を移した後のレイアウト・キーボードの最後の位置で寄せ直す）
     if (settling && next) schedule();
   };
 

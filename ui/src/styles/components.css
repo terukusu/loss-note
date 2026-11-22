@@ -2693,11 +2693,13 @@
   padding-block: var(--sp-1) calc(var(--sp-6) + var(--safe-bottom));
 }
 
-/* キーボードが出ている間は、下のシートの中で貼り付いた ［保存］ / ［追加］ の帯を隠す（キーボードの上に貼り付いた帯を置かない。
-   閉じたらすぐ戻す。#172・ui-guidelines 9.6） */
+/* キーボードが出ている間は、下のシートの中の ［保存］ / ［追加］ の帯を貼り付けず、シートの本文の最後に置く（キーボードの上に
+   貼り付いた帯を置かない = #172。下へスクロールすれば押せる = #183）。閉じたらすぐ下の端に戻す。ui-guidelines 10.1 */
 :root[data-keyboard] .sheet .setform__actions,
 :root[data-keyboard] .sheet .emotions__actions {
-  display: none;
+  position: static;
+  margin-bottom: 0;
+  padding-block-end: var(--sp-3);
 }
 
 /* iOS の Safari でキーボードが出ている間は、シートの下の端がキーボードの裏に入る。下の欄もキーボードの上へ寄せられるよう、

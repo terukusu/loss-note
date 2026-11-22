@@ -14,7 +14,7 @@
 // 判定・R は core/ の結果だけを出す。色は判定の段（バッジと結果の枠）だけ、数字は無色（C34）。
 // 形（縦・横・広い）が替わっても View を包む DOM は同じ（形は殻と CSS だけが知る。9.5。2 列は U10）
 import type { ComponentChildren } from 'preact';
-import { keyboardShown } from '../lib/keyboard-reveal';
+import { notePress, takeSubmit } from '../lib/keyboard-reveal';
 import '../styles/record.css';
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { EmotionTagId } from '../../../core/emotion-tags';
@@ -1065,10 +1065,15 @@ function RecordForm(p: RecordViewProps) {
       class={`record record--one record--${stage}`}
       data-stage={stage}
       noValidate
+      onPointerDown={notePress}
+      onPointerUp={notePress}
+      onPointerCancel={notePress}
+      onKeyDown={notePress}
       onSubmit={(ev) => {
         ev.preventDefault();
-        // キーボードが出ている間（下の帯が隠れている）は、欄の Enter による暗黙の送信で保存しない（ui-guidelines 10.1。#172）
-        if (keyboardShown(ev.currentTarget?.ownerDocument?.documentElement)) return;
+        // キーボードが出ている間は、本文の最後の送るボタンを押したときだけ送り、欄の Enter による暗黙の送信では保存しない。
+        // 送る前にフォーカス中の欄を外して入力を確定させる（ui-guidelines 10.1。#172・#183）
+        if (!takeSubmit(ev.currentTarget)) return;
         p.onSave();
       }}
     >

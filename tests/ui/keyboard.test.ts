@@ -13,7 +13,9 @@ import {
   revealDelta,
   SETTLE_EXTEND_MS,
   SETTLE_MS,
+  SUBMIT_PRESS_MS,
   shouldReveal,
+  submitAllowed,
   visibleSpan,
 } from '../../ui/src/lib/keyboard';
 
@@ -298,5 +300,20 @@ describe('キーボードが上がる間の寄せ直し（#172。オーナー「
     }
     // 600 では見えている（0）、508 で 1 回だけ寄せ、同じ高さの 3 回目は動かさない
     expect(moves).toEqual([0, 528 - (508 - 16), 0]);
+  });
+});
+
+describe('submitAllowed（#183: キーボードの間の送信）', () => {
+  it('印が無ければ、押し始めが無くても送る（帯が下の端に貼り付いている間の Enter・クリック）', () => {
+    expect(submitAllowed(false, null, 10_000)).toBe(true);
+  });
+
+  it('印の間は、送るボタンを押し始めてから SUBMIT_PRESS_MS 以内の送信だけを通す。欄の Enter の暗黙の送信（押し始めなし）は止める', () => {
+    expect(submitAllowed(true, null, 10_000)).toBe(false);
+    expect(submitAllowed(true, 10_000, 10_120)).toBe(true);
+    expect(submitAllowed(true, 10_000, 10_000 + SUBMIT_PRESS_MS)).toBe(true);
+    expect(submitAllowed(true, 10_000, 10_001 + SUBMIT_PRESS_MS)).toBe(false);
+    // 時計が戻った（押し始めが未来）なら通さない
+    expect(submitAllowed(true, 10_000, 9_000)).toBe(false);
   });
 });

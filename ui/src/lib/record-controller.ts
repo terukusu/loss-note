@@ -147,6 +147,7 @@ import {
   unitLegs,
   unitRows,
 } from './statement-positions';
+import { type KeptAnswer, restoreStatement, stripStatement } from './statement-remove';
 import {
   applyZone,
   isOtherZone,
@@ -268,7 +269,19 @@ export interface StatementState {
   readonly firstTime?: boolean;
   /** 明細に時間帯の書かれていない時刻があった（#58 の後半）。無ければ省く */
   readonly tz?: TzState;
+  /**
+   * 別の明細の読み直しが失敗・キャンセルで終わり、この明細（選ぶ前の明細）に戻した（#184 R6）。失敗は決まった文言。次の読み取り・
+   * 削除・次の行で外す
+   */
+  readonly reverted?: StatementReverted;
+  /** 別の明細の読み直しの途中（キャンセル・失敗で前の明細に戻る。#184。読み取り中の文を「別の明細を読み取り中…」に） */
+  readonly rereading?: true;
 }
+
+/** 読み直しをやめて前の明細に戻した理由（#184 R6） */
+export type StatementReverted =
+  | { readonly kind: 'failed'; readonly message: string }
+  | { readonly kind: 'cancelled' };
 
 /** 時間帯の確かめ（#58 の後半・statement-tz.ts） */
 export interface TzState {
@@ -285,6 +298,24 @@ export interface TzState {
   readonly otherOpen: boolean;
   /** その時間帯に無い時刻だった（夏時間の切り替え）。理由の 1 行に出す */
   readonly gap: TzId | null;
+}
+
+/**
+ * 明細の状態の写し（#184。削除の ［元に戻す］ と読み直しの戻り先）: 直前の下書き・明細から来たものを取り除いた下書き・明細
+ * （画像ごと）・明細ごとの記憶。記憶の中だけ
+ */
+interface StatementSnap {
+  readonly before: Draft;
+  readonly stripped: Draft;
+  readonly statement: StatementState;
+  readonly touched: ReadonlySet<DraftField>;
+  readonly profile: StatementProfile | null;
+  readonly accountTouched: boolean;
+  readonly learnedInStatement: boolean;
+  readonly statementSaved: StoredTrade[];
+  readonly statementZone: TzId | null;
+  readonly fxBasis: FxPair | null;
+  readonly autoAccount: { readonly from: string; readonly to: string } | null;
 }
 
 /** 端末に覚えた時間帯（画面が zone-memory.ts で作る。テストは偽物。書くのは時間帯の ID だけ） */
@@ -368,6 +399,11 @@ export interface RecordState {
    * ［明細なしで手入力］・保存・次の取引で false に戻す
    */
   readonly readCancelled?: boolean;
+  /**
+   * 読み取った明細を削除した直後で、［元に戻す］ が押せる（1 段目の明細の枠の 1 行「明細を削除しました」。#184 R3・R4）。
+   * 次の明細を選ぶ・記録する・✕・画面を離れると false
+   */
+  readonly statementRemoved?: boolean;
 }
 
 export interface RecordController {
@@ -381,8 +417,17 @@ export interface RecordController {
   next(): void;
   /** 明細の画像を 1 枚受けて、描き直して読み取りに送る（追加の操作なし。前の読み取りは捨てる） */
   readImage(file: Blob): Promise<void>;
-  /** [やめて手で入れる]: 読み取りをやめる（後で届いた応答は捨てる。欄はそのまま） */
+  /**
+   * 読み取りをやめる（後で届いた応答は捨てる）。別の明細の読み直しなら、選ぶ前の明細の状態（値・印・画像・行）に戻す（#184 R6）
+   */
   cancelRead(): void;
+  /**
+   * ［削除］: 読み取った明細を削除する（明細から来た値を取り除き、LC・一言・3 つのタップ・チャートなど本人が入れたものは残す。
+   * AI へ送らない。#184 R1〜R3）
+   */
+  removeStatement(): void;
+  /** ［元に戻す］: 削除の直前の明細の状態（値・印・画像・行）に戻す（AI へ送らない。#184 R4） */
+  undoRemoveStatement(): void;
   /** 明細の時刻の時間帯を選ぶ: 選んだ時間帯から日本時間に直して欄に入れ、端末に覚える（#58） */
   chooseTimeZone(id: TzId): void;
   /** [ほかのタイムゾーン…] を開く（前に選んだ時間帯で入れた欄は明細の時刻に戻す） */
@@ -557,6 +602,12 @@ export function createRecordController(deps: {
   let onScreen = true;
   /** 画面の外にいて送り直せなかった（戻ったら WARM_REFRESH_MS を待たずに送る。#75） */
   let warmMissed = false;
+  /** 明細から自動で選んだ口座（選ぶ前 → 選んだ。#66）。本人が触っていなければ削除・読み直しで選ぶ前に戻す（#184 R1） */
+  let autoAccount: { readonly from: string; readonly to: string } | null = null;
+  /** 削除の ［元に戻す］ の戻り先（#184 R4。画像を持つので、終わったら close して捨てる） */
+  let undoSnap: StatementSnap | null = null;
+  /** 別の明細の読み直しの戻り先（#184 R6。読み直しが失敗・キャンセルで終わったら戻す。読めたら捨てる） */
+  let rollback: StatementSnap | null = null;
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -745,23 +796,130 @@ export function createRecordController(deps: {
     return list.items.find((t) => canonical(t.record) === want);
   };
 
-  /** 読み取りを止めて、画像（プレビュー）と残りの行を捨てる */
-  /** keepTouched: 貼り直し（前の読み取りの後に利用者が直した欄は、次の応答でも上書きしない） */
-  const endStatement = (keepTouched = false) => {
+  /** 読み取りを止めて、画像（プレビュー）と残りの行を捨てる（読み直しの戻り先も捨てる） */
+  const endStatement = () => {
+    dropRollback();
+    detachStatement();
+    touched = new Set();
+    accountTouched = false;
+  };
+
+  /**
+   * 明細を外す（読み取りを止め、明細ごとの記憶を捨てる）。前の明細の後に本人が直した読み取りの欄は持ち越さない（#184 Q1）ので
+   * touched から読み取りの欄を外し、本人の答え（決めていた・決済の理由など）は残す。本人が選んだ口座（accountTouched）は残す
+   * （R2・R5）。画像は戻り先（削除の ［元に戻す］・読み直しの戻り先）が持っていなければ close する
+   */
+  const detachStatement = () => {
     readGen++;
     readAbort?.abort();
     readAbort = null;
-    if (!keepTouched) touched = new Set();
+    touched = new Set([...touched].filter((f) => !(READ_FIELDS as readonly string[]).includes(f)));
     profile = null;
-    accountTouched = false;
     learnedInStatement = false;
     statementSaved = [];
     statementZone = null;
+    autoAccount = null;
     const prev = state.statement;
     if (!prev) return;
-    prev.preview?.close();
+    if (prev.preview && !kept(prev.preview)) prev.preview.close();
     const { statement: _gone, ...rest } = state;
     state = rest;
+  };
+
+  /** 戻り先が持っている画像か（close しない） */
+  const kept = (preview: PreviewHandle) =>
+    undoSnap?.statement.preview === preview || rollback?.statement.preview === preview;
+
+  /**
+   * 今の明細（ready）の写し（削除の ［元に戻す］・読み直しの戻り先。#184）。取り除いた下書きには為替の規則を当てない: 口座を
+   * 選ぶ前に戻しても、銘柄が空になるので通貨の組が決まらず、打った為替は「ほかの任意の欄」として残す（R2）。規則は次に銘柄・口座が
+   * 決まったとき（入力・次の明細の流し込み）に当たり、［元に戻す］ では基準の組（fxBasis）ごと戻す
+   */
+  const takeSnap = (st: StatementState): StatementSnap => {
+    const accountFrom =
+      !accountTouched && autoAccount !== null && state.draft.accountId === autoAccount.to
+        ? autoAccount.from
+        : undefined;
+    return {
+      before: state.draft,
+      stripped: stripStatement(state.draft, st.marks, accountFrom),
+      statement: st,
+      touched: new Set(touched),
+      profile,
+      accountTouched,
+      learnedInStatement,
+      statementSaved,
+      statementZone,
+      fxBasis,
+      autoAccount,
+    };
+  };
+
+  /** 戻り先を捨てる（画像は今の明細が使っていなければ close） */
+  const dropSnap = (snap: StatementSnap | null) => {
+    const p = snap?.statement.preview;
+    if (p && state.statement?.preview !== p) p.close();
+  };
+  const dropRollback = () => {
+    const snap = rollback;
+    rollback = null;
+    dropSnap(snap);
+  };
+  /** 削除の ［元に戻す］ を終える（知らせの 1 行も外す。知らせは次の set で出す） */
+  const dropUndo = () => {
+    const snap = undoSnap;
+    undoSnap = null;
+    dropSnap(snap);
+    if (state.statementRemoved) state = { ...state, statementRemoved: false };
+  };
+
+  /**
+   * 写しの明細の状態に戻す（#184 R4・R6）: 明細から来た値・印・画像・行・明細ごとの記憶を戻し、本人の計画の欄は今のまま。
+   * reverted: 読み直しをやめて戻した理由（明細の枠の 1 行）
+   */
+  const restore = (snap: StatementSnap, reverted?: StatementReverted) => {
+    readGen++;
+    readAbort?.abort();
+    readAbort = null;
+    const cur = state.statement;
+    if (cur?.preview && cur.preview !== snap.statement.preview) cur.preview.close();
+    // 写しの後に本人が選んだ答え・口座は戻さない
+    const chosen = new Set<KeptAnswer>([
+      ...(['lcDecided', 'exitReason'] as const).filter((f) => touched.has(f)),
+      ...(accountTouched && !snap.accountTouched ? (['accountId'] as const) : []),
+    ]);
+    // 読み取りの欄は写しの値に戻すので、触った印も写しのもの
+    touched = new Set([
+      ...snap.touched,
+      ...[...touched].filter((f) => !(READ_FIELDS as readonly string[]).includes(f)),
+    ]);
+    profile = snap.profile;
+    accountTouched = snap.accountTouched || accountTouched;
+    learnedInStatement = snap.learnedInStatement;
+    statementSaved = snap.statementSaved;
+    statementZone = snap.statementZone;
+    fxBasis = snap.fxBasis;
+    autoAccount = snap.autoAccount;
+    const draft = restoreStatement(
+      state.draft,
+      snap.before,
+      snap.stripped,
+      snap.statement.marks,
+      chosen,
+    );
+    // 戻さなかった「明細から」「自動で選択」の答えは本人の答え（印を外す）
+    let marks = snap.statement.marks;
+    for (const f of ['lcDecided', 'exitReason', 'accountId'] as const) {
+      if (draft[f] !== snap.before[f]) marks = markEdited(marks, f);
+    }
+    const { reverted: _old, ...st } = snap.statement;
+    set({
+      draft,
+      error: null,
+      readCancelled: false,
+      statementRemoved: false,
+      statement: { ...st, marks, ...(reverted ? { reverted } : {}) },
+    });
   };
 
   /** 覚えた時間帯（読めない・例外は null） */
@@ -899,7 +1057,7 @@ export function createRecordController(deps: {
       row,
       st.raw,
     );
-    const { tz: _oldTz, ...rest } = st;
+    const { tz: _oldTz, reverted: _r, ...rest } = st;
     set(
       {
         phase: 'editing',
@@ -949,7 +1107,7 @@ export function createRecordController(deps: {
       row,
       raw,
     );
-    const { tz: oldTz, ...rest } = st;
+    const { tz: oldTz, reverted: _r, ...rest } = st;
     const tz = filled.tz ?? (tzFieldsOf(filled.marks).length > 0 ? oldTz : undefined);
     set({
       draft: withFxRule(filled.draft, state.accounts),
@@ -967,6 +1125,13 @@ export function createRecordController(deps: {
 
   const statementFailed = (gen: number, message: string | null) => {
     if (gen !== readGen) return;
+    // 別の明細の読み直しなら、選ぶ前の明細の状態に戻して決まった文言を出す（出どころの印の無い前の値を残さない。#184 R6）
+    const snap = rollback;
+    if (snap) {
+      rollback = null;
+      restore(snap, message === null ? undefined : { kind: 'failed', message });
+      return;
+    }
     const st = state.statement;
     if (!st) return;
     set({ statement: { ...st, phase: 'failed', message, rows: [], index: 0, marks: {} } });
@@ -987,22 +1152,22 @@ export function createRecordController(deps: {
       set({ readBlocked: state.phase === 'saving' ? READ_BLOCKED.saving : READ_BLOCKED.notReady });
       return;
     }
-    // 前の読み取りが「明細から」の既定で入れた値は戻す（出どころを失って本人の答えに見えないように）。
-    // 前の読み取りの後に利用者が直した欄（touched）は値も印も残し、次の応答で上書きしない
+    // 次の明細を選んだら削除の ［元に戻す］ は終わる（#184 R4）
+    dropUndo();
+    // 読めた明細があれば、明細から来たもの（読み取りの欄 9 つ。読んだ後に本人が直した値も・明細のレッグ・「明細から」の既定・
+    // 自動で選んだ口座）を取り除いてから読む（#184 R5・Q1 = 持ち越さない）。前の明細は読み直しの戻り先に持つ（失敗・キャンセルで
+    // 戻す。R6）。読み取りの途中で選び直したときは、前の戻り先（最後に読めた明細）のまま
     const prev = state.statement;
-    const carried: Partial<Record<DraftField, Marks[DraftField]>> = {};
     let draft = state.draft;
-    if (prev) {
-      for (const f of touched) if (prev.marks[f] !== undefined) carried[f] = prev.marks[f];
-      if (prev.marks.lcDecided === 'statement') draft = { ...draft, lcDecided: null };
-      if (prev.marks.exitReason === 'statement') draft = { ...draft, exitReason: 'other' };
-      draft = { ...draft, exitOrderType: 'unknown', stopOrderPlaced: 'unanswered' };
-      // 前の明細から読んだレッグは捨てる（行の番号は明細ごと。手で足したレッグは残す。#118）
-      if (draft.legs.some((l) => l.read !== undefined)) {
-        draft = { ...draft, legs: draft.legs.filter((l) => l.read === undefined) };
-      }
+    if (prev?.phase === 'ready') {
+      dropRollback();
+      const snap = takeSnap(prev);
+      rollback = snap;
+      draft = snap.stripped;
+    } else if (prev?.phase !== 'preparing' && prev?.phase !== 'reading') {
+      dropRollback();
     }
-    endStatement(true);
+    detachStatement();
     const gen = readGen;
     const ctl = new AbortController();
     readAbort = ctl;
@@ -1017,10 +1182,11 @@ export function createRecordController(deps: {
         phase: 'preparing',
         rows: [],
         index: 0,
-        marks: carried as Marks,
+        marks: {},
         message: null,
         notice: null,
         preview: null,
+        ...(rollback ? { rereading: true as const } : {}),
       },
     });
     let prepared: PrepareResult;
@@ -1087,12 +1253,21 @@ export function createRecordController(deps: {
       const units = initialUnits(raw);
       const rows = unitRows(raw, units);
       const row = rows[0];
-      if (!st || !row || state.phase !== 'editing') return;
+      if (!st || !row || state.phase !== 'editing') {
+        // 明細が外れた・編集中でない: 戻り先の画像を持ち続けない
+        dropRollback();
+        return;
+      }
       // 明細から口座を選ぶ（#66・R4）: 口座 2 つ以上・提案の口座が一覧にある・本人がまだ選んでいないときだけ。
       // 損益・手数料は選んだ口座の通貨で流し込む（R6）
       profile = result.profile;
       const suggested = suggestedAccount(profile, state.accounts, accountTouched);
       const base = suggested === undefined ? state.draft : { ...state.draft, accountId: suggested };
+      // 明細から替えた口座は、本人が触らなければ削除・読み直しで選ぶ前に戻す（#184 R1）
+      autoAccount =
+        suggested !== undefined && suggested !== state.draft.accountId
+          ? { from: state.draft.accountId, to: suggested }
+          : null;
       const accountCurrency = accountCurrencyIn(state.accounts, base.accountId);
       const priceCurrency = priceCurrencyOf(row.symbol);
       const filled = withZone(fillUnit(base, row, { accountCurrency, priceCurrency }), row, raw);
@@ -1107,7 +1282,7 @@ export function createRecordController(deps: {
         state.accounts.length >= 2 &&
         !state.accounts.some((a) => a.id === profile?.accountId);
       const { accountId: _oldMark, ...prevMarks } = st.marks;
-      const { tz: _oldTz, ...stRest } = st;
+      const { tz: _oldTz, rereading: _rr, ...stRest } = st;
       set({
         // 読み取りが銘柄・口座を入れ替えたときも為替の規則を当てる（#47 PR-2 の 3 回目の再レビュー 3）
         draft: withFxRule(filled.draft, state.accounts),
@@ -1129,6 +1304,8 @@ export function createRecordController(deps: {
           firstTime,
         },
       });
+      // 読めた: 前の明細の戻り先を捨てる（画像を close）
+      dropRollback();
     } catch (e) {
       if (gen !== readGen) return;
       if (kindOf(e) === 'auth') {
@@ -1198,6 +1375,8 @@ export function createRecordController(deps: {
     const read = state.read;
     const body = read.body;
     if (state.phase !== 'editing' || !read.canSave || body === undefined) return;
+    // 記録したら削除の ［元に戻す］ は終わる（#184 R4）
+    dropUndo();
     // 終わっていない時間足の読み取りは止めて結果を捨てる（時間足は利用者が選んだ値か空のまま記録する。#27）
     const stopped = slots.stopReads();
     if (stopped.length > 0) state = { ...state, ...slots.view() };
@@ -1476,6 +1655,11 @@ export function createRecordController(deps: {
         state.accounts,
         action.type === 'set' && action.field === 'fxRate',
       );
+      // 削除の後に本人が選んだ答え・口座も、［元に戻す］・次の明細の提案で上書きしない（#184 R2）
+      if (!st && undoSnap && action.type === 'set') {
+        if (action.field === 'accountId') accountTouched = true;
+        else touched.add(action.field);
+      }
       if (st && action.type === 'set' && action.field === 'accountId') {
         // 口座は読み取りの欄ではない（触った欄に入れない）。通貨が変われば損益・手数料を合わせる。
         // 本人が選んだので、この明細では提案を使わず、印「自動で選択」は外す（「直した」にはしない。#66・R4・S3）
@@ -1544,10 +1728,40 @@ export function createRecordController(deps: {
     cancelRead() {
       const st = state.statement;
       if (!st || (st.phase !== 'preparing' && st.phase !== 'reading')) return;
+      // 別の明細の読み直しなら、選ぶ前の明細の状態に戻す（#184 R6）
+      const snap = rollback;
+      if (snap) {
+        rollback = null;
+        restore(snap, { kind: 'cancelled' });
+        set({ readCancelled: true });
+        pump();
+        return;
+      }
       endStatement();
       // 明細の行に「読み取りをキャンセルしました」を出す（読み取りの値・画像は捨てたまま。#166 R1）
       set({ readCancelled: true });
       pump();
+    },
+    removeStatement() {
+      const st = state.statement;
+      if (state.phase !== 'editing' || st?.phase !== 'ready') return;
+      dropUndo();
+      const snap = takeSnap(st);
+      undoSnap = snap;
+      detachStatement();
+      set({
+        draft: snap.stripped,
+        error: null,
+        readBlocked: null,
+        readCancelled: false,
+        statementRemoved: true,
+      });
+    },
+    undoRemoveStatement() {
+      const snap = undoSnap;
+      if (!snap || state.phase !== 'editing' || state.statement) return;
+      undoSnap = null;
+      restore(snap);
     },
     acceptChartTimeframe(slot) {
       const c = state.charts?.[slot];
@@ -1666,9 +1880,15 @@ export function createRecordController(deps: {
     },
     setOnScreen(on) {
       onScreen = on;
+      // 画面を離れた（✕ を含む）ら削除の ［元に戻す］ は終わり、画像を捨てる（#184 R4）
+      if (!on && undoSnap) {
+        dropUndo();
+        set({});
+      }
     },
     dispose() {
       disposed = true;
+      dropUndo();
       endStatement();
       clearCharts();
     },

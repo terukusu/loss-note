@@ -487,12 +487,34 @@ export type StatementStatus = {
 } | null;
 
 export const READ_CANCELLED = '読み取りをキャンセルしました';
+/** 別の明細の読み直しの途中の文（#184。キャンセル・失敗で前の明細に戻る） */
+export const REREADING = '別の明細を読み取り中…';
+/** 読み直しの途中の ［キャンセル］ の読み上げ（#184） */
+export const REREAD_CANCEL_LABEL = '読み取りをキャンセルして前の明細に戻す';
+
+/**
+ * 読み直しが失敗して前の明細に戻したときの文（#184 R6・デザインレビュー 1）: 決まった失敗の文言の 1 文目（何が起きたか）+
+ * 「前の明細に戻しました。」。「手入力してください。」など次にすることの文は付けない（目の前に前の明細の値がある）
+ */
+export function revertedMessage(message: string): string {
+  const i = message.indexOf('。');
+  const head = i < 0 ? message : message.slice(0, i + 1);
+  return `${head}${REVERTED_TAIL}`;
+}
+export const REVERTED_TAIL = '前の明細に戻しました。';
 
 export function statementStatus(
   st:
     | (Parameters<typeof stage1Statement>[0] & {
         readonly index: number;
         readonly notice: string | null;
+        /**
+         * 別の明細の読み直しをやめて、この明細に戻した（#184 R6）。キャンセル → キャンセルの文、失敗 → null（決まった文言の
+         * 警告を別に出す）
+         */
+        readonly reverted?: { readonly kind: 'failed' | 'cancelled' } | undefined;
+        /** 別の明細の読み直しの途中（#184） */
+        readonly rereading?: true | undefined;
       })
     | undefined,
   named: number,
@@ -501,7 +523,10 @@ export function statementStatus(
 ): StatementStatus {
   if (!st) return cancelled ? { kind: 'cancelled', text: READ_CANCELLED } : null;
   if (st.phase === 'preparing' || st.phase === 'reading')
-    return { kind: 'reading', text: '読み取り中…' };
+    return { kind: 'reading', text: st.rereading ? REREADING : '読み取り中…' };
+  if (st.reverted) {
+    return st.reverted.kind === 'cancelled' ? { kind: 'cancelled', text: READ_CANCELLED } : null;
+  }
   if (st.phase !== 'ready' || st.index !== 0 || st.notice !== null) return null;
   const s1 = stage1Statement(st);
   if (s1.kind !== 'filled') return null;

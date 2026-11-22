@@ -9,7 +9,9 @@ import {
   NAMED_LEAD,
   namedLabel,
   READ_CANCELLED,
+  REVERTED_TAIL,
   readFinished,
+  revertedMessage,
   showProceed,
   stage1Statement,
   stageOf,
@@ -428,5 +430,41 @@ describe('明細の行の 1 回だけの動き（#166 R3）', () => {
     expect(readFinished(undefined, 'ready')).toBe(false);
     expect(readFinished('ready', 'done')).toBe(false);
     expect(readFinished('failed', 'failed')).toBe(false);
+  });
+});
+
+describe('読み直しをやめて前の明細に戻した文（#184 R6）', () => {
+  const st = (reverted: { kind: 'failed' | 'cancelled' }) => ({
+    phase: 'ready' as const,
+    rows: [0],
+    index: 0,
+    notice: null,
+    reverted,
+  });
+
+  it('キャンセルで戻した → キャンセルの文、失敗で戻した → 状態の文なし（決まった文言の警告を別に出す）', () => {
+    expect(statementStatus(st({ kind: 'cancelled' }), 0, true)).toEqual({
+      kind: 'cancelled',
+      text: '読み取りをキャンセルしました',
+    });
+    expect(statementStatus(st({ kind: 'failed' }), 2)).toBeNull();
+  });
+});
+
+describe('読み直しの文（#184 のデザインレビュー 1・5）', () => {
+  it('失敗で前の明細に戻した文 = 決まった文言の 1 文目 +「前の明細に戻しました。」（次にすることの文は付けない）', () => {
+    expect(revertedMessage('今は読み取りを使えません。手入力してください。')).toBe(
+      '今は読み取りを使えません。前の明細に戻しました。',
+    );
+    expect(
+      revertedMessage('読み取れませんでした。もう一度貼り付けるか、手入力してください。'),
+    ).toBe(`読み取れませんでした。${REVERTED_TAIL}`);
+    expect(revertedMessage('句点の無い文')).toBe(`句点の無い文${REVERTED_TAIL}`);
+  });
+
+  it('読み直しの途中は「別の明細を読み取り中…」（1 枚目は今の「読み取り中…」）', () => {
+    const reading = { phase: 'reading' as const, rows: [], index: 0, notice: null };
+    expect(statementStatus({ ...reading, rereading: true }, 0)?.text).toBe('別の明細を読み取り中…');
+    expect(statementStatus(reading, 0)?.text).toBe('読み取り中…');
   });
 });

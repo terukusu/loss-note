@@ -1297,18 +1297,50 @@ describe('端末に残さない（AC-12。EPIC #10 の終了条件 6(b)）', () 
     c.dispose();
     expect(touched).toEqual([]);
   });
+
+  it('KEEP-5（#184）: 明細の削除・［元に戻す］・読み直しの失敗で戻る流れでも、端末の保存先・履歴・URL に触れた件数 0', async () => {
+    const touched: string[] = [];
+    const spy = (name: string) =>
+      new Proxy(
+        {},
+        {
+          get(_t, prop) {
+            touched.push(`${name}.${String(prop)}`);
+            return () => undefined;
+          },
+          set(_t, prop) {
+            touched.push(`${name}.${String(prop)}=`);
+            return true;
+          },
+        },
+      );
+    for (const k of KEYS) {
+      if (k in g) saved.set(k, g[k]);
+      g[k] = spy(k);
+    }
+    const { c } = await openedForRead([ok([ROW_E7]), { status: 503, body: {} }]);
+    await c.readImage(img());
+    typeFive(c);
+    c.removeStatement();
+    c.undoRemoveStatement();
+    await c.readImage(img());
+    expect(c.getState().statement?.reverted?.kind).toBe('failed');
+    c.dispose();
+    expect(touched).toEqual([]);
+  });
 });
 
 describe('レビュー指摘の対応（#15 Phase 4）', () => {
-  it('指摘 5: 2 枚目を貼っても、1 枚目の後に直した欄は上書きせず印も残す。1 枚目の逆指値の既定は戻す', async () => {
+  it('指摘 5（#184 で変更）: 2 枚目を貼ると、1 枚目の後に直した欄も 2 枚目の値で入れ替わる。1 枚目の逆指値の既定は戻す', async () => {
     const { c } = await openedForRead([ok([ROW_E7]), ok([ROW_E8])]);
     await c.readImage(img());
     expect(c.getState().draft.lcDecided).toBe(true);
     c.update({ type: 'set', field: 'exitPrice', value: '98.5' });
     await c.readImage(img());
     const s = c.getState();
-    expect(s.draft.exitPrice).toBe('98.5');
-    expect(s.statement?.marks.exitPrice).toBe('edited');
+    // 前の明細で直した値を持ち越さない（#184 Q1 = 持ち越さない。前の値は ［元に戻す］・読み直しの失敗で戻る）
+    expect(s.draft.exitPrice).toBe('99');
+    expect(s.statement?.marks.exitPrice).toBe('read');
     // 2 枚目は成行: 1 枚目が既定で選んだ「決めていた」「LC」は戻り、本人の答えとして残らない
     expect(s.draft.lcDecided).toBeNull();
     expect(s.draft.exitReason).toBe('other');
@@ -2261,7 +2293,8 @@ describe('［明細なしで手入力］（#130 AC-4）', () => {
 });
 
 describe('#130 のレビュー B1: 2 枚目の読み取りが失敗・キャンセルでも要約が消えない（確かめずに記録へ入る経路を作らない）', () => {
-  it('読めた後に 2 枚目が失敗 → 明細の場所は要約のまま（取引の値が残る）', async () => {
+  // #184 R6 で、要約のままに加えて前の明細（値・印・画像）ごと戻すようにした
+  it('読めた後に 2 枚目が失敗 → 前の明細に戻り、明細の場所は要約のまま（取引の値と印が残る）', async () => {
     const { c } = await openedForRead([
       ok([ROW_E1]),
       { status: 503, body: { error: 'read_unavailable' } },
@@ -2270,12 +2303,14 @@ describe('#130 のレビュー B1: 2 枚目の読み取りが失敗・キャン�
     expect(statementArea(c.getState())).toBe('summary');
     await c.readImage(img());
     const s = c.getState();
-    expect(s.statement?.phase).toBe('failed');
+    expect(s.statement?.phase).toBe('ready');
+    expect(s.statement?.reverted).toEqual({ kind: 'failed', message: READ_MSG.unavailable });
     expect(s.draft.entryPrice).not.toBe('');
+    expect(s.statement?.marks.entryPrice).toBe('read');
     expect(statementArea(s)).toBe('summary');
   });
 
-  it('読めた後に 2 枚目を読み取り中にキャンセル → 要約のまま', async () => {
+  it('読めた後に 2 枚目を読み取り中にキャンセル → 前の明細に戻り、要約のまま', async () => {
     const { fake, c } = await openedForRead([ok([ROW_E1]), ok([ROW_E1])]);
     await c.readImage(img());
     fake.holdReads();
@@ -2283,7 +2318,8 @@ describe('#130 のレビュー B1: 2 枚目の読み取りが失敗・キャン�
     await until(() => c.getState().statement?.phase === 'reading');
     expect(statementArea(c.getState())).toBe('reading');
     c.cancelRead();
-    expect(c.getState().statement).toBeUndefined();
+    expect(c.getState().statement?.phase).toBe('ready');
+    expect(c.getState().statement?.reverted).toEqual({ kind: 'cancelled' });
     expect(statementArea(c.getState())).toBe('summary');
     fake.releaseReads();
     await p;
@@ -2435,5 +2471,262 @@ describe('読み取りのキャンセルの印（#166 R1。例 #9・#10）', () 
     expect(c.getState().readCancelled).toBe(false);
     c.next();
     expect(c.getState().readCancelled).toBe(false);
+  });
+});
+
+// ── 読み取った明細の削除と読み直し（Issue #184。例はすべて架空の値） ──
+
+describe('読み取った明細の削除と読み直し（#184）', () => {
+  /** 明細 A: 架空指数A · L · 数量 1 · イン 100 → 決済 99.2 · 損益 −800 · 手数料 40 · 逆指値 */
+  const ROW_A: ReadRow = {
+    ...ROW_E1,
+    quantity: 1,
+    entryPrice: 100,
+    exitPrice: 99.2,
+    pnl: -800,
+    fees: [40],
+    feesTotal: 40,
+    exitOrderType: 'stop',
+  };
+  /** 明細 B: 架空指数A · L · 数量 2 · イン 101 → 決済 100.6 · 損益 −800 · 成行 */
+  const ROW_B: ReadRow = {
+    ...ROW_E1,
+    quantity: 2,
+    entryPrice: 101,
+    exitPrice: 100.6,
+    pnl: -800,
+    fees: null,
+    feesTotal: null,
+    exitOrderType: 'market',
+  };
+  const PLAN = {
+    lc: '99.5',
+    brokenCondition: '直近安値割れ',
+    lcMove: 'none',
+    timeframeChange: 'none',
+    entryChartTimeframe: '1h',
+  } as const;
+
+  /** A を読んだ後: 決済を 99.0 に直し、LC・一言・2 つのタップ・エントリー時のチャート（1時間足）を入れる */
+  async function readAAndPlan(reads: readonly ReadScript[]) {
+    const opened = await openedForRead([ok([ROW_A]), ...reads]);
+    const { c } = opened;
+    await c.readImage(img());
+    await c.setChart('entry', img());
+    c.update({ type: 'set', field: 'exitPrice', value: '99.0' });
+    c.update({ type: 'set', field: 'lc', value: PLAN.lc });
+    c.update({ type: 'set', field: 'brokenCondition', value: PLAN.brokenCondition });
+    c.update({ type: 'set', field: 'lcMove', value: PLAN.lcMove });
+    c.update({ type: 'set', field: 'timeframeChange', value: PLAN.timeframeChange });
+    c.update({ type: 'set', field: 'entryChartTimeframe', value: PLAN.entryChartTimeframe });
+    const s = c.getState();
+    expect(s.draft.lcDecided).toBe(true);
+    expect(s.statement?.marks.lcDecided).toBe('statement');
+    expect(s.statement?.marks.exitPrice).toBe('edited');
+    return { ...opened, before: s };
+  }
+
+  it('例 #1（AC-1・AC-2）: 削除で明細から来た値は空、LC 以下とチャートは残る。既定の答えは戻り、要求 0 件', async () => {
+    const { fake, c, before, previews } = await readAAndPlan([]);
+    const reads = readCalls(fake).length;
+    c.removeStatement();
+    const s = c.getState();
+    for (const f of READ_FIELDS) expect(s.draft[f], f).toEqual(EMPTY_DRAFT[f]);
+    expect(s.draft).toMatchObject({
+      ...PLAN,
+      lcDecided: null,
+      exitReason: 'other',
+      exitOrderType: 'unknown',
+      stopOrderPlaced: 'unanswered',
+      source: 'manual',
+      accountId: before.draft.accountId,
+    });
+    expect(s.charts?.entry?.phase).toBe('ready');
+    expect(s.statement).toBeUndefined();
+    expect(s.statementRemoved).toBe(true);
+    expect(statementArea(s)).toBe('pick');
+    expect(readCalls(fake)).toHaveLength(reads);
+    // 画像は ［元に戻す］ のために持っている（close しない）
+    expect(previews[0]?.closed()).toBe(false);
+  });
+
+  it('例 #2（AC-2・AC-3）: ［元に戻す］ で削除の直前の値・印・画像に戻る（要求 0 件）', async () => {
+    const { fake, c, before } = await readAAndPlan([]);
+    const reads = readCalls(fake).length;
+    c.removeStatement();
+    c.undoRemoveStatement();
+    const s = c.getState();
+    expect(s.draft).toEqual(before.draft);
+    expect(s.statement).toEqual(before.statement);
+    expect(s.statement?.preview).toBe(before.statement?.preview);
+    expect(s.statement?.marks.exitPrice).toBe('edited');
+    expect(s.statement?.marks.lcDecided).toBe('statement');
+    expect(s.statementRemoved).toBe(false);
+    expect(readCalls(fake)).toHaveLength(reads);
+    // もう一度は押せない（戻り先は 1 回だけ）
+    c.undoRemoveStatement();
+    expect(c.getState().draft).toEqual(before.draft);
+  });
+
+  it('例 #1 の続き（AC-8）: 削除の後に手で欄を入れて記録した本文の入力元は手入力', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_A])]);
+    await c.readImage(img());
+    c.removeStatement();
+    c.update({ type: 'set', field: 'instrumentName', value: '架空指数B' });
+    c.update({ type: 'set', field: 'side', value: 'L' });
+    c.update({ type: 'set', field: 'quantity', value: '1' });
+    c.update({ type: 'set', field: 'entryPrice', value: '100' });
+    c.update({ type: 'set', field: 'exitPrice', value: '99.2' });
+    c.update({ type: 'set', field: 'exitTime', value: toLocalInput(floorToMinute(NOW)) });
+    typeFive(c, '99.5');
+    await c.save();
+    expect(c.getState().phase).toBe('saved');
+    const sent = posts(fake, '/api/trades');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.body).toMatchObject({ source: 'manual' });
+    // 記録したら ［元に戻す］ は終わる
+    expect(c.getState().statementRemoved).toBe(false);
+  });
+
+  it('例 #3（AC-4）: 削除の後に B を選ぶ → 読み取りの欄は B の値、LC 以下とチャートは残る。要求 1 件', async () => {
+    const { fake, c, previews } = await readAAndPlan([ok([ROW_B])]);
+    c.removeStatement();
+    const reads = readCalls(fake).length;
+    await c.readImage(img());
+    const s = c.getState();
+    expect(readCalls(fake)).toHaveLength(reads + 1);
+    expect(s.draft).toMatchObject({
+      ...PLAN,
+      quantity: '2',
+      entryPrice: '101',
+      exitPrice: '100.6',
+      lcDecided: null,
+      exitOrderType: 'market',
+      source: 'statement',
+    });
+    expect(s.statement?.marks.exitPrice).toBe('read');
+    expect(s.charts?.entry?.phase).toBe('ready');
+    // 次の明細を選んだら ［元に戻す］ は終わり、A の画像は捨てる
+    expect(s.statementRemoved).toBe(false);
+    expect(previews[0]?.closed()).toBe(true);
+  });
+
+  it('例 #4（AC-4）: 削除せずに ［スクショを変更］ で B → 直した決済も B の 100.6（印「読み取り」）。A の既定は未回答に戻る', async () => {
+    const { c, previews } = await readAAndPlan([ok([ROW_B])]);
+    await c.readImage(img());
+    const s = c.getState();
+    expect(s.draft).toMatchObject({
+      ...PLAN,
+      quantity: '2',
+      entryPrice: '101',
+      exitPrice: '100.6',
+      lcDecided: null,
+      exitReason: 'other',
+      exitOrderType: 'market',
+      stopOrderPlaced: 'unanswered',
+    });
+    expect(s.statement?.marks.exitPrice).toBe('read');
+    expect(s.statement?.marks.lcDecided).toBeUndefined();
+    expect(s.statement?.reverted).toBeUndefined();
+    // 読めたら前の明細の画像は捨てる
+    expect(previews[0]?.closed()).toBe(true);
+  });
+
+  for (const [status, error, message] of [
+    [503, 'read_unavailable', READ_MSG.unavailable],
+    [429, 'read_limited', READ_MSG.limited],
+  ] as const) {
+    it(`例 #5（AC-5）: ［スクショを変更］ の読み直しが ${status} → A の値・印・画像に戻り、決まった文言`, async () => {
+      const { c, before, previews } = await readAAndPlan([{ status, body: { error } }]);
+      await c.readImage(img());
+      const s = c.getState();
+      expect(s.draft).toEqual(before.draft);
+      const { reverted, ...rest } = s.statement ?? ({} as NonNullable<typeof s.statement>);
+      expect(rest).toEqual(before.statement);
+      expect(reverted).toEqual({ kind: 'failed', message });
+      expect(s.statement?.preview).toBe(before.statement?.preview);
+      expect(previews[0]?.closed()).toBe(false);
+      // 失敗した B の画像は捨てる
+      expect(previews.at(-1)?.closed()).toBe(true);
+      expect(statementStatus(s.statement, 0)).toBeNull();
+      // 戻った A の明細のまま記録できる（入力元は明細）
+      expect(s.read.canSave).toBe(true);
+      expect(s.read.body?.source).toBe('statement');
+    });
+  }
+
+  it('例 #6（AC-5）: 読み直しの途中で ［キャンセル］ → A の状態に戻り「読み取りをキャンセルしました」', async () => {
+    const { fake, c, before } = await readAAndPlan([ok([ROW_B])]);
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => c.getState().statement?.phase === 'reading');
+    // 読み直しの途中は A の値を持たない（B だけから入る）
+    expect(c.getState().draft.exitPrice).toBe('');
+    c.cancelRead();
+    const s = c.getState();
+    expect(s.draft).toEqual(before.draft);
+    expect(s.statement?.reverted).toEqual({ kind: 'cancelled' });
+    expect(s.readCancelled).toBe(true);
+    expect(statementStatus(s.statement, 0, s.readCancelled)?.text).toBe(
+      '読み取りをキャンセルしました',
+    );
+    fake.releaseReads();
+    await p;
+    // 後で届いた B の応答は捨てる
+    expect(c.getState().draft).toEqual(before.draft);
+  });
+
+  it('例 #7（AC-3・AC-6）: 3 行の 1 行目を記録 → 2 行目で削除 → ［元に戻す］ で 2 / 3 行目に戻る。保存した 1 件はそのまま', async () => {
+    const { fake, c } = await openedForRead([ok(ROWS_E10)]);
+    await c.readImage(img());
+    typeFive(c);
+    await c.save();
+    const before = c.getState();
+    expect(before.statement?.index).toBe(1);
+    c.removeStatement();
+    expect(c.getState().statement).toBeUndefined();
+    expect(added(fake)).toHaveLength(1);
+    c.undoRemoveStatement();
+    const s = c.getState();
+    expect(s.statement?.index).toBe(1);
+    expect(s.statement?.notice).toBe(before.statement?.notice);
+    expect(s.draft).toEqual(before.draft);
+    expect(added(fake)).toHaveLength(1);
+  });
+
+  it('例 #9（AC-6）: タイムゾーンを選ぶ前に削除 → 未確定の印と保存の門が消え、端末に覚えた時間帯は変わらない', async () => {
+    const writes: TzId[] = [];
+    const zoneMemory: ZoneMemory = { read: () => null, write: (id) => void writes.push(id) };
+    const { c } = await openedForRead([ok([ROW_E9])], { zoneMemory });
+    await c.readImage(img());
+    expect(c.getState().statement?.tz?.choice).toBeNull();
+    expect(c.getState().read.missing).toContain(TZ_MISSING.exitTime);
+    c.removeStatement();
+    const s = c.getState();
+    expect(s.statement).toBeUndefined();
+    expect(s.read.missing).not.toContain(TZ_MISSING.exitTime);
+    expect(writes).toEqual([]);
+  });
+
+  it('例 #11: 読み取り中は削除できない（［読み取りをキャンセル］ で取りやめる）', async () => {
+    const { fake, c } = await openedForRead([ok([ROW_A])]);
+    fake.holdReads();
+    const p = c.readImage(img());
+    await until(() => c.getState().statement?.phase === 'reading');
+    c.removeStatement();
+    expect(c.getState().statement?.phase).toBe('reading');
+    expect(c.getState().statementRemoved).toBeUndefined();
+    fake.releaseReads();
+    await p;
+  });
+
+  it('R4: 画面を離れたら ［元に戻す］ は終わり、画像を捨てる', async () => {
+    const { c, previews } = await readAAndPlan([]);
+    c.removeStatement();
+    c.setOnScreen(false);
+    expect(c.getState().statementRemoved).toBe(false);
+    expect(previews[0]?.closed()).toBe(true);
+    c.undoRemoveStatement();
+    expect(c.getState().statement).toBeUndefined();
   });
 });

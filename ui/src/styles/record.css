@@ -765,6 +765,58 @@
   white-space: nowrap;
 }
 
+/* 明細の枠の操作（読めた後の ［スクショを変更］・［削除］。どちらも小さい形で 1 行に並べる。#184 のデザインレビュー 4） */
+.rin__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+.rin__acts .rin__btn {
+  margin-top: 0;
+}
+
+/* 幅 360 前後（本文の列が約 190px）では ［スクショを変更］ のアイコンを外して 1 行に入れる */
+@media (max-width: 379.98px) {
+  .rin__acts .btn--sm .icon {
+    display: none;
+  }
+}
+
+/* 削除の後の 1 行「明細の値を削除しました。…」と ［元に戻す］（#184）。枠の本文の直後に 1 つの面で、文は左・［元に戻す］ は右。
+   ［元に戻す］ の当たり（44px）の上下 4px の透明な所は面の中に収める。空の間は枠の間隔を取らない */
+.rin__removed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-1) 0 var(--sp-3);
+  border-radius: var(--radius-sm);
+  background: var(--s2);
+  /* 注意の文と同じ大きさで 2 行に収める（1 段目の縦 0px。390×844・安全域 47 / 34） */
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.rin__removedtext {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding-block: var(--sp-1);
+}
+
+.rin__removed > .btn {
+  flex: none;
+}
+
+.rin__removed:empty {
+  margin-top: -10px;
+  padding: 0;
+  background: none;
+}
+
 .rin__card .rin__notice {
   margin: 0;
   font-size: var(--fs-xs);

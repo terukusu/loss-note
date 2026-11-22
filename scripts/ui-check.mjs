@@ -2364,6 +2364,83 @@ const RECORD_STATES = [
       await p.locator('#record-proceed').waitFor();
     },
   },
+  // #184: 明細の削除・［元に戻す］・読み直しの途中・読み直しが失敗して前の明細に戻った状態
+  {
+    slug: 'record-45-stage1-removed',
+    name: '1 段目（明細の削除の後）',
+    anchor: '.rin',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator(READ_DONE).first().waitFor();
+      await p.locator('#record-to-input').click();
+      await p.locator('#record-statement-remove').click();
+      await p
+        .locator('.rin__removed', {
+          hasText: '明細の値を削除しました。LC・一言・タップ・チャートは残っています',
+        })
+        .waitFor();
+      if ((await p.locator('#record-statement-remove').count()) !== 0)
+        throw new Error('削除の後も ［削除］ が残っている');
+      // 押したボタンは消えるので、フォーカスは同じ枠の ［元に戻す］ へ
+      await p.waitForFunction(() => document.activeElement?.id === 'record-statement-undo', null, {
+        timeout: 3000,
+      });
+    },
+  },
+  {
+    slug: 'record-46-stage1-undo',
+    name: '1 段目（削除を元に戻す）',
+    anchor: '.rin',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator(READ_DONE).first().waitFor();
+      await p.locator('#record-to-input').click();
+      const reads = api.reads.length;
+      await p.locator('#record-statement-remove').click();
+      await p.locator('#record-statement-undo').click();
+      await p.locator('#record-statement-remove').waitFor();
+      await p.locator('.rin__card--filled .rin__desc', { hasText: '読み取りました' }).waitFor();
+      if (api.reads.length !== reads) throw new Error('削除・［元に戻す］ で読み取りの要求が出た');
+    },
+  },
+  {
+    slug: 'record-47-reread-reading',
+    name: '2 段目（読み直しの途中）',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator(READ_DONE).first().waitFor();
+      await p.locator('#record-to-input').click();
+      api.read = { status: 200, rows: [READ_E1], holdMs: 20000 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__status--reading', { hasText: '別の明細を読み取り中…' }).waitFor({
+        timeout: 10000,
+      });
+    },
+  },
+  {
+    slug: 'record-48-reread-failed',
+    name: '2 段目（読み直しの失敗で前の明細）',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator(READ_DONE).first().waitFor();
+      await p.locator('#record-to-input').click();
+      api.read = { status: 503, rows: [], holdMs: 0 };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      const alert = p.locator('.rstmt [role="alert"]', { hasText: '今は読み取りを使えません' });
+      await alert.waitFor({ timeout: 10000 });
+      const said = await alert.textContent();
+      if (!said?.includes('前の明細に戻しました。') || said.includes('手入力'))
+        throw new Error(`前の明細に戻した文になっていない: ${said}`);
+      // 前の明細の要約（読み取りの印つき）が出たまま
+      await p.locator('#record-summary').waitFor();
+    },
+  },
   {
     slug: 'record-44-stage1-chart',
     name: '1 段目（明細とチャートあり）',
@@ -7103,8 +7180,9 @@ async function runFlows(browser, base, signedIn) {
   // 360×780 は縦のスクロール 120px 以下（全長の上限 R12 の置き換え）。口座 2・3 の形も 360×780 で 120px 以下
   await check('R12', async () => {
     const out = [];
-    const measureOne = (p) =>
-      p.evaluate(() => {
+    // foot: 1 段目の下の端のボタン（要約が無ければ ［明細なしで手入力］、読めた後は ［振り返りへ進む］）
+    const measureOne = (p, foot = '#record-manual') =>
+      p.evaluate((foot) => {
         const vh = window.innerHeight;
         const se = document.scrollingElement;
         const seen = (sel) => {
@@ -7126,7 +7204,14 @@ async function runFlows(browser, base, signedIn) {
                 statementNotice: seen('.rin .statement__notice'),
                 chartNotice: seen('.rin .charts__notice'),
                 pick: seen('label[for="record-statement-file"]'),
-                manual: seen('#record-manual'),
+                manual: seen(foot),
+                // 明細の ［削除］ と削除の後の ［元に戻す］（あるときだけ。#184）
+                remove: !document.querySelector('#record-statement-remove')
+                  ? true
+                  : seen('#record-statement-remove'),
+                undo: !document.querySelector('#record-statement-undo')
+                  ? true
+                  : seen('#record-statement-undo'),
               }
             : {
                 lc: seen('#record-lc'),
@@ -7139,9 +7224,31 @@ async function runFlows(browser, base, signedIn) {
           lines,
           hidden: !!notice?.closest('details, dialog'),
         };
-      });
+      }, foot);
     const states = [
       ['1 段目', async () => {}],
+      [
+        // #184: 読めた後の 1 段目（［スクショを変更］・［削除］）と、削除の後（「明細を削除しました」・［元に戻す］）
+        '1 段目（読み取りの後）',
+        async (p, fake) => {
+          fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+          await p.locator('#record-to-input').click();
+          await p.locator('#record-statement-remove').waitFor();
+        },
+      ],
+      [
+        '1 段目（削除の後）',
+        async (p, fake) => {
+          fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+          await p.locator('#record-to-input').click();
+          await p.locator('#record-statement-remove').click();
+          await p.locator('#record-statement-undo').waitFor();
+        },
+      ],
       [
         '読み取り中',
         async (p, fake) => {
@@ -7223,10 +7330,13 @@ async function runFlows(browser, base, signedIn) {
             await openRecord(p, base);
             await fn(p, fake);
             await p.waitForTimeout(200);
-            const m = await measureOne(p);
+            const m = await measureOne(
+              p,
+              name === '1 段目（読み取りの後）' ? '#record-proceed' : '#record-manual',
+            );
             lcTops[name] = m.lc;
             const where = `390×844${safe ? '（安全域 47 / 34）' : ''} ${theme} ${name}`;
-            if (m.input !== (name === '1 段目')) throw new Error(`${where}: 段が違う`);
+            if (m.input !== name.startsWith('1 段目')) throw new Error(`${where}: 段が違う`);
             if (m.over > 0) throw new Error(`${where}: 縦のスクロール ${m.over}px（0px まで）`);
             for (const [k, v] of Object.entries(m.seen)) {
               if (!v) throw new Error(`${where}: ${k} が窓の中に無い`);
@@ -7260,7 +7370,7 @@ async function runFlows(browser, base, signedIn) {
     ];
     for (const shape of shapes)
       for (const [name, fn] of states) {
-        if (name !== '1 段目' && name !== '読み取りの後' && name !== '実際の桁') continue;
+        if (!name.startsWith('1 段目') && name !== '読み取りの後' && name !== '実際の桁') continue;
         const c = await browser.newContext({
           viewport: { width: 360, height: 780 },
           storageState: signedIn,

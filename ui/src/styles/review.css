@@ -615,7 +615,7 @@
   font-size: var(--fs-sm);
 }
 
-/* 気づきの心理ごとの集計（#162）。行は押せない。区切りは 1 辺の線（カードの中に内枠を作らない）。色・棒は付けない（C34） */
+/* 気づきの心理ごとの集計（#162）。行は振り返りのタブでは押せる行（下の .insight--trail。#185）。区切りは 1 辺の線（カードの中に内枠を作らない）。色・棒は付けない（C34） */
 .insight {
   container-type: inline-size;
 }
@@ -798,4 +798,176 @@
 
 .insight__none > div {
   margin-top: var(--sp-2);
+}
+
+/* 気づきの行を押せる行にする（#185。ui-guidelines 9.12: 行全体が当たり・右に ›）。格子はそのまま、右に › の分を空け、
+   列の見出しも同じだけ空ける（列の位置をそろえる）。押せない組み立て（trailHref なし）は上の形のまま */
+.insight--trail .insight__row {
+  padding: 0;
+}
+
+.insight--trail .insight__cols {
+  padding-inline: var(--sp-2) calc(var(--sp-2) + 1.25rem);
+}
+
+.insight__link {
+  position: relative;
+  display: block;
+  min-height: var(--tap);
+  padding: var(--sp-3) calc(var(--sp-2) + 1.25rem) var(--sp-3) var(--sp-2);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.insight__link::after,
+.insight__fewlink::after {
+  content: "›";
+  color: var(--ink-3);
+  font-size: var(--fs-lg);
+  line-height: 1;
+}
+
+.insight__link::after {
+  position: absolute;
+  top: 50%;
+  right: var(--sp-2);
+  transform: translateY(-50%);
+}
+
+/* 件数が少ない行: 詰めて折り返す並びのまま、1 つずつを面のある押せる形（当たり 44px・右に ›） */
+.insight--trail .insight__few {
+  gap: var(--sp-2);
+}
+
+.insight__fewlink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: var(--tap);
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  text-decoration: none;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+/* 連勝の後のカード（#185。直近の流れの .streak と分けて .winrun）: 件数・率・規律コストを名前と値の組で並べ（狭い形は折り返す・
+   広い形は 3 列）、値の下に比べる相手「ほかの取引 …」、下に重なりの 2 組（名前と値）と注記。折り返さないのは数だけ
+   （文字を拡大した 360px で文の値がはみ出さない。#185 コードレビュー 2） */
+.winrun {
+  container-type: inline-size;
+}
+
+.winrun__cells {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-6);
+  margin: 0;
+}
+
+@container (min-width: 30em) {
+  .winrun__cells {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 12rem));
+  }
+}
+
+.winrun__cell {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.winrun__cell dd {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.winrun__value {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-1);
+}
+
+.winrun__key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.winrun__num {
+  color: var(--ink);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+/* 比べる相手・あと何件（状態の文は太くしない） */
+.winrun__sub {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 重なりの 2 組: 文は控えめ、値は太い数。0 件の組はどちらも軽く */
+.winrun__overlap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+.winrun__pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0 var(--sp-3);
+}
+
+.winrun__pair dt {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.winrun__pair dd {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+
+.winrun__pair--zero dd {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+
+/* 期間の取引（#185。`/review/trades`）: 範囲の 1 行と、押した行と同じ要約 */
+.review__trailhead {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.review__trailsum {
+  padding-inline: var(--sp-1);
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
 }

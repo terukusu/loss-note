@@ -8,7 +8,8 @@
 // - 曲線の並びは決済の古い順 → 作った古い順 → ID の降順（一覧の並び = API の trade_sort_key のちょうど逆）
 // 累積は途中で丸めない（丸めは表示だけ）
 // 心理のタグごとの行（reviewByEmotion。#162）は、タグごとの部分集合に reviewPeriod を当てる（定義を二重に持たない）
-import { CALM, EMOTION_TAG_IDS, type EmotionTagId } from './emotion-tags';
+// 連勝の後（afterWinStreak・reviewAfterWinStreak。#185）も、連勝の後の取引の部分集合に reviewPeriod を当てる
+import { CALM, EMOTION_TAG_IDS, type EmotionTagId, OVERCONFIDENT } from './emotion-tags';
 import type { Grade } from './judge';
 import { TOL } from './numeric';
 
@@ -202,6 +203,71 @@ export function reviewByEmotion(
     excludedImports: opts.includeImports ? 0 : items.length - target.length,
     overlap,
     rows,
+  };
+}
+
+/** 連勝の後と数える、直前に続けて勝った件数（#185。設計書 6.1） */
+export const WIN_STREAK_MIN = 2;
+
+/** 判定の勝ち（計画どおりの勝ち・危ない勝ち。損益 0 も判定（5.4）が勝ちとする）。判定なしは勝ちと分からない */
+export function isWinGrade(grade: Grade | null): boolean {
+  return grade === 'safeWin' || grade === 'riskyWin';
+}
+
+/**
+ * 連勝の後の取引の ID（Issue #185・設計書 6.1）。対象（取り込みは includeImports のときだけ）を決済の古い順（曲線と同じ並び）に
+ * 並べ、直前の 2 件がどちらも判定の勝ちの取引。並べるのは対象だけ（期間の前・消した印は呼ぶ側が外し、外した取り込みも入れない =
+ * 連勝を切りも続けもしない）。判定なし・負けは連勝を切る。その取引自身の勝ち負けは問わない（3 連勝目も連勝の後）
+ */
+export function afterWinStreak(
+  items: readonly ReviewItem[],
+  opts: { readonly includeImports: boolean },
+): ReadonlySet<string> {
+  const target = (opts.includeImports ? [...items] : items.filter((i) => !i.imported)).sort(
+    oldestFirst,
+  );
+  const out = new Set<string>();
+  let run = 0;
+  for (const i of target) {
+    if (run >= WIN_STREAK_MIN) out.add(i.id);
+    run = isWinGrade(i.grade) ? run + 1 : 0;
+  }
+  return out;
+}
+
+export interface WinStreakReview {
+  /** 集計の対象の件数（取り込みの切り替えの後） */
+  readonly total: number;
+  /** 連勝の後の取引の ID */
+  readonly ids: ReadonlySet<string>;
+  /** 連勝の後の取引だけの期間の集計（total = 連勝の後の件数） */
+  readonly review: PeriodReview;
+  /** 比べる相手: 対象のうち連勝の後でない取引の集計（#185 デザインレビュー 1） */
+  readonly rest: PeriodReview;
+  /** 「調子に乗った」: 対象のうち付いた件数（tagged）と、そのうち連勝の後の件数（after） */
+  readonly overconfident: { readonly tagged: number; readonly after: number };
+}
+
+/** 連勝の後の規律と「調子に乗った」との重なり（Issue #185）。比べる相手として連勝の後でない取引の集計も返す。値は連勝の後の部分集合への reviewPeriod（#162 の行と同じ定義） */
+export function reviewAfterWinStreak(
+  items: readonly ReviewItem[],
+  opts: { readonly includeImports: boolean },
+): WinStreakReview {
+  const target = opts.includeImports ? items : items.filter((i) => !i.imported);
+  const ids = afterWinStreak(target, { includeImports: true });
+  const over = target.filter((i) => i.emotions?.includes(OVERCONFIDENT) === true);
+  return {
+    total: target.length,
+    ids,
+    review: reviewPeriod(
+      target.filter((i) => ids.has(i.id)),
+      { includeImports: true },
+    ),
+    rest: reviewPeriod(
+      target.filter((i) => !ids.has(i.id)),
+      { includeImports: true },
+    ),
+    overconfident: { tagged: over.length, after: over.filter((i) => ids.has(i.id)).length },
   };
 }
 

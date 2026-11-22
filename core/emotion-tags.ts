@@ -47,6 +47,9 @@ export const EMOTION_TAG_IDS: readonly EmotionTagId[] = EMOTION_TAGS.map((t) => 
 /** 平常心（ほかのタグと同時に付かない。R3） */
 export const CALM: EmotionTagId = 'calm';
 
+/** 調子に乗った（連勝の後との重なりを数える。#185） */
+export const OVERCONFIDENT: EmotionTagId = 'overconfident';
+
 /** 1 取引に付けられる取引の数の上限（複数行の明細の行の上限と同じ） */
 export const MAX_EMOTION_TRADES = 20;
 

@@ -24,6 +24,7 @@ import { Home } from './pages/Home';
 import { Login } from './pages/Login';
 import { Record } from './pages/Record';
 import { Review, ReviewTablePage } from './pages/Review';
+import { ReviewTradesPage } from './pages/ReviewTrades';
 import { Settings, SettingsAiUsage } from './pages/Settings';
 import { SettingsAccounts } from './pages/SettingsAccounts';
 import { SettingsInstruments } from './pages/SettingsInstruments';
@@ -73,6 +74,8 @@ export function Page(p: PageProps) {
       return <Review />;
     case 'reviewTable':
       return <ReviewTablePage />;
+    case 'reviewTrades':
+      return <ReviewTradesPage />;
     case 'trade':
       return <TradeDetail id={route.id} />;
     case 'tradeEdit':

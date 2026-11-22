@@ -13,7 +13,10 @@ import { listRowModel, type MonthGroup } from '../lib/trade-list';
 import type { TradeRow as Row } from '../lib/trade-view';
 import { Icon } from './Icon';
 
-export function TradeRow({ row }: { readonly row: Row }) {
+/**
+ * note: 2 行目の下に添える短い文（期間の取引の画面の心理の名前。#185。取引のタブの一覧・ホームでは渡さない = 今までの形）
+ */
+export function TradeRow({ row, note }: { readonly row: Row; readonly note?: string | undefined }) {
   const m = listRowModel(row);
   return (
     <Link href={row.href} class="traderow" aria-label={row.label}>
@@ -37,6 +40,7 @@ export function TradeRow({ row }: { readonly row: Row }) {
             {m.when}
           </time>
         </span>
+        {note ? <span class="traderow__note">{note}</span> : null}
       </span>
       <span class="traderow__nums">
         <span class={m.rMissing ? 'traderow__r traderow__none' : 'num traderow__r'}>{m.rText}</span>

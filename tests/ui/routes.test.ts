@@ -1097,3 +1097,53 @@ describe('振り返りの「数で見る」と今月の規律のカード（#128
     expect(b.stack).toEqual(['/', '/review', '/review?period=1m']);
   });
 });
+
+describe('振り返りの「期間の取引」（#185。AC-4。ui-guidelines 9.3・9.7）', () => {
+  const LIST = '/review/trades?period=7d&emotion=recoup';
+  const INSIGHT = '/review?period=7d&view=insight';
+
+  it('/review/trades は次の画面「期間の取引」（振り返りのタブ）', () => {
+    expect(parseRoute('/review/trades', PROD)).toEqual({ name: 'reviewTrades' });
+    expect(parseRoute('/review/trades/', PROD)).toEqual({ name: 'reviewTrades' });
+    expect(hrefOf({ name: 'reviewTrades' })).toBe('/review/trades');
+    expect(tabOfRoute({ name: 'reviewTrades' })).toBe('review');
+    expect(screenKindOf({ name: 'reviewTrades' })).toBe('push');
+    expect(screenLabel(LIST, PROD)).toBe('期間の取引');
+    expect(titleOf({ name: 'reviewTrades' })).toBe('期間の取引 — 損失ノート');
+  });
+
+  it('直接開いた /review/trades?… は [/, 同じ期間の気づき, /review/trades?…] に組み直す（絞り方の鍵は根に持ち込まない）', () => {
+    expect(bootStack(LIST, PROD)).toEqual(['/', INSIGHT, LIST]);
+    const imports = '/review/trades?period=1m&imports=1&after=winStreak';
+    expect(bootStack(imports, PROD)).toEqual([
+      '/',
+      '/review?period=1m&imports=1&view=insight',
+      imports,
+    ]);
+    expect(bootStack('/review/trades', PROD)).toEqual([
+      '/',
+      '/review?period=7d&view=insight',
+      '/review/trades',
+    ]);
+  });
+
+  it('気づき → 期間の取引 → 詳細: 詳細の「‹ 期間の取引」で同じ URL、その戻るで同じ期間の気づき', () => {
+    const b = new MarkBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.tab('review');
+    nav.replace(INSIGHT);
+    nav.push(LIST);
+    nav.push('/trades/t8');
+    expect(b.stack).toEqual(['/', INSIGHT, LIST, '/trades/t8']);
+    expect(nav.current.mark.tab).toBe('review');
+    // 詳細の上の帯の名前は積み重ねの前の画面（TradeDetail の backTargetOf と同じ引き方）
+    const stack = nav.current.mark.stack;
+    expect(screenLabel(stack[stack.length - 2] ?? '', PROD)).toBe('期間の取引');
+    nav.back('/trades');
+    expect(nav.current.route).toEqual({ name: 'reviewTrades' });
+    expect(nav.current.search).toBe('?period=7d&emotion=recoup');
+    nav.back(INSIGHT);
+    expect(nav.current.route).toEqual({ name: 'review' });
+    expect(nav.current.search).toBe('?period=7d&view=insight');
+  });
+});

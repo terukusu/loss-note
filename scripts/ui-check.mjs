@@ -685,6 +685,29 @@ const REVIEW_INSIGHT_LONG = [
   withTags(reviewTrade(5, 'rvl-k1', 101), ['calm']),
   withTags(reviewTrade(6, 'rvl-k2', 99.5), ['calm']),
 ];
+/** 期間の取引（#185）の状態ごとの題 */
+const REVIEW_TRADES_TITLE = {
+  'review-trades': '取り戻したい',
+  'review-trades-streak': '連勝の後',
+  'review-trades-empty': '期間の取引',
+};
+/**
+ * 連勝の後（#185）の取引（架空の値。Issue の例 B3 の形）: 決済の古い順に W W B W W A W W B W W A W W A の 15 件（W = 計画どおりの
+ * 勝ち +1.0R）。連勝の後は 3・6・9・12・15 件目の 5 件（60%・崩れで −1.5R）。3・9 件目に「調子に乗った」。決済は 7 日の中で 1 分ずつ
+ */
+const REVIEW_STREAK = Array.from({ length: 15 }, (_, k) => {
+  const n = k + 1;
+  const off = n % 3 === 0;
+  const price = !off ? 100.5 : n === 3 ? 99.25 : n === 9 ? 99 : n === 15 ? 99.6 : 99.5;
+  const over = n === 3 || n === 9 ? { lcMove: { kind: 'widened', after: price } } : {};
+  const t = reviewTrade(0, `rvs-${n}`, price, over);
+  const traded = {
+    ...t,
+    createdAt: 1700000002000 + n,
+    record: { ...t.record, exit: { ...t.record.exit, time: reviewExit(5) + n * 60_000 } },
+  };
+  return n === 3 || n === 9 ? withTags(traded, ['overconfident']) : traded;
+});
 /** 取引の多い期間（合成 120 件。決済は今日から 0〜84 日前。10 件に 1 件が LC を広げた −1.5R の B） */
 const REVIEW_MANY = Array.from({ length: 120 }, (_, i) => {
   const daysAgo = Math.floor((119 - i) * 0.7);
@@ -4674,6 +4697,27 @@ async function main() {
               '.insight__row',
               'review-insight-long',
             ],
+            // 気づきの連勝の後のカード（#185）
+            ['/review?period=7d&view=insight', REVIEW_STREAK, '.winrun', 'review-insight-streak'],
+            // 期間の取引（#185）: 心理の行から・連勝の後から・知らない心理
+            [
+              '/review/trades?period=7d&emotion=recoup',
+              REVIEW_INSIGHT,
+              '.traderow',
+              'review-trades',
+            ],
+            [
+              '/review/trades?period=7d&after=winStreak',
+              REVIEW_STREAK,
+              '.traderow',
+              'review-trades-streak',
+            ],
+            [
+              '/review/trades?period=7d&emotion=foo',
+              REVIEW_INSIGHT,
+              '.review__empty',
+              'review-trades-empty',
+            ],
             ['/review/table?period=7d', REVIEW_S1, '.review__table table', 'review-table'],
             ['/review/table?period=7d', [], '.review__empty', 'review-table-empty'],
             ['/review?period=7d', REVIEW_S1, '.review .notice--error', 'review-failed', null, 503],
@@ -4687,7 +4731,14 @@ async function main() {
               recApi.rangeStatus = rangeStatus ?? 200;
               recApi.rangeHoldMs = holdMs ?? 0;
               await tp.goto(base + path);
-              await waitReady(tp, path.startsWith('/review/table') ? '数で見る' : '振り返り');
+              await waitReady(
+                tp,
+                path.startsWith('/review/table')
+                  ? '数で見る'
+                  : path.startsWith('/review/trades')
+                    ? REVIEW_TRADES_TITLE[slug]
+                    : '振り返り',
+              );
               await tp.locator(wait).first().waitFor({ timeout: 15000 });
               if (after) await after(tp);
               await tp.mouse.move(0, 0);

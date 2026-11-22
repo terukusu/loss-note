@@ -215,6 +215,19 @@ describe('使わない言葉が画面に出ない（#74 AC-1）', () => {
     expect(bannedHits(SCREEN, BANNED, KEEP_WORDS)).toEqual([]);
   });
 
+  it('読み込み中の状態の文は「読み込んでいます…」1 つ。「読み込み中…」はボタンの中の「続きを読み込み中…」だけ（#177）', () => {
+    expect(BANNED).toContain('読み込み中…');
+    expect(KEEP_WORDS.has('続きを読み込み中…')).toBe(true);
+    const src =
+      "const a = '読み込み中…'; const b = () => <p>読み込み中…</p>; const c = '続きを読み込み中…';";
+    expect(bannedHits([['x.tsx', src]], ['読み込み中…'], KEEP_WORDS)).toEqual([
+      'x.tsx: 読み込み中…: 読み込み中…',
+      'x.tsx: 読み込み中…: 読み込み中…',
+    ]);
+    const shortForms = ALL_STRINGS.filter((t) => t.includes('読み込み中…'));
+    expect(new Set(shortForms)).toEqual(new Set(['続きを読み込み中…']));
+  });
+
   it('8.4 の変えない言葉の一字一句の例外は、その文字列だけを通す（含む文は拾う）', () => {
     const src = "const a = '利確を急ぐ'; const b = '利確を急ぐ前に';";
     expect(bannedHits([['x.ts', src]], ['利確'], KEEP_WORDS)).toEqual([

@@ -203,11 +203,39 @@ const NON_TEXT_INPUTS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * 日本語の変換の途中のキーか（isComposing、または変換中に来る keyCode 229。Safari は変換を確定する Enter で isComposing が
+ * false のことがあるので 229 も見る）。決定キー・Esc の判定はここで変換中を除く（#172・#175）
+ */
+export function isImeKey(isComposing: boolean, keyCode: number): boolean {
+  return isComposing || keyCode === 229;
+}
+
+/**
  * 決定キー（Enter）で欄を移る・閉じるか。日本語の変換の確定（isComposing・keyCode 229）は数えない（一言の欄で変換を確定した
  * だけでキーボードが閉じないように）
  */
 export function isEnterCommit(key: string, isComposing: boolean, keyCode: number): boolean {
-  return key === 'Enter' && !isComposing && keyCode !== 229;
+  return key === 'Enter' && !isImeKey(isComposing, keyCode);
+}
+
+/** Esc で閉じるか。変換を取り消す Esc（isComposing・keyCode 229）は数えない（#175） */
+export function isEscapeClose(key: string, isComposing: boolean, keyCode: number): boolean {
+  return key === 'Escape' && !isImeKey(isComposing, keyCode);
+}
+
+/**
+ * 記録する画面の口座の追加の欄の keydown（#175）。入力の欄の決定キー = 'add'（記録の送信にしない）、Esc = 'close'、
+ * それ以外と変換中 = null（何もしない）
+ */
+export function accountAddKey(
+  key: string,
+  isComposing: boolean,
+  keyCode: number,
+  onInput: boolean,
+): 'add' | 'close' | null {
+  if (onInput && isEnterCommit(key, isComposing, keyCode)) return 'add';
+  if (isEscapeClose(key, isComposing, keyCode)) return 'close';
+  return null;
 }
 
 /** 送るボタンを押し始めてから送信までを「押した」と数える長さ（ms。指で押して離すまで。#183） */

@@ -2,7 +2,10 @@
 // 数は 390×844 の縦のスマホ（上の安全域 47・上の帯 48 → 帯の下の端 95、下の帯 = 判定の 1 行 + ［記録する］ で高さ 110）
 import { describe, expect, it } from 'vitest';
 import {
+  accountAddKey,
   isEnterCommit,
+  isEscapeClose,
+  isImeKey,
   isTextEntry,
   KEYBOARD_MIN_PX,
   keyboardMode,
@@ -244,6 +247,32 @@ describe('isEnterCommit', () => {
     expect(isEnterCommit('Enter', true, 13)).toBe(false);
     expect(isEnterCommit('Enter', false, 229)).toBe(false);
     expect(isEnterCommit('Tab', false, 9)).toBe(false);
+  });
+});
+
+describe('変換中のキーの判定（#175。Enter と Esc で同じ判定）', () => {
+  it('isComposing か keyCode 229 なら変換中', () => {
+    expect(isImeKey(true, 13)).toBe(true);
+    expect(isImeKey(false, 229)).toBe(true);
+    expect(isImeKey(false, 13)).toBe(false);
+  });
+  it('Esc: 変換の取り消しは閉じない', () => {
+    expect(isEscapeClose('Escape', false, 27)).toBe(true);
+    expect(isEscapeClose('Escape', true, 27)).toBe(false);
+    expect(isEscapeClose('Escape', false, 229)).toBe(false);
+    expect(isEscapeClose('Enter', false, 13)).toBe(false);
+  });
+  it('口座の追加: 入力の欄の決定キーで追加・Esc で閉じる。変換中は何もしない', () => {
+    expect(accountAddKey('Enter', false, 13, true)).toBe('add');
+    expect(accountAddKey('Enter', true, 13, true)).toBeNull();
+    expect(accountAddKey('Enter', false, 229, true)).toBeNull();
+    // 入力の欄の外（ボタン）の Enter はボタンに任せる
+    expect(accountAddKey('Enter', false, 13, false)).toBeNull();
+    expect(accountAddKey('Escape', false, 27, true)).toBe('close');
+    expect(accountAddKey('Escape', false, 27, false)).toBe('close');
+    expect(accountAddKey('Escape', true, 27, true)).toBeNull();
+    expect(accountAddKey('Escape', false, 229, true)).toBeNull();
+    expect(accountAddKey('a', false, 65, true)).toBeNull();
   });
 });
 

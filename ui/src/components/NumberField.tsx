@@ -9,7 +9,7 @@
 // 文字のキーは既定の入力を止めて、その 1 文字を打った値として親へ返す（LC の欄では価格を打つと「なし」は外れる = applyDraft）
 // 決定キー（#172）: onEnter を渡した欄は、止まっていない間の Enter（変換の確定を除く）で既定の送信を止めて呼ぶ。止まった欄の
 // Enter は「外す」（#171）が先（外れた後の Enter が onEnter）。キーの振り分けは純関数 numberFieldKeyOf
-import { isEnterCommit } from '../lib/keyboard';
+import { isEnterCommit, isImeKey } from '../lib/keyboard';
 import { FieldLabelText } from './FieldLabelText';
 
 export interface NumberFieldProps {
@@ -50,8 +50,9 @@ export function unlockKeyOf(e: {
   readonly isComposing?: boolean;
   readonly keyCode?: number;
 }): 'press' | 'type' | null {
-  // 変換中の判定は決定キー（isEnterCommit）と同じ: isComposing と keyCode 229（Safari の確定直後の keydown。#172 のレビュー N5）
-  if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || e.keyCode === 229) return null;
+  // 変換中の判定は決定キー（isEnterCommit）と同じ isImeKey: isComposing と keyCode 229（Safari の確定直後の keydown。#172 のレビュー N5）
+  if (e.ctrlKey || e.metaKey || e.altKey || isImeKey(e.isComposing === true, e.keyCode ?? 0))
+    return null;
   if (e.key === 'Enter' || e.key === ' ') return 'press';
   if (e.key.length === 1) return 'type';
   return null;

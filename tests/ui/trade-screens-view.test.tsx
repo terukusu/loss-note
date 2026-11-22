@@ -262,7 +262,7 @@ describe('AC-1: 一覧（例 L1〜L4）', () => {
         onRelogin={noop}
       />,
     );
-    expect(text(loading)).toContain('読み込み中');
+    expect(text(loading)).toContain('読み込んでいます…');
     const failed = expand(
       <TradesView
         state={{ phase: 'loadFailed', error: '取引を読み込めませんでした。', errorKind: 'auth' }}

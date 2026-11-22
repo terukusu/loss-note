@@ -553,8 +553,8 @@ describe('銘柄の画面（#133 の AC-4）', () => {
 describe('読み込み・失敗', () => {
   it('読み込み中', () => {
     const c = createSettingsController({ api: createFakeApi().api });
-    expect(text(render(c.getState()))).toContain('読み込み中');
-    expect(text(renderInst(c.getState()))).toContain('読み込み中');
+    expect(text(render(c.getState()))).toContain('読み込んでいます…');
+    expect(text(renderInst(c.getState()))).toContain('読み込んでいます…');
   });
 
   it('読み込みの失敗は role="alert" と [再読み込み]', async () => {

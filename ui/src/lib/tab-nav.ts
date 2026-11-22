@@ -5,6 +5,7 @@
 //   その上に 1 段（どのタブの記憶にも残さない）。層（「i」など）は back-stack.ts がさらに上に積む
 // - 各項目の history.state に印（深さ・タブ・ホームからの並び）を持つ。印の無い最初の起動だけ並びを組み直す
 // - タブを替えると、今のタブの並び（シートを除く）とスクロールの位置を記憶に残し、根の段まで戻して次のタブの記憶を積み直す
+import { parsePeriod, reviewHref } from './period';
 import {
   isSheetRoute,
   parseRoute,
@@ -83,7 +84,8 @@ export function readMark(state: unknown, href: string, opts: RouteOptions): NavM
  * 印の無い最初の起動で組み直す並び（9.7 の 5）。`/trades/a` → `[/, /trades, /trades/a]`、`/trades/a/edit`（詳細の次の画面
  * `/trades/a/fields`・`/trades/a/comment` も。#131）→ `[/, /trades, /trades/a, /trades/a/edit]`、`/record` → `[/, /record]`、
  * `/glossary`・`/settings/accounts` → `[/, /settings, …]`、
- * `/review/table?q` → `[/, /review?q, /review/table?q]`。
+ * `/review/table?q` → `[/, /review?q, /review/table?q]`、
+ * `/review/trades?q` → `[/, /review?<q の期間>&view=insight, /review/trades?q]`（#185。戻ると同じ期間の気づき）。
  * ホーム・ログイン・知らない URL は組み直さない（`[href]`）
  */
 export function bootStack(href: string, opts: RouteOptions): string[] {
@@ -105,6 +107,12 @@ export function bootStack(href: string, opts: RouteOptions): string[] {
       // 振り返りの根は同じ期間（検索部分）で開く（#128。戻ると見ていた期間の振り返り）
       const q = href.indexOf('?');
       return ['/', `/review${q < 0 ? '' : href.slice(q).split('#')[0]}`, href];
+    }
+    case 'reviewTrades': {
+      // 期間の取引（#185）の根は同じ期間の気づき（絞り方の鍵は根に持ち込まない）
+      const q = href.indexOf('?');
+      const search = q < 0 ? '' : (href.slice(q).split('#')[0] ?? '');
+      return ['/', reviewHref(parsePeriod(search), 'insight'), href];
     }
     default:
       return ['/', href];

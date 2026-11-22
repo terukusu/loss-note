@@ -1,7 +1,8 @@
 // 振り返りのタブ（タブ 3。`/review`。#128 = U2。設計書 9.2 の振り返りの行・ui-guidelines 9.3・9.11）と、次の画面
 // 「数で見る」（`/review/table`）。規律の振り返り（#88・C44）をホームから移して作り直した: 期間（上に貼り付く）→ 範囲と件数 →
 // 1 枚目（規律コストの見出しと曲線）→ 2 枚目（計画どおり率と内訳）→「数で見る ›」。上のセグメント 規律 / 気づき（#162）の気づきは
-// 心理ごとの集計（`&view=insight`。期間・取り込みは共通）。期間は URL の検索部分（置き換え。履歴を積まない。
+// 心理ごとの集計（`&view=insight`。期間・取り込みは共通）。気づきの行・連勝の後のカードは次の画面「期間の取引」へ（#185。
+// `pages/ReviewTrades.tsx`）。期間は URL の検索部分（置き換え。履歴を積まない。
 // `/review?period=…`）で、「数で見る」も同じ検索部分（`/review/table?period=…`。戻ると同じ期間の振り返り）。
 // 銘柄の値と消した印は、直近の取引と同じ読み込み（決済の新しい順の先頭 10 件）から取る（#88 のまま）。
 // 3 層: 純関数（lib/period.ts・lib/review-view.ts）→ 通信と状態（lib/review-controller.ts）→ hook を持たない View
@@ -25,6 +26,7 @@ import {
   reviewTableHref,
 } from '../lib/period';
 import { createReviewController, type ReviewState } from '../lib/review-controller';
+import { reviewTradesHref } from '../lib/review-trades';
 import { NO_CURVE, type ReviewModel, reviewModelFor } from '../lib/review-view';
 import { type Navigator, NavigatorContext } from '../lib/router';
 import { HOME_LIMIT } from '../lib/trade-pages';
@@ -49,7 +51,10 @@ export function useReview(
   instruments: readonly InstrumentRecord[],
   hidden: ReadonlySet<string>,
   hrefOf: (sel: PeriodSelection, view: ReviewViewKey) => string = reviewHref,
+  /** 規律の表示の形を作るか（期間の取引の画面は使わないので作らない = 期間の全件の集計を省く。#185） */
+  opts: { readonly discipline?: boolean } = {},
 ): ReviewSlot {
+  const discipline = opts.discipline ?? true;
   const nav = useContext(NavigatorContext);
   const search = useSearch(nav);
   const selection = useMemo(() => parsePeriod(search), [search]);
@@ -83,13 +88,15 @@ export function useReview(
   // 表示の形は状態・消した印・取り込み・銘柄が変わったときだけ作り直す（描画のたびに期間の全件を集計しない）
   const model = useMemo(
     () =>
-      reviewModelFor(state, range, {
-        hidden,
-        includeImports: selection.imports,
-        instruments,
-        now,
-      }),
-    [state, range, hidden, selection.imports, instruments, now],
+      discipline
+        ? reviewModelFor(state, range, {
+            hidden,
+            includeImports: selection.imports,
+            instruments,
+            now,
+          })
+        : null,
+    [discipline, state, range, hidden, selection.imports, instruments, now],
   );
   // 期間を切り替えて読んでいる間は、前の期間の表示を薄く残す（カードの高さを跳ばさない）
   const last = useRef<ReviewModel | null>(null);
@@ -117,6 +124,8 @@ export function useReview(
       if (next !== view) nav?.replace(reviewHref(selection, next));
     },
     tableHref: reviewTableHref(selection),
+    // 気づきの行・連勝の後のカード → 同じ期間の「期間の取引」（#185）
+    trailHref: (filter) => reviewTradesHref(selection, filter),
     ...periodActions(selection, Date.now, (next) => nav?.replace(hrefOf(next, view))),
     onReload: () => {
       void controller.reload();

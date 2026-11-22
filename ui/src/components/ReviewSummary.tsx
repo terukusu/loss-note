@@ -16,6 +16,7 @@ import {
   type ReviewViewKey,
 } from '../lib/period';
 import type { ReviewState } from '../lib/review-controller';
+import type { TrailFilter } from '../lib/review-trades';
 import { NO_CURVE, type ReviewModel, ROWS_CAPTION } from '../lib/review-view';
 import '../styles/review.css';
 import { DENSE_NARROW, DENSE_WIDE } from '../lib/review-chart';
@@ -26,6 +27,7 @@ import { InfoTip } from './InfoTip';
 import { InsightCard } from './InsightCard';
 import { PeriodDates, PeriodSegment } from './PeriodPicker';
 import { Segment } from './Segment';
+import { StreakCard } from './StreakCard';
 
 export interface ReviewSlot {
   readonly selection: PeriodSelection;
@@ -53,6 +55,11 @@ export interface ReviewSlot {
   readonly previousInsight?: InsightModel | null;
   /** セグメントを替えた（URL を置き換える。期間はそのまま）。無ければセグメントを出さない（振り返りのタブの hook は必ず渡す） */
   readonly onView?: (view: ReviewViewKey) => void;
+  /**
+   * 気づきの心理の行・連勝の後のカードの行き先（同じ期間の「期間の取引」。#185）。無ければ行を押せない形のまま
+   * （振り返りのタブの hook は必ず渡す）
+   */
+  readonly trailHref?: (filter: TrailFilter) => string;
 }
 
 const VIEW_OPTIONS = (['discipline', 'insight'] as const).map((v) => ({
@@ -211,7 +218,15 @@ function ReviewBody(p: ReviewSlot) {
 
 /** 開いているセグメントの中身（規律 = 2 枚のカード、気づき = 心理ごとの集計のカード） */
 function ViewContent(p: ReviewSlot & { readonly shown: ReviewModel | InsightModel }) {
-  if (p.view === 'insight') return <InsightCard m={p.shown as InsightModel} />;
+  if (p.view === 'insight') {
+    const m = p.shown as InsightModel;
+    return (
+      <>
+        <InsightCard m={m} trailHref={p.trailHref} />
+        {m.streak ? <StreakCard s={m.streak} trailHref={p.trailHref} /> : null}
+      </>
+    );
+  }
   return <ReviewContent {...p} m={p.shown as ReviewModel} />;
 }
 

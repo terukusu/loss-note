@@ -1,9 +1,11 @@
 // 振り返りのタブの「気づき」の心理ごとの集計のカード（#162。設計書 6.1・9.4・C34）。hook を持たない。
 // 見出し「心理ごとの規律」と右に「N 件のうち M 件に記入」→ 列の見出し（計画どおり率・規律コスト。それぞれ「i」）→
 // 値の行（平常心 = 基準を先頭に、下に太い区切り）→ 件数が少ない行のまとまり（見出し 1 回・名前と件数と「あと N 件」だけを
-// 詰めて並べる）→ 重なりの 1 行。行は押せない（たどる機能は後の Issue。#185）。
+// 詰めて並べる）→ 重なりの 1 行。trailHref があれば行（値の行・件数が少ない行）は押せる行で、その心理の「期間の取引」へ（#185。
+// 行全体が当たり・右に ›。ui-guidelines 9.12）。無ければ押せない形のまま。
 // 値の行は格子: 広い = 名前 | 率 | 規律コスト の 3 列（列の位置はどの行も同じ）、狭い = 必ず 2 段（名前と件数 / 率を左・規律コストを右）。
 // 読み上げは行ごとの全文（列の名前つき）で、見た目の部品は外す。色・棒は付けない（C34）。R・% は無色の数（P3）
+import type { ComponentChildren } from 'preact';
 import {
   BASE_MARK,
   COLUMN,
@@ -14,6 +16,8 @@ import {
   type InsightModel,
   type InsightRow,
 } from '../lib/insight-view';
+import type { TrailFilter } from '../lib/review-trades';
+import { Link } from '../lib/router';
 import { Button } from './Button';
 import { InfoTip } from './InfoTip';
 
@@ -27,9 +31,30 @@ function NameCell({ r }: { readonly r: InsightRow }) {
   );
 }
 
-function MainRow({ r }: { readonly r: InsightRow }) {
+type TrailHref = ((filter: TrailFilter) => string) | undefined;
+
+/** 行の中身を、行き先があれば押せる行（Link）で包む（読み上げの名前は中の sr-only の全文） */
+function trail(href: string | undefined, cls: string, children: ComponentChildren) {
+  return href === undefined ? (
+    children
+  ) : (
+    <Link href={href} class={cls}>
+      {children}
+    </Link>
+  );
+}
+
+function MainRow({ r, href }: { readonly r: InsightRow; readonly href: string | undefined }) {
   return (
     <li class={r.base ? 'insight__row insight__row--base' : 'insight__row'} data-emotion={r.id}>
+      {trail(href, 'insight__link', <MainCells r={r} />)}
+    </li>
+  );
+}
+
+function MainCells({ r }: { readonly r: InsightRow }) {
+  return (
+    <>
       <span class="sr-only">{r.srText}</span>
       <span class="insight__cells" aria-hidden="true">
         <NameCell r={r} />
@@ -52,11 +77,18 @@ function MainRow({ r }: { readonly r: InsightRow }) {
           ) : null}
         </span>
       </span>
-    </li>
+    </>
   );
 }
 
-export function InsightCard({ m }: { readonly m: InsightModel }) {
+export function InsightCard({
+  m,
+  trailHref,
+}: {
+  readonly m: InsightModel;
+  readonly trailHref?: TrailHref;
+}) {
+  const hrefOf = (r: InsightRow) => trailHref?.({ kind: 'emotion', id: r.id });
   if (m.empty) {
     return (
       <section class="card section review__card review__empty-box">
@@ -65,7 +97,10 @@ export function InsightCard({ m }: { readonly m: InsightModel }) {
     );
   }
   return (
-    <section class="card section review__card insight" aria-labelledby="insight-title">
+    <section
+      class={`card section review__card insight${trailHref ? ' insight--trail' : ''}`}
+      aria-labelledby="insight-title"
+    >
       <div class="review__ratehead">
         <h2 class="review__label" id="insight-title">
           {INSIGHT_TITLE}
@@ -105,7 +140,7 @@ export function InsightCard({ m }: { readonly m: InsightModel }) {
           </div>
           <ul class="insight__rows">
             {m.main.map((r) => (
-              <MainRow key={r.id} r={r} />
+              <MainRow key={r.id} r={r} href={hrefOf(r)} />
             ))}
           </ul>
         </div>
@@ -118,13 +153,19 @@ export function InsightCard({ m }: { readonly m: InsightModel }) {
           <ul class="insight__few" aria-labelledby="insight-few">
             {m.few.map((r) => (
               <li key={r.id} class="insight__fewrow" data-emotion={r.id}>
-                <span class="sr-only">{r.srText}</span>
-                <span aria-hidden="true">
-                  <span class="insight__fewname">{r.name}</span>{' '}
-                  <span class="insight__count">
-                    {r.countText} · {r.restText}
-                  </span>
-                </span>
+                {trail(
+                  hrefOf(r),
+                  'insight__fewlink',
+                  <>
+                    <span class="sr-only">{r.srText}</span>
+                    <span aria-hidden="true">
+                      <span class="insight__fewname">{r.name}</span>{' '}
+                      <span class="insight__count">
+                        {r.countText} · {r.restText}で表示
+                      </span>
+                    </span>
+                  </>,
+                )}
               </li>
             ))}
           </ul>

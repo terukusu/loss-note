@@ -32,3 +32,39 @@
   background: var(--s1);
   box-shadow: var(--shadow-card);
 }
+
+/* 気づきの押せる行の面（#185。面のトークンは review.css に置かない = 判定の段の色と混ぜない）。件数が少ない行は面のある押せる形 */
+.insight__fewlink {
+  background: var(--s2);
+}
+
+@media (hover: hover) {
+  .insight__link:hover {
+    background: var(--s2);
+  }
+
+  .insight__fewlink:hover {
+    background: var(--s3);
+  }
+}
+
+/* 期間の取引（#185）の行の 3 行目の心理の名前（2 行目の判定の名前・時刻を詰めない。入らなければ「…」。取引のタブの一覧には出ない） */
+.review--trail .traderow__note {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 名前つきの要約は組（「計画どおり率 0%（0 / 5）」など）の間で折り返す。1 組が幅に入らない（文字の拡大）ときは組の中で折り返す */
+.review__trailsum {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-3);
+}
+
+.review__trailpart {
+  min-width: 0;
+}

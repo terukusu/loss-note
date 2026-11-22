@@ -434,7 +434,8 @@
 }
 
 .record__lc .lcrow {
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto;
+  /* 欄の名前 | 添え書き | 「なし」| 逆指値の未設定（#165） */
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto auto;
   align-items: end;
   column-gap: var(--sp-2);
   row-gap: 6px;
@@ -452,7 +453,7 @@
 
 .record__lc .lcrow > .field > .field__hint {
   grid-row: 1;
-  grid-column: 2 / 4;
+  grid-column: 2 / -1;
   justify-self: end;
   align-self: center;
   max-width: 100%;
@@ -473,6 +474,17 @@
   grid-column: 3;
   /* 欄の名前の行は格子の 1 行目が持つので、名前の分の上の余白は要らない */
   margin-top: 0;
+}
+
+.record__lc .lcrow > .lcstop {
+  grid-row: 2;
+  grid-column: 4;
+  margin-top: 0;
+}
+
+/* 「LC なし」は文字が増えた分、左右の余白を詰めて LC の価格の欄の幅を保つ（#165） */
+.record__lc .lcrow > .lcnone {
+  padding: 0 var(--sp-2);
 }
 
 .record__lc .lcrow > .field > .field__error {
@@ -498,6 +510,16 @@
 
 .record--one .record__taps .field {
   gap: var(--sp-1);
+}
+
+/* 逆指値が未設定の間の「取消」を選べない理由（#165）。空の間は格子の行を取らない（読み上げの領域は残す） */
+.record__taps .record__movenote:empty {
+  position: absolute;
+}
+
+.record__taps .record__movenote {
+  margin-top: calc(-1 * var(--sp-1));
+  font-size: var(--fs-xs);
 }
 
 .record__taps .record__movehint {

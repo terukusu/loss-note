@@ -762,6 +762,24 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     }
   });
 
+  it('#165 AC-9: 直す画面も LC の価格のときは「逆指値 未設定」と 4 択の「取消」を出し、LC なしでは両方出さない', async () => {
+    const priced = await editTree(E1);
+    expect(all(priced, (e) => e.props.id === 'record-stop-not-placed')).toHaveLength(1);
+    const moves = all(
+      priced,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+    );
+    expect(text(moves)).toContain('取消');
+    const none = await editTree(E1, (x) => x.update({ type: 'set', field: 'lcNone', value: true }));
+    expect(all(none, (e) => e.props.id === 'record-stop-not-placed')).toHaveLength(0);
+    expect(
+      all(
+        none,
+        (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
+      ),
+    ).toHaveLength(0);
+  });
+
   it('#171: 直す画面でも「なし」で止まった LC の欄を押すと「なし」を外し、価格は空で入力できる', async () => {
     let c: ReturnType<typeof createEditController> | undefined;
     const tree = await editTree(E1, (x) => {

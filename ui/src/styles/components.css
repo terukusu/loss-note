@@ -654,6 +654,18 @@
   height: 18px;
 }
 
+/* 選べない項目（逆指値が未設定の間の「取消」。#165）。理由は部品の下の 1 行で言う */
+.seg__item--off,
+.seg__item--off:hover {
+  border-style: dashed;
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+
+.seg__item--off .seg__input {
+  cursor: not-allowed;
+}
+
 /* 長い名前を 1 行の「…」で省略するセグメント（口座。#47 U4）。✓ の幅はどの項目にも先に取る（選んでいない項目は
    見えない ✓。選ぶたびに境目が動かない。再レビュー N2）。既定は等分。長い名前が 1 つだけあるとき（seg--fit）は、
    ほかの項目を名前の幅にして、残りを全部その項目に回す（再レビュー 2）。チェックの記号は切らずに文字だけを省略する */
@@ -1076,6 +1088,70 @@
   height: 16px;
   stroke-width: 3;
   color: var(--accent);
+}
+
+.lcstop:active {
+  transform: scale(0.98);
+}
+
+/* 逆指値の未設定の切り替え（C56・#165）。「LC なし」（欄を止めるボタン）と形を分け、枠の無いチェックの四角 + 2 行の文字にする。
+   押す前は空の四角（選べる印）、押したら塗りの四角とチェック。幅は 360px で LC の価格の欄を 150px 以上残す（画面の検査 LM1） */
+.lcstop {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 0 var(--sp-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  line-height: 1.2;
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.lcstop:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.lcstop__box {
+  width: 16px;
+  height: 16px;
+}
+
+.lcstop__box rect {
+  fill: var(--s1);
+  stroke: var(--field-line);
+  stroke-width: 1.5;
+}
+
+.lcstop[aria-pressed="true"] {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+
+.lcstop[aria-pressed="true"] .lcstop__box rect {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+
+.lcstop__box path {
+  fill: none;
+  stroke: var(--on-accent);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lcstop__text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 /* 判定・理由・R の枠。色は判定の段（地の淡い色・左の帯・バッジ）だけ、数字は本文の色（C34）。枠の線は他のカードと同じ */

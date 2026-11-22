@@ -44,7 +44,7 @@ def _put_store_trade(api, uid: str, iid: str, original: dict, snapshot: dict) ->
 
 def test_edit_bodies_are_accepted_and_keep_snapshot(api):
     fixture = load_fixture("edit-bodies.json")
-    assert [t["name"] for t in fixture["trades"]] == ["E1", "E2"]
+    assert [t["name"] for t in fixture["trades"]] == ["E1", "E2", "cancelled", "stopNotPlaced"]
     for item in fixture["trades"]:
         res = api.post("/api/instruments", A, item["instrument"])
         assert res.status_code == 201, (item["name"], res.get_json())
@@ -52,7 +52,7 @@ def test_edit_bodies_are_accepted_and_keep_snapshot(api):
         put_default_account(api, A, item["settings"])
 
         original = _with_instrument(item["original"], iid)
-        if item["name"] == "E1":
+        if item["name"] in ("E1", "cancelled"):
             res = api.post("/api/trades", A, original)
             assert res.status_code == 201, res.get_json()
             tid = res.get_json()["id"]
@@ -77,6 +77,10 @@ def test_edit_bodies_are_accepted_and_keep_snapshot(api):
         again = api.get(f"/api/trades/{tid}", A).get_json()
         assert again["record"] == sent, item["name"]
         assert "charts" not in again, item["name"]
+        if item["name"] in ("cancelled", "stopNotPlaced"):
+            # #165 AC-11（E17）: 取消・逆指値の未設定は、何も変えずに保存しても元の値のまま
+            assert again["record"]["lcMove"] == original["lcMove"], item["name"]
+            assert again["record"]["stopOrderPlaced"] == original["stopOrderPlaced"], item["name"]
 
 
 def test_e2_body_drops_timeframes_without_charts():

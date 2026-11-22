@@ -124,12 +124,20 @@ export const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
 ];
 
 /** LC を動かしたかの 3 択の下の 1 行（どちらに当たるかの手がかり。L / S で同じ。#56 デザインレビュー 4） */
-export const LC_MOVE_HINT = '狭めた = インに近づけた、広げた = 遠ざけた';
+export const LC_MOVE_HINT =
+  '狭めた = インに近づけた、広げた = 遠ざけた、取消 = 持っている間に逆指値の注文を取消';
 export const LC_MOVE_HINT_ID = 'record-lc-move-hint';
 
-/** LC を動かしたかの選択肢（L / S で同じ言葉。#56） */
+/** 逆指値の未設定の切り替えの読み上げの名前（C56・#165） */
+export const STOP_NOT_PLACED_NAME = '逆指値 未設定（逆指値を置いていなかった）';
+
+/** 逆指値が未設定の間、4 択の「取消」を選べない理由の 1 行（#165 のデザインレビュー 3） */
+export const STOP_NOT_PLACED_MOVE_NOTE = '逆指値が未設定のため「取消」は選べません';
+export const STOP_NOT_PLACED_MOVE_NOTE_ID = 'record-lc-move-stop-note';
+
+/** LC を動かしたかの選択肢（L / S で同じ言葉。#56。取消 = 持っている間に逆指値の注文を取消。C56・#165） */
 const MOVE_OPTIONS: readonly { value: LcMoveKind; label: string }[] = (
-  ['none', 'tightened', 'widened'] as const
+  ['none', 'tightened', 'widened', 'cancelled'] as const
 ).map((k) => ({ value: k, label: lcMoveLabel(k) }));
 
 const TIMEFRAME_OPTIONS: readonly { value: TimeframeChange; label: string }[] = [
@@ -364,12 +372,36 @@ export function LcFields(p: TradeFieldsProps) {
           type="button"
           class="lcnone"
           aria-pressed={d.lcNone ? 'true' : 'false'}
-          aria-label="LC を決めていなかった（なし）"
+          aria-label="LC なし（LC を決めていなかった）"
           onClick={() => onUpdate({ type: 'set', field: 'lcNone', value: !d.lcNone })}
         >
           {d.lcNone ? <Icon name="check" /> : null}
-          <span>なし</span>
+          <span>LC なし</span>
         </button>
+        {/* 逆指値を置いていなかった（任意。判定に効かない。LC の価格を置く計画のときだけ。C56・#165） */}
+        {d.lcNone || maxLossOn ? null : (
+          // 「LC なし」（欄を止めるボタン）と形を分け、チェックの四角 + 2 行の文字にする（押す前は空の四角 = 選べる印。#165 のデザインレビュー 1・2）
+          <button
+            type="button"
+            class="lcstop"
+            id="record-stop-not-placed"
+            aria-pressed={d.stopNotPlaced ? 'true' : 'false'}
+            aria-label={STOP_NOT_PLACED_NAME}
+            onClick={() =>
+              onUpdate({ type: 'set', field: 'stopNotPlaced', value: !d.stopNotPlaced })
+            }
+          >
+            {/* チェックの四角（押す前は空 = 選べる印、押したら塗りとチェック）。色は CSS のトークン */}
+            <svg class="lcstop__box" viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="1" y="1" width="14" height="14" />
+              {d.stopNotPlaced ? <path d="M4 8.3l2.6 2.6L12 5.4" /> : null}
+            </svg>
+            <span class="lcstop__text" aria-hidden="true">
+              <span>逆指値</span>
+              <span>未設定</span>
+            </span>
+          </button>
+        )}
       </div>
       {maxLossShown ? (
         <div class="lcmaxloss">
@@ -467,9 +499,30 @@ export function TapFields(p: TradeFieldsProps) {
                 info={<InfoTip term="lcMove" prefer="above" />}
                 value={d.lcMove}
                 onChange={set('lcMove')}
-                options={MOVE_OPTIONS}
-                {...(p.moveHintInInfo ? {} : { describedBy: LC_MOVE_HINT_ID })}
+                options={
+                  d.stopNotPlaced
+                    ? MOVE_OPTIONS.map((o) =>
+                        o.value === 'cancelled' ? { ...o, disabled: true } : o,
+                      )
+                    : MOVE_OPTIONS
+                }
+                describedBy={
+                  [
+                    p.moveHintInInfo ? null : LC_MOVE_HINT_ID,
+                    d.stopNotPlaced ? STOP_NOT_PLACED_MOVE_NOTE_ID : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || undefined
+                }
               />
+              {/* 逆指値が未設定の間は「取消」を選べない。黙って外さず、その場で理由を言う（#165 のデザインレビュー 3） */}
+              <p
+                id={STOP_NOT_PLACED_MOVE_NOTE_ID}
+                class="field__hint record__movenote"
+                aria-live="polite"
+              >
+                {d.stopNotPlaced ? STOP_NOT_PLACED_MOVE_NOTE : null}
+              </p>
               {p.moveHintInInfo ? null : (
                 <p id={LC_MOVE_HINT_ID} class="field__hint record__movehint">
                   {LC_MOVE_HINT}

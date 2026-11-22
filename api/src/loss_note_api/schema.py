@@ -36,7 +36,8 @@ SOURCES = ("manual", "statement", "import")
 SIDES = ("L", "S")
 OPTION_TYPES = ("P", "C")
 LC_BASES = ("chart", "amount")
-LC_MOVES = ("none", "tightened", "widened")
+# cancelled = 置いた逆指値を持っている間に外した（取り消した。C56。after を持たない）
+LC_MOVES = ("none", "tightened", "widened", "cancelled")
 TIMEFRAME_CHANGES = ("none", "longer", "shorter")
 # expiry = 満期（SQ）: レッグを持つ取引だけ（C54。下の _check_legs）
 ORDER_TYPES = ("stop", "market", "limit", "unknown", "expiry")
@@ -526,6 +527,9 @@ def _check_lc_direction(t: dict, c: _Checker) -> None:
         ok = after < trade_lc if is_long else after > trade_lc
         if not ok:
             c.add("lcMove.after", "lcMoveDirection")
+    # C56: 取り消した（置いた逆指値を外した）と、逆指値の未設定（置いていなかった）は同時に持たない
+    if move["kind"] == "cancelled" and t.get("stopOrderPlaced") == "notPlaced":
+        c.add("stopOrderPlaced", "lcMoveCancelledNotPlaced")
 
 
 # ── 銘柄 ─────────────────────────────────────

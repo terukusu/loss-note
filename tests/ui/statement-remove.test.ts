@@ -164,3 +164,21 @@ describe('restoreStatement（R4・R6。例 #2）', () => {
     ]);
   });
 });
+
+// #165・C56: 逆指値の未設定（本人の答え）は明細から来たものではないので、削除・戻しで消えない
+describe('逆指値の未設定（#165）', () => {
+  const withStop: Draft = applyDraft(A, { type: 'set', field: 'stopNotPlaced', value: true });
+
+  it('削除しても未設定は残り、本文は notPlaced', () => {
+    const stripped = stripStatement(withStop, MARKS);
+    expect(stripped.stopNotPlaced).toBe(true);
+    expect(stripped.stopOrderPlaced).toBe('unanswered');
+  });
+
+  it('戻しても未設定は残る（明細の逆指値 placed も戻る）', () => {
+    const stripped = stripStatement(withStop, MARKS);
+    const back = restoreStatement(stripped, withStop, stripped, MARKS);
+    expect(back.stopNotPlaced).toBe(true);
+    expect(back.stopOrderPlaced).toBe('placed');
+  });
+});

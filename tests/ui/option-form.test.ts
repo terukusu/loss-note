@@ -270,6 +270,12 @@ describe('「最大損失まで」（AC-5・C50・#114 の 1・3）', () => {
     const r = readDraft({ ...maxLossExample, lcMove: 'widened', lcAfter: '37000' }, ctx());
     expect(r.body?.lcMove).toEqual({ kind: 'none' });
   });
+  it('#165 レビュー 1: 「最大損失まで」の間は見えない逆指値の未設定を送らない（外すと前の答えに戻る）', () => {
+    const d = { ...maxLossExample, stopNotPlaced: true };
+    expect(readDraft(d, ctx()).body?.stopOrderPlaced).toBe('unanswered');
+    const off = applyDraft(d, { type: 'set', field: 'lc', value: '37800' });
+    expect(off.stopNotPlaced).toBe(true);
+  });
   it('「最大損失まで」と見込みは同時に送らない', () => {
     expect(
       readDraft({ ...maxLossExample, lcLossPlan: '90000' }, ctx()).body?.lcLossPlanYen,

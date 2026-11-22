@@ -129,6 +129,9 @@ function saveUnchanged(t: StoredTrade, instruments: readonly InstrumentRecord[])
 function normalized(t: StoredTrade, _showGapSlip?: boolean): TradeRecord {
   const out: Record<string, unknown> = { ...t.record };
   for (const o of orphanTimeframes(t)) delete out[`${o.slot}ChartTimeframe`];
+  // 取消（置いた逆指値の注文を取り消した）の取引の逆指値は「置いた」に正規化する（C56・#165。未回答で保存された文書だけ変わる）
+  if (t.record.lcMove.kind === 'cancelled' && t.record.stopOrderPlaced === 'unanswered')
+    out.stopOrderPlaced = 'placed';
   return out as unknown as TradeRecord;
 }
 

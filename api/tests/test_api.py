@@ -94,6 +94,25 @@ def test_create_and_read_t1(api):
     }  # fmt: skip
 
 
+@pytest.mark.parametrize(
+    ("over", "label"),
+    [
+        ({"lcMove": {"kind": "cancelled"}, "stopOrderPlaced": "placed"}, "取り消した"),
+        ({"stopOrderPlaced": "notPlaced"}, "逆指値 未設定"),
+    ],
+)
+def test_lc_cancelled_and_stop_not_placed_round_trip(api, over, label):
+    """#165 AC-4・KEEP-4（C56）: 取り消した・未設定 を受けて読み戻しで同じ。レッグの無い取引の版は 1 のまま"""
+    inst = api.instrument(A)
+    res = api.post("/api/trades", A, t1(inst["id"], **over))
+    assert res.status_code == 201, label
+    created = res.get_json()
+    got = api.get(f"/api/trades/{created['id']}", A).get_json()
+    assert got["schemaVersion"] == 1, label
+    for k, v in over.items():
+        assert got["record"][k] == v, label
+
+
 def test_trade_keeps_capital_snapshot(api):
     """AC-11: 記録した後に資金を直しても、取引の資金は記録したときのまま。資金の履歴は 2 件・時刻つき"""
     inst = api.instrument(A)
@@ -188,6 +207,9 @@ def _invalid_bodies(iid: str) -> dict:
         "手数料の欄 21": t1(iid, fees=[{"amountYen": 1}] * 21),
         "絶対値 1e12 超": t1(iid, statementPnlYen=1e12 + 1),
         "時点 2100 年超": t1(iid, plannedAt=4_102_444_800_001),
+        # #165 の E12・E13（C56）: 取り消した と 未設定 は同時に持たない / 取り消した は広げた後の値を持たない
+        "E12 取り消した + 未設定": t1(iid, lcMove={"kind": "cancelled"}, stopOrderPlaced="notPlaced"),
+        "E13 取り消した + 広げた後の値": t1(iid, lcMove={"kind": "cancelled", "after": 99.2}),
     }
 
 

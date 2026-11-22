@@ -200,6 +200,73 @@ describe('判定の補い J13（取引の LC が無く、エントリーごと�
   });
 });
 
+// #165・C56: 取り消した（置いた逆指値を外した）。L はイン 100.00・LC 99.50、S はイン 100.00・LC 100.50（1R = 0.50）
+describe('取り消した と 未設定（#165 の例 E1〜E8）', () => {
+  const cancelled = { lcMove: { kind: 'cancelled' } } as const;
+
+  it('E1 L・成行で 99.10（(99.10 − 100.00) ÷ 0.50 = −1.8R）は B（取り消した・持ち続けた）', () => {
+    const ev = evaluated(closedAt(trade(cancelled), 99.1, { orderType: 'market' }));
+    expect(ev.r).toBeCloseTo(-1.8, 9);
+    expect(ev.judgment?.grade).toBe('B');
+    expect(kinds(ev)).toEqual(['lcCancelled', 'heldPastLc']);
+  });
+
+  it('E2 L・手で 99.50（−1.0R）は B（取り消した）で、持ち続けたは無い', () => {
+    const ev = evaluated(closedAt(trade(cancelled), 99.5, { reason: 'brokeManual' }));
+    expect(ev.judgment?.grade).toBe('B');
+    expect(kinds(ev)).toContain('lcCancelled');
+    expect(kinds(ev)).not.toContain('heldPastLc');
+  });
+
+  it('E3 L・TP で 100.40（+0.8R）は危ない勝ち（取り消した）', () => {
+    const ev = evaluated(closedAt(trade(cancelled), 100.4, { reason: 'tp' }));
+    expect(ev.r).toBeCloseTo(0.8, 9);
+    expect(ev.judgment?.grade).toBe('riskyWin');
+    expect(kinds(ev)).toContain('lcCancelled');
+  });
+
+  it('E4 E1 で「窓・滑りでしたか」= はい は B（取り消した）で、持ち続けたは無い', () => {
+    const ev = evaluated(
+      closedAt(trade({ ...cancelled, gapSlipAnswer: true }), 99.1, { orderType: 'market' }),
+    );
+    expect(ev.judgment?.grade).toBe('B');
+    expect(kinds(ev)).toContain('lcCancelled');
+    expect(kinds(ev)).not.toContain('heldPastLc');
+  });
+
+  it('E5 E1 で LC を入る前に決めていない は C（LC を決めずに・取り消した・持ち続けた）', () => {
+    const ev = evaluated(
+      closedAt(trade({ ...cancelled, lcDecidedBeforeEntry: false }), 99.1, { orderType: 'market' }),
+    );
+    expect(ev.judgment?.grade).toBe('C');
+    expect(kinds(ev)).toEqual(expect.arrayContaining(['noLc', 'lcCancelled', 'heldPastLc']));
+    // 表の順: LC 無しの次・LC を広げたの前（C56）
+    expect(kinds(ev).indexOf('noLc')).toBeLessThan(kinds(ev).indexOf('lcCancelled'));
+  });
+
+  it('E6 S・成行で 100.90（−(100.90 − 100.00) ÷ 0.50 = −1.8R）は B（取り消した・持ち続けた）', () => {
+    const s = trade({
+      ...cancelled,
+      side: 'S',
+      lc: 100.5,
+    });
+    const ev = evaluated(closedAt(s, 100.9, { orderType: 'market' }));
+    expect(ev.r).toBeCloseTo(-1.8, 9);
+    expect(ev.judgment?.grade).toBe('B');
+    expect(kinds(ev)).toEqual(expect.arrayContaining(['lcCancelled', 'heldPastLc']));
+  });
+
+  it('E7・E8 逆指値の未設定は計算の入力に入らない（判定は逆指値の答えによらず A / B 持ち続けた）', () => {
+    // 逆指値を入れたか（stopOrderPlaced）は TradeInput に無い = 未回答・置いた・未設定で同じ入力になる
+    const e7 = evaluated(closedAt(trade(), 99.5, { orderType: 'market', reason: 'lc' }));
+    expect(e7.judgment?.grade).toBe('A');
+    expect(kinds(e7)).toContain('asPlannedLc');
+    const e8 = evaluated(closedAt(trade({ gapSlipAnswer: false }), 99.1, { orderType: 'market' }));
+    expect(e8.judgment?.grade).toBe('B');
+    expect(kinds(e8)).toContain('heldPastLc');
+  });
+});
+
 describe('gradeOf', () => {
   it('負けは最も重い理由、勝ちは C・B があれば危ない勝ち', () => {
     expect(gradeOf('loss', [])).toBe('A');

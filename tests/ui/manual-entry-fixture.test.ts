@@ -108,6 +108,14 @@ function build(): { trades: Item[] } {
       ),
       // 広げた後の LC を入れない「広げた」
       item('widenedNoAfter', applyDraft(E1, { type: 'set', field: 'lcAfter', value: '' }), null),
+      // #165・C56: 取消（置いた逆指値の注文を持っている間に取り消した。本文の逆指値は placed）
+      item('cancelled', applyDraft(E1, { type: 'set', field: 'lcMove', value: 'cancelled' }), null),
+      // #165・C56: 逆指値の未設定（判定に効かない）
+      item(
+        'stopNotPlaced',
+        applyDraft(E7, { type: 'set', field: 'stopNotPlaced', value: true }),
+        null,
+      ),
     ],
   };
 }
@@ -129,6 +137,8 @@ describe('手で入れた本文の fixture（AC-1・KEEP-2）', () => {
       ['full', 'B'],
       ['tightened', 'riskyWin'],
       ['widenedNoAfter', 'B'],
+      ['cancelled', 'B'],
+      ['stopNotPlaced', 'safeWin'],
     ]);
     const full = build().trades.find((t) => t.name === 'full')?.record;
     expect(full?.exit.gapSlip).toBe('yes');

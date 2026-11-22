@@ -222,6 +222,7 @@ const EXIT_REASON_TEXT = {
   other: 'その他',
 } as const;
 const LC_BASIS_TEXT = { chart: 'チャート', amount: '金額' } as const;
+const STOP_ORDER_TEXT = { placed: '置いた', notPlaced: '未設定', unanswered: '—' } as const;
 const GAP_SLIP_TEXT = { yes: 'はい', no: 'いいえ', unanswered: '' } as const;
 
 /** LC を動かしたかの答え（そのまま / 狭めた / 広げた（99.2）。L / S で同じ言葉。#56） */
@@ -281,11 +282,22 @@ export function tapAnswers(t: StoredTrade, judgment?: Judgment): readonly TapAns
   if (r.lc !== undefined) {
     out.push({
       label: 'LC を動かしたか',
-      short: 'LC',
+      // 取消は「LC: 取消」だと LC なしと読めるので、何を取り消したかを札で言う（#165 のデザインレビュー 5）
+      short: r.lcMove.kind === 'cancelled' ? '逆指値' : 'LC',
       value: lcMoveText(t),
-      offPlan: r.lcMove.kind === 'widened',
+      offPlan: r.lcMove.kind === 'widened' || r.lcMove.kind === 'cancelled',
       term: 'lcMove',
     });
+    // 逆指値の未設定（判定に効かないので外れの印は付けない。置いた・未回答は札を出さない。C56・#165 のデザインレビュー 4）
+    if (r.stopOrderPlaced === 'notPlaced') {
+      out.push({
+        label: '逆指値',
+        short: '逆指値',
+        value: '未設定',
+        offPlan: false,
+        term: 'lcMove',
+      });
+    }
   }
   const reason = judgment?.reasons.find((x) => x.kind === 'timeframeLonger');
   const a = r.entryChartTimeframe;
@@ -434,7 +446,18 @@ export function recordFields(
       value: LC_DECIDED_TEXT[String(r.lcDecidedBeforeEntry) as 'true' | 'false'],
     });
   }
-  if (r.lc !== undefined) rows.push({ label: 'LC を動かしたか', value: lcMoveText(t) });
+  if (r.lc !== undefined) {
+    rows.push({ label: 'LC を動かしたか', value: lcMoveText(t) });
+    // 逆指値（置いた / 未設定 / 未回答は「—」。LC の価格のある取引だけ。C56・#165）
+    // 取消の取引は「置いた → 取消」の 1 つの値にする（上の行の「取消」と並んで矛盾に見えない。#165 のデザインレビュー 6）
+    rows.push({
+      label: '逆指値',
+      value:
+        r.lcMove.kind === 'cancelled'
+          ? `${STOP_ORDER_TEXT.placed} → ${lcMoveLabel('cancelled')}`
+          : STOP_ORDER_TEXT[r.stopOrderPlaced],
+    });
+  }
   rows.push({ label: '時間足を変えたか', value: timeframeChangeText(t, judgment) });
   if (r.statementPnlYen !== undefined) {
     rows.push({ label: '損益（明細の値）', value: formatMoney(r.statementPnlYen, currency) });

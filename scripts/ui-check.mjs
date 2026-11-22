@@ -10,6 +10,7 @@
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
 // LC の ［なし］ で止めた欄（#171）は手順 LN1（読み取りが終わっても「なし」のまま）・LN2（欄をタップすると外れてフォーカス）。
+// LC を動かしたかの「取消」と逆指値の未設定の切り替え（#165）は手順 LM1（1 タップずつ・判定の 1 行・選べない取消と理由の 1 行・360 の幅。--shots で 2 つの状態を撮る）。
 // 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（タイムゾーンの確認）・読み取りの失敗の状態を同じ幅とテーマで
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
 // バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
@@ -7445,6 +7446,102 @@ async function runFlows(browser, base, signedIn) {
         }
       }
     return `1 画面に収まる: ${out.join(' / ')}`;
+  });
+
+  // LM1（#165・設計書 C56）: 2 段目で「LC を動かしたか」の 4 つ目「取消」と、LC の欄の行の切り替え「逆指値 未設定」を
+  // シートを開かずに 1 タップずつ押せる。390×844: 取消で判定の 1 行が A → B、未設定を押すと取消が外れ（未選択）押された状態。
+  // 360×780: LC の価格の欄の幅 150px 以上・LC の行と画面の横のはみ出し 0・4 択の項目の中の差は 1px 以下・当たり 44px 以上
+  await check('LM1', async () => {
+    const out = [];
+    for (const [w, h] of [
+      [390, 844],
+      [360, 780],
+    ]) {
+      const c = await browser.newContext({
+        viewport: { width: w, height: h },
+        storageState: signedIn,
+        hasTouch: true,
+      });
+      try {
+        await setupContext(c, 'dark');
+        const fake = await installFakeApi(c, {});
+        const p = await c.newPage();
+        await openRecord(p, base);
+        fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+        await closeSheets(p);
+        // イン 100・決済 99・LC 98.5 → −0.67R（架空）
+        await p.locator('#record-lc').fill('98.5');
+        await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
+        await seg(p, 'LC を動かしたか', 'そのまま').click();
+        await seg(p, '時間足を変えたか', 'そのまま').click();
+        const line = async () => (await p.locator('#record-verdict-line').textContent()) ?? '';
+        await expectPollAsync(
+          async () => (await line()).includes('いい損失'),
+          `${w}: そのままで A`,
+        );
+        await seg(p, 'LC を動かしたか', '取消').click();
+        await expectPollAsync(async () => (await line()).includes('悪い損失'), `${w}: 取消で B`);
+        // 次のレビューが撮影だけで見られるよう、取消・未設定の状態を撮る（#165 のデザインレビュー）
+        if (opts.shots)
+          await p.screenshot({ path: join(opts.shots, `${w}x${h}-dark-lm1-cancelled.png`) });
+        const toggle = p.locator('#record-stop-not-placed');
+        await toggle.click();
+        expectEq(await toggle.getAttribute('aria-pressed'), 'true', `${w}: 未設定の押された状態`);
+        const checked = await p
+          .locator('[role="radiogroup"][aria-label="LC を動かしたか"] input:checked')
+          .count();
+        expectEq(checked, 0, `${w}: 未設定で取消が外れる`);
+        // 黙って外さず、4 択の下に理由の 1 行。「取消」は選べない見た目（#165 のデザインレビュー 3）
+        expectEq(
+          ((await p.locator('#record-lc-move-stop-note').textContent()) ?? '').trim(),
+          '逆指値が未設定のため「取消」は選べません',
+          `${w}: 取消を選べない理由`,
+        );
+        expectEq(
+          await p
+            .locator('[role="radiogroup"][aria-label="LC を動かしたか"] .seg__item--off')
+            .count(),
+          1,
+          `${w}: 選べない「取消」`,
+        );
+        if (opts.shots)
+          await p.screenshot({ path: join(opts.shots, `${w}x${h}-dark-lm1-notplaced.png`) });
+        const m = await p.evaluate(() => {
+          const row = document.querySelector('.record__lc .lcrow');
+          const t = document.getElementById('record-stop-not-placed')?.getBoundingClientRect();
+          const items = [
+            ...document.querySelectorAll(
+              '[role="radiogroup"][aria-label="LC を動かしたか"] .seg__item',
+            ),
+          ];
+          return {
+            lcW: Math.round(
+              document.getElementById('record-lc')?.getBoundingClientRect().width ?? 0,
+            ),
+            rowOver: row ? row.scrollWidth - row.clientWidth : -1,
+            pageOverX: document.scrollingElement.scrollWidth - window.innerWidth,
+            toggleH: t ? Math.round(t.height) : 0,
+            toggleW: t ? Math.round(t.width) : 0,
+            itemClip: Math.max(...items.map((e) => e.scrollWidth - e.clientWidth)),
+            itemH: Math.min(...items.map((e) => Math.round(e.getBoundingClientRect().height))),
+            items: items.length,
+          };
+        });
+        expectEq(m.items, 4, `${w}: LC を動かしたかの選択肢の数`);
+        if (m.lcW < 150) throw new Error(`${w}: LC の価格の欄の幅 ${m.lcW}px（150px 以上）`);
+        if (m.rowOver !== 0) throw new Error(`${w}: LC の行のはみ出し ${m.rowOver}px`);
+        if (m.pageOverX > 0) throw new Error(`${w}: 横スクロール ${m.pageOverX}px`);
+        if (m.toggleH < 44) throw new Error(`${w}: 切り替えの高さ ${m.toggleH}px（44px 以上）`);
+        if (m.itemClip > 1) throw new Error(`${w}: 4 択の項目の中のはみ出し ${m.itemClip}px`);
+        if (m.itemH < 44) throw new Error(`${w}: 4 択の項目の高さ ${m.itemH}px`);
+        out.push(`${w}×${h} LC 欄 ${m.lcW}px・切り替え ${m.toggleW}×${m.toggleH}px`);
+      } finally {
+        await c.close();
+      }
+    }
+    return `取消と逆指値の未設定: ${out.join(' / ')}`;
   });
 
   // RD1（#166。ui-guidelines 9.4 の状態 2・9.8「読み取りが終わった」）: 2 段目の明細の行に、読み取りの終わり方ごとの文

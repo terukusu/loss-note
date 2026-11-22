@@ -69,6 +69,7 @@ function genLongTrade(r: Rng, opts: { statement?: boolean } = {}): TradeInput {
     { kind: 'none' } as const,
     { kind: 'tightened' } as const,
     { kind: 'widened' } as const,
+    { kind: 'cancelled' } as const,
     ...(lc === undefined ? [] : [{ kind: 'widened', after: lc - r.int(1, 50) } as const]),
   ]);
   const t: TradeInput = {
@@ -253,6 +254,23 @@ describe('性質', () => {
           assert(grade === (hasC || hasB ? 'riskyWin' : 'safeWin'), `勝ちの判定 ${grade}`);
           assert(!kinds(reasons).includes('heldPastLc'), '勝ちに持ち続けた');
         }
+      },
+    );
+  });
+
+  it('取り消した（C56）: 理由「LC の逆指値を取り消した」が出る ⇔ 取り消した。出れば A・計画どおりの勝ちにならない', () => {
+    forAll(
+      165,
+      N,
+      (r) => genLongTrade(r),
+      (t) => {
+        const ev = evaluateTrade(t);
+        if (!ev.ok || ev.judgment === undefined) return;
+        const { grade, reasons } = ev.judgment;
+        const cancelled = t.lcMove.kind === 'cancelled';
+        const n = kinds(reasons).filter((k) => k === 'lcCancelled').length;
+        assert(n === (cancelled ? 1 : 0), `取り消した ${cancelled} / 理由 ${kinds(reasons)}`);
+        if (cancelled) assert(grade !== 'A' && grade !== 'safeWin', `取り消した の判定 ${grade}`);
       },
     );
   });

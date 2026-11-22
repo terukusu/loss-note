@@ -228,7 +228,20 @@ const FIXED = { type: 'set', field: 'lcMove', value: 'none' } as const;
 
 function build(): { trades: Item[]; accountScenes: AccountScene[] } {
   return {
-    trades: [item('E1', E1, [FIXED]), item('E2', E2, [])],
+    trades: [
+      item('E1', E1, [FIXED]),
+      item('E2', E2, []),
+      // #165 E17（C56）: 取消・逆指値の未設定の取引を開いて何も変えずに保存 → 同じ値
+      item(
+        'cancelled',
+        {
+          ...E1,
+          record: { ...E1.record, lcMove: { kind: 'cancelled' }, stopOrderPlaced: 'placed' },
+        },
+        [],
+      ),
+      item('stopNotPlaced', { ...E2, record: { ...E2.record, stopOrderPlaced: 'notPlaced' } }, []),
+    ],
     accountScenes: [
       // A4: 口座 A で記録 → 口座 A の資金を 500,000 に直した後、口座 B へ付け替え → 2.5%・B（過剰リスク）
       accountScene(
@@ -273,6 +286,15 @@ describe('直す画面の本文の fixture（AC-4・KEEP-1）', () => {
     const json = `${JSON.stringify(built, null, 2)}\n`;
     if (node.env.UPDATE_FIXTURES === '1') fs.writeFileSync(FIXTURE, json);
     expect(JSON.parse(fs.readFileSync(FIXTURE, 'utf8'))).toEqual(built);
+  });
+
+  it('#165 AC-11（E17）: 取消・未設定の取引は、何も変えずに保存すると本文の値が元と同じ', () => {
+    const t = Object.fromEntries(build().trades.map((x) => [x.name, x]));
+    expect(t.cancelled?.body.lcMove).toEqual({ kind: 'cancelled' });
+    expect(t.cancelled?.body.stopOrderPlaced).toBe('placed');
+    expect(t.cancelled?.expect.grade).toBe('B');
+    expect(t.stopNotPlaced?.body.stopOrderPlaced).toBe('notPlaced');
+    expect(t.stopNotPlaced?.body.lcMove).toEqual(t.stopNotPlaced?.original.lcMove);
   });
 
   it('#47 A4・B7: 付け替え = 付け替え先の今の資金で 2.5%・B、付け替えない = 写した資金のまま 0.5%・A', () => {

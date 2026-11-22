@@ -262,4 +262,40 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
       reasons: ['averagingDown'],
     },
   ],
+  // #165・C56: 置いた逆指値を持っている間に外した（取り消した）。B の理由で、持ち続けたは入る前の LC 99.50 と比べる
+  '33': [
+    {
+      // 成行で 99.10: (99.10 − 100.00) ÷ 0.50 = −1.8R
+      input: closedAtR(-1.8, { lcMove: { kind: 'cancelled' } }, { orderType: 'market' }),
+      grade: 'B',
+      reasons: ['lcCancelled', 'heldPastLc'],
+      absent: ['lcWidened'],
+    },
+  ],
+  '34': [
+    {
+      // 手で 99.50: −1.0R（入る前の LC より不利でないので持ち続けたは出ない）
+      input: closedAtR(-1.0, { lcMove: { kind: 'cancelled' } }, { reason: 'brokeManual' }),
+      grade: 'B',
+      reasons: ['lcCancelled'],
+      absent: ['heldPastLc'],
+    },
+  ],
+  '35': [
+    {
+      // TP で 100.40: +0.8R
+      input: closedAtR(0.8, { lcMove: { kind: 'cancelled' } }, { reason: 'tp' }),
+      grade: 'riskyWin',
+      reasons: ['lcCancelled'],
+    },
+  ],
+  '36': [
+    {
+      // 逆指値は未設定（stopOrderPlaced は計算の入力に入らない = 判定は #17 と同じ）。成行で 99.50 −1.0R
+      input: closedAtR(-1.0, {}, { orderType: 'market', reason: 'lc' }),
+      grade: 'A',
+      reasons: ['asPlannedLc'],
+      absent: ['lcCancelled', 'heldPastLc'],
+    },
+  ],
 };

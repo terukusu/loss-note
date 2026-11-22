@@ -207,6 +207,9 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
     expect(text(expand(<TapFields {...props(spread)} />))).not.toContain('LC を動かしたか');
     expect(byId(expand(<LcFields {...props(naked)} />), 'record-lc-maxloss')).toBeUndefined();
     expect(text(expand(<TapFields {...props(naked)} />))).toContain('LC を動かしたか');
+    // #165 AC-9: 「最大損失まで」では逆指値の未設定の切り替えを出さない（LC の価格の形では出す）
+    expect(byId(lc, 'record-stop-not-placed')).toBeUndefined();
+    expect(byId(expand(<LcFields {...props(naked)} />), 'record-stop-not-placed')).toBeDefined();
   });
   it('#171: 「最大損失まで」で止まった LC の欄を押すと「最大損失まで」を外す（トグルを押し直したのと同じ）', () => {
     const got: unknown[] = [];

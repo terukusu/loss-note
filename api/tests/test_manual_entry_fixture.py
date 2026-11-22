@@ -17,7 +17,7 @@ PLACEHOLDER = "INSTRUMENT"
 def test_manual_entry_bodies_are_accepted_as_sent(api):
     fixture = load_fixture("manual-entry.json")
     names = [t["name"] for t in fixture["trades"]]
-    assert names == ["E1", "E2", "E5", "E16", "full", "tightened", "widenedNoAfter"]
+    assert names == ["E1", "E2", "E5", "E16", "full", "tightened", "widenedNoAfter", "cancelled", "stopNotPlaced"]
     for item in fixture["trades"]:
         # 画面は一覧に無い銘柄を名前だけで足す（既定は API が埋める。C21）
         res = api.post("/api/instruments", A, item["instrument"])
@@ -54,6 +54,10 @@ def test_manual_entry_optional_fields_are_in_fixture():
     assert t["tightened"]["lcMove"] == {"kind": "tightened"}
     assert t["tightened"]["timeframeChange"] == "longer"
     assert t["widenedNoAfter"]["lcMove"] == {"kind": "widened"}
+    # #165・C56: 取消（逆指値は置いた）と逆指値の未設定
+    assert t["cancelled"]["lcMove"] == {"kind": "cancelled"}
+    assert t["cancelled"]["stopOrderPlaced"] == "placed"
+    assert t["stopNotPlaced"]["stopOrderPlaced"] == "notPlaced"
 
 
 def test_manual_entry_without_lc_keeps_no_lc(api):

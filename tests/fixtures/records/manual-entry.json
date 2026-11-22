@@ -393,6 +393,116 @@
         "grade": "B",
         "r": -1.5999999999999943
       }
+    },
+    {
+      "name": "cancelled",
+      "instrument": {
+        "name": "架空指数cancelled"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "placed",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "cancelled"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 99.2,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "B",
+        "r": -1.5999999999999943
+      }
+    },
+    {
+      "name": "stopNotPlaced",
+      "instrument": {
+        "name": "架空指数stopNotPlaced"
+      },
+      "settings": {
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "performanceUnit": "R"
+      },
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "side": "L",
+        "lc": 99.5,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "notPlaced",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "price": 100,
+            "quantity": 10000
+          }
+        ],
+        "exit": {
+          "time": 1772586000000,
+          "price": 100,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": [],
+        "instrumentId": "INSTRUMENT"
+      },
+      "snapshot": {
+        "instrument": {
+          "multiplier": 1,
+          "quantityStep": 1,
+          "priceCurrency": null,
+          "underlyingKind": "other",
+          "productForm": "spotCfd"
+        },
+        "capitalYen": null,
+        "riskTolerancePct": 1,
+        "accountCurrency": "JPY"
+      },
+      "expect": {
+        "grade": "safeWin",
+        "r": 0
+      }
     }
   ]
 }

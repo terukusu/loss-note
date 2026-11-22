@@ -59,11 +59,15 @@ export interface Exit {
   readonly fxRate?: number;
 }
 
-/** LC を動かしたか。after = 広げた後の値（C30） */
+/**
+ * LC を動かしたか。after = 広げた後の値（C30）。cancelled = 置いた逆指値を持っている間に外した（取り消した。C56。
+ * 広げた後の値を持たず、持ち続けたの比較先は入る前の LC）
+ */
 export type LcMove =
   | { readonly kind: 'none' }
   | { readonly kind: 'tightened' }
-  | { readonly kind: 'widened'; readonly after?: number };
+  | { readonly kind: 'widened'; readonly after?: number }
+  | { readonly kind: 'cancelled' };
 
 export type TimeframeChange = 'none' | 'longer' | 'shorter';
 

@@ -9,6 +9,7 @@
 // 文字のキーは既定の入力を止めて、その 1 文字を打った値として親へ返す（LC の欄では価格を打つと「なし」は外れる = applyDraft）
 // 決定キー（#172）: onEnter を渡した欄は、止まっていない間の Enter（変換の確定を除く）で既定の送信を止めて呼ぶ。止まった欄の
 // Enter は「外す」（#171）が先（外れた後の Enter が onEnter）。キーの振り分けは純関数 numberFieldKeyOf
+import type { ComponentChildren } from 'preact';
 import { isEnterCommit, isImeKey } from '../lib/keyboard';
 import { FieldLabelText } from './FieldLabelText';
 
@@ -22,6 +23,8 @@ export interface NumberFieldProps {
   readonly error?: string;
   /** 欄の印（明細の読み取りの「読み取り」「直した」など。#15）。ラベルの横に文字で出し、読み上げの説明に入れる */
   readonly mark?: string;
+  /** 欄の名前の横の「i」（言葉の説明の InfoTip。#201）。label の外（名前の段）に置く */
+  readonly info?: ComponentChildren;
   readonly placeholder?: string;
   readonly size?: 'lg';
   readonly disabled?: boolean;
@@ -101,12 +104,15 @@ export function NumberField(p: NumberFieldProps) {
   );
   return (
     <div class={p.error ? 'field field--error' : 'field'}>
-      {p.mark ? (
+      {p.mark || p.info ? (
         <div class="field__head">
           {label}
-          <span id={markId} class="field__mark">
-            {p.mark}
-          </span>
+          {p.info ?? null}
+          {p.mark ? (
+            <span id={markId} class="field__mark">
+              {p.mark}
+            </span>
+          ) : null}
         </div>
       ) : (
         label

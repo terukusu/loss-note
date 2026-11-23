@@ -6948,9 +6948,18 @@ async function runFlows(browser, base, signedIn) {
         .textContent()
         .catch(() => null);
       expectEq(note, 'なし を選んでいます。押すと価格を入れられます', '読み上げの説明');
+      // 押す前の欄の要素を覚え、押した後も同じ要素か（作り直すとフォーカスが外れる。#207）
+      await p.evaluate(() => {
+        window.__ln2Lc = document.querySelector('#record-lc');
+      });
       await p.locator('#record-lc').tap();
       await p.waitForTimeout(150);
       const after = await lcLockState(p);
+      expectEq(
+        await p.evaluate(() => document.querySelector('#record-lc') === window.__ln2Lc),
+        true,
+        '欄をタップした後の LC の欄（同じ要素のまま）',
+      );
       expectEq(after.none, 'false', '欄をタップした後の ［なし］');
       expectEq(after.readOnly, false, '欄をタップした後の LC の欄');
       expectEq(after.focused, true, 'LC の欄のフォーカス');

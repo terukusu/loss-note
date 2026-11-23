@@ -8396,6 +8396,32 @@ async function runFlows(browser, base, signedIn) {
       await close('#record-lc');
       if (!(await shown('#record-resumed'))) throw new Error('閉じた後に書きかけの案内が戻らない');
       out.push('書きかけの案内を隠して戻す');
+      // シートの欄の並びの決定キー（#174。ui-guidelines 10.1）: 取引の欄のシートを Enter だけで 銘柄 → 数量 → イン → 決済 と
+      // 進み、決済の Enter（完了）でフォーカスが外れる。どの Enter でも記録の要求は送らない（PC の形 = 印なしの暗黙の送信も止まる）
+      const active = () => p.evaluate(() => document.activeElement?.id ?? '');
+      const postsBefore = api.posts.length;
+      await openFields(p);
+      await p.locator('#record-instrument').fill('US30');
+      for (const [from, to] of [
+        ['#record-instrument', 'record-quantity'],
+        ['#record-quantity', 'record-entry'],
+        ['#record-entry', 'record-exit'],
+      ]) {
+        await p.locator(from).press('Enter');
+        expectEq(await active(), to, `決定キー: ${from} の次`);
+      }
+      expectEq(
+        await p.locator('#record-exit').getAttribute('enterkeyhint'),
+        'done',
+        '決済の決定キー',
+      );
+      await p.locator('#record-exit').press('Enter');
+      if ((await active()) === 'record-exit')
+        throw new Error('決済の「完了」でフォーカスが外れない');
+      await p.waitForTimeout(300);
+      expectEq(api.posts.length, postsBefore, '取引の欄の決定キーで送った記録の要求');
+      await closeSheets(p);
+      out.push('取引の欄のシートの決定キー（銘柄 → 数量 → イン → 決済 → 完了・送らない）');
       // 編集の画面の ［保存］ の帯
       await p.goto(`${base}/trades/x-e1/edit`);
       await p.locator('#edit-submit').waitFor({ timeout: 15000 });
@@ -8437,6 +8463,20 @@ async function runFlows(browser, base, signedIn) {
       if ((await pos('#settings-account-sheet .setform__actions')) !== 'sticky')
         throw new Error('閉じた後にシートの ［保存］ の帯が下の端に戻らない');
       out.push('シートの ［保存］ の帯を本文の最後へ移して戻す');
+      // 設定の口座のシートの決定キー（#174）: 資金 → 許容リスク、許容リスクの「完了」で外れる。保存は送らない
+      const writesBefore = api.writes.length;
+      await p.locator('#settings-account-capital').press('Enter');
+      expectEq(
+        await p.evaluate(() => document.activeElement?.id ?? ''),
+        'settings-account-risk',
+        '決定キー: 資金の次',
+      );
+      await p.locator('#settings-account-risk').press('Enter');
+      if ((await p.evaluate(() => document.activeElement?.id ?? '')) === 'settings-account-risk')
+        throw new Error('許容リスクの「完了」でフォーカスが外れない');
+      await p.waitForTimeout(300);
+      expectEq(api.writes.length, writesBefore, '口座のシートの決定キーで送った保存の要求');
+      out.push('口座のシートの決定キー（資金 → 許容リスク → 完了・送らない）');
     } finally {
       await c2.close();
     }

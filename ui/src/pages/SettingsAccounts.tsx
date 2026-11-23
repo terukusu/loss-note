@@ -26,8 +26,9 @@ import {
 } from '../lib/accounts';
 import { currencyLockedText, unitOf } from '../lib/currency';
 import { formatDateTime } from '../lib/datetime';
+import { enterChain, enterPropsOf } from '../lib/enter-chain';
 import { formatAmount } from '../lib/format';
-import { commitFocusedEntry } from '../lib/keyboard-reveal';
+import { notePress, takeSubmit } from '../lib/keyboard-reveal';
 import { NavigatorContext } from '../lib/router';
 import {
   ACCOUNT_FIELD_ID,
@@ -205,15 +206,28 @@ function AccountForm(
     ? allowanceText(body.capitalYen, body.riskTolerancePct, body.currency ?? currency)
     : null;
   const history = rec ? historyRows(rec.capitalHistory) : [];
+  // 決定キーの並び（#174。表の例 #7）: 名前 →（通貨。取引のある口座は文字）→ 資金 → 許容リスク（完了。保存は送らない）
+  const chain = enterChain([
+    ACCOUNT_FIELD_ID.name,
+    !locked && ACCOUNT_FIELD_ID.currency,
+    ACCOUNT_FIELD_ID.capital,
+    ACCOUNT_FIELD_ID.risk,
+  ]);
+  const enter = (id: string) => enterPropsOf(chain, id);
   return (
     <form
       class="setform"
       noValidate
       aria-label={rec ? `${rec.name} を編集` : '口座を追加'}
+      onPointerDown={notePress}
+      onPointerUp={notePress}
+      onPointerCancel={notePress}
+      onKeyDown={notePress}
       onSubmit={(ev) => {
         ev.preventDefault();
-        // 送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183。キーボードの間は ［保存］ が本文の最後）
-        commitFocusedEntry(ev.currentTarget);
+        // キーボードの印の間は、本文の最後の ［保存］ を押したときだけ送り、欄の Enter による暗黙の送信では保存しない（記録する・
+        // 編集と同じ守り。#174・ui-guidelines 10.1）。送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183）
+        if (!takeSubmit(ev.currentTarget)) return;
         p.onSaveAccount();
       }}
     >
@@ -225,6 +239,7 @@ function AccountForm(
           value={d.name}
           onInput={(v) => p.onAccount('name', v)}
           placeholder="例: 口座 B"
+          {...enter(ACCOUNT_FIELD_ID.name)}
           {...(e.name ? { error: e.name } : {})}
         />
         {locked ? (
@@ -238,6 +253,7 @@ function AccountForm(
             value={d.currency}
             onInput={(v) => p.onAccount('currency', v)}
             placeholder="例: JPY"
+            {...enter(ACCOUNT_FIELD_ID.currency)}
             hint="英字 3 文字（例: JPY・USD）。取引を記録すると変更できません。"
             {...(e.currency ? { error: e.currency } : {})}
           />
@@ -248,6 +264,7 @@ function AccountForm(
           unit={unitOf(currency)}
           value={d.capital}
           onInput={(v) => p.onAccount('capital', v)}
+          {...enter(ACCOUNT_FIELD_ID.capital)}
           // 書き方の注記は置かない（単位は欄の右・桁は例・誤りは欄の下の文言が言う。#133 デザインレビュー a-2）
           placeholder={currency === 'JPY' ? '例: 1,000,000' : '例: 10,000.00'}
           {...(e.capital ? { error: e.capital } : {})}
@@ -258,6 +275,7 @@ function AccountForm(
           unit="%"
           value={d.risk}
           onInput={(v) => p.onAccount('risk', v)}
+          {...enter(ACCOUNT_FIELD_ID.risk)}
           hint="1 回の取引で、資金の何 % まで負けてよいか。0.5〜3（初期値 1）。"
           {...(e.risk ? { error: e.risk } : {})}
         />

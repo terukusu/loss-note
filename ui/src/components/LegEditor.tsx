@@ -3,6 +3,8 @@
 // 並び: P / C | 買い / 売り → 限月 | 行使価格 → 枚数 | [満期で消滅] → イン | 決済 → [このレッグを削除]（幅 360 でも 2 列 = 1 画面に
 // 収める。#117 のデザインレビュー N1。削除は区切りの下に離して置き、押し間違えても一覧の ［元に戻す］ で戻せる）
 // 満期で消滅は押す形のトグル（LC の「なし」と同じ形。aria-pressed）。決済の時刻は持たない（満期で消えたら SQ の日。C54）
+
+import { enterChain, enterPropsOf } from '../lib/enter-chain';
 import type { LegDraft, LegField } from '../lib/legs-form';
 import { LEG_FIELD_LABEL, toggleExpired, YEAR_INFERRED_HINT } from '../lib/legs-form';
 import '../styles/legs.css';
@@ -36,6 +38,9 @@ export function LegEditor(p: LegEditorProps) {
     (v: LegDraft[K]) =>
       p.onChange({ ...l, [k]: v });
   const err = (f: LegField) => (p.errors?.[f] ? { error: p.errors[f] } : {});
+  // 決定キーの並び（#174。表の例 #5）: 限月 → 行使価格 → 枚数 → イン → 決済（完了）。P / C・買い / 売り・満期で消滅は飛ばす
+  const chain = enterChain([id('month'), id('strike'), id('qty'), id('entry'), id('exit')]);
+  const enter = (f: string) => enterPropsOf(chain, id(f));
   return (
     <div class="legedit">
       <div class="record__pair record__pair--prices">
@@ -69,6 +74,7 @@ export function LegEditor(p: LegEditorProps) {
           onInput={set('contractMonth')}
           placeholder="2027-01"
           inputMode="numeric"
+          {...enter('month')}
           {...(l.read?.yearInferred ? { hint: YEAR_INFERRED_HINT } : {})}
           {...err('contractMonth')}
         />
@@ -77,6 +83,7 @@ export function LegEditor(p: LegEditorProps) {
           label={LEG_FIELD_LABEL.strike}
           value={l.strike}
           onInput={set('strike')}
+          {...enter('strike')}
           {...err('strike')}
         />
       </div>
@@ -87,6 +94,7 @@ export function LegEditor(p: LegEditorProps) {
           value={l.quantity}
           onInput={set('quantity')}
           unit="枚"
+          {...enter('qty')}
           {...err('quantity')}
         />
         <div class="legedit__expired">
@@ -112,6 +120,7 @@ export function LegEditor(p: LegEditorProps) {
           label={LEG_FIELD_LABEL.entryPrice}
           value={l.entryPrice}
           onInput={set('entryPrice')}
+          {...enter('entry')}
           {...err('entryPrice')}
         />
         <NumberField
@@ -119,6 +128,7 @@ export function LegEditor(p: LegEditorProps) {
           label={LEG_FIELD_LABEL.exitPrice}
           value={l.exitPrice}
           onInput={set('exitPrice')}
+          {...enter('exit')}
           {...err('exitPrice')}
         />
       </div>

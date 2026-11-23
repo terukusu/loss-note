@@ -53,17 +53,32 @@ function rng(seed: number) {
   };
 }
 
-/** epoch → その時間帯の壁の時計（「YYYY-MM-DDTHH:MM」。テストの側で Intl から組む） */
+/**
+ * テストの側の Intl.DateTimeFormat（時間帯ごとに 1 つを使い回す）。作るのは formatToParts の 8 倍ほど重く、
+ * 性質のテストでは 1 回ごとに作ると時間の大半がここになり、負荷の高いマシンで 5 秒を超えていた（#196）。
+ * 時間帯を明示しているので端末の時間帯（proc.env.TZ）を替えても結果は変わらない
+ */
+const wallFormats = new Map<string, Intl.DateTimeFormat>();
+function wallFormat(zone: string): Intl.DateTimeFormat {
+  let f = wallFormats.get(zone);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    wallFormats.set(zone, f);
+  }
+  return f;
+}
+
+/** epoch → その時間帯の壁の時計（「YYYY-MM-DDTHH:MM」。テストの側で Intl から組む。製品の formatterOf とは別に持つ） */
 function wallText(ms: number, zone: string): string {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: zone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).formatToParts(new Date(ms));
+  const parts = wallFormat(zone).formatToParts(new Date(ms));
   const g = (t: string) => parts.find((x) => x.type === t)?.value ?? '';
   return `${g('year')}-${g('month')}-${g('day')}T${g('hour')}:${g('minute')}`;
 }

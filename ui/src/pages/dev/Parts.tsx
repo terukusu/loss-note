@@ -162,7 +162,7 @@ export function Parts() {
         </dl>
       </Section>
 
-      <Section title="3 つのタップ（セグメント）" note="矢印キーでも選べます。">
+      <Section title="タップ（セグメント）" note="矢印キーでも選べます。">
         <div class="stack">
           <Segment
             label="LC を入る前に決めていたか"

@@ -79,6 +79,10 @@ export interface Draft {
   readonly lcNone: boolean;
   readonly lcAfter: string;
   readonly brokenCondition: string;
+  /**
+   * LC を入る前に決めていたか。記録する画面では聞かず null（LC の欄から決める = lcDecidedOf。C57・#202）。値が入るのは、編集で
+   * 開いた前からの記録の答え（保存した値）だけ
+   */
   readonly lcDecided: boolean | null;
   readonly lcMove: LcMoveKind | null;
   readonly timeframeChange: TimeframeChange | null;
@@ -118,7 +122,7 @@ export interface Draft {
 
 export type DraftField = keyof Draft;
 
-/** 空の下書き（3 つのタップ・L / S は既定なし。LC の根拠 = チャートの根拠・決済の理由 = その他。C19） */
+/** 空の下書き（決済までの行動のタップ・L / S は既定なし。LC の根拠 = チャートの根拠・決済の理由 = その他。C19） */
 export const EMPTY_DRAFT: Draft = {
   instrumentName: '',
   side: null,
@@ -371,7 +375,6 @@ export const MISSING_LABEL = {
   quantity: '数量',
   exitTime: '決済の時刻',
   lc: 'LC（価格か「なし」）',
-  lcDecided: 'LC を入る前に決めていたか',
   lcMove: 'LC を動かしたか',
   timeframeChange: '時間足を変えたか',
 } as const;
@@ -605,6 +608,16 @@ export function snapshotOf(
 
 const PREVIEW_ID = 'preview';
 
+/**
+ * 保存する「LC を入る前に決めていたか」（C57・#202）: 「LC なし」なら決めていなかった。価格・「最大損失まで」は、下書きに答えが
+ * 無ければ決めていた（欄の名前が「入る前に決めた LC」。エントリー後に決めたなら「LC なし」を選ぶ）。答えがあれば（編集で開いた前からの
+ * 記録）その答え
+ */
+export function lcDecidedOf(draft: Pick<Draft, 'lcNone' | 'lcDecided'>): boolean {
+  if (draft.lcNone) return false;
+  return draft.lcDecided ?? true;
+}
+
 export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   const errors: Partial<Record<DraftField, string>> = {};
   const missing: string[] = [];
@@ -774,11 +787,10 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     errors.brokenCondition = MSG.brokenConditionInvalid;
   }
 
-  // 3 つのタップ（「なし」のときは決めていたか・動かしたかを聞かない。「最大損失まで」は動かしたかを聞かない。5.7 の 5・#114 の 1）
-  if (!lcNone) {
-    if (draft.lcDecided === null) missing.push(MISSING_LABEL.lcDecided);
-    if (draft.lcMove === null && !maxLossOn) missing.push(MISSING_LABEL.lcMove);
-  }
+  // 決済までの行動のタップ（「なし」と「最大損失まで」は動かしたかを聞かない。5.7 の 5・#114 の 1）。
+  // LC を入る前に決めていたかは聞かず、LC の欄から決める（価格・最大損失まで = 決めていた、なし = 決めていなかった。C57・#202）。
+  // 下書きに答えがあるのは、編集で開いた前からの「価格あり・決めていなかった」の取引だけ（edit-form の asksLcDecided）
+  if (!lcNone && !maxLossOn && draft.lcMove === null) missing.push(MISSING_LABEL.lcMove);
   if (draft.timeframeChange === null) missing.push(MISSING_LABEL.timeframeChange);
 
   // 広げた後の LC（任意。「広げた」のときだけ）
@@ -956,7 +968,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     const complete = missing.length === 0;
     if (complete) {
       const taps = {
-        lcDecided: draft.lcDecided ?? false,
+        lcDecided: lcDecidedOf(draft),
         lcMove: draft.lcMove ?? 'none',
         timeframeChange: draft.timeframeChange ?? 'none',
       };

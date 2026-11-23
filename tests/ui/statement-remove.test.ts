@@ -42,7 +42,6 @@ const MARKS: Marks = {
   entryTime: 'read',
   pnlYen: 'read',
   feeYen: 'read',
-  lcDecided: 'statement',
   exitReason: 'statement',
   accountId: 'auto',
 };
@@ -61,7 +60,6 @@ describe('stripStatement（R1・R2。例 #1・#8・#10）', () => {
     const d = stripStatement(A, MARKS);
     for (const f of READ_FIELDS) expect(d[f], f).toEqual(EMPTY_DRAFT[f]);
     expect(d).toMatchObject({
-      lcDecided: null,
       exitReason: 'other',
       exitOrderType: 'unknown',
       stopOrderPlaced: 'unanswered',
@@ -77,9 +75,8 @@ describe('stripStatement（R1・R2。例 #1・#8・#10）', () => {
   });
 
   it('本人が選んだ答え（印が「明細から」でない）は残す', () => {
-    const { lcDecided: _l, exitReason: _e, ...mine } = MARKS;
+    const { exitReason: _e, ...mine } = MARKS;
     const d = stripStatement(A, mine);
-    expect(d.lcDecided).toBe(true);
     expect(d.exitReason).toBe('lc');
   });
 
@@ -139,15 +136,15 @@ describe('restoreStatement（R4・R6。例 #2）', () => {
 
   it('削除の後に本人が選んだ答え・口座は戻さない', () => {
     const stripped = stripStatement(A, MARKS, 'default');
-    const now = { ...stripped, lcDecided: false, exitReason: 'other' as const };
+    const now = { ...stripped, exitReason: 'other' as const };
     const back = restoreStatement(
       now,
       A,
       stripped,
       MARKS,
-      new Set(['lcDecided', 'exitReason', 'accountId'] as const),
+      new Set(['exitReason', 'accountId'] as const),
     );
-    expect(back).toMatchObject({ lcDecided: false, exitReason: 'other', accountId: 'default' });
+    expect(back).toMatchObject({ exitReason: 'other', accountId: 'default' });
     expect(back.exitPrice).toBe('99.0');
   });
 

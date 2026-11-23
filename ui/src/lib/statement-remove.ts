@@ -1,7 +1,7 @@
 // 読み取った明細の削除と、削除の前への戻し（Issue 184。設計書 7.5）の純関数。DOM・通信なし。
 // - 削除（stripStatement）: 明細から来たもの（読み取りの欄 9 つ。読み取りの後に本人が書き換えた値も・明細から読んだレッグ・
-//   明細が既定で入れた答え（印「明細から」の LC を入る前に決めていた・決済の理由、注文の種類・逆指値を入れた）・明細から自動で
-//   選んだ口座）を取り除き、入力元を手入力に戻す。本人の計画（LC・崩れの条件の一言・3 つのタップ・広げた後の LC・チャートの時間足）・
+//   明細が既定で入れた答え（印「明細から」の決済の理由、注文の種類・逆指値を入れた）・明細から自動で
+//   選んだ口座）を取り除き、入力元を手入力に戻す。本人の計画（LC・崩れの条件の一言・決済までの行動のタップ・広げた後の LC・チャートの時間足）・
 //   ほかの任意の欄・手で足したレッグは残す（R1・R2）。読み取りの欄でも、明細が入れなかった欄（印が無い = オプションの行の原資産の
 //   L / S・イン・決済・数量。明細に原資産の価格は写らないので本人が入れた値。設計書 13.2）は本人の値として残す
 // - 戻す（restoreStatement）: 削除の直前の明細から来た値を、今の下書きに戻す（R4。読み直しの失敗・キャンセルで前の明細へ戻す R6 も
@@ -26,7 +26,6 @@ export function stripStatement(draft: Draft, marks: Marks, accountFrom?: string)
   return {
     ...(out as unknown as Draft),
     legs: draft.legs.filter((l) => !fromStatement(l)),
-    ...(marks.lcDecided === 'statement' ? { lcDecided: EMPTY_DRAFT.lcDecided } : {}),
     ...(marks.exitReason === 'statement' ? { exitReason: EMPTY_DRAFT.exitReason } : {}),
     exitOrderType: EMPTY_DRAFT.exitOrderType,
     stopOrderPlaced: EMPTY_DRAFT.stopOrderPlaced,
@@ -36,7 +35,7 @@ export function stripStatement(draft: Draft, marks: Marks, accountFrom?: string)
 }
 
 /** 削除の後に本人が選び直したら戻さない欄（「明細から」の答えと自動で選んだ口座） */
-export type KeptAnswer = 'lcDecided' | 'exitReason' | 'accountId';
+export type KeptAnswer = 'exitReason' | 'accountId';
 
 /**
  * 削除の直前（before）の明細から来た値を、今の下書き（current）に戻す。stripped は before を取り除いた直後の下書き、marks は
@@ -57,7 +56,6 @@ export function restoreStatement(
   return {
     ...(out as unknown as Draft),
     legs: [...before.legs.filter(fromStatement), ...current.legs.filter((l) => !fromStatement(l))],
-    ...back('lcDecided', marks.lcDecided === 'statement'),
     ...back('exitReason', marks.exitReason === 'statement'),
     ...back('accountId', before.accountId !== stripped.accountId),
     exitOrderType: before.exitOrderType,

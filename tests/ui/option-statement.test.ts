@@ -308,8 +308,8 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
       optionRowJson({ ...OPT_A2, order: 'stop' }),
     ]);
     let s = c.getState();
-    expect(s.draft).toMatchObject({ lcDecided: true, exitReason: 'lc', stopOrderPlaced: 'placed' });
-    expect(s.statement?.marks).toMatchObject({ lcDecided: 'statement', exitReason: 'statement' });
+    expect(s.draft).toMatchObject({ lcDecided: null, exitReason: 'lc', stopOrderPlaced: 'placed' });
+    expect(s.statement?.marks).toMatchObject({ exitReason: 'statement' });
     c.splitLeg(1);
     s = c.getState();
     expect(s.draft).toMatchObject({
@@ -322,14 +322,14 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(s.statement?.marks.exitReason).toBeUndefined();
     c.mergeNextPosition();
     s = c.getState();
-    expect(s.draft).toMatchObject({ lcDecided: true, exitReason: 'lc', stopOrderPlaced: 'placed' });
-    expect(s.statement?.marks).toMatchObject({ lcDecided: 'statement', exitReason: 'statement' });
-    // 本人が「決めていなかった」を選んだ後に分けても残す
-    c.update({ type: 'set', field: 'lcDecided', value: false });
+    expect(s.draft).toMatchObject({ lcDecided: null, exitReason: 'lc', stopOrderPlaced: 'placed' });
+    expect(s.statement?.marks).toMatchObject({ exitReason: 'statement' });
+    // 本人が選んだ決済の理由は、分けても残す
+    c.update({ type: 'set', field: 'exitReason', value: 'fearEarly' });
     c.splitLeg(1);
-    expect(c.getState().draft.lcDecided).toBe(false);
+    expect(c.getState().draft.exitReason).toBe('fearEarly');
     // 「明細から」の印は触ったときに外れる（markEdited）
-    expect(c.getState().statement?.marks.lcDecided).toBeUndefined();
+    expect(c.getState().statement?.marks.exitReason).toBeUndefined();
   });
 
   it('レビュー 3: 損益の欄を本人が直したら、手で足したレッグの損益を足さない', async () => {

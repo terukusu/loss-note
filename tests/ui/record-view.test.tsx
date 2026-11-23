@@ -313,17 +313,17 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     expect(v).not.toContain('イン・決済・LC で出ます');
   });
 
-  it('開いた直後（例 1・AC-2）: 帯は「あと 7 欄」だけ。7 つの欄の名前は判定の枠の案内にあり、[記録する] の説明に結ぶ', () => {
+  it('開いた直後（例 1・AC-2）: 帯は「あと 6 欄」だけ。6 つの欄の名前は判定の枠の案内にあり、[記録する] の説明に結ぶ', () => {
     const tree = view(stateFor(draft({}), NO_CAPITAL));
-    expect(text(statusOf(tree))).toBe('あと 7 欄');
+    expect(text(statusOf(tree))).toBe('あと 6 欄');
     const hint = text(hintOf(tree));
     for (const name of [
       'L / S',
       'イン',
       '決済',
       'LC（価格か「なし」）',
-      // 3 つの質問は 1 つにまとめる（#74 デザインレビュー 4）
-      '決済までの行動の 3 つ',
+      // 2 つの質問は 1 つにまとめる（#74 デザインレビュー 4・#202）
+      '決済までの行動の 2 つ',
     ]) {
       expect(hint).toContain(name);
       // 帯には名前を出さない
@@ -334,11 +334,11 @@ describe('未入力の欄と [記録する]（AC-2）', () => {
     expect(count(text(verdictOf(tree)), '判定が表示されます')).toBe(1);
   });
 
-  it('決済に誤り 1 つ（例 3）: 帯は「誤り 1 欄・あと 6 欄」、案内に「決済」', () => {
+  it('決済に誤り 1 つ（例 3）: 帯は「誤り 1 欄・あと 5 欄」、案内に「決済」', () => {
     const tree = view(
       stateFor(applyDraft(draft({}), { type: 'set', field: 'exitPrice', value: 'x' }), NO_CAPITAL),
     );
-    expect(text(statusOf(tree))).toBe('誤り 1 欄・あと 6 欄');
+    expect(text(statusOf(tree))).toBe('誤り 1 欄・あと 5 欄');
     expect(text(hintOf(tree))).toContain('誤りのある欄（決済）');
     expect(submit(tree).props['aria-describedby']).toBe('record-verdict-hint');
   });
@@ -613,7 +613,7 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
         (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
       ),
     ).toEqual([]);
-    expect(text(tree)).toContain('LC が無いため、「決めていない」「そのまま」として記録します。');
+    expect(text(tree)).toContain('LC が無いため、LC を動かしたかは「そのまま」として記録します。');
   });
 
   it('KEEP-5: 時間足を変えたかの選択肢は今のまま（そのまま / 長い足へ / 短い足へ。#74 で「変えず」→「そのまま」）', () => {
@@ -1876,7 +1876,7 @@ describe('密度と階層（Issue #33）', () => {
         hasClass('seg__item')(e) &&
         all([e], (x) => x.type === 'input' && x.props.checked === true).length === 1,
     );
-    expect(picked.length).toBeGreaterThanOrEqual(4);
+    expect(picked.length).toBeGreaterThanOrEqual(3);
     for (const item of picked) {
       const kids = item.children.filter((n): n is El => typeof n !== 'string');
       const mark = kids.findIndex((k) => cls(k).split(' ').includes('seg__check'));
@@ -2418,14 +2418,37 @@ describe('言葉の説明の「i」（#57）', () => {
   const infoButtons = (t: Node[]) => all(t, (e) => e.type === 'button' && hasClass('info')(e));
   const names = (t: Node[]) => infoButtons(t).map((e) => String(e.props['aria-label']));
 
-  it('AC-1: 3 つのタップに「〈問い〉の説明」のボタンが 1 つずつ。radiogroup の外（KEEP-4）', () => {
+  it('AC-1: 2 つのタップに「〈問い〉の説明」のボタンが 1 つずつ。radiogroup の外（KEEP-4）。LC を入る前に決めていたかは聞かない（#202）', () => {
     const t = view(stateFor(E1, CAPITAL_1M));
-    for (const q of ['LC を入る前に決めていたか', 'LC を動かしたか', '時間足を変えたか']) {
+    for (const q of ['LC を動かしたか', '時間足を変えたか']) {
       expect(names(t).filter((n) => n === `「${q}」の説明`)).toHaveLength(1);
     }
+    expect(names(t)).not.toContain('「LC を入る前に決めていたか」の説明');
     const groups = all(t, (e) => e.props.role === 'radiogroup');
-    expect(groups.length).toBeGreaterThanOrEqual(3);
+    expect(groups.length).toBeGreaterThanOrEqual(2);
     for (const g of groups) expect(infoButtons([g])).toEqual([]);
+  });
+
+  it('#202 AC-1: 価格・LC なしのどちらでも「LC を入る前に決めていたか」の問いは無く、LC の行の下に添えが 1 つ（価格 = 後付けを入れさせない言い方・LC なし = 押した結果）', () => {
+    for (const [d, note] of [
+      [E1, 'エントリー後に決めた価格は入れず「LC なし」へ'],
+      [E16, 'LC を決めずに入った取引として記録します'],
+    ] as const) {
+      const t = view(stateFor(d, CAPITAL_1M));
+      expect(all(t, (e) => e.props['aria-label'] === 'LC を入る前に決めていたか')).toEqual([]);
+      expect(text(t)).not.toContain('LC を入る前に決めていたか');
+      const late = all(t, (e) => e.props.id === 'record-lc-late');
+      expect(late).toHaveLength(1);
+      expect(text(late[0] as El)).toBe(note);
+      // 押す先のボタンの名前は太字（色だけに頼らない）
+      if (d === E1)
+        expect(all([late[0] as El], (e) => e.type === 'strong').map((e) => text(e))).toEqual([
+          '「LC なし」',
+        ]);
+      // 読み上げ: LC の価格の欄の説明に結ぶ
+      const lc = all(t, (e) => e.props.id === 'record-lc')[0] as El;
+      expect(String(lc.props['aria-describedby'])).toContain('record-lc-late');
+    }
   });
 
   it('AC-2: 判定が出ている状態で「判定」「R」「LC の物差し」の「i」が判定の枠にある', () => {
@@ -2466,10 +2489,9 @@ describe('言葉の説明の「i」（#57）', () => {
       }),
     ];
     const buttons = infoButtons(t);
-    // 3 つのタップ・明細の補足・判定の枠の見出し・R（判定を待つ間も言葉の説明は読める）
+    // 決済までの行動のタップ・明細の補足・判定の枠の見出し・R（判定を待つ間も言葉の説明は読める）
     expect(names(t)).toEqual(
       expect.arrayContaining([
-        '「LC を入る前に決めていたか」の説明',
         '「LC を動かしたか」の説明',
         '「時間足を変えたか」の説明',
         '「明細の送り方」の説明',

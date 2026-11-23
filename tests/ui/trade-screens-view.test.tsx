@@ -33,6 +33,7 @@ import {
   L1,
   L2,
   L3,
+  stored,
   US30,
 } from './helpers/trade-examples';
 
@@ -745,21 +746,47 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     );
   });
 
-  it('#57 AC-1・AC-2: 直す画面の 3 つのタップと判定の枠（判定・R・LC の物差し）に「i」', async () => {
+  it('#57 AC-1・AC-2: 直す画面のタップと判定の枠（判定・R・LC の物差し）に「i」。価格あり・決めていた の取引は決めていたかを聞かない（#202 AC-6）', async () => {
     const tree = await editTree(E1);
     const names = all(tree, (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
       String(e.props['aria-label']),
     );
-    for (const q of [
-      'LC を入る前に決めていたか',
-      'LC を動かしたか',
-      '時間足を変えたか',
-      '判定',
-      'R',
-      'LC の物差し',
-    ]) {
+    expect(names).not.toContain('「LC を入る前に決めていたか」の説明');
+    expect(all(tree, (e) => e.props['aria-label'] === 'LC を入る前に決めていたか')).toEqual([]);
+    for (const q of ['LC を動かしたか', '時間足を変えたか', '判定', 'R', 'LC の物差し']) {
       expect(names.filter((n) => n === `「${q}」の説明`)).toHaveLength(1);
     }
+  });
+
+  it('#202 AC-5: 前からの「価格あり・決めていなかった」の取引だけ問いを出し、「決めていない」が選ばれている。LC なしの取引は出さない', async () => {
+    const late = stored('late', {
+      lcDecidedBeforeEntry: false,
+      exit: { ...E1.record.exit, price: 100.75 },
+      lcMove: { kind: 'none' },
+      statementPnlYen: 7_500,
+    });
+    const tree = await editTree(late);
+    const group = all(
+      tree,
+      (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を入る前に決めていたか',
+    );
+    expect(group).toHaveLength(1);
+    const checked = all(group, (e) => e.type === 'input' && e.props.checked === true);
+    expect(checked.map((e) => e.props.value)).toEqual(['no']);
+    // 添えは出さず、問いの下に理由の 1 行（添えと問いが食い違わない。#202 のデザインレビュー 2）
+    expect(all(tree, (e) => e.props.id === 'record-lc-late')).toEqual([]);
+    expect(text(all(tree, (e) => e.props.id === 'record-lc-decided-hint')[0] as El)).toBe(
+      '後から書いた LC として保存した記録です',
+    );
+    expect(String(group[0]?.props['aria-describedby'])).toContain('record-lc-decided-hint');
+    const none = await editTree(L3);
+    expect(
+      all(
+        none,
+        (e) =>
+          e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を入る前に決めていたか',
+      ),
+    ).toEqual([]);
   });
 
   it('#165 AC-9: 直す画面も LC の価格のときは「逆指値 未設定」と 4 択の「取消」を出し、LC なしでは両方出さない', async () => {

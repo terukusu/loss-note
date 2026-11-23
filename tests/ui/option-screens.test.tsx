@@ -211,6 +211,29 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
     expect(byId(lc, 'record-stop-not-placed')).toBeUndefined();
     expect(byId(expand(<LcFields {...props(naked)} />), 'record-stop-not-placed')).toBeDefined();
   });
+  it('#202 例 #5・AC-1・AC-2: 「最大損失まで」は LC を入る前に決めていたかを聞かず、本文は決めていた（true）。前からの記録の編集だけ聞く', () => {
+    const fresh: Draft = { ...spread, lcDecided: null };
+    const taps = text(expand(<TapFields {...props(fresh)} />));
+    expect(taps).not.toContain('LC を入る前に決めていたか');
+    const body = readDraft(fresh, ctx).body;
+    expect(body?.lcDecidedBeforeEntry).toBe(true);
+    expect(body?.riskPlan).toBe('maxLoss');
+    const lc = expand(<LcFields {...props(fresh)} />);
+    expect(text(lc)).not.toContain('LC を入る前に決めていたか');
+    expect(text(byId(lc, 'record-lc-late') as El)).toBe(
+      'エントリー後に決めた価格は入れず「LC なし」へ',
+    );
+    // 前からの記録の編集（askLcDecided）: 添えの代わりに LC の行の下で問い、理由の 1 行を添える
+    const asked = expand(<LcFields {...props(fresh)} askLcDecided />);
+    expect(text(asked)).toContain('LC を入る前に決めていたか');
+    expect(byId(asked, 'record-lc-late')).toBeUndefined();
+    expect(text(byId(asked, 'record-lc-decided-hint') as El)).toBe(
+      '後から書いた LC として保存した記録です',
+    );
+    expect(text(expand(<TapFields {...props(fresh)} askLcDecided />))).not.toContain(
+      'LC を入る前に決めていたか',
+    );
+  });
   it('#171: 「最大損失まで」で止まった LC の欄を押すと「最大損失まで」を外す（トグルを押し直したのと同じ）', () => {
     const got: unknown[] = [];
     const tree = expand(<LcFields {...props(spread)} onUpdate={(a) => got.push(a)} />);

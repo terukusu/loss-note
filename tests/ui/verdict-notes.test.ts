@@ -13,15 +13,14 @@ import {
 } from '../../ui/src/lib/verdict-notes';
 import { CAPITAL_1M, draft, E1, E3, E10, E11, E16, NO_CAPITAL } from './helpers/record-drafts';
 
-/** 開いた直後（銘柄・数量・決済の時刻は前の取引と今から入っている。未入力の欄は 7 つ） */
+/** 開いた直後（銘柄・数量・決済の時刻は前の取引と今から入っている。未入力の欄は 6 つ。LC を入る前に決めていたかは聞かない = #202） */
 const OPENED = draft({});
 const OPENED_READ = readDraft(OPENED, NO_CAPITAL);
-const SEVEN = [
+const SIX = [
   'L / S',
   'イン',
   '決済',
   'LC（価格か「なし」）',
-  'LC を入る前に決めていたか',
   'LC を動かしたか',
   '時間足を変えたか',
 ];
@@ -35,18 +34,18 @@ function errorLabelsOf(errors: Readonly<Partial<Record<keyof typeof FIELD_LABEL,
 }
 
 describe('submitStatus: 帯の 1 行の文（AC-1・AC-2・例 1・2・3）', () => {
-  it('開いた直後は「あと 7 欄」（名前は並べない）', () => {
-    expect(OPENED_READ.missing).toEqual(SEVEN);
-    expect(submitStatus(OPENED_READ, [])).toBe('あと 7 欄');
+  it('開いた直後は「あと 6 欄」（名前は並べない）', () => {
+    expect(OPENED_READ.missing).toEqual(SIX);
+    expect(submitStatus(OPENED_READ, [])).toBe('あと 6 欄');
   });
 
-  it('決済の欄に誤り 1 つ → 「誤り 1 欄・あと 6 欄」。未入力の欄が無ければ「誤り 1 欄」', () => {
+  it('決済の欄に誤り 1 つ → 「誤り 1 欄・あと 5 欄」。未入力の欄が無ければ「誤り 1 欄」', () => {
     const r = readDraft(
       applyDraft(OPENED, { type: 'set', field: 'exitPrice', value: 'x' }),
       NO_CAPITAL,
     );
     expect(errorLabelsOf(r.errors)).toEqual(['決済']);
-    expect(submitStatus(r, errorLabelsOf(r.errors))).toBe('誤り 1 欄・あと 6 欄');
+    expect(submitStatus(r, errorLabelsOf(r.errors))).toBe('誤り 1 欄・あと 5 欄');
     const full = readDraft(
       applyDraft(E1, { type: 'set', field: 'exitPrice', value: 'x' }),
       NO_CAPITAL,
@@ -77,27 +76,27 @@ describe('submitStatus: 帯の 1 行の文（AC-1・AC-2・例 1・2・3）', ()
 });
 
 describe('blockReason: [記録する] が押せない理由の文（AC-2）', () => {
-  it('開いた直後: 7 つの欄の名前をすべて含む 1 文', () => {
+  it('開いた直後: 6 つの欄の名前をすべて含む 1 文', () => {
     const t = blockReason(OPENED_READ, []);
     expect(t).not.toBeNull();
-    // 3 つの質問はすべて未入力なら「決済までの行動の 3 つ」の 1 つにまとめる（#74 デザインレビュー 4）
+    // 2 つの質問がどちらも未入力なら「決済までの行動の 2 つ」の 1 つにまとめる（#74 デザインレビュー 4・#202 例 #11）
     expect(t).toBe(
-      'あと 7 欄で判定が表示されます（L / S・イン・決済・LC（価格か「なし」）・決済までの行動の 3 つ）。',
+      'あと 6 欄で判定が表示されます（L / S・イン・決済・LC（価格か「なし」）・決済までの行動の 2 つ）。',
     );
   });
 
-  it('missingNames: 3 つの質問の一部だけが未入力なら、名前をそのまま並べる', () => {
-    expect(missingNames(SEVEN)).toEqual([
+  it('missingNames: 2 つの質問の一方だけが未入力なら、名前をそのまま並べる', () => {
+    expect(missingNames(SIX)).toEqual([
       'L / S',
       'イン',
       '決済',
       'LC（価格か「なし」）',
-      '決済までの行動の 3 つ',
+      '決済までの行動の 2 つ',
     ]);
+    expect(missingNames(['イン', '時間足を変えたか'])).toEqual(['イン', '時間足を変えたか']);
     expect(missingNames(['イン', 'LC を動かしたか', '時間足を変えたか'])).toEqual([
       'イン',
-      'LC を動かしたか',
-      '時間足を変えたか',
+      '決済までの行動の 2 つ',
     ]);
   });
 
@@ -196,7 +195,7 @@ describe('verdictNotes: 判定の枠の注記・脇の 1 行・理由（AC-8・�
 });
 
 describe('isTapAction: 判定の枠を見える範囲へ寄せる操作（AC-3）', () => {
-  it('3 つのタップと LC の「なし」だけ', () => {
+  it('決済までの行動のタップ（編集の前からの記録の LC を入る前に決めていたかも）と LC の「なし」だけ', () => {
     expect(isTapAction({ type: 'set', field: 'lcDecided', value: true })).toBe(true);
     expect(isTapAction({ type: 'set', field: 'lcMove', value: 'none' })).toBe(true);
     expect(isTapAction({ type: 'set', field: 'timeframeChange', value: 'none' })).toBe(true);

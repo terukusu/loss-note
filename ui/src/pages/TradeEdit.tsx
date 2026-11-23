@@ -1,6 +1,6 @@
 // 取引を編集（Issue #9 契約 U-3。設計書 C36・4 章の冒頭・7.5・9.2。#131 で記録する画面と同じ全画面のシートの形にした）:
 // 上の帯は左上の ✕（キャンセル）と題「取引を編集」。中身は記録する画面（#130）と同じ部品（components/RecordParts.tsx）で、
-// 要約 + ［編集］（取引の欄のシート。段 2 = ほかの欄）・チャートの小さな 2 枠（チャートのシート）・LC・一言・3 つのタップ、
+// 要約 + ［編集］（取引の欄のシート。段 2 = ほかの欄）・チャートの小さな 2 枠（チャートのシート）・LC・一言・決済までの行動のタップ、
 // 下の帯に判定の 1 行（押すと判定のシート）と ［保存］。記録したときの値と今の値（#31）は 1 行「今の値と比べる」→ 比較のシート
 // （2 択「計算に使う値」）。詳細の比較のシートの ［編集で今の値にする］ から来たとき（?values=current）は、読み込んだ後に
 // 「今の値」を選ぶ（保存までは写し直さない）。
@@ -54,7 +54,7 @@ import { editDraftImages, editDraftLabel, editDraftStatus, resumedNote } from '.
 import { editKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
 import { createEditController, type EditController, type EditState } from '../lib/edit-controller';
-import { bandText, changeText } from '../lib/edit-form';
+import { asksLcDecided, bandText, changeText } from '../lib/edit-form';
 import { EDIT_SHEET_ID, type EditSheet, editValuesNote, editVerdictLine } from '../lib/edit-screen';
 import { type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
@@ -355,7 +355,7 @@ export function orphanNotice(state: Pick<EditState, 'orphans'>): string | null {
 
 /**
  * 編集の全画面のシート（hook を持たない）: 上の帯（左上の ✕ = キャンセル・題「取引を編集」）と、要約・チャート・LC・
- * 3 つのタップ・下の帯（判定の 1 行・[保存]）。✕ は保存中は押せない（#75 R4）。置き場の無いテストの描画では詳細へのリンク
+ * 決済までの行動のタップ（前からの「価格あり・決めていなかった」の取引だけ LC を入る前に決めていたかも。#202）・下の帯（判定の 1 行・[保存]）。✕ は保存中は押せない（#75 R4）。置き場の無いテストの描画では詳細へのリンク
  */
 export function TradeEditView(p: TradeEditViewProps) {
   const saving = p.state.phase === 'saving' || p.state.phase === 'saved';
@@ -450,6 +450,8 @@ function TradeEditBody(p: TradeEditViewProps) {
     instruments: state.instruments,
     marks: {},
     onUpdate: p.onUpdate,
+    // 前からの「価格あり・決めていなかった」の取引だけ、LC を入る前に決めていたかを聞く（C57・#202）
+    ...(state.trade && asksLcDecided(state.trade.record) ? { askLcDecided: true } : {}),
     ...(currency ? { currency } : {}),
     ...(read.option
       ? {

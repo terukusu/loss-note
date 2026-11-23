@@ -2,7 +2,7 @@
 // DOM・通信・今の時刻・保存先に触れない（時刻の欄の文字は端末の時間帯で datetime-local に写す。datetime.ts と同じ）。
 // - 応答の形は画面の側でも確かめる（parseReadResponse。行は 13 の鍵だけを写し、型違い・範囲の外の欄は null）
 // - 読み取りの欄 9 つに値を入れ「読み取り」の印。null は空にして「読み取れませんでした」（開いたときの既定を残さない）
-// - 貼った後に利用者が触った欄は上書きしない。LC・一言・3 つのタップ（逆指値の既定を除く）・LC の根拠には触れない
+// - 貼った後に利用者が触った欄は上書きしない。LC・一言・決済までの行動のタップ・LC の根拠には触れない（逆指値なら決済の理由 = LC を既定で選ぶ）
 // - 時間帯が明細に無い時刻は、書かれた時刻を入れて「時間帯が明細にありません」。時間帯を選ぶ（statement-tz.ts）か
 //   欄を直すまで保存しない
 // - 損益・手数料は、読んだ通貨が口座の通貨と同じとき（口座が JPY なら通貨が読めなかったときも）だけ入れる（#66・R6。
@@ -320,11 +320,8 @@ export function fillFromRow(
     marks[f] = read[f].mark;
   }
   const stop = row.exitOrderType === 'stop';
+  // 逆指値なら決済の理由 = LC（印「明細から」）。LC を入る前に決めていたかは聞かず LC の欄から決めるので既定を置かない（C57・#202）
   if (stop) {
-    if (!touched.has('lcDecided') && !draft.lcNone) {
-      values.lcDecided = true;
-      marks.lcDecided = 'statement';
-    }
     if (!touched.has('exitReason')) {
       values.exitReason = 'lc';
       marks.exitReason = 'statement';

@@ -153,6 +153,28 @@ describe('reviewByEmotion: 例 E1・E2（手計算）', () => {
   });
 });
 
+/** 葉を Object.is で比べる厳しい等しさ（鍵の数・名前も同じ）。これが等しければ toEqual も等しい */
+function strictlySame(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  if (ka.length !== Object.keys(b).length) return false;
+  const ra = a as Record<string, unknown>;
+  const rb = b as Record<string, unknown>;
+  return ka.every((k) => Object.hasOwn(rb, k) && strictlySame(ra[k], rb[k]));
+}
+
+/**
+ * toEqual と同じ判定を速く（#199）。性質テストは入力が数百あり、行ごとの expect と toEqual の深い比べが時間の大半だった。
+ * 厳しい等しさで等しければそこで終え、違えば toEqual に任せる（undefined の欄の有無だけの違いは toEqual が等しいとし、
+ * 本当の違いは toEqual が差分つきで落とす）。どちらの道でも判定は toEqual と同じ
+ */
+function expectSame(actual: unknown, expected: unknown): void {
+  if (strictlySame(actual, expected)) return;
+  expect(actual).toEqual(expected);
+}
+
 /** 種つきの乱数の取引（判定・R・取り込み・0〜4 個のタグ） */
 function randomItems(r: Rng, maxTags = 4): ReviewItem[] {
   const n = r.int(0, 40);
@@ -180,21 +202,46 @@ describe('reviewByEmotion: 性質', () => {
         const v = reviewByEmotion(items, { includeImports: include });
         const target = include ? items : items.filter((i) => !i.imported);
         const sum = v.rows.reduce((s, r) => s + r.review.total, 0);
-        expect(v.total).toBe(target.length);
-        expect(v.tagged).toBe(target.filter((i) => (i.emotions?.length ?? 0) > 0).length);
-        expect(v.tagged).toBeLessThanOrEqual(v.total);
-        expect(sum).toBeGreaterThanOrEqual(v.tagged);
-        // 行の件数の和 = Σ 取引ごとのタグの数
-        expect(sum).toBe(target.reduce((s, i) => s + (i.emotions?.length ?? 0), 0));
-        expect(v.overlap).toBe(target.some((i) => (i.emotions?.length ?? 0) > 1));
-        if (!v.overlap) expect(sum).toBe(v.tagged);
-        for (const row of v.rows) {
-          expect(row.review.total).toBeGreaterThan(0);
-          expect(row.review.total).toBeLessThanOrEqual(v.tagged);
-          expect(row.review.cost).toBeLessThanOrEqual(0);
-          const subset = target.filter((i) => i.emotions?.includes(row.id));
-          expect(row.review).toEqual(reviewPeriod(subset, { includeImports: true }));
-        }
+        // 入力ごとの検査も 1 つの値にまとめて 1 回で比べる（#199）
+        expectSame(
+          {
+            total: v.total,
+            tagged: v.tagged,
+            taggedAtMostTotal: v.tagged <= v.total,
+            sumAtLeastTagged: sum >= v.tagged,
+            sum,
+            overlap: v.overlap,
+            sumIsTaggedWithoutOverlap: v.overlap || sum === v.tagged,
+          },
+          {
+            total: target.length,
+            tagged: target.filter((i) => (i.emotions?.length ?? 0) > 0).length,
+            taggedAtMostTotal: true,
+            sumAtLeastTagged: true,
+            // 行の件数の和 = Σ 取引ごとのタグの数
+            sum: target.reduce((s, i) => s + (i.emotions?.length ?? 0), 0),
+            overlap: target.some((i) => (i.emotions?.length ?? 0) > 1),
+            sumIsTaggedWithoutOverlap: true,
+          },
+        );
+        // 行ごとの検査は 1 つの値にまとめて 1 回で比べる（行は 1 入力に最大 21。#199）
+        expectSame(
+          v.rows.map((row) => ({
+            id: row.id,
+            inRange: row.review.total > 0 && row.review.total <= v.tagged,
+            costNotPositive: row.review.cost <= 0,
+            review: row.review,
+          })),
+          v.rows.map((row) => ({
+            id: row.id,
+            inRange: true,
+            costNotPositive: true,
+            review: reviewPeriod(
+              target.filter((i) => i.emotions?.includes(row.id)),
+              { includeImports: true },
+            ),
+          })),
+        );
       }
     });
   });
@@ -205,15 +252,19 @@ describe('reviewByEmotion: 性質', () => {
       const calmAt = rows.findIndex((r) => r.id === CALM);
       expect(calmAt === -1 || calmAt === 0).toBe(true);
       const rest = rows.filter((r) => r.id !== CALM);
+      // 隣り合う組ごとの expect は重いので、並びを外れた組を集めて 1 回で比べる（#199）
+      const broken: string[] = [];
       for (let i = 1; i < rest.length; i++) {
         const a = rest[i - 1];
         const b = rest[i];
         if (!a || !b) continue;
-        expect(a.review.total).toBeGreaterThanOrEqual(b.review.total);
-        if (a.review.total === b.review.total) {
-          expect(EMOTION_TAG_IDS.indexOf(a.id)).toBeLessThan(EMOTION_TAG_IDS.indexOf(b.id));
-        }
+        const ok =
+          a.review.total > b.review.total ||
+          (a.review.total === b.review.total &&
+            EMOTION_TAG_IDS.indexOf(a.id) < EMOTION_TAG_IDS.indexOf(b.id));
+        if (!ok) broken.push(`${a.id}(${a.review.total}) → ${b.id}(${b.review.total})`);
       }
+      expect(broken).toEqual([]);
     });
   });
 
@@ -251,10 +302,11 @@ describe('reviewByEmotion: 性質', () => {
       const copy = structuredClone(items);
       const a = reviewByEmotion(items, { includeImports: true });
       const b = reviewByEmotion([...items].reverse(), { includeImports: true });
-      expect(b.rows.map((r) => [r.id, r.review.total, r.review.cost])).toEqual(
+      expectSame(
+        b.rows.map((r) => [r.id, r.review.total, r.review.cost]),
         a.rows.map((r) => [r.id, r.review.total, r.review.cost]),
       );
-      expect(items).toEqual(copy);
+      expectSame(items, copy);
     });
   });
 });

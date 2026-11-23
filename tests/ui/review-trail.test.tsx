@@ -4,6 +4,7 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
 import type { ReviewSlot } from '../../ui/src/components/ReviewSummary';
+import { TradeRow } from '../../ui/src/components/TradeRow';
 import { insightModelFor } from '../../ui/src/lib/insight-view';
 import {
   type PeriodSelection,
@@ -20,6 +21,7 @@ import {
 } from '../../ui/src/lib/review-trades';
 import { reviewModelFor } from '../../ui/src/lib/review-view';
 import { Link } from '../../ui/src/lib/router';
+import { tradeRow } from '../../ui/src/lib/trade-view';
 import type { TradesState } from '../../ui/src/lib/trades-controller';
 import { ReviewView } from '../../ui/src/pages/Review';
 import { ReviewTradesView } from '../../ui/src/pages/ReviewTrades';
@@ -27,8 +29,8 @@ import { createFakeApi } from './helpers/fake-api';
 import { closedInfoTip } from './helpers/info-tip';
 import { E1, E1_HIDDEN } from './helpers/insight-examples';
 import { REVIEW_NOW } from './helpers/review-examples';
-import { B, B_HIDDEN } from './helpers/streak-examples';
-import { INSTRUMENTS } from './helpers/trade-examples';
+import { B, B_HIDDEN, B4 } from './helpers/streak-examples';
+import { INSTRUMENTS, L1 } from './helpers/trade-examples';
 
 interface El {
   readonly type: string;
@@ -260,10 +262,13 @@ describe('期間の取引の画面（AC-1・AC-3・AC-4・AC-7・AC-8）', () =>
     expect(text(back)).toContain('振り返り');
   });
 
-  it('B6: 連勝の後 = 題「連勝の後」・要約「2 件 · 件数が少ない」・行 S6 · S3', () => {
+  it('B6: 連勝の後 = 題「連勝の後」・要約「2 件 · 計画どおり率 あと 3 件で表示」（#194）・行 S6 · S3', () => {
     const tree = viewOf(SEVEN, B, B_HIDDEN, { kind: 'winStreak' });
     expect(text(all(tree, (e) => e.type === 'h1'))).toBe('連勝の後');
-    expect(all(tree, hasClass('review__trailpart')).map(text)).toEqual(['2 件', '件数が少ない']);
+    expect(all(tree, hasClass('review__trailpart')).map(text)).toEqual([
+      '2 件',
+      '計画どおり率 あと 3 件で表示',
+    ]);
     expect(all(tree, hasClass('traderow')).map((a) => a.props.href)).toEqual([
       '/trades/s6',
       '/trades/s3',
@@ -364,5 +369,77 @@ describe('AC-9: 期間の取引を見ても書き込まない', () => {
     expect(fake.calls.length).toBeGreaterThan(0);
     expect(fake.calls.every((c) => c.method === 'GET')).toBe(true);
     review.dispose();
+  });
+});
+
+describe('Issue #194: 札「この取引」と、ほかの取引が少ないときの文', () => {
+  const recoup: TrailFilter = { kind: 'emotion', id: 'recoup' };
+  const view = (origin: string | null) => {
+    const review = slot(SEVEN, E1, E1_HIDDEN);
+    const model = reviewTradesModelFor(review.state, review.range, {
+      hidden: E1_HIDDEN,
+      includeImports: false,
+      filter: recoup,
+      instruments: INSTRUMENTS,
+      origin,
+    });
+    return expand(<ReviewTradesView review={review} filter={recoup} model={model} fromTrade />);
+  };
+  const badges = (tree: Node[]) => all(tree, hasClass('traderow__badge'));
+
+  it('AC-2: 元の取引の行にだけ札が 1 つ・その行の読み上げの名前の頭が「この取引、」', () => {
+    const tree = view('t9');
+    expect(badges(tree).map(text)).toEqual(['この取引']);
+    const rows = all(tree, hasClass('traderow'));
+    const marked = rows.filter((a) => badges([a]).length > 0);
+    expect(marked.map((a) => a.props.href)).toEqual(['/trades/t9']);
+    expect(String(marked[0]?.props['aria-label'])).toMatch(/^この取引、/);
+    // ほかの行の読み上げの名前は今のまま
+    for (const a of rows.filter((r) => r !== marked[0])) {
+      expect(String(a.props['aria-label'])).not.toContain('この取引');
+    }
+    // 心理の添えは今のまま（t9 は「切れない」）
+    expect(all(tree, hasClass('traderow__note')).map(text)).toEqual([
+      '儲けたい',
+      '切れない',
+      '調子に乗った',
+      'ポジりたい',
+    ]);
+  });
+
+  it('AC-3: ID が無い・どの行でもない・絞りに当たらない ID は札 0、表示は ID が無いときと同じ。ID の文字は出ない', () => {
+    const none = view(null);
+    expect(badges(none)).toEqual([]);
+    for (const o of ['zzz', 't1']) {
+      const tree = view(o);
+      expect(badges(tree)).toEqual([]);
+      // 文字・行き先・読み上げの名前が ID の無いときと同じ（関数の props は描くたびに作り直すので比べない）
+      expect(text(tree)).toBe(text(none));
+      const shape = (t: Node[]) =>
+        all(t, (e) => e.type === 'a').map((a) => [a.props.href, a.props['aria-label']]);
+      expect(shape(tree)).toEqual(shape(none));
+      expect(text(tree)).not.toContain('zzz');
+    }
+  });
+
+  it('KEEP-4: 札を渡さない行は 3 行目の入れ物も札も無い（取引のタブ・ホームの形）', () => {
+    const row = tradeRow(L1, INSTRUMENTS, []);
+    const plain = expand(<TradeRow row={row} />);
+    expect(all(plain, hasClass('traderow__extra'))).toEqual([]);
+    expect(all(plain, hasClass('traderow__badge'))).toEqual([]);
+    expect((plain[0] as El).props['aria-label']).toBe(row.label);
+    const noted = expand(<TradeRow row={row} note="怖い" />);
+    expect(all(noted, hasClass('traderow__extra'))).toEqual([]);
+    expect(all(noted, hasClass('traderow__note')).map(text)).toEqual(['怖い']);
+  });
+
+  it('AC-6・E12: 連勝の後も 5 件未満のとき、注記の行は「ほかの取引 あと 3 件で率を表示」', () => {
+    const tree = renderInsight(slot(SEVEN, B4, new Set()), B4);
+    const card = all(tree, hasClass('winrun'))[0] as El;
+    expect(text(all([card], hasClass('winrun__cells')))).toBe('件数2 件あと 3 件で率を表示');
+    expect(all([card], hasClass('review__note')).map(text)).toContain(
+      'ほかの取引 あと 3 件で率を表示',
+    );
+    expect(text(card)).not.toContain('件数が少ない');
   });
 });

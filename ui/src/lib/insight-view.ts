@@ -85,13 +85,18 @@ export interface StreakModel {
   }[];
   /**
    * 比べる相手 = 連勝の後でない取引（#185 デザインレビュー 1）。率「ほかの取引 80%（8 / 10）」（判定の出た取引が 5 件未満なら
-   * 「ほかの取引 件数が少ない」）と規律コスト「ほかの取引 崩れで −0.6R」（率が出ないときは null）。ほかの取引が 0 件なら null
+   * 「ほかの取引 あと 3 件で率を表示」。#194）と規律コスト「ほかの取引 崩れで −0.6R」（率が出ないときは null）。ほかの取引が 0 件なら null
    */
   readonly others: { readonly rate: string; readonly cost: string | null } | null;
 }
 
 /** 比べる相手の行の頭 */
 export const STREAK_OTHERS = 'ほかの取引';
+
+/** 判定の出た取引が judged 件のとき、計画どおり率が出るまでの残り（「あと 3 件」。率が出ないとき = judged が 5 未満のときだけ使う） */
+export function restOf(judged: number): string {
+  return `あと ${MIN_JUDGED_FOR_RATE - judged} 件`;
+}
 
 export interface InsightRow {
   readonly id: EmotionTagId;
@@ -159,11 +164,12 @@ export function summaryOf(v: PeriodReview): string {
 
 /**
  * 名前つきの要約の組（期間の取引の画面の見せ方。気づきの表を離れても何の数か分かるように。Issue 185 のデザインレビュー 4）。
- * ["5 件", "計画どおり率 0%（0 / 5）", "規律コスト 崩れで −1.8R"] / ["1 件", "件数が少ない"]
+ * ["5 件", "計画どおり率 0%（0 / 5）", "規律コスト 崩れで −1.8R"] / ["1 件", "計画どおり率 あと 4 件で表示"]
+ * （判定の出た取引が 5 件未満は、何が出ないかとあと何件で出るかを言う。「件数が少ない」だけでは何に対して少ないか分からない。#194）
  */
 export function labeledSummaryOf(v: PeriodReview): string[] {
   const countText = `${v.total} 件`;
-  if (v.rate === null) return [countText, FEW];
+  if (v.rate === null) return [countText, `${COLUMN.rate} ${restOf(v.judged)}で表示`];
   const cost = costOf(v);
   const costText = cost ? [cost.lead, cost.value].filter(Boolean).join(' ') : '';
   return [
@@ -193,7 +199,7 @@ function streakOf(items: readonly ReviewItem[], includeImports: boolean): Streak
     v.total === 0 || r.total === 0
       ? null
       : r.rate === null
-        ? { rate: `${STREAK_OTHERS} ${FEW}`, cost: null }
+        ? { rate: `${STREAK_OTHERS} ${restOf(r.judged)}で率を表示`, cost: null }
         : {
             rate: `${STREAK_OTHERS} ${formatRate(r.rate)}（${r.planned} / ${r.judged}）`,
             cost: (() => {
@@ -226,7 +232,7 @@ function streakOf(items: readonly ReviewItem[], includeImports: boolean): Streak
     return {
       ...base,
       few: true,
-      restText: `あと ${MIN_JUDGED_FOR_RATE - v.judged} 件`,
+      restText: restOf(v.judged),
       rateText: null,
       fractionText: null,
       cost: null,
@@ -252,7 +258,7 @@ function rowOf(id: EmotionTagId, v: PeriodReview): InsightRow {
   const base = id === CALM;
   const baseText = base ? `（${BASE_MARK}）` : '';
   if (v.rate === null) {
-    const restText = `あと ${MIN_JUDGED_FOR_RATE - v.judged} 件`;
+    const restText = restOf(v.judged);
     return {
       id,
       name,

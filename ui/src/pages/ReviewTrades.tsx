@@ -2,7 +2,7 @@
 // 気づきの心理の行・連勝の後のカードと、取引の詳細の心理のチップ（#188。期間は自動 = 範囲の行の頭に「この取引を含む 3 か月」）から開く。
 // 上の帯「‹ 前の画面」（振り返りから = 同じ期間の気づき・詳細から = その詳細）・題（心理の名前 / 連勝の後）→ 期間の選択肢（振り返りと同じ部品）→
 // 範囲の 1 行 → 押した行と同じ値の要約（名前つき）・上限の印 → 取引の一覧と同じ行（決済の新しい順。3 行目に付いている心理。
-// 押すと詳細。詳細の戻るはこの画面）。
+// 押すと詳細。詳細の戻るはこの画面）。詳細から来たときは押して来た元の取引の行に札「この取引」（URL の `&trade=`。#194）。
 // 期間の範囲の読み込みは振り返りのタブと同じ hook（useReview）、銘柄・口座の名前は直近の取引の読み込みから。
 // 3 層: 純関数（lib/review-trades.ts）→ 通信と状態（lib/review-controller.ts）→ hook を持たない View
 import type { JSX } from 'preact';
@@ -17,6 +17,8 @@ import { reviewHref } from '../lib/period';
 import {
   autoPeriodLead,
   isFromTrade,
+  ORIGIN_BADGE,
+  originOf,
   parseTrail,
   type ReviewTradesModel,
   reviewTradesHref,
@@ -44,10 +46,13 @@ export function ReviewTradesPage() {
   const accounts = ready ? state.accounts : NO_ACCOUNTS;
   const filter = useMemo(() => parseTrail(nav?.current.search ?? ''), [nav?.current.search]);
   const fromTrade = isFromTrade(nav?.current.search ?? '');
+  const origin = originOf(nav?.current.search ?? '');
+  // 期間を選び直しても元の取引は保つ（via は外れる = 範囲の行の頭の文は出さない。#194）
   const review = useReview(
     instruments,
     hidden,
-    (sel) => (filter ? reviewTradesHref(sel, filter) : reviewHref(sel, 'insight')),
+    (sel) =>
+      filter ? reviewTradesHref(sel, filter, { trade: origin }) : reviewHref(sel, 'insight'),
     { discipline: false },
   );
   const model = useMemo(
@@ -58,8 +63,18 @@ export function ReviewTradesPage() {
         filter,
         instruments,
         accounts,
+        origin,
       }),
-    [review.state, review.range, hidden, review.selection.imports, filter, instruments, accounts],
+    [
+      review.state,
+      review.range,
+      hidden,
+      review.selection.imports,
+      filter,
+      instruments,
+      accounts,
+      origin,
+    ],
   );
   return (
     <ReviewTradesView
@@ -124,7 +139,11 @@ export function ReviewTradesView(p: ReviewTradesViewProps) {
       <ul class="tradelist" aria-label={`${m.title}の取引`}>
         {m.rows.map((row) => (
           <li key={row.id} class="tradelist__item">
-            <TradeRow row={row} note={m.notes[row.id]} />
+            <TradeRow
+              row={row}
+              note={m.notes[row.id]}
+              badge={row.id === m.origin ? ORIGIN_BADGE : undefined}
+            />
           </li>
         ))}
       </ul>

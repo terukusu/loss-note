@@ -2,12 +2,15 @@
 // 値はすべて架空
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
-import { insightModel } from '../../ui/src/lib/insight-view';
+import { reviewPeriod } from '../../core/review';
+import { emotionItemOf, insightModel, labeledSummaryOf } from '../../ui/src/lib/insight-view';
 import { type PeriodSelection, parsePeriod, periodRange } from '../../ui/src/lib/period';
 import { createReviewController, type ReviewState } from '../../ui/src/lib/review-controller';
 import {
   autoPeriodLead,
   isFromTrade,
+  ORIGIN_BADGE,
+  originOf,
   parseTrail,
   REVIEW_TRADES_NONE,
   reviewTradesHref,
@@ -166,6 +169,7 @@ describe('AC-8: 該当なし', () => {
       empty: true,
       emptyText: REVIEW_TRADES_NONE,
       truncatedText: null,
+      origin: null,
     });
     expect(REVIEW_TRADES_NONE).toBe('この期間に該当する取引はありません');
   });
@@ -186,7 +190,7 @@ describe('AC-8: 該当なし', () => {
 });
 
 describe('名前つきの要約・行の心理の添え・上限の印（#185 のレビュー）', () => {
-  it('名前つきの要約は値が気づきの行と同じ（件数が少ないときは件数だけ）', () => {
+  it('名前つきの要約は値が気づきの行と同じ（件数が少ないときは件数と、計画どおり率があと何件で出るか。#194）', () => {
     expect(model(recoup).summaryParts).toEqual([
       '5 件',
       '計画どおり率 0%（0 / 5）',
@@ -194,7 +198,7 @@ describe('名前つきの要約・行の心理の添え・上限の印（#185 �
     ]);
     expect(model({ kind: 'emotion', id: 'overconfident' }).summaryParts).toEqual([
       '1 件',
-      '件数が少ない',
+      '計画どおり率 あと 4 件で表示',
     ]);
     expect(model(null).summaryParts).toEqual([]);
   });
@@ -296,7 +300,7 @@ describe('取引の詳細の心理のチップの行き先（Issue #188。例 E1
     const href = tradeEmotionHref(T1, 'recoup', TODAY);
     expect(query(href)).toEqual({
       path: '/review/trades',
-      q: { period: '3m', emotion: 'recoup', via: 'trade' },
+      q: { period: '3m', emotion: 'recoup', via: 'trade', trade: 'd1' },
     });
     expect(trailTitle(parseTrail(new URL(href, 'https://example.com').search))).toBe(
       '取り戻したい',
@@ -309,6 +313,7 @@ describe('取引の詳細の心理のチップの行き先（Issue #188。例 E1
       imports: '1',
       emotion: 'calm',
       via: 'trade',
+      trade: 'd5',
     });
   });
 
@@ -319,6 +324,7 @@ describe('取引の詳細の心理のチップの行き先（Issue #188。例 E1
       to: '2026-08-23',
       emotion: 'recoup',
       via: 'trade',
+      trade: 'd6',
     });
   });
 
@@ -357,6 +363,7 @@ describe('取引の詳細の心理のチップの行き先（Issue #188。例 E1
       to: '2026-08-24',
       emotion: 'recoup',
       via: 'trade',
+      trade: 'd7',
     });
     // どちらの日に押しても、押した取引が一覧に入る
     const m = reviewTradesModel([edge], {
@@ -415,5 +422,126 @@ describe('取引の詳細の心理のチップの行き先（Issue #188。例 E1
     expect(fake.calls.length).toBeGreaterThan(0);
     expect(fake.calls.every((c) => c.method === 'GET')).toBe(true);
     review.dispose();
+  });
+});
+
+describe('Issue #194: 元の取引の ID（札「この取引」）', () => {
+  const TODAY = new Date(2026, 10, 23, 12).getTime();
+  const X = tagged('x-emo', 0, 'B', -1.6, ['recoup'], {
+    exitTime: new Date(2026, 10, 20, 14).getTime(),
+  });
+  const q = (href: string) => Object.fromEntries(new URL(href, 'https://e.x').searchParams);
+
+  it('AC-1・E1: 詳細のチップの行き先は期間・絞り方・via・元の取引の ID の 4 つ', () => {
+    expect(q(tradeEmotionHref(X, 'recoup', TODAY))).toEqual({
+      period: '3m',
+      emotion: 'recoup',
+      via: 'trade',
+      trade: 'x-emo',
+    });
+    expect(originOf(new URL(tradeEmotionHref(X, 'recoup', TODAY), 'https://e.x').search)).toBe(
+      'x-emo',
+    );
+  });
+
+  it('AC-1: 気づきの行・連勝の後のカードの行き先には ID が無い', () => {
+    expect(q(reviewTradesHref(SEVEN, recoup))).toEqual({ period: '7d', emotion: 'recoup' });
+    expect(q(reviewTradesHref(SEVEN, { kind: 'winStreak' }))).toEqual({
+      period: '7d',
+      after: 'winStreak',
+    });
+    expect(originOf('?period=7d&emotion=recoup')).toBeNull();
+    expect(originOf('?period=7d&emotion=recoup&trade=')).toBeNull();
+  });
+
+  it('AC-4・E5: 期間を選び直した URL は ID を保ち、via を外す', () => {
+    expect(q(reviewTradesHref({ key: '1m', imports: false }, recoup, { trade: 'x-emo' }))).toEqual({
+      period: '1m',
+      emotion: 'recoup',
+      trade: 'x-emo',
+    });
+    // 元の取引が無い（気づきから来た）ときは選び直しても ID は付かない
+    expect(q(reviewTradesHref({ key: '1m', imports: false }, recoup, { trade: null }))).toEqual({
+      period: '1m',
+      emotion: 'recoup',
+    });
+  });
+
+  it('AC-2・E2: 元の取引が行にあれば origin はその ID（行の数によらず 1 つ）', () => {
+    expect(ORIGIN_BADGE).toBe('この取引');
+    const m = reviewTradesModel(E1, {
+      hidden: E1_HIDDEN,
+      includeImports: false,
+      range: R7,
+      filter: recoup,
+      instruments: INSTRUMENTS,
+      origin: 't9',
+    });
+    expect(ids(m)).toEqual(['t11', 't9', 't8', 't7', 't6']);
+    expect(m.origin).toBe('t9');
+  });
+
+  it('AC-3・E3・E4: ID が無い・どの行でもない・絞りに当たらない取引の ID は null で、ほかは ID の無いときと同じ', () => {
+    const base = model(recoup);
+    const withOrigin = (origin: string | null) =>
+      reviewTradesModel(E1, {
+        hidden: E1_HIDDEN,
+        includeImports: false,
+        range: R7,
+        filter: recoup,
+        instruments: INSTRUMENTS,
+        origin,
+      });
+    expect(base.origin).toBeNull();
+    // 前提: t1 は期間の取引にあるが「取り戻したい」が付いていない（絞りに当たらない ID）
+    expect(E1.some((t) => t.id === 't1')).toBe(true);
+    expect(ids(base)).not.toContain('t1');
+    for (const o of [null, 'zzz', 't1']) {
+      expect(withOrigin(o)).toEqual(base);
+    }
+  });
+
+  it('E6: 期間を狭めて元の取引が範囲の外になると origin は null', () => {
+    const NARROW = { from: R7.from, to: R7.from + 1 };
+    const m = reviewTradesModel(E1, {
+      hidden: E1_HIDDEN,
+      includeImports: false,
+      range: NARROW,
+      filter: recoup,
+      instruments: INSTRUMENTS,
+      origin: 't9',
+    });
+    expect(m.rows.some((r) => r.id === 't9')).toBe(false);
+    expect(m.origin).toBeNull();
+  });
+});
+
+describe('Issue #194: 判定の出た取引が 5 件未満の要約（AC-5。E7〜E10）', () => {
+  const parts = (trades: readonly StoredTrade[]) =>
+    labeledSummaryOf(reviewPeriod(trades.map(emotionItemOf), { includeImports: true }));
+  const many = (n: number, kind: 'B' | 'none', from = 0) =>
+    Array.from({ length: n }, (_, k) => tagged(`f${from + k + 1}`, 0, kind, -1.6, ['recoup']));
+
+  it('E7: 2 件・判定 2 件 → 「計画どおり率 あと 3 件で表示」', () => {
+    expect(parts(many(2, 'B'))).toEqual(['2 件', '計画どおり率 あと 3 件で表示']);
+  });
+
+  it('E8: 6 件・判定 4 件（判定が出ない 2 件）→ あと 1 件', () => {
+    expect(parts([...many(4, 'B'), ...many(2, 'none', 4)])).toEqual([
+      '6 件',
+      '計画どおり率 あと 1 件で表示',
+    ]);
+  });
+
+  it('E9: 2 件・判定 0 件 → あと 5 件', () => {
+    expect(parts(many(2, 'none'))).toEqual(['2 件', '計画どおり率 あと 5 件で表示']);
+  });
+
+  it('E10: 判定 5 件は 3 組のまま（「件数が少ない」の語が無い）', () => {
+    const p = parts(many(5, 'B'));
+    expect(p).toHaveLength(3);
+    expect(p[0]).toBe('5 件');
+    expect(p[1]).toMatch(/^計画どおり率 0%（0 \/ 5）$/);
+    expect(p.join('')).not.toContain('件数が少ない');
   });
 });

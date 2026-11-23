@@ -238,9 +238,10 @@
   font-weight: var(--fw-regular);
 }
 
-/* 2 行目: 判定の名前 · 時刻。時刻は詰めず、判定の名前の側を「…」で詰める */
+/* 2 行目: 判定の名前 · 時刻。どちらも切らない（ui-guidelines 10.3。#176）。1 行に入らなければ時刻を次の行へ折る */
 .traderow__sub {
   display: flex;
+  flex-wrap: wrap;
   min-width: 0;
   color: var(--ink-2);
   font-size: var(--fs-xs);
@@ -248,14 +249,12 @@
   white-space: nowrap;
 }
 
-.traderow__grade {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.traderow__grade,
+.traderow__when {
+  flex: none;
 }
 
-/* 区切りの「·」は時刻の頭に置く（判定の名前が「…」で詰まっても区切りが消えない） */
+/* 区切りの「·」は時刻の頭に置く（時刻が次の行へ折れても、行末に「·」を残さない） */
 .traderow__when::before {
   content: " · ";
   white-space: pre;

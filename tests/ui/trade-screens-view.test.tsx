@@ -1130,8 +1130,9 @@ describe('口座（#47 D1・U16〜U19）', () => {
         onRelogin={noop}
       />,
     );
-    // ホームの詰めた行は 2 行目に「判定の名前 · 口座 · 日付」（#128）
-    expect(all(tree, hasClass('homerow__sub')).map(text)[0]).toContain(' · 口座 B · ');
+    // ホームの詰めた行は 2 行目に「判定の名前 · 日付 · 口座」（#128。#176 で省略してよい口座を最後へ）。口座は別の要素
+    expect(all(tree, hasClass('homerow__sub')).map(text)[0]).toMatch(/ · \d+\/\d+ · 口座 B$/);
+    expect(all(tree, hasClass('homerow__account')).map(text)[0]).toBe(' · 口座 B');
   });
 
   it('U17: 詳細の見出しの下「決済 … · 口座 B」と判定の枠の「口座 B の資金 1,000,000円（記録したとき）に対して」', () => {

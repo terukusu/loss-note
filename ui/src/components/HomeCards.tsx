@@ -182,7 +182,15 @@ export function CompactTradeRow({ row, now }: { readonly row: TradeRow; readonly
           <span class="homerow__name">{row.instrumentName}</span>
           <span class="homerow__side">{row.sideText}</span>
         </span>
-        <span class="homerow__sub">{m.sub}</span>
+        {/* 2 行目「判定の名前 · 日付 · 口座」。区切りの「 · 」は後ろの塊の頭（折れても行末に残さない）。口座の名前だけを「…」で
+            詰める（#176） */}
+        <span class="homerow__sub">
+          <span class="homerow__grade">{m.gradeLabel}</span>
+          <span class="homerow__date">{` · ${m.date}`}</span>
+          {m.accountName !== null ? (
+            <span class="homerow__account">{` · ${m.accountName}`}</span>
+          ) : null}
+        </span>
       </span>
       {/* R が出ない行は「—」を 1 つだけ、リスクが出ない行は 2 段目を出さない（理由は行の読み上げの名前。デザイン a4） */}
       <span class="homerow__nums">

@@ -415,13 +415,34 @@
   content: "· ";
 }
 
+/* 2 行目「判定の名前 · 日付 · 口座」（#176）: 判定と日付は切らない。口座の名前（利用者が付けた名前）だけを「…」で詰める。
+   口座が区切り + 4 字ぶん（5.5em）入らない行は、口座を区切りごと次の行へ折る（判定と日付は 1 行目のまま） */
 .homerow__sub {
-  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
   color: var(--ink-2);
   font-size: var(--fs-xs);
   line-height: var(--lh-body);
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.homerow__grade,
+.homerow__date {
+  flex: none;
+}
+
+/* 区切りの「 · 」は塊の頭の文字（塊の頭の空白が消えないように pre） */
+.homerow__date,
+.homerow__account {
+  white-space: pre;
+}
+
+.homerow__account {
+  flex: 1 1 0;
+  min-width: 5.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .homerow__nums {
@@ -468,6 +489,17 @@
   .homerow__name,
   .homerow__sub {
     white-space: normal;
+  }
+
+  /* 口座の名前も「…」で詰めずに折り返す（区切りの頭の空白は残す。#176） */
+  .homerow__date,
+  .homerow__account {
+    white-space: pre-wrap;
+  }
+
+  .homerow__account {
+    flex-basis: auto;
+    overflow: visible;
   }
 }
 

@@ -124,14 +124,21 @@ export interface MonthSlot {
 }
 
 /**
- * 詰めた 1 行の行の形（左の記号の札・2 行目の「判定の名前 · [口座 ·] 月 / 日」・右の R と「リスク 0.5%」）。#128 デザイン a4:
+ * 詰めた 1 行の行の形（左の記号の札・2 行目の「判定の名前 · 月 / 日 [· 口座]」・右の R と「リスク 0.5%」）。#128 デザイン a4:
  * 日付は月 / 日（今年でない日だけ年つき。直近の 3 件に年は要らない）、% は何の % かを「リスク」と書き、R が出ない行は「—」を
- * 1 つだけ（リスクの段を出さない）、リスクだけが出ない行は 2 段目を出さない
+ * 1 つだけ（リスクの段を出さない）、リスクだけが出ない行は 2 段目を出さない。
+ * 2 行目は判定の名前と日付を切らず、口座の名前（利用者が付けた名前）だけを末尾で省略する（ui-guidelines 10.3。#176）ので、
+ * 口座を最後に置く。画面は gradeLabel・date・accountName を別の要素にする（sub はそれをつないだ文字）
  */
 export interface CompactRow {
   readonly tier: Tier;
   readonly symbol: TierSymbol;
   readonly gradeLabel: string;
+  /** 決済の日付（「11/19」、今年でなければ「2025/11/19」） */
+  readonly date: string;
+  /** 口座の名前（口座が 2 つ以上のときだけ。無ければ null） */
+  readonly accountName: string | null;
+  /** 2 行目の文字（「判定の名前 · 日付 [· 口座]」） */
   readonly sub: string;
   /** R（出ないときは「—」） */
   readonly rText: string;
@@ -149,15 +156,15 @@ function shortDate(dateIso: string, now: number): string {
 
 export function compactRowModel(row: TradeRow, now: number): CompactRow {
   const rMissing = row.rNote !== null;
+  const date = shortDate(row.dateIso, now);
+  const accountName = row.accountName ?? null;
   return {
     tier: row.badge.tier,
     symbol: row.badge.symbol,
     gradeLabel: row.badge.label,
-    sub: [
-      row.badge.label,
-      ...(row.accountName === undefined ? [] : [row.accountName]),
-      shortDate(row.dateIso, now),
-    ].join(' · '),
+    date,
+    accountName,
+    sub: [row.badge.label, date, ...(accountName === null ? [] : [accountName])].join(' · '),
     rText: row.rText,
     rMissing,
     riskText: rMissing || row.riskNote !== null ? null : `リスク ${row.riskText}`,

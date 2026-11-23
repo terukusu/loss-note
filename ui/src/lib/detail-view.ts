@@ -41,10 +41,21 @@ export const DELETE_LABEL = '削除';
 /** 削除の行の右の添え（確認を挟まずにすぐ消えるので、押す前に戻せることを言う。#131 のデザインレビュー a3） */
 export const DELETE_NOTE = '8 秒は元に戻せます';
 
-/** チャートの枠の名前（「エントリー時 · 4 時間足」。追加のチャートは一言があれば一言。時間足が無ければ名前だけ） */
+/**
+ * チャートの枠の名前の 2 つの塊（名前と「 · 時間足」。追加のチャートは一言があれば一言。時間足が無ければ null）。
+ * 札は 2 つを別の要素にし、名前が長いときは時間足の塊の前で折る（時間足を切らない・途中で折らない。#176）
+ */
+export function chartCaptionParts(c: ChartSlotView): {
+  readonly name: string;
+  readonly timeframe: string | null;
+} {
+  return { name: c.note ?? c.name, timeframe: c.timeframe ? ` · ${c.timeframe}` : null };
+}
+
+/** チャートの枠の名前（「エントリー時 · 4 時間足」。時間足が無ければ名前だけ） */
 export function chartCaption(c: ChartSlotView): string {
-  const name = c.note ?? c.name;
-  return c.timeframe ? `${name} · ${c.timeframe}` : name;
+  const p = chartCaptionParts(c);
+  return p.name + (p.timeframe ?? '');
 }
 
 /** 総評（取り込んだ取引の「【取り込み】元の判定 X」など。空なら null = 行を出さない） */

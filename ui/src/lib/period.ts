@@ -1,4 +1,5 @@
-// 振り返りのタブの期間（Issue #88 契約 P-2・ルール R1。設計書 9.2・C44。#128 でホームから振り返りのタブ `/review` へ移した）。
+// 振り返りのタブの期間（Issue #88 契約 P-2・ルール R1。設計書 9.2・C44。#128 でホームから振り返りのタブ `/review` へ移した）と、
+// 取引の詳細の心理のチップの行き先の期間（決済の日を含む 3 か月 `periodAround`。#188。設計書 9.4）。
 // DOM・通信なし。「今」は引数で受ける。
 // - 日の境目は端末の時間帯の暦日（new Date(年, 月, 日) のローカルの 0 時）。決済の時刻で数える
 // - 1 日 = 今日。7 日 = 今日を含む 7 暦日。1 か月 / 3 か月 = 1 / 3 か月前の同じ日の翌日から（その日が無ければ末日の翌日から）。
@@ -261,4 +262,21 @@ export function reviewTableHref(sel: PeriodSelection): string {
 export function monthSelection(now: number): PeriodSelection {
   const t = ymdOf(now);
   return { key: 'custom', from: ymdText({ y: t.y, m: t.m, d: 1 }), to: ymdText(t), imports: false };
+}
+
+/**
+ * 取引の決済の日を含む 3 か月（#188。取引の詳細の心理のチップから「期間の取引」へ。設計書 9.4）。決済の時刻が今日から見た
+ * 「3 か月」の範囲に入れば「3 か月」、入らなければ決済の日を最後の日とする 3 か月（3 か月前の同じ日〔無ければ末日〕の翌日〜
+ * 決済の日。指定の期間）。どちらも押した取引を範囲に含む。取り込みの切り替えは呼ぶ側が決める
+ */
+export function periodAround(exitTime: number, now: number, imports: boolean): PeriodSelection {
+  const recent = periodRange({ key: '3m', imports }, now);
+  if (recent.ok && inRange(exitTime, recent)) return { key: '3m', imports };
+  const last = ymdOf(exitTime);
+  return {
+    key: 'custom',
+    from: ymdText(ymdOf(monthsBackNextDay(last, 3))),
+    to: ymdText(last),
+    imports,
+  };
 }

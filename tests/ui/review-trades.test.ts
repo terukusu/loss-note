@@ -1,19 +1,24 @@
 // 振り返りの次の画面「期間の取引」の絞り方の URL と表示の形（Issue #185 の AC-1〜AC-3・AC-7・AC-8。例 L1〜L4・L6・B6）。
 // 値はすべて架空
 import { describe, expect, it } from 'vitest';
+import type { StoredTrade } from '../../core/record';
 import { insightModel } from '../../ui/src/lib/insight-view';
 import { type PeriodSelection, parsePeriod, periodRange } from '../../ui/src/lib/period';
-import type { ReviewState } from '../../ui/src/lib/review-controller';
+import { createReviewController, type ReviewState } from '../../ui/src/lib/review-controller';
 import {
+  autoPeriodLead,
+  isFromTrade,
   parseTrail,
   REVIEW_TRADES_NONE,
   reviewTradesHref,
   reviewTradesModel,
   reviewTradesModelFor,
   type TrailFilter,
+  tradeEmotionHref,
   trailTitle,
 } from '../../ui/src/lib/review-trades';
-import { E1, E1_HIDDEN } from './helpers/insight-examples';
+import { createFakeApi } from './helpers/fake-api';
+import { E1, E1_HIDDEN, tagged } from './helpers/insight-examples';
 import { REVIEW_NOW } from './helpers/review-examples';
 import { B, B_HIDDEN } from './helpers/streak-examples';
 import { INSTRUMENTS } from './helpers/trade-examples';
@@ -252,5 +257,163 @@ describe('reviewTradesModelFor: 読み終えた範囲が今の期間と同じと
     const one = periodRange({ key: '1m', imports: false }, REVIEW_NOW);
     expect(reviewTradesModelFor(ready, one, opts)).toBeNull();
     expect(reviewTradesModelFor({ phase: 'loading', range: R7 }, range7, opts)).toBeNull();
+  });
+});
+
+describe('取引の詳細の心理のチップの行き先（Issue #188。例 E1・E5・E8・E9）', () => {
+  /** 今日 = 2026-11-23 12:00（ローカル）。今日の「3 か月」= 2026-08-24〜2026-11-23 */
+  const TODAY = new Date(2026, 10, 23, 12).getTime();
+  const at = (m: number, d: number, h = 10) => new Date(2026, m - 1, d, h).getTime();
+  const T1 = tagged('d1', 0, 'B', -1.6, ['recoup'], { exitTime: at(11, 20, 14) });
+  const T2 = tagged('d2', 0, 'A', -1.0, ['wantPosition', 'recoup'], { exitTime: at(10, 2) });
+  const T3 = tagged('d3', 0, 'B', -1.2, ['recoup'], { exitTime: at(7, 15) });
+  const T4 = tagged('d4', 0, 'A', -1.0, ['calm'], { exitTime: at(11, 1) });
+  const IMP = tagged('d5', 0, 'A', -1.0, ['calm'], { exitTime: at(11, 20), source: 'import' });
+  const OLD = tagged('d6', 0, 'B', -1.4, ['recoup'], { exitTime: at(8, 23, 23) });
+  const query = (href: string) => {
+    const u = new URL(href, 'https://example.com');
+    return { path: u.pathname, q: Object.fromEntries(u.searchParams) };
+  };
+  /** URL を開いたときの期間の取引（行き先の画面と同じ組み立て: parsePeriod → periodRange → 読み込み → 表示の形） */
+  const open = (href: string, trades: readonly StoredTrade[]) => {
+    const search = new URL(href, 'https://example.com').search;
+    const sel = parsePeriod(search);
+    const range = periodRange(sel, TODAY);
+    if (!range.ok) throw new Error(range.error);
+    const inside = trades.filter(
+      (t) => t.record.exit.time >= range.from && t.record.exit.time < range.to,
+    );
+    return reviewTradesModel(inside, {
+      hidden: new Set(),
+      includeImports: sel.imports,
+      range: { from: range.from, to: range.to },
+      filter: parseTrail(search),
+      instruments: INSTRUMENTS,
+    });
+  };
+
+  it('E1: 取り込みでない・今日の 3 か月の中の取引 → 3 か月・取り込みなし・その心理', () => {
+    const href = tradeEmotionHref(T1, 'recoup', TODAY);
+    expect(query(href)).toEqual({
+      path: '/review/trades',
+      q: { period: '3m', emotion: 'recoup', via: 'trade' },
+    });
+    expect(trailTitle(parseTrail(new URL(href, 'https://example.com').search))).toBe(
+      '取り戻したい',
+    );
+  });
+
+  it('E5: 取り込んだ取引 → 取り込みを含める', () => {
+    expect(query(tradeEmotionHref(IMP, 'calm', TODAY)).q).toEqual({
+      period: '3m',
+      imports: '1',
+      emotion: 'calm',
+      via: 'trade',
+    });
+  });
+
+  it('E3 の形: 今日の 3 か月より前の取引 → 決済の日までの 3 か月', () => {
+    expect(query(tradeEmotionHref(OLD, 'recoup', TODAY)).q).toEqual({
+      period: 'custom',
+      from: '2026-05-24',
+      to: '2026-08-23',
+      emotion: 'recoup',
+      via: 'trade',
+    });
+  });
+
+  it('E8: 行き先は期間とその心理に当たる取引だけ（T1 · T2。期間の外の T3・心理の違う T4 は出ない）', () => {
+    const href = tradeEmotionHref(T1, 'recoup', TODAY);
+    const m = open(href, [T1, T2, T3, T4]);
+    expect(m.rows.map((r) => r.id)).toEqual(['d1', 'd2']);
+    expect(m.title).toBe('取り戻したい');
+    expect(m.empty).toBe(false);
+    // 要約は同じ期間の気づきの「取り戻したい」の行と同じ値（#185 の約束。コードレビュー 5）
+    const sel = parsePeriod(new URL(href, 'https://example.com').search);
+    const range = periodRange(sel, TODAY);
+    if (!range.ok) throw new Error(range.error);
+    const inside = [T1, T2, T3, T4].filter(
+      (t) => t.record.exit.time >= range.from && t.record.exit.time < range.to,
+    );
+    const insight = insightModel(inside, {
+      hidden: new Set(),
+      includeImports: false,
+      range: { from: range.from, to: range.to },
+    });
+    const row = insight.rows.find((r) => r.id === 'recoup');
+    expect(row).toBeDefined();
+    expect(`${row?.name} ${m.summary}`).toBe(row?.text);
+    expect(`${m.rows.length} 件`).toBe(row?.countText);
+  });
+
+  it('押した日で決める（コードレビュー 3）: 3 か月の最初の日の取引は、日付をまたいだ後に押すと決済の日までの 3 か月', () => {
+    const edge = tagged('d7', 0, 'A', -1.0, ['recoup'], { exitTime: at(8, 24, 0) });
+    expect(query(tradeEmotionHref(edge, 'recoup', TODAY)).q.period).toBe('3m');
+    const nextDay = new Date(2026, 10, 24, 0, 5).getTime();
+    const later = query(tradeEmotionHref(edge, 'recoup', nextDay)).q;
+    expect(later).toEqual({
+      period: 'custom',
+      from: '2026-05-25',
+      to: '2026-08-24',
+      emotion: 'recoup',
+      via: 'trade',
+    });
+    // どちらの日に押しても、押した取引が一覧に入る
+    const m = reviewTradesModel([edge], {
+      hidden: new Set(),
+      includeImports: false,
+      range: (() => {
+        const r = periodRange(
+          parsePeriod(`?period=custom&from=${later.from}&to=${later.to}`),
+          nextDay,
+        );
+        if (!r.ok) throw new Error(r.error);
+        return { from: r.from, to: r.to };
+      })(),
+      filter: { kind: 'emotion', id: 'recoup' },
+      instruments: INSTRUMENTS,
+    });
+    expect(m.rows.map((r) => r.id)).toEqual(['d7']);
+  });
+
+  it('詳細から来た印（via=trade）と期間の名前。振り返りから来た URL は印なしのまま', () => {
+    expect(isFromTrade(new URL(tradeEmotionHref(T1, 'recoup', TODAY), 'https://e.x').search)).toBe(
+      true,
+    );
+    expect(reviewTradesHref({ key: '3m', imports: false }, { kind: 'emotion', id: 'recoup' })).toBe(
+      '/review/trades?period=3m&emotion=recoup',
+    );
+    expect(isFromTrade('?period=3m&emotion=recoup')).toBe(false);
+    expect(autoPeriodLead({ key: '3m', imports: false }, true)).toBe('この取引を含む 3 か月');
+    expect(
+      autoPeriodLead({ key: 'custom', from: '2026-05-24', to: '2026-08-23', imports: false }, true),
+    ).toBe('この取引までの 3 か月');
+    // 期間を選び直した（印が外れた）・振り返りから来た・ほかの期間は名前を添えない
+    expect(autoPeriodLead({ key: '3m', imports: false }, false)).toBeNull();
+    expect(autoPeriodLead({ key: '1m', imports: false }, true)).toBeNull();
+  });
+
+  it('E9: 古い取引も、押した取引が行き先の一覧に入る', () => {
+    const m = open(tradeEmotionHref(OLD, 'recoup', TODAY), [OLD, T1, T3]);
+    expect(m.rows.map((r) => r.id)).toContain('d6');
+    expect(m.rows.map((r) => r.id)).not.toContain('d1');
+  });
+
+  it('取り込んだ取引から押すと、その取引が一覧に入る（R3）', () => {
+    const m = open(tradeEmotionHref(IMP, 'calm', TODAY), [IMP, T4]);
+    expect(m.rows.map((r) => r.id)).toEqual(['d5', 'd4']);
+  });
+
+  it('AC-6: 行き先の範囲を読む間に送る要求は GET だけ', async () => {
+    const fake = createFakeApi({ trades: [T1, T2, T3, T4], instruments: INSTRUMENTS });
+    const review = createReviewController({ api: fake.api });
+    const sel = parsePeriod(new URL(tradeEmotionHref(T1, 'recoup', TODAY), 'https://e.x').search);
+    const range = periodRange(sel, TODAY);
+    if (!range.ok) throw new Error(range.error);
+    await review.load({ from: range.from, to: range.to });
+    expect(review.getState().phase).toBe('ready');
+    expect(fake.calls.length).toBeGreaterThan(0);
+    expect(fake.calls.every((c) => c.method === 'GET')).toBe(true);
+    review.dispose();
   });
 });

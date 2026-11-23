@@ -144,6 +144,29 @@
   font-size: var(--fs-sm);
 }
 
+/* 付いているタグの押せるチップ（#188。同じ心理の「期間の取引」へ進むリンク。面と当たりは .chip。右に小さな ›） */
+.emotioncard__item {
+  display: flex;
+  min-width: 0;
+}
+
+.emotioncard__item .chip {
+  gap: 2px;
+  padding-inline-end: var(--sp-2);
+}
+
+.emotioncard__chev {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-2);
+}
+
+.emotioncard__hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+}
+
 /* まとまりのチップの組（fieldset の既定の枠・余白を消す） */
 .emotions__chips {
   min-inline-size: 0;

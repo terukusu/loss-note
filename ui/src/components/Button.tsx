@@ -156,6 +156,8 @@ export function RowLink(p: RowLinkProps) {
 /** チップ: 角の丸い面（押せるときは a。関係する言葉の札など） */
 export function Chip(p: {
   readonly href?: string;
+  /** リンクのチップの行き先を押した時点で決め直す（Link の hrefAtClick。#188） */
+  readonly hrefAtClick?: () => string;
   readonly selected?: boolean;
   /**
    * 押す形（#156。心理のタグなど、選ぶ・外すチップ）: button と aria-pressed。選ぶと面 + アクセントの輪 + ✓（✓ は読み上げから
@@ -185,7 +187,7 @@ export function Chip(p: {
         {p.children}
       </a>
     ) : (
-      <Link href={p.href} class={cls}>
+      <Link href={p.href} class={cls} {...(p.hrefAtClick ? { hrefAtClick: p.hrefAtClick } : {})}>
         {p.children}
       </Link>
     );

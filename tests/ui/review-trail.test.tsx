@@ -297,6 +297,53 @@ describe('期間の取引の画面（AC-1・AC-3・AC-4・AC-7・AC-8）', () =>
   });
 });
 
+describe('#188: 詳細の心理のチップから来た期間の取引（期間の名前・期間を選び直せる。デザインレビュー 1・2）', () => {
+  const recoup: TrailFilter = { kind: 'emotion', id: 'recoup' };
+  const view = (sel: PeriodSelection, fromTrade: boolean, onKey = noop as (k: unknown) => void) => {
+    const review = { ...slot(sel, E1, E1_HIDDEN), onKey } as ReviewSlot;
+    const model = reviewTradesModelFor(review.state, review.range, {
+      hidden: E1_HIDDEN,
+      includeImports: sel.imports,
+      filter: recoup,
+      instruments: INSTRUMENTS,
+    });
+    return expand(
+      <ReviewTradesView review={review} filter={recoup} model={model} fromTrade={fromTrade} />,
+    );
+  };
+
+  it('「3 か月」で来たら範囲の行の頭に「この取引を含む 3 か月」', () => {
+    const tree = view({ key: '3m', imports: false }, true);
+    expect(text(all(tree, hasClass('review__meta')))).toMatch(/^この取引を含む 3 か月 · /);
+  });
+
+  it('決済の日までの指定の期間で来たら「この取引までの 3 か月」と日付', () => {
+    const tree = view(
+      { key: 'custom', from: '2026-08-14', to: '2026-11-13', imports: false },
+      true,
+    );
+    expect(text(all(tree, hasClass('review__meta')))).toBe('この取引までの 3 か月 · 8/14〜11/13');
+  });
+
+  it('振り返りから来たとき（印なし）は今までどおり日付だけ', () => {
+    const tree = view(SEVEN, false);
+    expect(text(all(tree, hasClass('review__meta')))).toBe('11/13〜11/19');
+  });
+
+  it('期間の選択肢（振り返りと同じ部品）があり、選ぶと onKey に渡る', () => {
+    const keys: unknown[] = [];
+    const tree = view({ key: '3m', imports: false }, true, (k) => keys.push(k));
+    const bar = all(tree, hasClass('review__period-bar'));
+    expect(bar).toHaveLength(1);
+    const radios = all(bar, (e) => e.type === 'input' && e.props.name === 'review-period');
+    expect(radios.map((r) => r.props.value)).toEqual(['1d', '7d', '1m', '3m', 'custom']);
+    expect(radios.find((r) => r.props.checked)?.props.value).toBe('3m');
+    const one = radios.find((r) => r.props.value === '1m') as El;
+    (one.props.onChange as () => void)();
+    expect(keys).toEqual(['1m']);
+  });
+});
+
 describe('AC-9: 期間の取引を見ても書き込まない', () => {
   it('範囲を読む → 表示の形を作る → 読み直すの間、GET だけ', async () => {
     const fake = createFakeApi({ trades: [...B], instruments: INSTRUMENTS });

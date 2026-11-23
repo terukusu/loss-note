@@ -275,21 +275,18 @@ function ChartBox(
             />
           ) : null}
           <div class="field chart__tf">
-            {c?.readMark ? (
-              <div class="field__head">
-                <label class="field__label" for={`${id}-tf`}>
-                  時間足（任意）
-                </label>
+            {/* 名前の段は印の有無にかかわらず同じ形（#210）。時間足を読み終えて印が出ても select を作り直さない */}
+            <div class="field__head">
+              <label class="field__label" for={`${id}-tf`}>
+                時間足（任意）
+              </label>
+              {c?.readMark ? (
                 <span id={`${id}-tf-mark`} class="field__mark field__mark--chart">
                   <Icon name="image" class="field__markicon" />
                   {CHART_READ_MARK}
                 </span>
-              </div>
-            ) : (
-              <label class="field__label" for={`${id}-tf`}>
-                時間足（任意）
-              </label>
-            )}
+              ) : null}
+            </div>
             <select
               id={`${id}-tf`}
               {...(c?.readMark ? { 'aria-describedby': `${id}-tf-mark` } : {})}

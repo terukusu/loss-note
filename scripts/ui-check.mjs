@@ -4416,6 +4416,18 @@ async function main() {
               if (!m.bar || m.bar.h > EDIT_BAR_MAX + 0.5)
                 problems.push(`${label}: 直す画面の帯 ${m.bar?.h ?? '無し'}px > ${EDIT_BAR_MAX}px`);
             }
+            // 直す画面のチャートの 2 枠の下の端が、注意の文の上の端より上（重ならない。#208）
+            if (p.path.endsWith('/edit')) {
+              const gap = await page.evaluate(() => {
+                const grid = document.querySelector('.rcharts .rcharts__grid');
+                const note = document.querySelector('.rcharts .rcharts__notice');
+                if (!grid || !note) return null;
+                return note.getBoundingClientRect().top - grid.getBoundingClientRect().bottom;
+              });
+              if (gap === null) problems.push(`${label}: チャートの 2 枠か注意の文が無い`);
+              else if (gap < 0)
+                problems.push(`${label}: チャートの 2 枠と注意の文が ${-gap}px 重なる（#208）`);
+            }
             worstH = Math.max(worstH, m.h);
             smallTotal += m.small.length;
             const ng = m.h > 0 || m.small.length > 0 || m.clipped.length > 0 || errors.length > 0;

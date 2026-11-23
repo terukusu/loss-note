@@ -63,20 +63,19 @@ export function Segment<V extends string>(p: SegmentProps<V>) {
   const fit = p.truncate === true && p.grow !== undefined && p.grow !== null;
   return (
     <div class="field">
-      {p.mark || note || p.info ? (
-        <div class="field__head">
-          {label}
-          {p.info ?? null}
-          {p.mark ? (
-            <span id={markId} class="field__mark">
-              {p.mark}
-            </span>
-          ) : null}
-          {note}
-        </div>
-      ) : (
-        label
-      )}
+      {/* 名前の段は「i」・印・添えの有無にかかわらず同じ形（#210。NumberField と同じ直し方）。形を替えると Preact が後ろの
+          radio を作り直し、選んでいる間に印が出入りするとフォーカスが外れる。見出しを見せず何も無い段は CSS で隠す
+          （.field__head:empty） */}
+      <div class="field__head">
+        {label}
+        {p.info ?? null}
+        {p.mark ? (
+          <span id={markId} class="field__mark">
+            {p.mark}
+          </span>
+        ) : null}
+        {note}
+      </div>
       <div
         class={p.truncate ? (fit ? 'seg seg--truncate seg--fit' : 'seg seg--truncate') : 'seg'}
         role="radiogroup"

@@ -367,6 +367,18 @@
   display: none;
 }
 
+/* ── 編集の画面のチャートの 2 枠と、その下の注意（MiniCharts）。注意の共通の形 .charts__notice は段の gap を詰める負の
+   上の余白を持つが、この節は gap の無いブロックなので、そのままでは注意が 2 枠の下の 1 行ぶんに重なっていた（#208）。
+   節を縦の格子にし、注意は gap だけ離す */
+.rcharts {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.rcharts .rcharts__notice {
+  margin: 0;
+}
+
 /* ── 1 段目のチャートの枠に入った後のエントリー時・決済時の 2 枠（横に並べる） */
 .rcharts__grid {
   display: grid;

@@ -10,6 +10,7 @@
 import type { ComponentChildren } from 'preact';
 import type { AccountRecord, InstrumentRecord } from '../../../core/record';
 import type { ExitReason, TimeframeChange } from '../../../core/trade';
+import { ENTER_DONE, type EnterProps, enterChain, enterPropsOf } from '../lib/enter-chain';
 import {
   type Draft,
   type DraftAction,
@@ -171,12 +172,24 @@ function fieldHelpers(p: TradeFieldsProps) {
 export function TradeCoreFields(p: TradeFieldsProps) {
   const { d, e, set, mark } = fieldHelpers(p);
   const fx = p.currency?.fx;
+  // 決定キーの並び（#174。表の例 #1〜#3）: 銘柄 → 数量 → イン → 決済 →（為替）。オプションは数量の代わりに足す銘柄の乗数。
+  // 口座（選ぶ欄）・L / S（選ぶ欄）・時刻（日時の欄）は飛ばす。時刻の Enter はフォーカスを外すだけ（フォームを送らない）
+  const chain = enterChain([
+    'record-instrument',
+    !p.option && 'record-quantity',
+    p.option?.reading.newInstrument !== undefined && NEW_MULTIPLIER_ID,
+    'record-entry',
+    'record-exit',
+    fx !== undefined && 'record-fx',
+  ]);
+  const enter = (id: string) => enterPropsOf(chain, id);
   const quantity = (
     <NumberField
       id="record-quantity"
       label="数量"
       value={d.quantity}
       onInput={set('quantity')}
+      {...enter('record-quantity')}
       {...mark('quantity')}
       {...(e.quantity ? { error: e.quantity } : {})}
     />
@@ -189,6 +202,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
       onInput={set('instrumentName')}
       list={INSTRUMENT_LIST_ID}
       placeholder="例: 架空指数A"
+      {...enter('record-instrument')}
       {...(p.currency?.instrumentHint ? { hint: p.currency.instrumentHint } : {})}
       {...mark('instrumentName')}
       {...(e.instrumentName ? { error: e.instrumentName } : {})}
@@ -203,6 +217,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
         type="datetime-local"
         value={d.entryTime}
         onInput={set('entryTime')}
+        {...ENTER_DONE}
         {...mark('entryTime')}
         {...(e.entryTime ? { error: e.entryTime } : {})}
       />
@@ -212,6 +227,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
         type="datetime-local"
         value={d.exitTime}
         onInput={set('exitTime')}
+        {...ENTER_DONE}
         {...mark('exitTime')}
         {...(e.exitTime ? { error: e.exitTime } : {})}
       />
@@ -247,6 +263,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
                   onInput={set('instrumentMultiplier')}
                   placeholder="例: 1000"
                   describedBy={`${NEW_MULTIPLIER_ID}-what`}
+                  {...enter(NEW_MULTIPLIER_ID)}
                   {...(e.instrumentMultiplier ? { error: e.instrumentMultiplier } : {})}
                 />
               </div>
@@ -291,6 +308,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
           value={d.entryPrice}
           onInput={set('entryPrice')}
           placeholder="0.00"
+          {...enter('record-entry')}
           {...mark('entryPrice')}
           {...(e.entryPrice ? { error: e.entryPrice } : {})}
         />
@@ -301,6 +319,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
           value={d.exitPrice}
           onInput={set('exitPrice')}
           placeholder="0.00"
+          {...enter('record-exit')}
           {...mark('exitPrice')}
           {...(e.exitPrice ? { error: e.exitPrice } : {})}
         />
@@ -315,6 +334,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
             onInput={set('fxRate')}
             unit={fx.unit}
             describedBy={FX_LINE_ID}
+            {...enter('record-fx')}
             {...(e.fxRate ? { error: e.fxRate } : {})}
           />
           <p id={FX_LINE_ID} class="field__hint record__fxline">
@@ -350,6 +370,9 @@ export function LcFields(p: TradeFieldsProps) {
   const maxLossOn = o !== undefined && d.lcMaxLoss;
   // 「なし」「最大損失まで」で止まった価格の欄は薄いまま押せ、押すとその選択を外して価格を入れられる（#171）
   const lock = lcLockOf(d, o !== undefined);
+  const lossPlanAfterLc = o?.reading.lossPlanUp === true && !maxLossOn;
+  // 決定キーの並び（#172。#174 で並びの宣言にそろえた）: LC →（オプションの損失の見込み）→ 根拠が崩れる条件（完了）
+  const chain = enterChain(['record-lc', lossPlanAfterLc && 'record-loss-plan', 'record-broken']);
   return (
     <>
       <div class="lcrow">
@@ -364,8 +387,7 @@ export function LcFields(p: TradeFieldsProps) {
             ? { locked: { note: lcLockNote(lock), onUnlock: () => onUpdate(lcUnlockAction(lock)) } }
             : {})}
           hint="思惑が外れたと確認できる価格"
-          enterKeyHint="next"
-          onEnter={(el) => nextAfterLc(el)?.focus()}
+          {...enterPropsOf(chain, 'record-lc')}
           {...(e.lc ? { error: e.lc } : {})}
         />
         <button
@@ -418,8 +440,12 @@ export function LcFields(p: TradeFieldsProps) {
           <InfoTip term="maxLoss" size="sm" />
         </div>
       ) : null}
-      {o?.reading.lossPlanUp && !maxLossOn ? (
-        <LossPlanField {...p} hint={LOSS_PLAN_HINT} afterLc />
+      {lossPlanAfterLc ? (
+        <LossPlanField
+          {...p}
+          hint={LOSS_PLAN_HINT}
+          enter={enterPropsOf(chain, 'record-loss-plan')}
+        />
       ) : null}
       <TextField
         id="record-broken"
@@ -427,26 +453,20 @@ export function LcFields(p: TradeFieldsProps) {
         value={d.brokenCondition}
         onInput={set('brokenCondition')}
         placeholder="例: 押し目の安値を割ったら"
-        enterKeyHint="done"
-        onEnter={(el) => el.blur()}
+        {...enterPropsOf(chain, 'record-broken')}
         {...(e.brokenCondition ? { error: e.brokenCondition } : {})}
       />
     </>
   );
 }
 
-/**
- * LC の決定キー（次へ）の行き先: 並びの次の欄。オプションで損失の見込みの欄が間にあればその欄、無ければ根拠が崩れる条件
- * （#172 のレビュー N4。ui-guidelines 10.1「途中の欄は次へ」）
- */
-function nextAfterLc(el: HTMLInputElement): HTMLElement | null {
-  const d = el.ownerDocument;
-  return d.getElementById('record-loss-plan') ?? d.getElementById('record-broken');
-}
-
 /** LC での損失の見込み（任意。K15。口座の通貨） */
 export function LossPlanField(
-  p: TradeFieldsProps & { readonly hint?: string; readonly afterLc?: boolean },
+  p: TradeFieldsProps & {
+    readonly hint?: string;
+    /** 決定キー（置き場の並びが決める。LC の次 = 次へ、ほかの欄の最後 = 完了。#172・#174） */
+    readonly enter?: EnterProps | Record<string, never>;
+  },
 ) {
   const { d, e, set } = fieldHelpers(p);
   return (
@@ -456,14 +476,7 @@ export function LossPlanField(
       value={d.lcLossPlan}
       onInput={set('lcLossPlan')}
       unit={p.currency?.moneyUnit ?? '円'}
-      {...(p.afterLc
-        ? {
-            // LC の次（2 段目の並び）にあるときだけ、決定キーで根拠が崩れる条件へ（#172）
-            enterKeyHint: 'next' as const,
-            onEnter: (el: HTMLInputElement) =>
-              el.ownerDocument.getElementById('record-broken')?.focus(),
-          }
-        : {})}
+      {...(p.enter ?? {})}
       {...(p.hint ? { hint: p.hint } : {})}
       {...(e.lcLossPlan ? { error: e.lcLossPlan } : {})}
     />
@@ -536,6 +549,8 @@ export function TapFields(p: TradeFieldsProps) {
               label={`${FIELD_LABEL.lcAfter}（任意）`}
               value={d.lcAfter}
               onInput={set('lcAfter')}
+              // 1 つだけの並び（#174。表の例 #6）: 完了でフォーカスを外す
+              {...ENTER_DONE}
               {...(e.lcAfter ? { error: e.lcAfter } : {})}
             />
           ) : null}
@@ -558,6 +573,9 @@ export function TradeMoreBody(p: TradeFieldsProps) {
   const { d, e, set, mark, onUpdate, marks } = fieldHelpers(p);
   const unit = p.currency?.moneyUnit ?? '円';
   const note = p.currency?.moneyNote;
+  const lossPlanHere = p.option !== undefined && !p.option.reading.lossPlanUp && !d.lcMaxLoss;
+  // 決定キーの並び（#174。表の例 #4）: 損益 → 手数料 →（損失の見込み）。LC の根拠・決済の理由（選ぶ欄）は飛ばす
+  const chain = enterChain(['record-pnl', 'record-fee', lossPlanHere && 'record-loss-plan']);
   return (
     <div class="more__body">
       <div class="record__pair">
@@ -569,6 +587,7 @@ export function TradeMoreBody(p: TradeFieldsProps) {
           onInput={set('pnlYen')}
           unit={unit}
           {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
+          {...enterPropsOf(chain, 'record-pnl')}
           {...mark('pnlYen')}
           {...(e.pnlYen ? { error: e.pnlYen } : {})}
         />
@@ -579,6 +598,7 @@ export function TradeMoreBody(p: TradeFieldsProps) {
           onInput={set('feeYen')}
           unit={unit}
           {...(note ? { describedBy: MONEY_NOTE_ID } : {})}
+          {...enterPropsOf(chain, 'record-fee')}
           {...mark('feeYen')}
           {...(e.feeYen ? { error: e.feeYen } : {})}
         />
@@ -589,7 +609,9 @@ export function TradeMoreBody(p: TradeFieldsProps) {
         </p>
       ) : null}
       {/* LC での損失の見込み（K15。売りの裸で 1R が出ないときは LC の枠に出す。「最大損失まで」とは同時に持たない） */}
-      {p.option && !p.option.reading.lossPlanUp && !d.lcMaxLoss ? <LossPlanField {...p} /> : null}
+      {lossPlanHere ? (
+        <LossPlanField {...p} enter={enterPropsOf(chain, 'record-loss-plan')} />
+      ) : null}
       <Segment
         label="LC の根拠"
         value={d.lcBasis}

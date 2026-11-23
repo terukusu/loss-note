@@ -35,8 +35,10 @@ import {
   type SettingsInstrumentsViewProps,
 } from '../../ui/src/pages/SettingsInstruments';
 import { account, defaultAccount } from './helpers/accounts';
+import { checkChain } from './helpers/enter-chain';
 import { createFakeApi, type FakeOptions } from './helpers/fake-api';
 import { closedInfoTip } from './helpers/info-tip';
+import { checkSubmitGate } from './helpers/submit-gate';
 
 interface El {
   readonly type: string;
@@ -664,6 +666,25 @@ describe('口座の通貨（#47 PR-2・U30・U31）', () => {
     ).toEqual([]);
   });
 
+  it('#174: 取引のある口座は通貨が文字なので、決定キーの並びは 名前 → 資金 → 許容リスク（完了）', async () => {
+    const tree = render(
+      await ready(
+        { accounts: [defaultAccount(1_000_000), D], trades: [lockedTrade] },
+        async (c) => {
+          c.openAccount('accD');
+          c.updateAccount('currency', 'JPY');
+          await c.settled();
+        },
+      ),
+    );
+    const find = (id: string) => all(tree, (e) => e.type === 'input' && e.props.id === id)[0];
+    checkChain(find, [
+      'settings-account-name',
+      'settings-account-capital',
+      'settings-account-risk',
+    ]);
+  });
+
   it('資金の履歴は行の通貨で（USD の行は「10,000.00 USD」、通貨の無い行は円）', async () => {
     const withHistory = {
       ...D,
@@ -700,5 +721,78 @@ describe('文の中の金額は数と単位を 1 つの塊にする（#47 PR-2 �
     expect(chunks).toContain('10,000円');
     // 行の文字そのものは変わらない
     expect(text(tree)).toContain('1 回の負けは 100.00 USD まで');
+  });
+});
+
+describe('設定のシートの決定キー（#174 の例の表 #7・#8・#11）', () => {
+  const inputById = (tree: Node[]) => (id: string) =>
+    all(tree, (e) => e.type === 'input' && e.props.id === id)[0];
+  const formOf = (tree: Node[], label: string) => {
+    const f = all(tree, (e) => e.type === 'form' && e.props['aria-label'] === label)[0];
+    if (!f) throw new Error(`form が無い: ${label}`);
+    return f;
+  };
+
+  it('#7 口座: 名前 → 通貨 → 資金 → 許容リスク（完了。保存は送らない）', async () => {
+    let saved = 0;
+    for (const target of ['default', null] as const) {
+      const tree = render(await ready({}, (c) => c.openAccount(target)), {
+        onSaveAccount: () => saved++,
+      });
+      checkChain(inputById(tree), [
+        'settings-account-name',
+        'settings-account-currency',
+        'settings-account-capital',
+        'settings-account-risk',
+      ]);
+    }
+    expect(saved).toBe(0);
+  });
+
+  it('#8 銘柄: 名前 → 原資産 → 価格の通貨 → 乗数 → 数量の刻み（完了）。原資産の種類・取引の形態は飛ばす', async () => {
+    let saved = 0;
+    const tree = renderInst(await ready({}, (c) => c.openInstrument(US30.id)), {
+      onSaveInstrument: () => saved++,
+    });
+    checkChain(inputById(tree), [
+      'settings-inst-name',
+      'settings-inst-underlying',
+      'settings-inst-currency',
+      'settings-inst-multiplier',
+      'settings-inst-step',
+    ]);
+    expect(saved).toBe(0);
+  });
+
+  it('#11 キーボードの印の間は、口座・銘柄の編集のシートの暗黙の送信で保存せず、［保存］ を押したときだけ送る（#183 と同じ門）', async () => {
+    let account = 0;
+    const accTree = render(await ready({}, (c) => c.openAccount('default')), {
+      onSaveAccount: () => account++,
+    });
+    checkSubmitGate(formOf(accTree, '口座 1 を編集'), () => account);
+    let added = 0;
+    const addTree = render(await ready({}, (c) => c.openAccount(null)), {
+      onSaveAccount: () => added++,
+    });
+    checkSubmitGate(formOf(addTree, '口座を追加'), () => added);
+    let inst = 0;
+    const instTree = renderInst(await ready({}, (c) => c.openInstrument(US30.id)), {
+      onSaveInstrument: () => inst++,
+    });
+    checkSubmitGate(formOf(instTree, 'US30 を編集'), () => inst);
+  });
+
+  it('KEEP-3: 銘柄の追加（欄が 1 つ）は今のまま、欄の Enter（暗黙の送信）で ［追加］ を送る。決定キーは付けない', async () => {
+    let added = 0;
+    const tree = renderInst(await ready({}, (c) => c.openAddInstrument()), {
+      onAdd: () => added++,
+    });
+    const name = inputById(tree)('settings-new-name');
+    expect(name?.props.enterKeyHint).toBeUndefined();
+    expect(name?.props.onKeyDown).toBeUndefined();
+    (formOf(tree, '銘柄を追加').props.onSubmit as (e: { preventDefault(): void }) => void)({
+      preventDefault: noop,
+    });
+    expect(added).toBe(1);
   });
 });

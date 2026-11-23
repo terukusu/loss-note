@@ -15,7 +15,8 @@ import { Segment } from '../components/Segment';
 import { SetAddRow, SetRow, SettingsLoad, SettingsNotice } from '../components/SettingsParts';
 import { Sheet } from '../components/Sheet';
 import { TextField } from '../components/TextField';
-import { commitFocusedEntry } from '../lib/keyboard-reveal';
+import { enterChain, enterPropsOf } from '../lib/enter-chain';
+import { commitFocusedEntry, notePress, takeSubmit } from '../lib/keyboard-reveal';
 import { NavigatorContext } from '../lib/router';
 import {
   createSettingsController,
@@ -214,15 +215,30 @@ function InstrumentForm(
     <K extends InstrumentField>(field: K) =>
     (value: InstrumentDraft[K]) =>
       p.onInstrument(field, value);
+  // 決定キーの並び（#174。表の例 #8）: 名前 → 原資産 → 価格の通貨 → 乗数 → 数量の刻み（完了。保存は送らない）。
+  // 原資産の種類（select）・取引の形態（Segment）は飛ばす
+  const chain = enterChain([
+    INSTRUMENT_FIELD_ID.name,
+    INSTRUMENT_FIELD_ID.underlying,
+    INSTRUMENT_FIELD_ID.priceCurrency,
+    INSTRUMENT_FIELD_ID.multiplier,
+    INSTRUMENT_FIELD_ID.quantityStep,
+  ]);
+  const enter = (id: string) => enterPropsOf(chain, id);
   return (
     <form
       class="setform"
       noValidate
       aria-label={`${rec.name} を編集`}
+      onPointerDown={notePress}
+      onPointerUp={notePress}
+      onPointerCancel={notePress}
+      onKeyDown={notePress}
       onSubmit={(ev) => {
         ev.preventDefault();
-        // 送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183。キーボードの間は ［保存］ が本文の最後）
-        commitFocusedEntry(ev.currentTarget);
+        // キーボードの印の間は、本文の最後の ［保存］ を押したときだけ送り、欄の Enter による暗黙の送信では保存しない（記録する・
+        // 編集と同じ守り。#174・ui-guidelines 10.1）。送る前にフォーカス中の欄を外して入力（変換中の文字）を確定させる（#183）
+        if (!takeSubmit(ev.currentTarget)) return;
         p.onSaveInstrument();
       }}
     >
@@ -234,6 +250,7 @@ function InstrumentForm(
           label="名前"
           value={d.name}
           onInput={set('name')}
+          {...enter(INSTRUMENT_FIELD_ID.name)}
           hint="名前を変えると、前の名前で記録・読み取りしたときは別の銘柄として新しく追加されます。"
           {...(e.name ? { error: e.name } : {})}
         />
@@ -242,6 +259,7 @@ function InstrumentForm(
           label="原資産"
           value={d.underlying}
           onInput={set('underlying')}
+          {...enter(INSTRUMENT_FIELD_ID.underlying)}
           placeholder="任意。例: 架空指数"
           {...(e.underlying ? { error: e.underlying } : {})}
         />
@@ -274,6 +292,7 @@ function InstrumentForm(
           label="価格の通貨"
           value={d.priceCurrency}
           onInput={set('priceCurrency')}
+          {...enter(INSTRUMENT_FIELD_ID.priceCurrency)}
           placeholder="例: USD"
           hint="英字 3 文字（例: USD・JPY）。空なら未設定。為替の欄は表示されません。"
           {...(e.priceCurrency ? { error: e.priceCurrency } : {})}
@@ -284,6 +303,7 @@ function InstrumentForm(
             label="乗数"
             value={d.multiplier}
             onInput={set('multiplier')}
+            {...enter(INSTRUMENT_FIELD_ID.multiplier)}
             hint="価格 1 の動きが数量 1 あたり何倍になるか。"
             {...(e.multiplier ? { error: e.multiplier } : {})}
           />
@@ -292,6 +312,7 @@ function InstrumentForm(
             label="数量の刻み"
             value={d.quantityStep}
             onInput={set('quantityStep')}
+            {...enter(INSTRUMENT_FIELD_ID.quantityStep)}
             hint="数量の最小単位（例: 0.1）。"
             {...(e.quantityStep ? { error: e.quantityStep } : {})}
           />

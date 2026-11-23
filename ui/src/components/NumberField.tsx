@@ -97,26 +97,21 @@ export function NumberField(p: NumberFieldProps) {
   ]
     .filter(Boolean)
     .join(' ');
-  const label = (
-    <label class="field__label" for={p.id}>
-      <FieldLabelText text={p.label} />
-    </label>
-  );
   return (
     <div class={p.error ? 'field field--error' : 'field'}>
-      {p.mark || p.info ? (
-        <div class="field__head">
-          {label}
-          {p.info ?? null}
-          {p.mark ? (
-            <span id={markId} class="field__mark">
-              {p.mark}
-            </span>
-          ) : null}
-        </div>
-      ) : (
-        label
-      )}
+      {/* 名前の段は「i」・印の有無にかかわらず同じ形（#207）。形を替えると Preact が後ろの欄の要素を流用し直して input を
+          作り直し、押した直後のフォーカス（止めた欄を外す click の focus()）が外れる */}
+      <div class="field__head">
+        <label class="field__label" for={p.id}>
+          <FieldLabelText text={p.label} />
+        </label>
+        {p.info ?? null}
+        {p.mark ? (
+          <span id={markId} class="field__mark">
+            {p.mark}
+          </span>
+        ) : null}
+      </div>
       <div
         class={['numfield', p.size === 'lg' ? 'numfield--lg' : '', lock ? 'numfield--locked' : '']
           .filter(Boolean)

@@ -30,6 +30,7 @@ const EXIT_REASONS: readonly ExitReason[] = [
   'tp',
   'brokeManual',
   'fearEarly',
+  'satisfied',
   'timeout',
   'other',
 ];

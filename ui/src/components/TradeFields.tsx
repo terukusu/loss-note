@@ -125,6 +125,7 @@ export const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
   { value: 'tp', label: 'TP' },
   { value: 'brokeManual', label: '根拠が崩れたので手動で' },
   { value: 'fearEarly', label: '崩れる前に怖くなって' },
+  { value: 'satisfied', label: 'TP の前に満足して' },
   { value: 'timeout', label: '時間切れ' },
   { value: 'other', label: 'その他' },
 ];

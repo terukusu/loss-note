@@ -47,6 +47,8 @@ export type ExitReason =
   | 'tp'
   | 'brokeManual'
   | 'fearEarly'
+  /** TP の前に満足して（判定の重さにも注記にも数えない。#203） */
+  | 'satisfied'
   | 'timeout'
   | 'other';
 

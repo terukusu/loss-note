@@ -277,3 +277,28 @@ describe('gradeOf', () => {
     expect(gradeOf('win', [{ kind: 'noLc' }])).toBe('riskyWin');
   });
 });
+
+describe('#203 決済の理由「TP の前に満足して」は判定の重さにも注記にも数えない', () => {
+  it('例 2: LC を広げていて +0.4R（100.20）→ 危ない勝ち（LC を広げた）。早逃げは付かない', () => {
+    const ev = evaluated(
+      closedAtR(0.4, { lcMove: { kind: 'widened', after: 99.2 } }, { reason: 'satisfied' }),
+    );
+    expect(ev.judgment?.grade).toBe('riskyWin');
+    expect(kinds(ev)).toContain('lcWidened');
+    expect(kinds(ev)).not.toContain('earlyExit');
+  });
+
+  it('例 3: インの少し下で満足して手仕舞い −0.1R（99.95）→ A。早逃げは付かない', () => {
+    const ev = evaluated(closedAtR(-0.1, {}, { reason: 'satisfied' }));
+    expect(ev.judgment?.grade).toBe('A');
+    expect(kinds(ev)).not.toContain('earlyExit');
+  });
+
+  it('理由だけを other から satisfied に替えても判定と理由の一覧は同じ（性質）', () => {
+    for (const r of [-1.6, -1.0, -0.3, 0, 0.6, 2.0]) {
+      const other = evaluated(closedAtR(r, {}, { reason: 'other' }));
+      const sat = evaluated(closedAtR(r, {}, { reason: 'satisfied' }));
+      expect(sat.judgment, String(r)).toEqual(other.judgment);
+    }
+  });
+});

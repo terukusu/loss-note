@@ -41,7 +41,17 @@ LC_MOVES = ("none", "tightened", "widened", "cancelled")
 TIMEFRAME_CHANGES = ("none", "longer", "shorter")
 # expiry = 満期（SQ）: レッグを持つ取引だけ（C54。下の _check_legs）
 ORDER_TYPES = ("stop", "market", "limit", "unknown", "expiry")
-EXIT_REASONS = ("lc", "gapSlip", "tp", "brokeManual", "fearEarly", "timeout", "other")
+# satisfied = TP の前に満足して（#203）
+EXIT_REASONS = (
+    "lc",
+    "gapSlip",
+    "tp",
+    "brokeManual",
+    "fearEarly",
+    "satisfied",
+    "timeout",
+    "other",
+)
 GAP_SLIP = ("yes", "no", "unanswered")
 STOP_ORDER_PLACED = ("placed", "notPlaced", "unanswered")
 UNDERLYING_KINDS = ("index", "fx", "commodity", "crypto", "stock", "other")

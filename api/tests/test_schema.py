@@ -64,6 +64,19 @@ def test_defaults_when_omitted():
     assert value["exit"]["reason"] == "other"
 
 
+@pytest.mark.parametrize(
+    "reason",
+    ["lc", "gapSlip", "tp", "brokeManual", "fearEarly", "satisfied", "timeout", "other"],
+)
+def test_exit_reasons_are_accepted(reason):
+    """#203: 決済の理由の 8 つ（TP の前に満足して = satisfied を足した）を受けてそのまま保つ"""
+    body = t1()
+    body["exit"]["reason"] = reason
+    value, issues = validate_trade(body)
+    assert issues == []
+    assert value["exit"]["reason"] == reason
+
+
 def test_input_is_not_mutated():
     body = t1()
     before = copy.deepcopy(body)
@@ -99,6 +112,8 @@ INVALID = [
     # E16: 知らない項目・列挙外・数でない
     ("uid", "someone", ("", "unknownField")),
     ("exit.reason", "panic", ("exit.reason", "enum")),
+    # #203 例 6: 知らない値は今のまま 400
+    ("exit.reason", "content", ("exit.reason", "enum")),
     ("exit.price", True, ("exit.price", "type")),
     ("entries.0.quantity", "10000", ("entries[0].quantity", "type")),
     ("entries.0.quantity", 0, ("entries[0].quantity", "range")),

@@ -351,6 +351,13 @@ describe('必須の欄（AC-2・E10・E18）', () => {
     });
   });
 
+  it('#203 AC-7: 決済の理由に「TP の前に満足して」を選ぶ → 本文の exit.reason = satisfied', () => {
+    const d = applyDraft(E7, { type: 'set', field: 'exitReason', value: 'satisfied' });
+    const r = readDraft(d, NO_CAPITAL);
+    expect(r.canSave).toBe(true);
+    expect(r.body?.exit?.reason).toBe('satisfied');
+  });
+
   it('空の下書きは全部の必須が足りない（画面の並びの順）', () => {
     expect(readDraft(EMPTY_DRAFT, NO_CAPITAL).missing).toEqual([
       MISSING_LABEL.instrumentName,
@@ -613,6 +620,7 @@ describe('性質（種つき乱数の下書き。契約 R-1）', () => {
             'tp',
             'brokeManual',
             'fearEarly',
+            'satisfied',
             'timeout',
             'other',
           ] as const),

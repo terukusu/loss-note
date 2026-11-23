@@ -298,4 +298,13 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
       absent: ['lcCancelled', 'heldPastLc'],
     },
   ],
+  '37': [
+    {
+      // TP の前に満足して 100.30 で決済: +0.6R（#203。判定の重さにも注記にも数えない）
+      input: closedAtR(0.6, {}, { reason: 'satisfied' }),
+      grade: 'safeWin',
+      reasons: [],
+      absent: ['earlyExit'],
+    },
+  ],
 };

@@ -218,6 +218,7 @@ const EXIT_REASON_TEXT = {
   tp: 'TP',
   brokeManual: '根拠が崩れたので手動で',
   fearEarly: '崩れる前に怖くなって',
+  satisfied: 'TP の前に満足して',
   timeout: '時間切れ',
   other: 'その他',
 } as const;

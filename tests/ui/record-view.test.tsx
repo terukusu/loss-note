@@ -1232,6 +1232,23 @@ describe('読み取りの後（AC-4・AC-6・AC-7）', () => {
     expect(reason.props['aria-describedby']).toBe('record-exit-reason-mark');
   });
 
+  it('#203 AC-1: 決済の理由の選択肢は 8 つで、「TP の前に満足して」は「崩れる前に怖くなって」の次', () => {
+    const tree = moreView(stateFor(E1, NO_CAPITAL));
+    const sel = all(tree, (e) => e.type === 'select' && e.props.id === 'record-exit-reason');
+    expect(sel).toHaveLength(1);
+    const opts = all(sel, (e) => e.type === 'option') as El[];
+    expect(opts.map((o) => [o.props.value, text(o)])).toEqual([
+      ['lc', 'LC（根拠が崩れる条件に達した）'],
+      ['gapSlip', '窓・滑り'],
+      ['tp', 'TP'],
+      ['brokeManual', '根拠が崩れたので手動で'],
+      ['fearEarly', '崩れる前に怖くなって'],
+      ['satisfied', 'TP の前に満足して'],
+      ['timeout', '時間切れ'],
+      ['other', 'その他'],
+    ]);
+  });
+
   /** Z1 の行（時間帯の無い決済の時刻 2026-11-10 10:30。架空の値） */
   const Z1_ROW = { ...ROW_E9 };
   const tzState = (over: Partial<TzState> = {}): TzState => ({

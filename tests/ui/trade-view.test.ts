@@ -296,6 +296,12 @@ describe('recordFields（詳細の記録した欄）', () => {
     expect(labels).not.toContain('LC を動かしたか');
   });
 
+  it('#203 AC-6: 決済の理由が satisfied → 「TP の前に満足して」', () => {
+    const t = stored('sat1', { exit: { ...L1.record.exit, reason: 'satisfied' } });
+    const f = Object.fromEntries(recordFields(t, 'X').map((r) => [r.label, r.value]));
+    expect(f.決済の理由).toBe('TP の前に満足して');
+  });
+
   it('#56 AC-1・E9: S で LC を広げた取引も L と同じ「広げた」（「上げた」と言わない）', () => {
     const t = stored('s1', {
       side: 'S',

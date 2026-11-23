@@ -14,6 +14,7 @@ import {
   EMOTION_EMPTY,
   EMOTION_SAVE_FAILED,
   EMOTION_TEXT,
+  EMOTION_TRAIL_HINT,
   emotionGroups,
   emotionSheetTitle,
 } from '../../ui/src/lib/emotion-tags';
@@ -271,6 +272,43 @@ describe('詳細の心理のカード（AC-8）', () => {
     expect(add.props['aria-label']).toBe('心理を変更');
     (add.props.onClick as () => void)();
     expect(opened).toEqual([{ kind: 'emotion' }]);
+  });
+
+  it('#188 AC-1（E6）: 行き先があれば、付いているタグは一覧の順の押せるチップ（リンク）で、行き先はそのタグ', () => {
+    const t: StoredTrade = { ...L1, emotionTags: ['recoup', 'wantPosition'] };
+    const asked: EmotionTagId[] = [];
+    const tree = detailTree(t, {
+      emotionHref: (id) => {
+        asked.push(id);
+        return `/review/trades?period=3m&emotion=${id}`;
+      },
+    });
+    const card = all(tree, hasClass('emotioncard'))[0] as El;
+    const links = all([card], (e) => e.type === 'a' && hasClass('chip')(e));
+    expect(links.map(text)).toEqual(['ポジりたい', '取り戻したい']);
+    expect(links.map((a) => a.props.href)).toEqual([
+      '/review/trades?period=3m&emotion=wantPosition',
+      '/review/trades?period=3m&emotion=recoup',
+    ]);
+    // AC-6: リンクだけ（押しても心理の付け外し・シートの操作はしない）
+    expect(links.every((a) => a.props.onClick === undefined)).toBe(true);
+    expect(asked).toEqual(['wantPosition', 'recoup']);
+    // 押した時点で行き先を決め直す（日付をまたいでも押した日で決める。コードレビュー 3）: 押すたびに行き先を作り直す
+    const resolve = links[1]?.props.hrefAtClick as () => string;
+    expect(resolve()).toBe('/review/trades?period=3m&emotion=recoup');
+    expect(asked).toEqual(['wantPosition', 'recoup', 'recoup']);
+    // 押せない札は出さず、添えの 1 行を出す。［変更］ は今までどおり
+    expect(all([card], hasClass('emotioncard__tag'))).toEqual([]);
+    expect(text(all([card], hasClass('emotioncard__hint')))).toBe(EMOTION_TRAIL_HINT);
+    expect(all([card], (e) => e.type === 'button' && text(e) === '変更')).toHaveLength(1);
+  });
+
+  it('#188 E10: タグが無ければ行き先があっても「＋ 心理を付ける」だけ（チップ・添えなし）', () => {
+    const tree = detailTree(L2, { emotionHref: () => '/review/trades' });
+    const card = all(tree, hasClass('emotioncard'))[0] as El;
+    expect(all([card], hasClass('chip'))).toEqual([]);
+    expect(all([card], hasClass('emotioncard__hint'))).toEqual([]);
+    expect(text(all([card], hasClass('rowlink'))[0] as El)).toContain(EMOTION_EMPTY);
   });
 
   it('例 #2: タグが無ければ押せる行「＋ 心理を付ける」', () => {

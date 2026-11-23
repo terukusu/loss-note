@@ -63,6 +63,7 @@ import {
   editCurrentHref,
   type ResnapshotOffer,
 } from '../lib/resnapshot';
+import { tradeEmotionHref } from '../lib/review-trades';
 import { type Navigator, NavigatorContext } from '../lib/router';
 import { screenLabel, titleOf } from '../lib/routes';
 import { browserCodec } from '../lib/statement-image';
@@ -173,6 +174,11 @@ function TradeDetailScreen({
       onSheet={onSheet}
       {...(emotionState ? { emotion: emotionState } : {})}
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
+      {...(state.phase === 'ready'
+        ? {
+            emotionHref: (tag: EmotionTagId) => tradeEmotionHref(state.trade, tag, Date.now()),
+          }
+        : {})}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       editDraft={kept.has(editKey(id))}
@@ -230,6 +236,8 @@ export interface TradeDetailViewProps {
   /** 心理のタグの付け外し（#156。省けばシートの中身を出さない） */
   readonly emotion?: EmotionState;
   readonly onEmotionToggle?: (id: EmotionTagId) => void;
+  /** 心理のチップの行き先（#188。同じ心理の「期間の取引」。省けばチップは押せない札） */
+  readonly emotionHref?: (id: EmotionTagId) => string;
 }
 
 /** 「…」のボタンの id */
@@ -334,12 +342,13 @@ function DetailBody(p: TradeDetailViewProps) {
       {/* オプションのポジションのレッグ（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
       {t.record.legs !== undefined ? <LegTable rows={legRows(t)} /> : null}
       <ChartsView {...p} />
-      {/* 心理のタグ（#156。設計書 9.4: 付いているチップと ［＋ 追加］、無ければ「＋ 心理を付ける」。押すと同じシート）。
+      {/* 心理のタグ（#156。設計書 9.4: 付いているチップ〔押すと同じ心理の期間の取引。#188〕と ［変更］、無ければ「＋ 心理を付ける」。押すと同じシート）。
           判定のカードとチャート 2 枚を最初の画面に収める（#131 の D131）ため、チャートの下に置く */}
       <EmotionCard
         tags={normalizeEmotions(t.emotionTags)}
         error={p.sheet?.kind === 'emotion' ? null : (p.emotion?.error ?? null)}
         onOpen={() => p.onSheet?.({ kind: 'emotion' })}
+        {...(p.emotionHref ? { hrefOf: p.emotionHref } : {})}
       />
       {/* 「すべての欄」「総評」は次の画面（その場で開かない。設計書 9.2・9.3） */}
       <nav class="dlist detail__links" aria-label="この取引の記録">

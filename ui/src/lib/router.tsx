@@ -500,10 +500,15 @@ type AnchorProps = JSX.HTMLAttributes<HTMLAnchorElement> & {
   href: string;
   /** タブ（下のタブ・行き先）: 押すと push ではなく nav.tab（9.7 の 2・3。href はそのタブの根） */
   tab?: Tab;
+  /**
+   * 押した時点で行き先を決め直す（#188。「今日」で決まる行き先を、開いたまま日付をまたいだ後に押しても押した日で決める）。
+   * 無ければ href へ。新しいタブ等（横取りしない押し方）は描いたときの href のまま
+   */
+  hrefAtClick?: () => string;
 };
 
 /** アプリの中のリンク。左クリックだけを横取りして push（タブなら nav.tab）し、新しいタブ等はブラウザに任せる */
-export function Link({ href, onClick, tab, ...rest }: AnchorProps) {
+export function Link({ href, onClick, tab, hrefAtClick, ...rest }: AnchorProps) {
   const nav = useContext(NavigatorContext);
   return (
     <a
@@ -514,7 +519,7 @@ export function Link({ href, onClick, tab, ...rest }: AnchorProps) {
         if (!nav || !shouldInterceptClick(e)) return;
         e.preventDefault();
         if (tab) nav.tab(tab);
-        else nav.push(href);
+        else nav.push(hrefAtClick ? hrefAtClick() : href);
       }}
     />
   );

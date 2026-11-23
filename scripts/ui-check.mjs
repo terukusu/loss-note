@@ -4999,10 +4999,41 @@ async function main() {
             name: '心理のカード',
             trade: TX_EMO,
             after: async (pg) => {
-              await pg
-                .locator('.emotioncard .emotioncard__tag', { hasText: '調子に乗った' })
-                .waitFor();
+              // 付いているタグは押せるチップ（#188。同じ心理の期間の取引へのリンク）
+              await pg.locator('.emotioncard a.chip', { hasText: '調子に乗った' }).waitFor();
               await pg.locator('.emotioncard').scrollIntoViewIfNeeded();
+            },
+          },
+          // 心理のチップから同じ心理の「期間の取引」へ（#188）: 取引のタブに積み、上の帯は「‹ 取引の詳細」、押した取引が一覧に入る
+          {
+            path: '/trades/x-emo',
+            h1: '架空指数U · L',
+            slug: 'trade-x-emotion-trail',
+            name: '心理のチップ → 期間の取引',
+            trade: TX_EMO,
+            after: async (pg) => {
+              await pg.locator('.emotioncard a.chip', { hasText: '取り戻したい' }).click();
+              await waitReady(pg, '取り戻したい');
+              await pg.locator('.traderow').first().waitFor({ timeout: 15000 });
+              const back =
+                (await pg.locator('main .appbar__backlabel').first().textContent()) ?? '';
+              if (back.trim() !== '取引の詳細')
+                throw new Error(`戻るの名前 ${back}（期待 取引の詳細）`);
+              const mine = await pg.locator('.traderow[href="/trades/x-emo"]').count();
+              if (mine !== 1) throw new Error(`押した取引の行 ${mine}（期待 1）`);
+              const q = new URL(pg.url()).searchParams;
+              if (q.get('emotion') !== 'recoup' || q.get('via') !== 'trade')
+                throw new Error(`行き先 ${q.toString()}`);
+              // 期間が自動で決まったことを範囲の行で言い、期間の選択肢がある（#188 デザインレビュー 1・2）
+              const meta = (await pg.locator('main .review__meta').first().textContent()) ?? '';
+              if (!/^この取引(を含む|までの) 3 か月 · /.test(meta.trim()))
+                throw new Error(`範囲の行 ${meta}`);
+              await pg
+                .locator('main .review__period-bar input[name="review-period"]')
+                .first()
+                .waitFor({
+                  state: 'attached',
+                });
             },
           },
           {

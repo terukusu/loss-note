@@ -1147,3 +1147,53 @@ describe('振り返りの「期間の取引」（#185。AC-4。ui-guidelines 9.3
     expect(nav.current.search).toBe('?period=7d&view=insight');
   });
 });
+
+describe('取引の詳細の心理のチップ → 期間の取引（#188。AC-5・例 E7。ui-guidelines 9.7）', () => {
+  const LIST = '/review/trades?period=3m&emotion=recoup';
+
+  it('取引のタブ → 一覧 → 詳細 → チップ: 今のタブ（取引）に積み、前の画面は「取引の詳細」、戻ると同じ詳細', () => {
+    const b = new MarkBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.tab('trades');
+    nav.push('/trades/t1');
+    nav.push(LIST);
+    expect(b.stack).toEqual(['/', '/trades', '/trades/t1', LIST]);
+    expect(nav.current.route).toEqual({ name: 'reviewTrades' });
+    expect(nav.current.mark.tab).toBe('trades');
+    // 期間の取引の上の帯の名前は積み重ねの前の画面（ReviewTrades の backTargetOf と同じ引き方）
+    const stack = nav.current.mark.stack;
+    expect(screenLabel(stack[stack.length - 2] ?? '', PROD)).toBe('取引の詳細');
+    // 期間の取引の行から別の詳細へ進み、戻るで期間の取引・もう 1 度で元の詳細
+    nav.push('/trades/t2');
+    nav.back('/trades');
+    expect(nav.current.search).toBe('?period=3m&emotion=recoup');
+    nav.back('/review?period=3m&view=insight');
+    expect(nav.current.route).toEqual({ name: 'trade', id: 't1' });
+    expect(nav.current.mark.tab).toBe('trades');
+  });
+});
+
+describe('#185 の道からチップへ（#188 コードレビュー 4）', () => {
+  it('振り返り → 気づき → 期間の取引 → 詳細 → チップ: 振り返りのタブのまま積み、2 回戻ると最初の期間の取引', () => {
+    const INSIGHT = '/review?period=7d&view=insight';
+    const FIRST = '/review/trades?period=7d&emotion=recoup';
+    const CHIP = '/review/trades?period=3m&emotion=recoup&via=trade';
+    const b = new MarkBrowser('/');
+    const nav = createNavigator(b, PROD);
+    nav.tab('review');
+    nav.replace(INSIGHT);
+    nav.push(FIRST);
+    nav.push('/trades/t8');
+    nav.push(CHIP);
+    expect(b.stack).toEqual(['/', INSIGHT, FIRST, '/trades/t8', CHIP]);
+    expect(nav.current.mark.tab).toBe('review');
+    const stack = nav.current.mark.stack;
+    expect(screenLabel(stack[stack.length - 2] ?? '', PROD)).toBe('取引の詳細');
+    nav.back(INSIGHT);
+    expect(nav.current.route).toEqual({ name: 'trade', id: 't8' });
+    nav.back('/trades');
+    expect(nav.current.route).toEqual({ name: 'reviewTrades' });
+    expect(nav.current.search).toBe('?period=7d&emotion=recoup');
+    expect(nav.current.mark.tab).toBe('review');
+  });
+});

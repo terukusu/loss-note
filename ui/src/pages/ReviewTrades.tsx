@@ -1,5 +1,6 @@
 // 振り返りの次の画面「期間の取引」（`/review/trades?period=…&emotion=<ID>` / `&after=winStreak`。#185。設計書 9.2・9.4）。
-// 気づきの心理の行・連勝の後のカードから開く。上の帯「‹ 振り返り」（戻ると同じ期間の気づき）・題（心理の名前 / 連勝の後）→
+// 気づきの心理の行・連勝の後のカードと、取引の詳細の心理のチップ（#188。期間は自動 = 範囲の行の頭に「この取引を含む 3 か月」）から開く。
+// 上の帯「‹ 前の画面」（振り返りから = 同じ期間の気づき・詳細から = その詳細）・題（心理の名前 / 連勝の後）→ 期間の選択肢（振り返りと同じ部品）→
 // 範囲の 1 行 → 押した行と同じ値の要約（名前つき）・上限の印 → 取引の一覧と同じ行（決済の新しい順。3 行目に付いている心理。
 // 押すと詳細。詳細の戻るはこの画面）。
 // 期間の範囲の読み込みは振り返りのタブと同じ hook（useReview）、銘柄・口座の名前は直近の取引の読み込みから。
@@ -9,10 +10,13 @@ import { useContext, useMemo } from 'preact/hooks';
 import type { AccountRecord, InstrumentRecord } from '../../../core/record';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button } from '../components/Button';
+import { PeriodDates, PeriodSegment } from '../components/PeriodPicker';
 import type { ReviewSlot } from '../components/ReviewSummary';
 import { TradeRow } from '../components/TradeRow';
 import { reviewHref } from '../lib/period';
 import {
+  autoPeriodLead,
+  isFromTrade,
   parseTrail,
   type ReviewTradesModel,
   reviewTradesHref,
@@ -39,6 +43,7 @@ export function ReviewTradesPage() {
   const instruments = ready ? state.instruments : NO_INSTRUMENTS;
   const accounts = ready ? state.accounts : NO_ACCOUNTS;
   const filter = useMemo(() => parseTrail(nav?.current.search ?? ''), [nav?.current.search]);
+  const fromTrade = isFromTrade(nav?.current.search ?? '');
   const review = useReview(
     instruments,
     hidden,
@@ -61,6 +66,7 @@ export function ReviewTradesPage() {
       review={review}
       filter={filter}
       model={model}
+      fromTrade={fromTrade}
       back={backTargetOf(nav, reviewHref(review.selection, 'insight'))}
     />
   );
@@ -72,6 +78,8 @@ export interface ReviewTradesViewProps {
   /** 表示の形（読み込み中・期間の誤り・範囲の食い違いは null） */
   readonly model: ReviewTradesModel | null;
   readonly back?: BackTarget;
+  /** 取引の詳細の心理のチップから来た（期間を自動で決めた。範囲の行の頭に名前を添える。#188） */
+  readonly fromTrade?: boolean;
 }
 
 /** 期間の取引（hook を持たない）: 範囲の 1 行・要約・行。読み込み中・失敗・該当なしは短い文 */
@@ -81,6 +89,7 @@ export function ReviewTradesView(p: ReviewTradesViewProps) {
   const back: BackTarget = p.back ?? { label: '振り返り', href: insightHref };
   const m = p.model;
   const s = r.state;
+  const lead = autoPeriodLead(r.selection, p.fromTrade ?? false);
   let body: JSX.Element;
   if (!r.range.ok) body = <p class="review__note">{r.range.error}</p>;
   else if (s.phase === 'failed') {
@@ -125,9 +134,19 @@ export function ReviewTradesView(p: ReviewTradesViewProps) {
     <>
       <TopBar back={back} title={m?.title ?? trailTitle(p.filter)} />
       <div class="review review--trail">
+        {/* 期間を選び直せる（振り返りのタブと同じ部品。#188 デザインレビュー 2）。選ぶと同じ絞り方のまま URL を置き換える */}
+        <div class="review__period-bar">
+          <PeriodSegment
+            selection={r.selection}
+            range={r.range}
+            onKey={r.onKey}
+            onDates={r.onDates}
+          />
+        </div>
+        <PeriodDates selection={r.selection} range={r.range} onKey={r.onKey} onDates={r.onDates} />
         {r.range.ok ? (
           <div class="review__trailhead" aria-live="polite">
-            <p class="review__meta">{r.range.label}</p>
+            <p class="review__meta">{lead ? `${lead} · ${r.range.label}` : r.range.label}</p>
             {m && m.summaryParts.length > 0 ? (
               <p class="review__trailsum">
                 {m.summaryParts.map((part) => (

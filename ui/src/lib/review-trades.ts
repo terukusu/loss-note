@@ -1,5 +1,5 @@
 // 振り返りの次の画面「期間の取引」（`/review/trades?period=…&emotion=<ID>` / `&after=winStreak`。#185。設計書 9.2・9.4）の
-// 絞り方の URL と表示の形。DOM・通信に触れない。
+// 絞り方の URL と表示の形。取引の詳細の心理のチップの行き先（tradeEmotionHref。#188）もここ。DOM・通信に触れない。
 // 対象は気づき（insight-view.ts）と同じ: 消した印を外し、範囲の外を落とし、取り込みは切り替えに従う。心理は気づきの行に数えた取引
 // （そのタグが付いた取引）、連勝の後は core の afterWinStreak の取引。並びは取引の一覧と同じ（決済の新しい順）。
 // 要約は気づきの行・連勝の後のカードと同じ文（summaryOf）。URL の心理は一覧（C55）の ID だけを通す（知らない値は「該当なし」）
@@ -19,7 +19,7 @@ import {
   STREAK_TITLE,
   summaryOf,
 } from './insight-view';
-import { type PeriodRange, type PeriodSelection, periodSearch } from './period';
+import { type PeriodRange, type PeriodSelection, periodAround, periodSearch } from './period';
 import type { ReviewState } from './review-controller';
 import { TRUNCATED } from './review-view';
 import { sortTrades, type TradeRow, tradeRow } from './trade-view';
@@ -44,12 +44,53 @@ export function parseTrail(search: string): TrailFilter | null {
   return q.get('after') === AFTER_WIN_STREAK ? { kind: 'winStreak' } : null;
 }
 
-/** 選んだ期間 + 絞り方 → 期間の取引の URL（期間の検索部分は振り返りのタブと同じ。parsePeriod・parseTrail と往復で同じ） */
-export function reviewTradesHref(sel: PeriodSelection, filter: TrailFilter): string {
+/** 取引の詳細から来た印の鍵と値（`&via=trade`。期間は自動で決めたと範囲の行で言う。#188） */
+const VIA = 'via';
+const VIA_TRADE = 'trade';
+
+/**
+ * 選んだ期間 + 絞り方 → 期間の取引の URL（期間の検索部分は振り返りのタブと同じ。parsePeriod・parseTrail と往復で同じ）。
+ * fromTrade = 取引の詳細の心理のチップから（期間は periodAround で自動。`&via=trade`）。期間を選び直すと印は外れる
+ */
+export function reviewTradesHref(
+  sel: PeriodSelection,
+  filter: TrailFilter,
+  opts: { readonly fromTrade?: boolean } = {},
+): string {
   const q = new URLSearchParams(periodSearch(sel).slice(1));
   if (filter.kind === 'emotion') q.set('emotion', filter.id);
   else q.set('after', AFTER_WIN_STREAK);
+  if (opts.fromTrade) q.set(VIA, VIA_TRADE);
   return `/review/trades?${q.toString()}`;
+}
+
+/** URL の検索部分 → 取引の詳細から来た（期間を自動で決めた）か */
+export function isFromTrade(search: string): boolean {
+  return new URLSearchParams(search).get(VIA) === VIA_TRADE;
+}
+
+/**
+ * 範囲の行の頭に添える期間の名前（#188。取引の詳細から来て期間を自動で決めたときだけ。ほかは null = 日付だけ）:
+ * 「3 か月」なら「この取引を含む 3 か月」、決済の日までの指定の期間なら「この取引までの 3 か月」
+ */
+export function autoPeriodLead(sel: PeriodSelection, fromTrade: boolean): string | null {
+  if (!fromTrade) return null;
+  if (sel.key === '3m') return 'この取引を含む 3 か月';
+  if (sel.key === 'custom') return 'この取引までの 3 か月';
+  return null;
+}
+
+/**
+ * 取引の詳細の心理のチップの行き先（#188。設計書 9.4）: その心理で絞った期間の取引。期間は決済の日を含む 3 か月（periodAround）、
+ * 取り込んだ取引なら取り込みを含める（押した取引が一覧に入る）
+ */
+export function tradeEmotionHref(trade: StoredTrade, id: EmotionTagId, now: number): string {
+  const imports = trade.record.source === 'import';
+  return reviewTradesHref(
+    periodAround(trade.record.exit.time, now, imports),
+    { kind: 'emotion', id },
+    { fromTrade: true },
+  );
 }
 
 /** 絞り方の題（心理の名前・「連勝の後」。知らない絞り方は「期間の取引」） */

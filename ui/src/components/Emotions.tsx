@@ -2,7 +2,8 @@
 // - EmotionSheetBody: 保存の後のシート「記録しました」と詳細のシート「心理」の中身。上に判定（保存の後だけ。1 件は判定の
 //   理由の先頭の 1 行も）、まとまりの見出し（「i」で一言の並び）の下に押す形のチップ（aria-pressed）、失敗の文言、下に貼り付く
 //   ［あとで］ / ［完了］。良い状態（平常心）はほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）
-// - EmotionCard: 詳細の「心理」のカード（付いているタグの輪郭の札 + ［変更］。無ければ押せる行「＋ 心理を付ける」）
+// - EmotionCard: 詳細の「心理」のカード（付いているタグ + ［変更］。無ければ押せる行「＋ 心理を付ける」）。タグは行き先
+//   （hrefOf）があれば押せるチップ（同じ心理の「期間の取引」へ。#188）、無ければ押せない輪郭の札
 // 色はどのタグにも付けない（C34）。名前・一言は固定の文字（ID から引く）をテキストのノードで入れる
 import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { EmotionState } from '../lib/emotion-controller';
@@ -15,12 +16,14 @@ import {
   EMOTION_EMPTY,
   EMOTION_HEADING,
   EMOTION_HINT,
+  EMOTION_TRAIL_HINT,
   emotionGroups,
   emotionNames,
   type SavedVerdict,
 } from '../lib/emotion-tags';
 import { formatR } from '../lib/format';
 import { Button, Chip, RowLink } from './Button';
+import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
 import { JudgeBadge } from './JudgeBadge';
 import '../styles/emotions.css';
@@ -124,12 +127,18 @@ export interface EmotionCardProps {
   /** シートを閉じた後の失敗（シートの外に出す。閉じている間だけ） */
   readonly error?: string | null;
   readonly onOpen: () => void;
+  /**
+   * タグの行き先（#188。同じ心理の「期間の取引」）。あれば付いているタグを押せるチップ（リンク）で並べる。省けば押せない札。
+   * 行き先は今日で決まるので、描くときと押したときの 2 回呼ぶ（押した日で決める）
+   */
+  readonly hrefOf?: (id: EmotionTagId) => string;
 }
 
 export const EMOTION_CARD_TITLE_ID = 'detail-emotion-title';
 
 export function EmotionCard(p: EmotionCardProps) {
   const names = emotionNames(p.tags);
+  const hrefOf = p.hrefOf;
   return (
     <section class="card emotioncard" aria-labelledby={EMOTION_CARD_TITLE_ID}>
       <div class="emotioncard__head">
@@ -142,7 +151,22 @@ export function EmotionCard(p: EmotionCardProps) {
           </Button>
         ) : null}
       </div>
-      {names.length > 0 ? (
+      {names.length > 0 && hrefOf !== undefined ? (
+        // 押せるチップ（#188。同じ心理の「期間の取引」へ進むリンク。右の › で次の画面へ進むことを示す。ui-guidelines 9.12）
+        <>
+          <ul class="emotioncard__tags">
+            {p.tags.map((id, i) => (
+              <li key={id} class="emotioncard__item">
+                <Chip href={hrefOf(id)} hrefAtClick={() => hrefOf(id)}>
+                  <span>{names[i]}</span>
+                  <Icon name="chevron" class="emotioncard__chev" />
+                </Chip>
+              </li>
+            ))}
+          </ul>
+          <p class="emotioncard__hint">{EMOTION_TRAIL_HINT}</p>
+        </>
+      ) : names.length > 0 ? (
         // 押せない札（シートの押せるチップと見分ける輪郭の形。判定のカードの答えの札と同じ考え）
         <ul class="emotioncard__tags">
           {names.map((n) => (

@@ -99,6 +99,8 @@ export const EMOTION_CARD_TITLE = '心理';
 export const EMOTION_CHANGE = '変更';
 export const EMOTION_CHANGE_LABEL = '心理を変更';
 export const EMOTION_EMPTY = '＋ 心理を付ける';
+/** 詳細の心理のカードの押せるチップの添え（#188。期間は行き先の範囲の行が言う。古い取引は「今日から」でないため、ここでは言わない） */
+export const EMOTION_TRAIL_HINT = '押すと、同じ心理の取引を見られます';
 
 /** 下の帯のボタンの文字: 保存の後で何も付いていなければ ［あとで］、ほかは ［完了］。どちらも閉じるだけ（R5） */
 export function closeLabelOf(context: 'saved' | 'detail', count: number): 'あとで' | '完了' {

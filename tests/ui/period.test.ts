@@ -10,6 +10,7 @@ import {
   PERIOD_LABEL,
   type PeriodSelection,
   parsePeriod,
+  periodAround,
   periodRange,
   periodSearch,
   reviewHref,
@@ -238,5 +239,72 @@ describe('振り返りのタブとホームの今月（#128。設計書 9.2・ui
     expect(reviewHref(sel)).toBe('/review?period=custom&from=2026-11-01&to=2026-11-19');
     expect(reviewTableHref(sel)).toBe('/review/table?period=custom&from=2026-11-01&to=2026-11-19');
     expect(parsePeriod(reviewTableHref(sel).slice('/review/table'.length))).toEqual(sel);
+  });
+});
+
+describe('取引の決済の日を含む 3 か月（Issue #188 の R2・AC-2。例 E1〜E4）', () => {
+  /** 今日 = 2026-11-23 12:00（ローカル）。今日の「3 か月」= 2026-08-24〜2026-11-23 */
+  const TODAY = at(2026, 11, 23, 12);
+
+  it('E1: 今日の 3 か月の中の決済は「3 か月」', () => {
+    expect(periodAround(at(2026, 11, 20, 14), TODAY, false)).toEqual({ key: '3m', imports: false });
+  });
+
+  it('E2: 3 か月の最初の日の 0 時ちょうどは「3 か月」（開始を含む）', () => {
+    expect(periodAround(at(2026, 8, 24), TODAY, false)).toEqual({ key: '3m', imports: false });
+  });
+
+  it('E3: その 1 分前は決済の日までの 3 か月（2026-05-24〜2026-08-23）', () => {
+    expect(periodAround(at(2026, 8, 23, 23, 59), TODAY, false)).toEqual({
+      key: 'custom',
+      from: '2026-05-24',
+      to: '2026-08-23',
+      imports: false,
+    });
+  });
+
+  it('E4: 3 か月前に同じ日が無い（2 月 31 日）は末日の翌日から（2026-03-01〜2026-05-31）', () => {
+    expect(periodAround(at(2026, 5, 31, 10), TODAY, false)).toEqual({
+      key: 'custom',
+      from: '2026-03-01',
+      to: '2026-05-31',
+      imports: false,
+    });
+  });
+
+  it('今日より後の決済（端末の時計のずれ）も、決済の日までの 3 か月で取引を含む', () => {
+    const exit = at(2026, 11, 24, 9);
+    const s = periodAround(exit, TODAY, true);
+    expect(s).toEqual({ key: 'custom', from: '2026-08-25', to: '2026-11-24', imports: true });
+    expect(inRange(exit, ok(s, TODAY))).toBe(true);
+  });
+
+  it('取り込みの切り替えは引数のまま', () => {
+    expect(periodAround(at(2026, 11, 20), TODAY, true)).toEqual({ key: '3m', imports: true });
+  });
+
+  it('性質: どの決済・今日でも、選んだ期間は読める範囲（366 日まで）で決済の時刻を含み、URL と往復で同じ', () => {
+    forAll(
+      188,
+      500,
+      (r) => ({
+        now: new Date(r.int(2020, 2030), r.int(0, 11), r.int(1, 31), r.int(0, 23)).getTime(),
+        exit: new Date(
+          r.int(2019, 2030),
+          r.int(0, 11),
+          r.int(1, 31),
+          r.int(0, 23),
+          r.int(0, 59),
+        ).getTime(),
+        imports: r.int(0, 1) === 1,
+      }),
+      ({ now, exit, imports }) => {
+        const s = periodAround(exit, now, imports);
+        const range = ok(s, now);
+        expect(inRange(exit, range)).toBe(true);
+        expect(range.days).toBeLessThanOrEqual(366);
+        expect(parsePeriod(periodSearch(s))).toEqual(s);
+      },
+    );
   });
 });

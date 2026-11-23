@@ -683,20 +683,17 @@ export function TradeMoreBody(p: TradeFieldsProps) {
         ]}
       />
       <div class="field">
-        {marks.exitReason ? (
-          <div class="field__head">
-            <label class="field__label" for="record-exit-reason">
-              決済の理由
-            </label>
-            <span id="record-exit-reason-mark" class="field__mark">
-              {MARK_LABEL[marks.exitReason]}
-            </span>
-          </div>
-        ) : (
+        {/* 名前の段は印の有無にかかわらず同じ形（#210） */}
+        <div class="field__head">
           <label class="field__label" for="record-exit-reason">
             決済の理由
           </label>
-        )}
+          {marks.exitReason ? (
+            <span id="record-exit-reason-mark" class="field__mark">
+              {MARK_LABEL[marks.exitReason]}
+            </span>
+          ) : null}
+        </div>
         <select
           id="record-exit-reason"
           class="select"

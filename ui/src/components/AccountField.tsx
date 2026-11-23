@@ -62,11 +62,6 @@ export function AccountField(p: AccountFieldProps) {
     );
   }
   const markId = `${ACCOUNT_FIELD_ID}-mark`;
-  const label = (
-    <label class="field__label" for={ACCOUNT_FIELD_ID}>
-      口座
-    </label>
-  );
   const describedBy =
     [
       p.mark ? markId : null,
@@ -77,16 +72,18 @@ export function AccountField(p: AccountFieldProps) {
       .join(' ') || undefined;
   return (
     <div class="field accountfield" id={`${ACCOUNT_FIELD_ID}-field`}>
-      {p.mark ? (
-        <div class="field__head">
-          {label}
+      {/* 名前の段は印の有無にかかわらず同じ形（#210。NumberField と同じ直し方）。形を替えると Preact が後ろの select を
+          作り直し、「自動で選択」が出入りしたときにフォーカスが外れる */}
+      <div class="field__head">
+        <label class="field__label" for={ACCOUNT_FIELD_ID}>
+          口座
+        </label>
+        {p.mark ? (
           <span id={markId} class="field__mark">
             {p.mark}
           </span>
-        </div>
-      ) : (
-        label
-      )}
+        ) : null}
+      </div>
       <select
         id={ACCOUNT_FIELD_ID}
         class="select"

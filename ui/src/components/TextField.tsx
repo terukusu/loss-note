@@ -34,23 +34,20 @@ export function TextField(p: TextFieldProps) {
   const describedBy = [p.mark ? markId : '', p.hint ? hintId : '', p.error ? errorId : '']
     .filter(Boolean)
     .join(' ');
-  const label = (
-    <label class="field__label" for={p.id}>
-      <FieldLabelText text={p.label} />
-    </label>
-  );
   return (
     <div class={p.error ? 'field field--error' : 'field'}>
-      {p.mark ? (
-        <div class="field__head">
-          {label}
+      {/* 名前の段は印の有無にかかわらず同じ形（#210。NumberField と同じ直し方）。形を替えると Preact が後ろの input を
+          作り直し、打っている間に印が出入りするとフォーカスが外れる */}
+      <div class="field__head">
+        <label class="field__label" for={p.id}>
+          <FieldLabelText text={p.label} />
+        </label>
+        {p.mark ? (
           <span id={markId} class="field__mark">
             {p.mark}
           </span>
-        </div>
-      ) : (
-        label
-      )}
+        ) : null}
+      </div>
       <div class="numfield textfield">
         <input
           id={p.id}

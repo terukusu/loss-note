@@ -475,16 +475,33 @@ export function chartRow(c: {
 /**
  * 2 段目の明細の行の状態の文（#166。設計書 7.5・ui-guidelines 9.4 の状態 2）: 読み取り中 → 「読み取り中…」、読めた → 完了の文
  * （前半は 1 段目の明細の枠と同じ件数の言い方。要約が名指す欄が 1 つ以上なら「 · 入力が必要な欄 n」）、キャンセル →
- * 「読み取りをキャンセルしました」、ほか（失敗 = 決まった文言の警告・次の行の知らせ・手入力）→ null。完了の文は読めた
- * 最初の行で知らせ（「1 / 2 行目を記録しました…」など）が無い間だけ（R4・R5。次の行へ進んだら知らせに替わる）。
- * 名指す欄の数は今の要約から数える（欄を埋めると減り、0 で後ろが外れる）
+ * 「読み取りをキャンセルしました」、明細の知らせ（「1 / 2 行目を記録しました。次の行（2 / 2）です」・スキップ・ポジションを
+ * 分けた / まとめた）→ その文（kind = notice。#180: 完了の文と同じ名前の上の 1 行・同じ読み上げの領域に寄せる）、ほか
+ * （失敗 = 決まった文言の警告・手入力）→ null。完了の文は読めた最初の行で知らせが無い間だけ（R4・R5。次の行へ進んだら
+ * 知らせに替わる）。名指す欄の数は今の要約から数える（欄を埋めると減り、0 で後ろが外れる）
  */
 export type StatementStatus = {
-  readonly kind: 'reading' | 'done' | 'cancelled';
+  readonly kind: 'reading' | 'done' | 'cancelled' | 'notice';
   readonly text: string;
   /** 完了の文の「入力が必要な欄」の数（kind = done のとき。1 以上なら印をチェックでなく中立の「!」にする。#166 のデザインレビュー 2） */
   readonly need?: number;
 } | null;
+
+/**
+ * 知らせの文を「。」の後ろで文ごとに分ける（#180。画面は文の中で折らず文の間で折る = 「次の行（2 / 2）です」を「（2 /」で
+ * 切らない）。つなげると元の文に戻る
+ */
+export function sentencesOf(text: string): readonly string[] {
+  // 後読みの正規表現を使わない（対象の外の古い Safari で画面のスクリプト全体が構文の誤りになる。#180 のコードレビュー 3）
+  const out: string[] = [];
+  let from = 0;
+  for (let i = text.indexOf('。'); i >= 0; i = text.indexOf('。', from)) {
+    out.push(text.slice(from, i + 1));
+    from = i + 1;
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
 
 export const READ_CANCELLED = '読み取りをキャンセルしました';
 /** 別の明細の読み直しの途中の文（#184。キャンセル・失敗で前の明細に戻る） */
@@ -527,7 +544,9 @@ export function statementStatus(
   if (st.reverted) {
     return st.reverted.kind === 'cancelled' ? { kind: 'cancelled', text: READ_CANCELLED } : null;
   }
-  if (st.phase !== 'ready' || st.index !== 0 || st.notice !== null) return null;
+  if (st.phase !== 'ready') return null;
+  if (st.notice !== null) return { kind: 'notice', text: st.notice };
+  if (st.index !== 0) return null;
   const s1 = stage1Statement(st);
   if (s1.kind !== 'filled') return null;
   return {

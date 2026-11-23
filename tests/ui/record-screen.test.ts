@@ -1,6 +1,12 @@
 // 記録する画面の 1 画面の形の純関数（#130。lib/record-screen.ts）。値はすべて架空
 import { describe, expect, it } from 'vitest';
 import { EMPTY_LEG } from '../../ui/src/lib/legs-form';
+import {
+  POSITION_MERGED,
+  POSITION_SPLIT,
+  rowSaved,
+  rowSkipped,
+} from '../../ui/src/lib/record-controller';
 import { EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
 import {
   chartRow,
@@ -12,6 +18,7 @@ import {
   REVERTED_TAIL,
   readFinished,
   revertedMessage,
+  sentencesOf,
   showProceed,
   stage1Statement,
   stageOf,
@@ -392,15 +399,95 @@ describe('2 段目の明細の行の状態の文（#166 R1・R4・R5。例は Is
       );
     }
   });
-  it('#14: 次の行へ進んで知らせが出ている・2 行目以降 → 出さない（知らせと 2 つ並べない。R5）', () => {
+  it('#14: 次の行へ進んで知らせが出ている → 完了の文の代わりに知らせ（同じ 1 行。2 つ並べない。R5・#180 の R1）', () => {
     expect(
       statementStatus(
         ready(2, { index: 1, notice: '1 / 2 行目を記録しました。次の行（2 / 2）です' }),
         0,
       ),
-    ).toBeNull();
+    ).toEqual({ kind: 'notice', text: '1 / 2 行目を記録しました。次の行（2 / 2）です' });
+    // 知らせの無い 2 行目以降は出さない
     expect(statementStatus(ready(2, { index: 1 }), 0)).toBeNull();
-    expect(statementStatus(ready(2, { notice: 'まとめました' }), 0)).toBeNull();
+  });
+});
+
+describe('次の行の知らせを名前の上の 1 行へ（#180 の例 #1〜#4）', () => {
+  const ready = (rows: number, index: number, notice: string | null) => ({
+    phase: 'ready' as const,
+    rows: Array.from({ length: rows }, (_, i) => i),
+    index,
+    notice,
+  });
+  it('#1〜#4: 記録した・スキップした・ポジションを分けた / まとめた → その文（入力が必要な欄の数は足さない）', () => {
+    const cases: [number, number, string][] = [
+      [2, 1, rowSaved(0, 2)],
+      [3, 1, rowSaved(0, 3)],
+      [3, 2, rowSaved(1, 3)],
+      [2, 1, rowSkipped(0, 2)],
+      [3, 1, rowSaved(0, 3, '件目')],
+      [3, 0, POSITION_SPLIT(2, 3)],
+      [2, 0, POSITION_MERGED(2)],
+    ];
+    for (const [rows, index, notice] of cases) {
+      expect(statementStatus(ready(rows, index, notice), 3)).toEqual({
+        kind: 'notice',
+        text: notice,
+      });
+    }
+    expect(rowSaved(0, 2)).toBe('1 / 2 行目を記録しました。次の行（2 / 2）です');
+    expect(rowSaved(1, 3)).toBe('2 / 3 行目を記録しました。次の行（3 / 3）です');
+    expect(rowSkipped(0, 2)).toBe('1 / 2 行目をスキップしました。次の行（2 / 2）です');
+    expect(POSITION_SPLIT(2, 3)).toBe(
+      'レッグを別のポジションにしました。次の取引（2 / 3）で記録します',
+    );
+  });
+  it('#5: 知らせの無い最初の行は完了の文のまま。キャンセル・読み取り中が先（知らせを持ったまま読み直しても「読み取り中…」）', () => {
+    expect(statementStatus(ready(2, 0, null), 0)?.kind).toBe('done');
+    expect(
+      statementStatus({ phase: 'reading', rows: [], index: 1, notice: rowSaved(0, 2) }, 0)?.kind,
+    ).toBe('reading');
+    expect(
+      statementStatus({ ...ready(2, 1, rowSaved(0, 2)), reverted: { kind: 'cancelled' } }, 0, true),
+    ).toEqual({ kind: 'cancelled', text: '読み取りをキャンセルしました' });
+  });
+  it('知らせを文ごとに分ける（画面は文の間で折る）。つなげると元の文', () => {
+    expect(sentencesOf(rowSaved(0, 2))).toEqual([
+      '1 / 2 行目を記録しました。',
+      '次の行（2 / 2）です',
+    ]);
+    expect(sentencesOf(POSITION_MERGED(2))).toEqual(['次のポジションのレッグ 2 本を入れました']);
+    for (const t of [rowSaved(1, 3), rowSkipped(0, 2), POSITION_SPLIT(2, 3), 'A。B。', '']) {
+      expect(sentencesOf(t).join('')).toBe(t);
+    }
+    // 端: 空・「。」だけ・連続・末尾の「。」・同じ文の繰り返し（空の文を作らない）
+    expect(sentencesOf('')).toEqual([]);
+    expect(sentencesOf('。')).toEqual(['。']);
+    expect(sentencesOf('A。。B')).toEqual(['A。', '。', 'B']);
+    expect(sentencesOf('A。B。')).toEqual(['A。', 'B。']);
+    expect(sentencesOf('A。A。')).toEqual(['A。', 'A。']);
+  });
+  it('画面と core のソースに後読みの正規表現が無い（古い Safari で画面のスクリプト全体が読めなくなる。#180 のコードレビュー 3）', () => {
+    const src = import.meta.glob(['../../ui/src/**/*.{ts,tsx}', '../../core/**/*.ts'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }) as Record<string, string>;
+    expect(Object.keys(src).length).toBeGreaterThan(50);
+    const hits = Object.entries(src)
+      .filter(([, body]) => /\(\?<[=!]/.test(body))
+      .map(([path]) => path);
+    expect(hits).toEqual([]);
+  });
+  it('#8: 行を見終えた（1 段目の知らせ）・失敗 → 出さない', () => {
+    expect(
+      statementStatus(
+        { phase: 'done', rows: [], index: 0, notice: '明細のすべての行を確認しました' },
+        0,
+      ),
+    ).toBeNull();
+    expect(
+      statementStatus({ phase: 'failed', rows: [], index: 0, notice: rowSaved(0, 2) }, 0),
+    ).toBeNull();
   });
   it('失敗（決まった文言の警告のまま）・行を見終えた・#15 手入力（明細なし）→ 出さない', () => {
     expect(statementStatus({ phase: 'failed', rows: [], index: 0, notice: null }, 0)).toBeNull();

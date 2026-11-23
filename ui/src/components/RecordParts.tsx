@@ -18,6 +18,7 @@ import {
   NAMED_LEAD,
   namedLabel,
   type StatementStatus,
+  sentencesOf,
   type TradeSummary,
   type VerdictLine,
 } from '../lib/record-screen';
@@ -39,7 +40,8 @@ export interface SummaryCardProps {
   readonly prefix: string;
   readonly summary: TradeSummary;
   /**
-   * 明細の行の状態の文（記録する画面だけ。完了の文・キャンセル。#166）。あれば名前の上の 1 行に出し、札「読み取り」は出さない。
+   * 明細の行の状態の文（記録する画面だけ。完了の文・キャンセル・次の行の知らせ。#166・#180）。あれば名前の上の 1 行に出し、
+   * 札「読み取り」は出さない（次の行の知らせは読み取りのことを言わないので、札を残す。#180 の R5）。
    * 読み上げは記録する画面の状態の領域が持つので、ここは見える文だけ。省けば札「読み取り」のまま（編集の画面）
    */
   readonly status?: StatementStatus | undefined;
@@ -72,7 +74,8 @@ export function SummaryCard(p: SummaryCardProps) {
         {/* 1 行目は名前と札・［編集］。2・3 行目は ［編集］ の下まで全幅（実際の桁の価格でも折り返しにくくする。#164） */}
         <div class={p.status ? 'rsum__head rsum__head--status' : 'rsum__head'}>
           {/* 名前は切らずに折り返す。札は名前の右（入らなければ下）に置き、名前を押し縮めない（#164） */}
-          {/* 状態の 1 行（記録する画面の完了の文・キャンセル。名前の上。読み取り中の「読み取り中…」と同じ場所。#166） */}
+          {/* 状態の 1 行（記録する画面の完了の文・キャンセル・次の行の知らせ。名前の上。読み取り中の「読み取り中…」と同じ場所。
+              知らせは印を付けない = 完了の文のチェックと見分ける。#166・#180） */}
           {p.status ? (
             <p class={`rsum__status rsum__status--${p.status.kind}`} aria-hidden="true">
               {p.status.kind !== 'done' ? null : (p.status.need ?? 0) > 0 ? (
@@ -83,12 +86,26 @@ export function SummaryCard(p: SummaryCardProps) {
                   <Icon name="check" />
                 </span>
               )}
-              <span>{p.status.text}</span>
+              {p.status.kind === 'notice' ? (
+                // 知らせは文ごとに折らない塊にして、文の間で折る（「（2 / 2）」の中で折らない。#180 のデザインの確かめ）
+                <span>
+                  {sentencesOf(p.status.text).map((t, i) => (
+                    // 同じ文が 2 回入っても key が重ならないよう、文の位置を添える（並びは文から決まり、入れ替わらない）
+                    <span class="rsum__sentence" key={`${i}:${t}`}>
+                      {t}
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span>{p.status.text}</span>
+              )}
             </p>
           ) : null}
           <p class="rsum__l1">
             <span class="rsum__name">{sum.name}</span>
-            {sum.read && !p.status ? <span class="field__mark rsum__mark">読み取り</span> : null}
+            {sum.read && (!p.status || p.status.kind === 'notice') ? (
+              <span class="field__mark rsum__mark">読み取り</span>
+            ) : null}
             {sum.yearInferred ? (
               <span class="field__mark field__mark--warn rsum__mark">{YEAR_INFERRED_CHIP}</span>
             ) : null}

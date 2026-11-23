@@ -210,6 +210,7 @@ const ZOOM_RECORD = [
   'record-45-read-long-name',
   'record-46-read-real-digits',
   'record-9-rows',
+  'record-8g-rows-next2',
   'record-10-read-failed',
   'record-12-charts',
   'record-15-accounts-2',
@@ -2145,7 +2146,27 @@ const RECORD_STATES = [
       await p.locator('.rsum__status--done', { hasText: '2 行を読み取りました' }).waitFor();
       await fillStatementTaps(p);
       await p.locator('#record-submit').click();
-      await p.locator('.rstmt .statement__text', { hasText: '1 / 2 行目を記録しました' }).waitFor();
+      await p.locator('.rsum__status--notice', { hasText: '1 / 2 行目を記録しました' }).waitFor();
+    },
+  },
+  {
+    // #180: 3 行の明細で 1 行目・2 行目を記録した後の 2 行目の知らせ（名前の上の 1 行）
+    slug: 'record-8g-rows-next2',
+    name: '複数行の 2 行目の後',
+    anchor: '.rstmt',
+    fn: async (p, api) => {
+      api.read = {
+        status: 200,
+        rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }, { ...READ_E1, symbol: '架空指数D' }],
+        holdMs: 0,
+      };
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('.rsum__status--done', { hasText: '3 行を読み取りました' }).waitFor();
+      for (const want of ['1 / 3 行目を記録しました', '2 / 3 行目を記録しました']) {
+        await fillStatementTaps(p);
+        await p.locator('#record-submit').click();
+        await p.locator('.rsum__status--notice', { hasText: want }).waitFor();
+      }
     },
   },
   {
@@ -7265,7 +7286,8 @@ async function runFlows(browser, base, signedIn) {
   // を入れても。#130 の「選ぶ前は 40px まで」は 1 段目が LC 以下を持たなくなったので 0px に締めた）。2 段目は LC・チャートの注意・
   // 判定の 1 行・[記録する]・3 つ目のタップ、1 段目は 2 つの注意・［スクショを選ぶ］・［明細なしで手入力］ が窓の中。
   // 読み取り中 → 読み取りの後で LC の欄の上端が動かない（流れ込むだけ）。送る前の注意は 1 段目に 3 行以下で畳まない。
-  // 360×780 は縦のスクロール 120px 以下（全長の上限 R12 の置き換え）。口座 2・3 の形も 360×780 で 120px 以下
+  // 360×780 は縦のスクロール 120px 以下（全長の上限 R12 の置き換え）。口座 2・3 の形も 360×780 で 120px 以下。
+  // 2 行の明細の 1 行目を記録した後（名前の上の 1 行の知らせが 2 行に折れる。#180）も 390×844 で 0px・360×780 で 120px 以下
   await check('R12', async () => {
     const out = [];
     // foot: 1 段目の下の端のボタン（要約が無ければ ［明細なしで手入力］、読めた後は ［振り返りへ進む］）
@@ -7388,6 +7410,28 @@ async function runFlows(browser, base, signedIn) {
         },
         ACCOUNTS_3_LONG,
       ],
+      [
+        // #180: 1 行目を記録した後の 2 行目（名前の上の 1 行の知らせが 2 行に折れる）
+        '2 行の明細・口座 3 つ・次の行の後',
+        async (p, fake) => {
+          fake.read = {
+            status: 200,
+            rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }],
+            holdMs: 0,
+          };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          // 360×780 は口座 1・2・3 の形で流す（口座 1 は Segment が無いので、完了の文を待つ）
+          await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+          await fillStatementTaps(p);
+          await p.locator('#record-submit').click();
+          await p
+            .locator('.rsum__status--notice', { hasText: '1 / 2 行目を記録しました' })
+            .waitFor({ timeout: 10000 });
+          // 次の行は明細の見出しへフォーカスを移す。測りの前に窓の上の端へ戻す
+          await p.evaluate(() => window.scrollTo(0, 0));
+        },
+        ACCOUNTS_3_LONG,
+      ],
     ];
     // 安全域 0（Chromium の 390×844）と、ホーム画面に追加した iPhone の安全域（上 47・下 34。トークン --safe-* の差し替え）の
     // 両方で測る（どちらも 0px）
@@ -7458,7 +7502,13 @@ async function runFlows(browser, base, signedIn) {
     ];
     for (const shape of shapes)
       for (const [name, fn] of states) {
-        if (!name.startsWith('1 段目') && name !== '読み取りの後' && name !== '実際の桁') continue;
+        if (
+          !name.startsWith('1 段目') &&
+          name !== '読み取りの後' &&
+          name !== '実際の桁' &&
+          name !== '2 行の明細・口座 3 つ・次の行の後'
+        )
+          continue;
         const c = await browser.newContext({
           viewport: { width: 360, height: 780 },
           storageState: signedIn,
@@ -7585,7 +7635,9 @@ async function runFlows(browser, base, signedIn) {
   // 名前の上の 1 行に出し、読み上げの領域 #record-statement-status は読み取り中から同じ要素のまま中身だけが替わる（AC-2）。
   // 読めた・失敗したときだけ明細の行に 1 回の動き（200ms 以下・繰り返さない。キャンセルは動かない。AC-3）、動きを減らす設定で
   // 時間 0（AC-4）、読み取り中に開いたシートを閉じた後も文が見えて 2 回目の動きが無い（AC-5）、次の行へ進むと知らせ 1 つだけ
-  // （AC-6）、幅 360 で #4 の文が切れず横 0（AC-7）
+  // （AC-6）、幅 360 で #4 の文が切れず横 0（AC-7）。次の行の知らせ（#180）: 記録した・スキップした後の知らせは完了の文と同じ
+  // 名前の上の 1 行に 1 つだけ（要約の下の段落なし）・同じ読み上げの領域の中身が替わる・動きは増えない・フォーカスは明細の
+  // 見出し・印「読み取り」・シートの後も残る・3 行の明細の 2 行目の後も・幅 360 で切れず横 0
   await check('RD1', async () => {
     const out = [];
     const open = async (opts = {}) => {
@@ -7765,19 +7817,116 @@ async function runFlows(browser, base, signedIn) {
         await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
         mustEq(await seen(p), '2 行を読み取りました', '#2 の見える文');
         mustEq(await statusText(p), '2 行を読み取りました', '#2 の読み上げ');
+        // #180 の AC-2: 完了の文 → 次の行の知らせの間、読み上げの領域は同じ要素のまま中身だけが替わる
+        const h = await p.$('#record-statement-status');
         await fillStatementTaps(p);
         await p.locator('#record-submit').click();
         const notice = '1 / 2 行目を記録しました。次の行（2 / 2）です';
-        await p.locator('.rstmt .statement__text', { hasText: notice }).waitFor({ timeout: 10000 });
-        mustEq(await p.locator('.rsum__status').count(), 0, '#14 の完了の文');
-        mustEq(await statusText(p), '', '#14 の読み上げの領域');
+        await p.locator('.rsum__status--notice', { hasText: notice }).waitFor({ timeout: 10000 });
+        const kept = await h.evaluate((el) => [el.isConnected, el.textContent]);
+        if (!kept[0]) throw new Error('#14: 読み上げの領域が描き直された');
+        mustEq(kept[1], notice, '#14 の読み上げ（#180 の AC-2）');
+        // 完了の文は出ず、知らせは名前の上の 1 行の 1 つだけ（要約の下の段落に出さない。#180 の AC-1）
+        mustEq(await p.locator('.rsum__status--done').count(), 0, '#14 の完了の文');
+        mustEq(await seen(p), notice, '#14 の名前の上の 1 行（#180 の AC-1）');
         mustEq(
-          await p.locator('.rstmt .statement__text', { hasText: notice }).count(),
+          await p.evaluate(
+            (t) =>
+              [...document.querySelectorAll('.rstmt *:not(.sr-only)')].filter(
+                (e) =>
+                  e.textContent === t &&
+                  ![...e.children].some((k) => k.textContent === t) &&
+                  e.getClientRects().length > 0,
+              ).length,
+            notice,
+          ),
           1,
-          '#14 の知らせ',
+          '#14 の見える知らせの数',
         );
+        mustEq(await p.locator('.rstmt [role="status"]').count(), 1, '#14 の読み上げの領域の数');
+        mustEq(await p.locator('.rsum__statusicon').count(), 0, '#14 の印（チェックを付けない）');
+        // #180 の AC-3: 動きは増えず、フォーカスは明細の見出し、名前の右に印「読み取り」
         mustEq((await flash(p)).adds, 1, '#14 の動きの回数（次の行で動かない）');
-        out.push('#2・#14 知らせ 1 つ');
+        await expectPollAsync(
+          async () =>
+            (await p.evaluate(() => document.activeElement?.id)) === 'record-statement-title',
+          '#14 の次の行のフォーカス',
+        );
+        mustEq(
+          await p.locator('.rsum__mark', { hasText: '読み取り' }).count(),
+          1,
+          '#14 の印「読み取り」',
+        );
+        // #180 の AC-5: シートを開いて閉じても残る
+        await openFields(p);
+        await closeSheets(p);
+        mustEq(await seen(p), notice, '#14 のシートの後（#180 の AC-5）');
+        out.push('#2・#14 知らせ 1 つ・同じ領域');
+      } finally {
+        await c.close();
+      }
+    }
+    // #180 の例 #2・#3: 3 行の明細で 1 行目を記録・2 行目を記録、別の明細で 1 行目をスキップ。幅 360 で切れない（AC-4）
+    {
+      const { c, p, fake } = await open({ viewport: { width: 360, height: 780 } });
+      try {
+        fake.read = {
+          status: 200,
+          rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }, { ...READ_E1, symbol: '架空指数D' }],
+          holdMs: 0,
+        };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+        for (const [i, want] of [
+          [0, '1 / 3 行目を記録しました。次の行（2 / 3）です'],
+          [1, '2 / 3 行目を記録しました。次の行（3 / 3）です'],
+        ]) {
+          await fillStatementTaps(p);
+          await p.locator('#record-submit').click();
+          await p.locator('.rsum__status--notice', { hasText: want }).waitFor({ timeout: 10000 });
+          mustEq(await seen(p), want, `#2 の ${i + 1} 行目の後`);
+          mustEq(await statusText(p), want, `#2 の ${i + 1} 行目の後の読み上げ`);
+          const m = await p.evaluate(() => {
+            const el = document.querySelector('.rsum__status--notice');
+            const span = el?.querySelector('span');
+            const r = el.getBoundingClientRect();
+            const card = el.closest('.rstmt__card').getBoundingClientRect();
+            return {
+              cut:
+                [el, span].some(
+                  (x) =>
+                    x &&
+                    (x.scrollWidth > x.clientWidth + 1 ||
+                      getComputedStyle(x).textOverflow === 'ellipsis'),
+                ) || r.right > card.right + 0.5,
+              h: document.documentElement.scrollWidth - window.innerWidth,
+            };
+          });
+          if (m.cut) throw new Error(`#2 の ${i + 1} 行目の後: 知らせが切れている`);
+          mustEq(m.h, 0, `#2 の ${i + 1} 行目の後の横スクロール（#180 の AC-4）`);
+        }
+        out.push('#180 の #2 幅 360 で切れない');
+      } finally {
+        await c.close();
+      }
+    }
+    {
+      const { c, p, fake } = await open();
+      try {
+        fake.read = {
+          status: 200,
+          rows: [READ_E1, { ...READ_E1, symbol: '架空指数C' }],
+          holdMs: 0,
+        };
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('.rsum__status--done').waitFor({ timeout: 10000 });
+        await openFields(p);
+        await p.getByRole('button', { name: 'この行をスキップ' }).click();
+        const want = '1 / 2 行目をスキップしました。次の行（2 / 2）です';
+        await p.locator('.rsum__status--notice', { hasText: want }).waitFor({ timeout: 10000 });
+        mustEq(await statusText(p), want, '#3 の読み上げ');
+        mustEq(await p.locator('.rstmt .statement__text').count(), 0, '#3 の要約の下の段落');
+        out.push('#180 の #3 スキップ');
       } finally {
         await c.close();
       }

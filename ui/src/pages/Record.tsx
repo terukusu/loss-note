@@ -482,7 +482,7 @@ export function RecordScreen() {
   }, [stage, sheet]);
 
   // 明細の 1 行を保存して次の行へ移ったら、明細の場所へフォーカスを移す
-  // （知らせ「i / N 行目を記録しました。次の行（…）です」は role="status" で読み上げる）
+  // （知らせ「i / N 行目を記録しました。次の行（…）です」は名前の上の 1 行に出し、明細の行の読み上げの領域で読み上げる。#180）
   const rowKey =
     state.phase === 'editing' && state.statement?.phase === 'ready' && state.statement.notice
       ? `${state.statement.index}:${state.statement.notice}`
@@ -1412,7 +1412,8 @@ function StatementArea(
       ? statementStatus(st, p.spokenNamed, cancelled)
       : status;
   const message = statementMessage(st);
-  const notices = <StatementNotices state={state} />;
+  // 次の行の知らせは名前の上の 1 行と上の読み上げの領域が持つ（#180）。ここは画像を受けられなかった知らせなどだけ
+  const notices = <StatementNotices state={state} rowNotice={false} />;
   return (
     <section
       class={`rstmt${p.readFlash ? ' rstmt--flash' : ''}`}
@@ -1522,8 +1523,17 @@ function summaryOf(state: RecordState): TradeSummary {
   );
 }
 
-/** 画像を受けられなかった知らせと、明細の知らせ（「1 / 3 行目を記録しました」など） */
-function StatementNotices({ state }: { readonly state: RecordState }) {
+/**
+ * 画像を受けられなかった知らせと、明細の知らせ（「1 / 3 行目を記録しました」など）。明細の知らせは 1 段目の明細の枠の下だけ
+ * （rowNotice）。2 段目は明細の行の名前の上の 1 行と常に描いた読み上げの領域に出す（#180。10.2「1 つの出来事に知らせは 1 つ」）
+ */
+function StatementNotices({
+  state,
+  rowNotice = true,
+}: {
+  readonly state: RecordState;
+  readonly rowNotice?: boolean;
+}) {
   const st = state.statement;
   return (
     <>
@@ -1532,7 +1542,7 @@ function StatementNotices({ state }: { readonly state: RecordState }) {
           {state.readBlocked}
         </p>
       ) : null}
-      {st?.notice ? (
+      {rowNotice && st?.notice ? (
         <p class="statement__text" role="status">
           {st.notice}
         </p>

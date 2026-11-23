@@ -373,6 +373,8 @@ export function LcFields(p: TradeFieldsProps) {
   const lossPlanAfterLc = o?.reading.lossPlanUp === true && !maxLossOn;
   // 決定キーの並び（#172。#174 で並びの宣言にそろえた）: LC →（オプションの損失の見込み）→ 根拠が崩れる条件（完了）
   const chain = enterChain(['record-lc', lossPlanAfterLc && 'record-loss-plan', 'record-broken']);
+  // 逆指値の未設定の切り替え（と、その意味の「i」）は LC の価格を置く計画のときだけ（C56・#165・#201）
+  const stopShown = !d.lcNone && !maxLossOn;
   return (
     <>
       <div class="lcrow">
@@ -386,6 +388,9 @@ export function LcFields(p: TradeFieldsProps) {
           {...(lock
             ? { locked: { note: lcLockNote(lock), onUnlock: () => onUpdate(lcUnlockAction(lock)) } }
             : {})}
+          // 「逆指値 未設定」の意味の「i」は切り替えの隣でなく欄の名前の横（LC の価格の欄の幅を保つ）。切り替えを出している
+          // 間だけ（「LC なし」「最大損失まで」で切り替えが隠れている間は、名前の言葉が画面に無いので出さない。#201）
+          {...(stopShown ? { info: <InfoTip term="stopNotPlaced" /> } : {})}
           hint="思惑が外れたと確認できる価格"
           {...enterPropsOf(chain, 'record-lc')}
           {...(e.lc ? { error: e.lc } : {})}
@@ -401,7 +406,7 @@ export function LcFields(p: TradeFieldsProps) {
           <span>LC なし</span>
         </button>
         {/* 逆指値を置いていなかった（任意。判定に効かない。LC の価格を置く計画のときだけ。C56・#165） */}
-        {d.lcNone || maxLossOn ? null : (
+        {!stopShown ? null : (
           // 「LC なし」（欄を止めるボタン）と形を分け、チェックの四角 + 2 行の文字にする（押す前は空の四角 = 選べる印。#165 のデザインレビュー 1・2）
           <button
             type="button"

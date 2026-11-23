@@ -10,7 +10,7 @@
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
 // LC の ［なし］ で止めた欄（#171）は手順 LN1（読み取りが終わっても「なし」のまま）・LN2（欄をタップすると外れてフォーカス）。
-// LC を動かしたかの「取消」と逆指値の未設定の切り替え（#165）は手順 LM1（1 タップずつ・判定の 1 行・選べない取消と理由の 1 行・360 の幅。--shots で 2 つの状態を撮る）。
+// LC を動かしたかの「取消」と逆指値の未設定の切り替え（#165）は手順 LM1（1 タップずつ・判定の 1 行・選べない取消と理由の 1 行・360 の幅・LC の欄の名前の「i」（#201）。--shots で 2 つの状態を撮る）。
 // 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（タイムゾーンの確認）・読み取りの失敗の状態を同じ幅とテーマで
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
 // バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
@@ -3040,6 +3040,21 @@ const RECORD_STATES = [
       await fillRecord(p, EX_E1);
       await openInfo(p, '「LC を動かしたか」の説明');
       await p.getByText('広げた（リスクが増える向き）', { exact: false }).first().waitFor();
+    },
+  },
+  {
+    // #201: LC の欄の名前の横の「i」で「逆指値 未設定」の説明（「LC なし」との違い・取消へのリンク）
+    slug: 'record-11c-info-stop',
+    name: '説明（逆指値 未設定）',
+    reopen: '「逆指値 未設定」の説明',
+    anchor: '.record__lc',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await openInfo(p, '「逆指値 未設定」の説明');
+      await p
+        .getByText('「LC なし」（LC を決めていなかった）とは違います', { exact: false })
+        .first()
+        .waitFor();
     },
   },
   {
@@ -7661,7 +7676,17 @@ async function runFlows(browser, base, signedIn) {
               '[role="radiogroup"][aria-label="LC を動かしたか"] .seg__item',
             ),
           ];
+          // 「逆指値 未設定」の「i」は欄の名前の行（#201）。名前の行の右端が LC の行の中に収まる
+          const info = document.querySelector(
+            '.record__lc .lcrow .field__head button[aria-label="「逆指値 未設定」の説明"]',
+          );
+          const rr = row?.getBoundingClientRect();
+          const hint = document.getElementById('record-lc-hint')?.getBoundingClientRect();
+          const ir = info?.closest('.info-wrap')?.getBoundingClientRect();
           return {
+            info: info ? 1 : 0,
+            infoInRow: ir && rr ? ir.left >= rr.left - 12 && ir.right <= rr.right + 12 : false,
+            hintOver: hint && rr ? Math.round(hint.right - rr.right) : 0,
             lcW: Math.round(
               document.getElementById('record-lc')?.getBoundingClientRect().width ?? 0,
             ),
@@ -7675,12 +7700,29 @@ async function runFlows(browser, base, signedIn) {
           };
         });
         expectEq(m.items, 4, `${w}: LC を動かしたかの選択肢の数`);
+        expectEq(m.info, 1, `${w}: LC の欄の名前の行の「逆指値 未設定」の「i」`);
+        if (!m.infoInRow) throw new Error(`${w}: 「i」が LC の行の外`);
+        if (m.hintOver > 0) throw new Error(`${w}: 添え書きのはみ出し ${m.hintOver}px`);
         if (m.lcW < 150) throw new Error(`${w}: LC の価格の欄の幅 ${m.lcW}px（150px 以上）`);
         if (m.rowOver !== 0) throw new Error(`${w}: LC の行のはみ出し ${m.rowOver}px`);
         if (m.pageOverX > 0) throw new Error(`${w}: 横スクロール ${m.pageOverX}px`);
         if (m.toggleH < 44) throw new Error(`${w}: 切り替えの高さ ${m.toggleH}px（44px 以上）`);
         if (m.itemClip > 1) throw new Error(`${w}: 4 択の項目の中のはみ出し ${m.itemClip}px`);
         if (m.itemH < 44) throw new Error(`${w}: 4 択の項目の高さ ${m.itemH}px`);
+        // 「LC なし」で切り替えが隠れている間は「i」も出さない・外すと戻る（#201 のレビュー N3）
+        const stopInfo = p.locator('.record__lc button[aria-label="「逆指値 未設定」の説明"]');
+        const lcNone = p.locator('.record__lc .lcrow > .lcnone');
+        await lcNone.click();
+        await expectPollAsync(
+          async () => (await stopInfo.count()) === 0,
+          `${w}: LC なしで「i」なし`,
+        );
+        expectEq(await toggle.count(), 0, `${w}: LC なしで切り替えなし`);
+        await lcNone.click();
+        await expectPollAsync(
+          async () => (await stopInfo.count()) === 1,
+          `${w}: LC なしを外すと「i」`,
+        );
         out.push(`${w}×${h} LC 欄 ${m.lcW}px・切り替え ${m.toggleW}×${m.toggleH}px`);
       } finally {
         await c.close();

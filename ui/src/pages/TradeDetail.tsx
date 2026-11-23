@@ -33,6 +33,7 @@ import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
 import {
   ACTIONS_LABEL,
   chartCaption,
+  chartCaptionParts,
   commentHref,
   commentOf,
   DELETE_LABEL,
@@ -402,7 +403,13 @@ function ChartTile(p: {
   readonly onReload: () => void;
 }) {
   const { c, view } = p;
-  const caption = chartCaption(c);
+  const parts = chartCaptionParts(c);
+  const caption = (
+    <>
+      <span>{parts.name}</span>
+      {parts.timeframe !== null ? <span class="dchart__tf">{parts.timeframe}</span> : null}
+    </>
+  );
   const extra = !isMainSlot(c.slot);
   const cls = `dchart chartview${extra ? ' chartview--extra' : ''}`;
   const tf = c.timeframe ?? '指定なし';

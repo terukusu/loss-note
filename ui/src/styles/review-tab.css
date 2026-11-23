@@ -48,14 +48,13 @@
   }
 }
 
-/* 期間の取引（#185）の行の 3 行目の心理の名前（2 行目の判定の名前・時刻を詰めない。入らなければ「…」。取引のタブの一覧には出ない） */
+/* 期間の取引（#185）の行の 3 行目の心理の名前（取引のタブの一覧には出ない）。名前の並びは切らずに折り返す（#176） */
 .review--trail .traderow__note {
   min-width: 0;
-  overflow: hidden;
   color: var(--ink-2);
   font-size: var(--fs-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* 名前つきの要約は組（「計画どおり率 0%（0 / 5）」など）の間で折り返す。1 組が幅に入らない（文字の拡大）ときは組の中で折り返す */

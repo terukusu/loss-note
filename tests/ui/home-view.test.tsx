@@ -147,18 +147,21 @@ describe('純関数: ホームの見出しの日付・今月の規律の数・�
     expect(imports.empty).toBe('今月の取引は取り込んだものだけです');
   });
 
-  it('詰めた行: 記号の段・「判定の名前 · [口座 ·] 月 / 日」（今年でない日だけ年つき）・R と「リスク 0.5%」（デザイン a4）', () => {
+  it('詰めた行: 記号の段・「判定の名前 · 月 / 日 [· 口座]」（今年でない日だけ年つき。口座は省略してよいので最後。#176）・R と「リスク 0.5%」（デザイン a4）', () => {
     const row = tradeRow(S1[2] as StoredTrade, INSTRUMENTS, []);
     const m = compactRowModel(row, REVIEW_NOW);
     expect(m.tier).toBe('break');
     expect(m.symbol).toBe('triangle');
     expect(m.gradeLabel).toBe('B 悪い損失');
     expect(m.sub).toBe('B 悪い損失 · 11/15');
+    expect(m.date).toBe('11/15');
+    expect(m.accountName).toBeNull();
     expect(m.rMissing).toBe(false);
     expect(m.rText).toBe('−1.6R');
     expect(m.riskText).toMatch(/^リスク \d+(\.\d+)?%$/);
     const withAccount = compactRowModel({ ...row, accountName: '口座 B' }, REVIEW_NOW);
-    expect(withAccount.sub).toBe('B 悪い損失 · 口座 B · 11/15');
+    expect(withAccount.sub).toBe('B 悪い損失 · 11/15 · 口座 B');
+    expect(withAccount.accountName).toBe('口座 B');
     // 今年でない日は年つき
     expect(compactRowModel(row, new Date(2027, 0, 3).getTime()).sub).toBe(
       'B 悪い損失 · 2026/11/15',

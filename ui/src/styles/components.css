@@ -2606,8 +2606,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 区切り（決済の日時・保有・口座）は 1 つの塊で、入らなければ塊ごと次の行へ。1 つの塊が行より広いとき（長い口座の名前）だけ
+   塊の中で折る（はみ出さない・切らない。#176 の LV1） */
 .detail__seg {
-  white-space: nowrap;
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* 添え書きの頭のエントリーの時刻は幅 480px 以上だけ（#58 デザインレビュー 5） */
@@ -2984,13 +2988,13 @@
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   font-size: var(--fs-sm);
   color: var(--ink-2);
-  white-space: nowrap;
   cursor: pointer;
 }
 
+/* 前の言葉は切らない（#176）。ボタンは中身の幅で、親より広いときだけ親の幅で折り返す（ui-guidelines 10.3） */
 .info__up span {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .info__up .icon {

@@ -25,6 +25,7 @@
 // 幅 360 で横スクロール 0）・TL-P2（80 行目の詳細から戻ると行の数と位置が保たれる）・TL-P3（続きの読みの失敗と
 // [再読み込み]）・TL-P4（キーで押したときのフォーカスと末尾の段の高さ）・TL-P5（5 つの状態を 360 / 1440 × ダーク /
 // ライトで測って撮る）を流す。月の区切り（Issue #132）は合成の取引 60 件で手順 TL-M1（月の見出しの数・貼り付く見出し・390×844 の撮影）、口座の名前の置き場は TL-A1。
+// いちばん長い値（Issue #176・ui-guidelines 10.3）は手順 LV1（360×780 のダークの一覧・ホーム・詳細で、省略してよい所の外の「…」0・値の切れ 0）。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
@@ -842,6 +843,89 @@ const TX_H1 = Array.from({ length: 7 }, (_, i) => {
     exit: { ...base.record.exit, time: T_1110 - i * DAY_MS },
   });
 });
+
+/**
+ * #176 LV1: いちばん長い値の取引（ui-guidelines 10.3「いちばん長い実際の桁で確かめる」）。価格は 6 桁 + 小数、銘柄は限月つきの
+ * 長い名前、口座は長い名前、金額は 7 桁、判定の名前は最長の「計画どおりの勝ち」、決済は去年の大みそか 23:59（日本時間。年つきの
+ * 日付）、追加のチャートは 40 字の一言 + 15 分足。値はすべて架空
+ */
+const FAKE_LONG = {
+  ...FAKE_US30,
+  id: 'inst-long',
+  name: '架空指数ミニ先物 2027年3月限（夜間）',
+  multiplier: 100,
+};
+const LV_EXIT = Date.UTC(2025, 11, 31, 14, 59);
+const LV_SNAP = {
+  ...SNAP,
+  instrument: { ...SNAP.instrument, multiplier: 100 },
+  capitalYen: 98765432,
+};
+const LV_NOTE = '架空の一言のメモ（上位足の高値の下で戻りを待ってから入った。指標の前で様子見た）';
+const TX_LV = [
+  exampleTrade(
+    'x-lv1',
+    1700000000051,
+    {
+      instrumentId: FAKE_LONG.id,
+      accountId: 'acc-long',
+      lc: 123000.25,
+      tp: 124567.75,
+      entries: [{ price: 123456.75, quantity: 10 }],
+      exit: { ...rulerExit(0, 124567.75, 'tp'), time: LV_EXIT },
+      statementPnlYen: 1111000,
+    },
+    { snapshot: LV_SNAP },
+  ),
+  exampleTrade(
+    'x-lv2',
+    1700000000052,
+    {
+      instrumentId: FAKE_LONG.id,
+      accountId: 'acc-long',
+      side: 'S',
+      lc: undefined,
+      lcDecidedBeforeEntry: false,
+      entries: [{ price: 123456.75, quantity: 10 }],
+      exit: { ...rulerExit(0, 124691.25), time: LV_EXIT - 60000 },
+      statementPnlYen: -1234567,
+      entryChartTimeframe: '4h',
+      exitChartTimeframe: '15m',
+      extraCharts: [{ slot: 'x1', timeframe: '15m', note: LV_NOTE }],
+    },
+    {
+      snapshot: LV_SNAP,
+      charts: Object.fromEntries(['entry', 'exit', 'x1'].map((slot) => [slot, CHART_META])),
+    },
+  ),
+  exampleTrade(
+    'x-lv3',
+    1700000000053,
+    {
+      instrumentId: FAKE_LONG.id,
+      lc: 123000.25,
+      lcMove: { kind: 'widened', after: 122876.5 },
+      entries: [{ price: 123456.75, quantity: 10 }],
+      exit: { ...rulerExit(0, 122876.5), time: LV_EXIT - 120000 },
+      statementPnlYen: -580250,
+    },
+    { snapshot: LV_SNAP },
+  ),
+];
+/**
+ * 省略してよい所（ui-guidelines 10.3 の表。tests/ui/truncation-rules.test.ts の ALLOWED のうち、名前と上の帯）。
+ * LV1 はこれ以外の要素で実際に「…」が出たら外れにする（保険の 2 つ = 下の帯の状態の文・Google のボタンも外れ）
+ */
+const CUT_ALLOWED = [
+  '.traderow__name',
+  '.traderow__account',
+  '.homerow__name',
+  '.homerow__account',
+  '.seg__note',
+  '.seg__text',
+  '.appbar__title',
+  '.appbar__backlabel',
+];
 
 /** 架空のチャートの画像（無圧縮の画素を deflate した小さな PNG。縞の色で枠を見分ける） */
 function makePng(w, h, rgb) {
@@ -5571,7 +5655,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・決めていたかの問い LD1・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・決めていたかの問い LD1・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1 / いちばん長い値 LV1',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -11859,6 +11943,120 @@ async function runFlows(browser, base, signedIn) {
       }
     }
     return `口座は 1 行目だけ・見えるものは 4 字以上・「· ·」0（見えた口座/行: ${out.join('・')}）`;
+  });
+
+  // LV1（#176。ui-guidelines 10.3「いちばん長い実際の桁で確かめる」）: いちばん長い値の取引 3 件（TX_LV）と長い名前の口座で、
+  // 360×780 のダークの一覧・ホーム・詳細（チャート 2 枚 + 40 字の一言の付属）を開き、
+  //   - 省略してよい所（CUT_ALLOWED）の外の要素で、実際に「…」が出た件数（text-overflow が ellipsis で scrollWidth > clientWidth）が 0
+  //   - 判定の名前・日時・時間足の要素（一覧の 2 行目・ホームの 2 行目・詳細の札）が箱の中に全部ある
+  //   - 横スクロール 0px・部品のはみ出し 0 件（measure）
+  // を見る。--shots なら撮る
+  await check('LV1', async () => {
+    const ctx = await browser.newContext({
+      viewport: { width: 360, height: 780 },
+      storageState: signedIn,
+      hasTouch: true,
+    });
+    await setupContext(ctx, 'dark');
+    const fake = await installFakeApi(ctx, { trades: TX_LV, accounts: [ACC_ONE, ACC_LONG] });
+    fake.instruments.push(FAKE_LONG);
+    const p = await ctx.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    const cutsOf = () =>
+      p.evaluate((allowed) => {
+        const out = [];
+        for (const el of document.querySelectorAll('main *, header *, nav *, dialog *')) {
+          const cs = getComputedStyle(el);
+          if (cs.textOverflow !== 'ellipsis' || cs.display === 'none') continue;
+          if (el.scrollWidth <= el.clientWidth + 1) continue;
+          if (allowed.some((sel) => el.matches(sel))) continue;
+          const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : el.tagName;
+          out.push(`${cls}「${(el.textContent || '').trim().slice(0, 20)}」`);
+        }
+        return out;
+      }, CUT_ALLOWED);
+    // 値の要素が自分の箱にも、切る祖先の箱にも収まる（折り返しは良い。切れ・はみ出しは外れ）
+    const valuesCut = (sel) =>
+      p.locator(sel).evaluateAll((els) =>
+        els.flatMap((el) => {
+          const bad = [];
+          const r = el.getBoundingClientRect();
+          // 隠した行（低い窓のホームの 3 件目 = display: none）は見ない
+          if (r.width === 0 && r.height === 0) return [];
+          if (el.scrollWidth > el.clientWidth + 1) bad.push('横に切れる');
+          for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+            const cs = getComputedStyle(a);
+            if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+            const b = a.getBoundingClientRect();
+            if (
+              r.left < b.left - 1 ||
+              r.right > b.right + 1 ||
+              r.top < b.top - 1 ||
+              r.bottom > b.bottom + 1
+            )
+              bad.push(`${(a.className || a.tagName).toString().split(' ')[0]} の外`);
+            break;
+          }
+          return bad.map(
+            (b) => `${el.className.split(' ')[0]}「${(el.textContent || '').trim()}」${b}`,
+          );
+        }),
+      );
+    const out = [];
+    const fails = [];
+    const look = async (what, slug, values) => {
+      const cuts = await cutsOf();
+      if (cuts.length > 0) fails.push(`${what}: 表に無い「…」${cuts.join('・')}`);
+      const vc = await valuesCut(values);
+      if (vc.length > 0) fails.push(`${what}: ${vc.join('・')}`);
+      const m = await measure(p, false, TAP);
+      if (m.h !== 0) fails.push(`${what}: 横スクロール ${m.h}px`);
+      if (m.clipped.length > 0) fails.push(`${what}: はみ出し ${m.clipped.join('・')}`);
+      if (opts.shots) {
+        await p.screenshot({ path: join(opts.shots, `360x780-dark-${slug}.png`), fullPage: true });
+      }
+      out.push(`${what} …${cuts.length}`);
+    };
+    try {
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引');
+      await p.locator('a.traderow').nth(2).waitFor();
+      const grades = await p.locator('.traderow__grade').allTextContents();
+      if (!grades.includes('計画どおりの勝ち')) throw new Error(`一覧の判定: ${grades.join('・')}`);
+      // 一覧の時刻は月の見出しの下なので「12/31 23:59」（年は見出し「2025年12月」）。いちばん長い月日 + 時刻
+      const when = await p.locator('.traderow__when').first().textContent();
+      if (!(when ?? '').includes('12/31 23:59')) throw new Error(`一覧の時刻: ${when}`);
+      await look('一覧', 'longest-trades', '.traderow__grade, .traderow__when');
+
+      await p.goto(`${base}/`);
+      await waitReady(p, 'ホーム');
+      await p.locator('a.homerow').first().waitFor();
+      await p.locator('.homerow__account').first().waitFor();
+      await look('ホーム', 'longest-home', '.homerow__grade, .homerow__date');
+
+      await p.goto(`${base}/trades/x-lv2`);
+      await waitDetail(p);
+      await p.locator('canvas.dchart__canvas').nth(2).waitFor();
+      const caps = await p.locator('.dchart__cap').allTextContents();
+      if (!caps.some((t) => t === `${LV_NOTE} · 15 分足`))
+        throw new Error(`詳細の札: ${caps.join('・')}`);
+      await look('詳細', 'longest-detail', '.dchart__cap, .dchart__tf');
+      // 札の時間足は 1 つの塊（1 行）
+      const tfLines = await p.locator('.dchart__tf').evaluateAll((els) =>
+        els.map((el) => {
+          const tops = new Set([...el.getClientRects()].map((r) => Math.round(r.top)));
+          return tops.size;
+        }),
+      );
+      if (tfLines.some((n) => n !== 1))
+        fails.push(`詳細: 時間足が塊の中で折れる ${tfLines.join(',')}`);
+      if (errors.length > 0) fails.push(`ページのエラー ${errors.length}`);
+    } finally {
+      await ctx.close();
+    }
+    if (fails.length > 0) throw new Error(fails.join(' | '));
+    return `360×780 ダークのいちばん長い値: 表に無い「…」0・値の切れ 0・横スクロール 0・はみ出し 0（${out.join('・')}）`;
   });
 
   await check('T-D1', async () => {

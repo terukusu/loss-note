@@ -14,14 +14,11 @@
   gap: var(--sp-2);
 }
 
-/* 判定の理由の先頭の 1 つ（1 件のときだけ。1 行で切る） */
+/* 判定の理由の先頭の 1 つ（1 件のときだけ。文なので切らずに折り返す。#176） */
 .emotions__reason {
-  overflow: hidden;
   margin: 0;
   font-size: var(--fs-sm);
   color: var(--ink-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .emotions__badges {

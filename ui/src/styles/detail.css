@@ -100,7 +100,13 @@
   text-align: start;
 }
 
+/* 札は枠の左上に置き、長い一言（40 字まで）で札が枠より高くなったら枠が札の高さまで伸びる（札を切らない。#176）。
+   枠の比 16 : 10 は札が低い間の高さ。角の切り抜きはサムネイルの側で持つ（枠に overflow を置くと伸びなくなる） */
 .dchart--ready {
+  justify-content: flex-start;
+  align-items: flex-start;
+  padding: var(--sp-2);
+  overflow: visible;
   cursor: zoom-in;
 }
 
@@ -109,6 +115,8 @@
   position: absolute;
   inset: 0;
   display: block;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
 }
 
 .dchart__canvas {
@@ -120,19 +128,20 @@
 
 /* 名前 · 時間足の札（左上に重ねる。面を持つので canvas の上でも読める） */
 .dchart__cap {
-  position: absolute;
-  top: var(--sp-2);
-  left: var(--sp-2);
-  max-width: calc(100% - 2 * var(--sp-2));
+  position: relative;
+  max-width: 100%;
   padding: 2px var(--sp-2);
-  overflow: hidden;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--s1) 86%, transparent);
   color: var(--ink-2);
   font-size: var(--fs-xs);
   font-weight: var(--fw-bold);
   line-height: 1.5;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+}
+
+/* 札の「 · 時間足」は 1 つの塊（名前が長いときは塊の前で折る。時間足を切らない・途中で折らない。#176） */
+.dchart__tf {
   white-space: nowrap;
 }
 
@@ -157,7 +166,6 @@
 .dchart--none .dchart__cap,
 .dchart--failed .dchart__cap,
 .dchart--loading .dchart__cap {
-  position: static;
   align-self: flex-start;
 }
 

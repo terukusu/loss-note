@@ -10,14 +10,14 @@
 // 記録する画面（Issue #13）は、入力の途中・判定が出た状態（B・危ない勝ち・LC なしの C）・保存の後も同じ幅とテーマで測り、
 // 手順 R1〜R5（開いたときの既定・E1 の判定・二度押し・端末に書かない・保存の失敗）を流す。
 // LC の ［なし］ で止めた欄（#171）は手順 LN1（読み取りが終わっても「なし」のまま）・LN2（欄をタップすると外れてフォーカス）。
-// LC を動かしたかの「取消」と逆指値の未設定の切り替え（#165）は手順 LM1（1 タップずつ・判定の 1 行・選べない取消と理由の 1 行・360 の幅・LC の欄の名前の「i」（#201）。--shots で 2 つの状態を撮る）。
+// LC を動かしたかの「取消」と逆指値の未設定の切り替え（#165）は手順 LM1（1 タップずつ・判定の 1 行・選べない取消と理由の 1 行・360 の幅・LC の欄の名前の「i」（#201）・LC の行の下の添え「エントリー後に決めた価格は入れず「LC なし」へ」（LC なしの間は「LC を決めずに入った取引として記録します」）が 1 行で収まり決めていたかの問いが無い（#202）。--shots で 2 つの状態を撮る）。
 // 決済明細の読み取り（Issue #15）は、読み取り中・読み取りの後・複数行（タイムゾーンの確認）・読み取りの失敗の状態を同じ幅とテーマで
 // 測り、手順 R6〜R10（貼り付けとファイル選択で 1 件ずつ・文字の貼り付けで 0 件 / 実物の canvas で描き直した本文の形式・寸法・
-// バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 3 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
+// バイト数 / 端末に残さない / 失敗の文言 / E1 を貼って打つ 2・選ぶ 2 で判定と保存）を流す。読み取りの API も偽物（架空の行）で、
 // 実際の AI は呼ばない。画像はページの中の canvas で作るか、合成の明細 tools/statement-eval/synthetic/ を使う。
 // 根拠の足のチャート（Issue #12）は、2 枠にチャートがある状態（時間足の欄つき）を同じ幅とテーマで測り、手順 C1〜C3
 // （枠を選んで貼る → チャート・枠の外に貼る → 明細 / 貼る → 保存 → 離れるの後に端末の保存先に画像が無い / 2 枚と明細で
-// 打つ 2・選ぶ 3 → 1 要求の multipart で保存）を流す。チャートの画像もページの中の canvas で作る（架空）。
+// 打つ 2・選ぶ 2 → 1 要求の multipart で保存）を流す。チャートの画像もページの中の canvas で作る（架空）。
 // 取引の一覧・詳細・直す（Issue #9）は、取引のある一覧・ホーム・詳細（チャート 2 枚）・直すを同じ幅とテーマで測り
 // （トーストの出た一覧も）、手順 T-L4・T-H1・T-D1・T-D2・T-D3・T-E1・T-E2・T-X1・T-X2（例の表の L4・H1・D1・D2・E1・E2・X1・X2 と #34 の物差し）を流す。
 // 例の取引とチャートの画像（このスクリプトが作る小さな PNG）はすべて架空。
@@ -558,6 +558,21 @@ const TX_R3 = exampleTrade('x-r3', 1700000000013, {
   lcMove: { kind: 'widened', after: 150.8 },
   exit: rulerExit(22, 150.8),
   statementPnlYen: -8000,
+});
+/**
+ * #202 の例 #6: 前からの「価格あり・決めていなかった」の取引（後から書いた LC 99.5・決済 100.75 → 危ない勝ち +1.5R）。値は架空。
+ * EXAMPLE_TRADES には入れない（一覧の件数を変えない。LD1 だけが使う）
+ */
+const TX_LATE = exampleTrade('x-late', 1700000000020, {
+  lcDecidedBeforeEntry: false,
+  exit: {
+    time: T_1110 - DAY_MS,
+    price: 100.75,
+    orderType: 'unknown',
+    reason: 'other',
+    gapSlip: 'unanswered',
+  },
+  statementPnlYen: 7500,
 });
 const EXAMPLE_TRADES = [TX_L1, TX_L2, TX_L3, TX_D1, TX_D2, TX_E1, TX_E2, TX_R1, TX_R2, TX_R3];
 /**
@@ -1702,9 +1717,12 @@ async function closeSheets(page) {
 const seg = (page, group, text) =>
   page.locator(`[role="radiogroup"][aria-label="${group}"] label.seg__item`, { hasText: text });
 
-/** 記録する画面の例（Issue #13 の例の表。値は架空）。taps = false なら 3 つのタップの前で止める */
+/**
+ * 記録する画面の例（Issue #13 の例の表。値は架空）。taps = false ならタップの前で止める。LC を入る前に決めていたかは聞かず、
+ * LC の欄から決める（価格 = 決めていた・LC なし = 決めていなかった。#202）
+ */
 async function fillRecord(page, ex, taps = true, lastTap = true) {
-  // 取引の欄は取引の欄のシートで入れて閉じる（#130）。LC・3 つのタップは 1 画面のまま
+  // 取引の欄は取引の欄のシートで入れて閉じる（#130）。LC・2 つのタップは 1 画面のまま
   await openFields(page);
   await page.locator('#record-instrument').fill('US30');
   await seg(page, 'L / S', ex.side === 'S' ? 'S ショート' : 'L ロング').click();
@@ -1716,11 +1734,6 @@ async function fillRecord(page, ex, taps = true, lastTap = true) {
   else await page.locator('#record-lc').fill(ex.lc);
   if (!taps) return;
   if (ex.lc !== 'none') {
-    await seg(
-      page,
-      'LC を入る前に決めていたか',
-      ex.decided ? '決めていた' : '決めていない',
-    ).click();
     await seg(page, 'LC を動かしたか', ex.move).click();
     if (ex.after) await page.locator('#record-lc-after').fill(ex.after);
   }
@@ -1732,26 +1745,25 @@ const EX_E1 = {
   entry: '100.00',
   exit: '99.20',
   lc: '99.50',
-  decided: true,
   move: '広げた',
   after: '99.20',
 };
+/** 危ない勝ち: LC を広げて耐え、+0.75 で決済（5.6 #13 の形。#202 で「決めていなかった」は記録する画面で選べないので広げたに替えた） */
 const EX_E3 = {
   side: 'L',
   entry: '100.00',
   exit: '100.75',
   lc: '99.50',
-  decided: false,
-  move: 'そのまま',
+  move: '広げた',
+  after: '99.20',
 };
 const EX_E16 = { side: 'L', entry: '100.00', exit: '99.20', lc: 'none' };
-/** 計画どおりの勝ち（決めていた・そのまま・そのまま。+2.0R）。値は架空 */
+/** 計画どおりの勝ち（そのまま・そのまま。+2.0R）。値は架空 */
 const EX_SAFE = {
   side: 'L',
   entry: '100.00',
   exit: '101.00',
   lc: '99.50',
-  decided: true,
   move: 'そのまま',
 };
 /** Issue #33 例 8: S ショートで LC を広げた（広げた後の LC の欄が出る）。値は架空 */
@@ -1760,7 +1772,6 @@ const EX_S8 = {
   entry: '150.00',
   exit: '151.00',
   lc: '150.50',
-  decided: true,
   move: '広げた',
   after: '151.00',
 };
@@ -1980,7 +1991,6 @@ async function fillFx(page, exit = '99.50', keepOpen = true) {
   await page.locator('#record-quantity').fill('100');
   await closeSheets(page);
   await page.locator('#record-lc').fill('99.50');
-  await seg(page, 'LC を入る前に決めていたか', '決めていた').click();
   await seg(page, 'LC を動かしたか', 'そのまま').click();
   await seg(page, '時間足を変えたか', 'そのまま').click();
   // 為替の欄は取引の欄のシートの中（撮る・入れるために開いておく）
@@ -2556,7 +2566,6 @@ const RECORD_STATES = [
       await p.locator('#record-mini-entry', { hasText: '1 時間足' }).waitFor({ timeout: 10000 });
       await p.locator('#record-lc').fill('99');
       await p.locator('#record-broken').fill('押し目の安値を割ったら');
-      await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
       await seg(p, 'LC を動かしたか', 'そのまま').click();
       await seg(p, '時間足を変えたか', 'そのまま').click();
       await p.locator('.vline .badge').waitFor();
@@ -2780,7 +2789,6 @@ const RECORD_STATES = [
       await p.locator('#record-quantity').fill('10000');
       await closeSheets(p);
       await p.locator('#record-lc').fill('150.50');
-      await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
       await seg(p, 'LC を動かしたか', '広げた').click();
       await p.locator('#record-lc-after').fill('150.20');
       await seg(p, '時間足を変えたか', 'そのまま').click();
@@ -3052,7 +3060,7 @@ const RECORD_STATES = [
       await fillRecord(p, EX_E1);
       await openInfo(p, '「逆指値 未設定」の説明');
       await p
-        .getByText('「LC なし」（LC を決めていなかった）とは違います', { exact: false })
+        .getByText('「LC なし」（LC を入る前に決めていなかった）とは違います', { exact: false })
         .first()
         .waitFor();
     },
@@ -5563,7 +5571,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・決めていたかの問い LD1・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -5598,15 +5606,14 @@ async function main() {
   console.log('ok');
 }
 
-/** 読み取りの後に手で入れる 5 つ（打つ: LC・一言 / 選ぶ: 決めていた・そのまま・そのまま）。数を返す */
+/** 読み取りの後に手で入れる 4 つ（打つ: LC・一言 / 選ぶ: そのまま・そのまま。決めていたかは LC の欄から = #202）。数を返す */
 async function fillStatementTaps(page, lc = '99.0') {
   await closeSheets(page);
   await page.locator('#record-lc').fill(lc);
   await page.locator('#record-broken').fill('押し目の安値を割ったら');
-  await seg(page, 'LC を入る前に決めていたか', '決めていた').click();
   await seg(page, 'LC を動かしたか', 'そのまま').click();
   await seg(page, '時間足を変えたか', 'そのまま').click();
-  return { typed: 2, chosen: 3 };
+  return { typed: 2, chosen: 2 };
 }
 
 /** 非同期の条件が成り立つまで待つ（5 秒で外れ） */
@@ -6577,15 +6584,16 @@ async function runFlows(browser, base, signedIn) {
       // 1 段目には ［記録する］ が無い。タップと ［記録する］ は 2 段目（2026-11-21）
       expectEq(await p.locator('button[type="submit"]').count(), 0, '1 段目の [記録する]');
       await toReview(p);
-      for (const g of [
-        'L / S',
-        'LC を入る前に決めていたか',
-        'LC を動かしたか',
-        '時間足を変えたか',
-      ]) {
+      for (const g of ['L / S', 'LC を動かしたか', '時間足を変えたか']) {
         const n = await p.locator(`[role="radiogroup"][aria-label="${g}"] input:checked`).count();
         expectEq(n, 0, `${g} の選択`);
       }
+      // LC を入る前に決めていたかは聞かない（LC の欄から決める。#202）
+      expectEq(
+        await p.locator('[role="radiogroup"][aria-label="LC を入る前に決めていたか"]').count(),
+        0,
+        '決めていたかの問い',
+      );
       expectEq(
         await p.locator('button[type="submit"]').isDisabled(),
         true,
@@ -6748,7 +6756,7 @@ async function runFlows(browser, base, signedIn) {
         try {
           await p.goto(`${base}/`);
           await waitReady(p, 'ホーム');
-          await measure(p, w, 'home-empty', '3 つの質問に答えると判定が表示されます');
+          await measure(p, w, 'home-empty', '2 つの質問に答えると判定が表示されます');
           await p.goto(`${base}/trades`);
           await waitReady(p, '取引');
           await measure(p, w, 'trades-empty', 'まだ取引がありません');
@@ -7642,7 +7650,6 @@ async function runFlows(browser, base, signedIn) {
         await closeSheets(p);
         // イン 100・決済 99・LC 98.5 → −0.67R（架空）
         await p.locator('#record-lc').fill('98.5');
-        await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
         await seg(p, 'LC を動かしたか', 'そのまま').click();
         await seg(p, '時間足を変えたか', 'そのまま').click();
         const line = async () => (await p.locator('#record-verdict-line').textContent()) ?? '';
@@ -7691,11 +7698,25 @@ async function runFlows(browser, base, signedIn) {
           );
           const rr = row?.getBoundingClientRect();
           const hint = document.getElementById('record-lc-hint')?.getBoundingClientRect();
+          // LC の行の下の添え（#202）: 行の中に 1 行で収まる。行の数は文字の矩形の上端の数（line-height が normal でも数えられる）
+          const lateEl = document.getElementById('record-lc-late');
+          const late = lateEl?.getBoundingClientRect();
+          const lineCount = (el) => {
+            if (!el) return 0;
+            const r = document.createRange();
+            r.selectNodeContents(el);
+            return new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+          };
           const ir = info?.closest('.info-wrap')?.getBoundingClientRect();
           return {
             info: info ? 1 : 0,
             infoInRow: ir && rr ? ir.left >= rr.left - 12 && ir.right <= rr.right + 12 : false,
             hintOver: hint && rr ? Math.round(hint.right - rr.right) : 0,
+            late: lateEl ? (lateEl.textContent ?? '') : null,
+            lateOver: late && rr ? Math.round(late.right - rr.right) : 0,
+            lateClip: lateEl ? lateEl.scrollWidth - lateEl.clientWidth : 0,
+            lateLines: lineCount(lateEl),
+            lateBelow: late && rr ? late.top >= rr.top : false,
             lcW: Math.round(
               document.getElementById('record-lc')?.getBoundingClientRect().width ?? 0,
             ),
@@ -7712,6 +7733,22 @@ async function runFlows(browser, base, signedIn) {
         expectEq(m.info, 1, `${w}: LC の欄の名前の行の「逆指値 未設定」の「i」`);
         if (!m.infoInRow) throw new Error(`${w}: 「i」が LC の行の外`);
         if (m.hintOver > 0) throw new Error(`${w}: 添え書きのはみ出し ${m.hintOver}px`);
+        expectEq(
+          m.late,
+          'エントリー後に決めた価格は入れず「LC なし」へ',
+          `${w}: LC の行の下の添え（#202）`,
+        );
+        if (m.lateOver > 0 || m.lateClip > 0)
+          throw new Error(`${w}: LC の行の下の添えのはみ出し ${m.lateOver}px・中 ${m.lateClip}px`);
+        if (m.lateLines !== 1)
+          throw new Error(`${w}: LC の行の下の添えが ${m.lateLines} 行（1 行）`);
+        if (!m.lateBelow) throw new Error(`${w}: LC の行の下の添えが LC の行の中にない`);
+        // LC を入る前に決めていたかは聞かない（#202）
+        expectEq(
+          await p.locator('[role="radiogroup"][aria-label="LC を入る前に決めていたか"]').count(),
+          0,
+          `${w}: 決めていたかの問い`,
+        );
         if (m.lcW < 150) throw new Error(`${w}: LC の価格の欄の幅 ${m.lcW}px（150px 以上）`);
         if (m.rowOver !== 0) throw new Error(`${w}: LC の行のはみ出し ${m.rowOver}px`);
         if (m.pageOverX > 0) throw new Error(`${w}: 横スクロール ${m.pageOverX}px`);
@@ -7727,17 +7764,144 @@ async function runFlows(browser, base, signedIn) {
           `${w}: LC なしで「i」なし`,
         );
         expectEq(await toggle.count(), 0, `${w}: LC なしで切り替えなし`);
+        // LC なしの間は、同じ行で押した結果を言う（#202 のデザインレビュー 3）。1 行のまま
+        const noneNote = await p.evaluate(() => {
+          const el = document.getElementById('record-lc-late');
+          if (!el) return null;
+          const r = document.createRange();
+          r.selectNodeContents(el);
+          const lines = new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
+          return {
+            text: (el.textContent ?? '').trim(),
+            lines,
+            clip: el.scrollWidth - el.clientWidth,
+          };
+        });
+        expectEq(
+          noneNote?.text,
+          'LC を決めずに入った取引として記録します',
+          `${w}: LC なしの間の添え`,
+        );
+        if (noneNote?.lines !== 1 || noneNote.clip > 0)
+          throw new Error(
+            `${w}: LC なしの間の添えが ${noneNote?.lines} 行・はみ出し ${noneNote?.clip}px`,
+          );
         await lcNone.click();
         await expectPollAsync(
           async () => (await stopInfo.count()) === 1,
           `${w}: LC なしを外すと「i」`,
         );
-        out.push(`${w}×${h} LC 欄 ${m.lcW}px・切り替え ${m.toggleW}×${m.toggleH}px`);
+        out.push(
+          `${w}×${h} LC 欄 ${m.lcW}px・切り替え ${m.toggleW}×${m.toggleH}px・添え ${m.lateLines} 行`,
+        );
       } finally {
         await c.close();
       }
     }
     return `取消と逆指値の未設定: ${out.join(' / ')}`;
+  });
+
+  // LD1（#202・設計書 C57）: 記録する画面の 2 段目は「LC を入る前に決めていたか」を聞かず、LC と 2 つのタップで判定まで届く
+  // （帯の判定の 1 行が A）。編集の画面は、前からの「価格あり・決めていなかった」の取引だけ問いを出し、「決めていない」が選ばれた
+  // 状態で開き、「決めていた」を選ぶと保存の帯が 危ない勝ち → 計画どおりの勝ち。390×844 と 1440×900 × ダーク / ライトで流し、
+  // --shots で 2 つの画面を撮る
+  await check('LD1', async () => {
+    const out = [];
+    for (const [w, h] of [
+      [390, 844],
+      [1440, 900],
+    ]) {
+      for (const theme of ['dark', 'light']) {
+        const c = await browser.newContext({
+          viewport: { width: w, height: h },
+          storageState: signedIn,
+          hasTouch: w < 720,
+        });
+        try {
+          await setupContext(c, theme);
+          const fake = await installFakeApi(c, { trades: [TX_LATE] });
+          const p = await c.newPage();
+          const errors = [];
+          p.on('pageerror', (e) => errors.push(e.message));
+          await openRecord(p, base);
+          fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+          await closeSheets(p);
+          expectEq(
+            await p.locator('[role="radiogroup"][aria-label="LC を入る前に決めていたか"]').count(),
+            0,
+            `${w} ${theme}: 記録する画面の決めていたかの問い`,
+          );
+          expectEq(
+            (await p.locator('#record-lc-late').textContent())?.trim(),
+            'エントリー後に決めた価格は入れず「LC なし」へ',
+            `${w} ${theme}: LC の行の下の添え`,
+          );
+          // イン 100・決済 99・LC 98.5 → −0.67R（架空）。打つ 1・選ぶ 2 で判定
+          await p.locator('#record-lc').fill('98.5');
+          await seg(p, 'LC を動かしたか', 'そのまま').click();
+          await seg(p, '時間足を変えたか', 'そのまま').click();
+          await expectPollAsync(
+            async () =>
+              ((await p.locator('#record-verdict-line').textContent()) ?? '').includes('いい損失'),
+            `${w} ${theme}: 2 つのタップで A`,
+          );
+          if (opts.shots)
+            await p.screenshot({ path: join(opts.shots, `${w}x${h}-${theme}-ld1-record.png`) });
+          // 編集の画面: 前からの「価格あり・決めていなかった」
+          await p.goto(`${base}/trades/x-late/edit`);
+          await waitReady(p, '取引を編集');
+          await p.locator('#edit-submit').waitFor();
+          const group = p.locator('[role="radiogroup"][aria-label="LC を入る前に決めていたか"]');
+          expectEq(await group.count(), 1, `${w} ${theme}: 編集の決めていたかの問い`);
+          expectEq(
+            await group.locator('input:checked').getAttribute('value'),
+            'no',
+            `${w} ${theme}: 開いたときの答え`,
+          );
+          expectEq(
+            await p.locator('#record-lc').inputValue(),
+            '99.5',
+            `${w} ${theme}: 編集の LC の欄`,
+          );
+          // 添えの代わりに問いと理由の 1 行（食い違わない。#202 のデザインレビュー 2）。問いは LC の行のすぐ下（一言の欄より上）
+          expectEq(await p.locator('#record-lc-late').count(), 0, `${w} ${theme}: 編集の添え`);
+          expectEq(
+            (await p.locator('#record-lc-decided-hint').textContent())?.trim(),
+            '後から書いた LC として保存した記録です',
+            `${w} ${theme}: 問いの理由の 1 行`,
+          );
+          const order = await p.evaluate(() => {
+            const y = (sel) => document.querySelector(sel)?.getBoundingClientRect().top ?? -1;
+            return {
+              row: y('.record__lc .lcrow'),
+              ask: y('.record__lc .lcdecided'),
+              broken: y('#record-broken'),
+            };
+          });
+          if (!(order.row < order.ask && order.ask < order.broken))
+            throw new Error(`${w} ${theme}: 問いの位置 ${JSON.stringify(order)}`);
+          if (opts.shots)
+            await p.screenshot({ path: join(opts.shots, `${w}x${h}-${theme}-ld1-edit-late.png`) });
+          await seg(p, 'LC を入る前に決めていたか', '決めていた').click();
+          await expectPollAsync(
+            async () =>
+              ((await p.locator('#edit-change').textContent()) ?? '').includes('計画どおりの勝ち'),
+            `${w} ${theme}: 決めていたで計画どおりの勝ち`,
+          );
+          const pageOverX = await p.evaluate(
+            () => document.scrollingElement.scrollWidth - window.innerWidth,
+          );
+          if (pageOverX > 0) throw new Error(`${w} ${theme}: 横スクロール ${pageOverX}px`);
+          expectEq(errors.length, 0, `${w} ${theme}: ページのエラー`);
+          out.push(`${w}×${h} ${theme}`);
+        } finally {
+          await c.close();
+        }
+      }
+    }
+    return `記録は問い 2 つで A・編集の前からの記録だけ問い（決めていない → 決めていた で計画どおりの勝ち）: ${out.join(' / ')}`;
   });
 
   // RD1（#166。ui-guidelines 9.4 の状態 2・9.8「読み取りが終わった」）: 2 段目の明細の行に、読み取りの終わり方ごとの文
@@ -9019,7 +9183,6 @@ async function runFlows(browser, base, signedIn) {
         entry: '100.00',
         exit: '99.40',
         lc: '99.50',
-        decided: true,
         move: 'そのまま',
       });
       await p.locator('.vline .num', { hasText: '0.5%' }).waitFor({ timeout: 5000 });
@@ -9358,7 +9521,8 @@ async function runFlows(browser, base, signedIn) {
   await check('IT3', async () => {
     const { c, p, fake, errors } = await recordContext();
     const TF = '「時間足を変えたか」の説明';
-    const DEC = '「LC を入る前に決めていたか」の説明';
+    // 3 つ目の問いの「i」（#202 で LC を入る前に決めていたかを聞かなくなったので、LC を動かしたかで見る）
+    const DEC = '「LC を動かしたか」の説明';
     try {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/`);

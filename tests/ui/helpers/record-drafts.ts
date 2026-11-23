@@ -45,9 +45,11 @@ export function draft(values: Partial<Draft>): Draft {
   });
 }
 
-/** すべて計画どおりのタップ（決めていた / そのまま / そのまま） */
+/**
+ * すべて計画どおりのタップ（そのまま / そのまま）。LC を入る前に決めていたかは聞かず、LC の欄から決める（価格 = 決めていた。
+ * C57・#202）
+ */
 export const PLANNED: Partial<Draft> = {
-  lcDecided: true,
   lcMove: 'none',
   timeframeChange: 'none',
 };
@@ -63,6 +65,7 @@ export const E1 = draft({
   timeframeChange: 'none',
 });
 export const E2 = draft({ ...L100, exitPrice: '99.50', pnlYen: '-5,000', ...PLANNED });
+/** E3: 下書きに「決めていなかった」の答えがある（編集で開いた前からの「価格あり・決めていなかった」の記録。C57・#202） */
 export const E3 = draft({
   ...L100,
   exitPrice: '100.75',

@@ -12,6 +12,7 @@ import type {
   TradeSnapshot,
 } from '../../core/record';
 import {
+  asksLcDecided,
   draftFromStored,
   EDIT_BLOCKED,
   editBlock,
@@ -446,5 +447,94 @@ describe('触っていない答えは保存で書き換えない（レビュー�
     );
     expect(m.lc).toBe(99.5);
     expect(m.lcDecidedBeforeEntry).toBe(false);
+  });
+});
+
+describe('前からの「価格あり・決めていなかった」の取引（#202 AC-5・AC-6・KEEP-6・C57）', () => {
+  /** 例 #6: L、イン 100.00、LC 99.50（後から書いた）、決めていなかった、決済 100.75 → 危ない勝ち（R = 0.75 / 0.5 = +1.5R） */
+  const LATE = stored('late', {
+    lcDecidedBeforeEntry: false,
+    exit: { ...L1.record.exit, price: 100.75 },
+    statementPnlYen: 7_500,
+  });
+
+  const save = (t: StoredTrade, d: Draft) => {
+    const initial = draftFromStored(t, [US30]);
+    const read = readDraft(d, editContext(t, [US30]));
+    expect(read.missing).toEqual([]);
+    const merged = mergeEdit(
+      t.record,
+      initial,
+      d,
+      read.body as NonNullable<typeof read.body>,
+      t.record.instrumentId,
+    );
+    return { merged, grade: summarize({ record: merged, snapshot: t.snapshot }).judgment?.grade };
+  };
+
+  it('聞くのは価格あり（または最大損失まで）で false の取引だけ', () => {
+    expect(asksLcDecided(LATE.record)).toBe(true);
+    expect(asksLcDecided(L1.record)).toBe(false);
+    expect(asksLcDecided(L3.record)).toBe(false);
+    const maxLoss = { ...L3.record, legs: [], riskPlan: 'maxLoss' } as unknown as TradeRecord;
+    expect(asksLcDecided(maxLoss)).toBe(true);
+    expect(asksLcDecided({ ...maxLoss, lcDecidedBeforeEntry: true })).toBe(false);
+  });
+
+  it('例 #6: 開くと「決めていない」が選ばれ、触らずに保存すると false のまま・危ない勝ちのまま', () => {
+    const initial = draftFromStored(LATE, [US30]);
+    expect(initial.lcDecided).toBe(false);
+    const { merged, grade } = save(LATE, initial);
+    expect(merged).toEqual(LATE.record);
+    expect(grade).toBe('riskyWin');
+  });
+
+  it('例 #7: 「決めていた」を選んで保存すると true・計画どおりの勝ち', () => {
+    const d = applyDraft(draftFromStored(LATE, [US30]), {
+      type: 'set',
+      field: 'lcDecided',
+      value: true,
+    });
+    const { merged, grade } = save(LATE, d);
+    expect(merged.lcDecidedBeforeEntry).toBe(true);
+    expect(grade).toBe('safeWin');
+  });
+
+  it('例 #6 で LC の価格だけ直しても答えは false のまま（直したのは価格）', () => {
+    const d = applyDraft(draftFromStored(LATE, [US30]), {
+      type: 'set',
+      field: 'lc',
+      value: '99.4',
+    });
+    const { merged } = save(LATE, d);
+    expect(merged.lc).toBe(99.4);
+    expect(merged.lcDecidedBeforeEntry).toBe(false);
+  });
+
+  it('例 #8: 価格あり・true の取引で LC を 99.40 に直すと true のまま', () => {
+    const d = applyDraft(draftFromStored(L1, [US30]), { type: 'set', field: 'lc', value: '99.4' });
+    expect(save(L1, d).merged.lcDecidedBeforeEntry).toBe(true);
+  });
+
+  it('例 #9: LC なしの取引に LC 99.50 を入れると true', () => {
+    const d = applyDraft(draftFromStored(L3, [US30]), {
+      type: 'fill',
+      values: { lc: '99.5', lcMove: 'none' },
+    });
+    expect(d.lcDecided).toBeNull();
+    const { merged } = save(L3, d);
+    expect(merged.lc).toBe(99.5);
+    expect(merged.lcDecidedBeforeEntry).toBe(true);
+  });
+
+  it('例 #10: 取り込みの C（価格あり・false）を触らずに保存すると元のまま・判定 C のまま', () => {
+    const imported = stored('imp', {
+      source: 'import',
+      lcDecidedBeforeEntry: false,
+      statementPnlYen: -5_000,
+    });
+    const { merged, grade } = save(imported, draftFromStored(imported, [US30]));
+    expect(merged).toEqual(imported.record);
+    expect(grade).toBe('C');
   });
 });

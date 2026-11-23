@@ -106,6 +106,16 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
 }
 
 /**
+ * 編集の画面で「LC を入る前に決めていたか」を聞く取引（C57・#202）: 前からの記録で、LC の価格（または「最大損失まで」）があるのに
+ * 「決めていなかった」と保存した取引（後から書いた LC・取り込みの C）だけ。保存した答えのまま開き、直せるようにする（11 章）。
+ * それ以外の取引は聞かず、LC の欄から決める（record-form の lcDecidedOf）。開いた元の記録で決める（編集中の LC の切り替えで変えない）
+ */
+export function asksLcDecided(r: TradeRecord): boolean {
+  const maxLoss = r.legs !== undefined && r.riskPlan === 'maxLoss';
+  return (r.lc !== undefined || maxLoss) && !r.lcDecidedBeforeEntry;
+}
+
+/**
  * 直すときの読みの文脈: 銘柄と口座の一覧、チャートのある枠（charts を省けば保存した取引の枠。#89 は編集の今の枠）、
  * 元の銘柄・口座と写した値
  */

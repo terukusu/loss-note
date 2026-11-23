@@ -758,13 +758,13 @@ describe('E5・E6（AC-6）', () => {
 });
 
 describe('E7・E8（AC-7）', () => {
-  it('E7: 逆指値 → LC・決めていた が既定（印「明細から」）。選ぶのは残り 2 つ。保存は 逆指値・入れた', async () => {
+  it('E7: 逆指値 → 決済の理由 = LC が既定（印「明細から」）。決めていたかは聞かず LC の欄から（#202）。選ぶのは 2 つ。保存は 逆指値・入れた', async () => {
     const { fake, c } = await openedForRead([ok([ROW_E7])]);
     await c.readImage(img());
     const s = c.getState();
-    expect(s.draft.lcDecided).toBe(true);
+    expect(s.draft.lcDecided).toBeNull();
     expect(s.draft.exitReason).toBe('lc');
-    expect(s.statement?.marks.lcDecided).toBe('statement');
+    expect(s.statement?.marks.lcDecided).toBeUndefined();
     c.update({ type: 'set', field: 'lc', value: '99.0' });
     c.update({ type: 'set', field: 'lcMove', value: 'none' });
     c.update({ type: 'set', field: 'timeframeChange', value: 'none' });
@@ -1334,7 +1334,7 @@ describe('レビュー指摘の対応（#15 Phase 4）', () => {
   it('指摘 5（#184 で変更）: 2 枚目を貼ると、1 枚目の後に直した欄も 2 枚目の値で入れ替わる。1 枚目の逆指値の既定は戻す', async () => {
     const { c } = await openedForRead([ok([ROW_E7]), ok([ROW_E8])]);
     await c.readImage(img());
-    expect(c.getState().draft.lcDecided).toBe(true);
+    expect(c.getState().draft.lcDecided).toBeNull();
     c.update({ type: 'set', field: 'exitPrice', value: '98.5' });
     await c.readImage(img());
     const s = c.getState();
@@ -2532,8 +2532,8 @@ describe('読み取った明細の削除と読み直し（#184）', () => {
     c.update({ type: 'set', field: 'timeframeChange', value: PLAN.timeframeChange });
     c.update({ type: 'set', field: 'entryChartTimeframe', value: PLAN.entryChartTimeframe });
     const s = c.getState();
-    expect(s.draft.lcDecided).toBe(true);
-    expect(s.statement?.marks.lcDecided).toBe('statement');
+    expect(s.draft.lcDecided).toBeNull();
+    expect(s.statement?.marks.lcDecided).toBeUndefined();
     expect(s.statement?.marks.exitPrice).toBe('edited');
     return { ...opened, before: s };
   }
@@ -2572,7 +2572,7 @@ describe('読み取った明細の削除と読み直し（#184）', () => {
     expect(s.statement).toEqual(before.statement);
     expect(s.statement?.preview).toBe(before.statement?.preview);
     expect(s.statement?.marks.exitPrice).toBe('edited');
-    expect(s.statement?.marks.lcDecided).toBe('statement');
+    expect(s.statement?.marks.lcDecided).toBeUndefined();
     expect(s.statementRemoved).toBe(false);
     expect(readCalls(fake)).toHaveLength(reads);
     // もう一度は押せない（戻り先は 1 回だけ）

@@ -422,7 +422,7 @@ export interface RecordController {
    */
   cancelRead(): void;
   /**
-   * ［削除］: 読み取った明細を削除する（明細から来た値を取り除き、LC・一言・3 つのタップ・チャートなど本人が入れたものは残す。
+   * ［削除］: 読み取った明細を削除する（明細から来た値を取り除き、LC・一言・決済までの行動のタップ・チャートなど本人が入れたものは残す。
    * AI へ送らない。#184 R1〜R3）
    */
   removeStatement(): void;
@@ -885,7 +885,7 @@ export function createRecordController(deps: {
     if (cur?.preview && cur.preview !== snap.statement.preview) cur.preview.close();
     // 写しの後に本人が選んだ答え・口座は戻さない
     const chosen = new Set<KeptAnswer>([
-      ...(['lcDecided', 'exitReason'] as const).filter((f) => touched.has(f)),
+      ...(['exitReason'] as const).filter((f) => touched.has(f)),
       ...(accountTouched && !snap.accountTouched ? (['accountId'] as const) : []),
     ]);
     // 読み取りの欄は写しの値に戻すので、触った印も写しのもの
@@ -909,7 +909,7 @@ export function createRecordController(deps: {
     );
     // 戻さなかった「明細から」「自動で選択」の答えは本人の答え（印を外す）
     let marks = snap.statement.marks;
-    for (const f of ['lcDecided', 'exitReason', 'accountId'] as const) {
+    for (const f of ['exitReason', 'accountId'] as const) {
       if (draft[f] !== snap.before[f]) marks = markEdited(marks, f);
     }
     const { reverted: _old, ...st } = snap.statement;
@@ -1042,7 +1042,7 @@ export function createRecordController(deps: {
     };
   };
 
-  /** 行 index の下書き（読み取りの欄 = 行、LC・一言・3 つのタップ・広げた後の LC は空） */
+  /** 行 index の下書き（読み取りの欄 = 行、LC・一言・決済までの行動のタップ・広げた後の LC は空） */
   const showRow = (st: StatementState, index: number, notice: string | null) => {
     const row = st.rows[index];
     if (!row) return;
@@ -1087,16 +1087,14 @@ export function createRecordController(deps: {
     const rows = unitRows(raw, units);
     const row = rows[st.index];
     if (!row) return;
-    // 前のまとまりの明細の行から入れた既定（逆指値 → LC を決めていた・決済の理由）と読み取りの欄の印は、新しいまとまりの行で
+    // 前のまとまりの明細の行から入れた既定（逆指値 → 決済の理由）と読み取りの欄の印は、新しいまとまりの行で
     // 決め直す（証拠の行を分けた後に「明細から」を残さない。本人が触った欄は残す。レビュー B2）
     let base = state.draft;
     const marks: Partial<Record<DraftField, FieldMark>> = { ...st.marks };
-    if (!touched.has('lcDecided') && st.marks.lcDecided === 'statement')
-      base = { ...base, lcDecided: null };
     if (!touched.has('exitReason') && st.marks.exitReason === 'statement') {
       base = { ...base, exitReason: 'other' };
     }
-    for (const f of [...READ_FIELDS, 'lcDecided', 'exitReason'] as const) {
+    for (const f of [...READ_FIELDS, 'exitReason'] as const) {
       if (!touched.has(f)) delete marks[f];
     }
     const filled = withZone(

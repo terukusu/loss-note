@@ -1,5 +1,5 @@
 // 判定の枠と貼り付きの帯の文（Issue #33。DOM なし）。
-// 帯には数と一言だけ（「あと 7 欄」「誤り 1 欄」「明細を読み取っています」、そろえば判定の要約）、
+// 帯には数と一言だけ（「あと 6 欄」「誤り 1 欄」「明細を読み取っています」、そろえば判定の要約）、
 // 欄の名前は判定の枠の案内に 1 文で出す（[記録する] の読み上げの説明に結ぶ）。
 // 判定の枠は同じ説明を 2 回出さない: R・リスクの場所は「—」にして、出ない理由は注記に 1 回だけ（一覧 #9 と同じ形）。
 // 「過剰リスクは見ていない」（riskNotChecked）は理由の一覧から分けて脇の 1 行に出す（文言・判定は変えない）
@@ -35,18 +35,17 @@ export function submitStatus(read: DraftReading, errorLabels: readonly string[])
   return read.preview.r === undefined ? label : `${label} · ${formatR(read.preview.r)}`;
 }
 
-/** 決済までの行動の 3 つの質問（未入力の欄の一覧で 1 つにまとめる。判定の枠の案内を短くする。#74 デザインレビュー 4） */
-const TAP_NAMES: readonly string[] = [
-  MISSING_LABEL.lcDecided,
-  MISSING_LABEL.lcMove,
-  MISSING_LABEL.timeframeChange,
-];
+/**
+ * 決済までの行動の 2 つの質問（未入力の欄の一覧で 1 つにまとめる。判定の枠の案内を短くする。#74 デザインレビュー 4）。
+ * LC を入る前に決めていたかは聞かず LC の欄から決める（C57・#202）
+ */
+const TAP_NAMES: readonly string[] = [MISSING_LABEL.lcMove, MISSING_LABEL.timeframeChange];
 
-/** 未入力の欄の名前の一覧。3 つの質問がすべて未入力なら「決済までの行動の 3 つ」の 1 つにまとめる */
+/** 未入力の欄の名前の一覧。2 つの質問がどちらも未入力なら「決済までの行動の 2 つ」の 1 つにまとめる */
 export function missingNames(missing: readonly string[]): readonly string[] {
   if (!TAP_NAMES.every((t) => missing.includes(t))) return missing;
   const out = missing.filter((m) => !TAP_NAMES.includes(m));
-  return [...out, '決済までの行動の 3 つ'];
+  return [...out, '決済までの行動の 2 つ'];
 }
 
 /** [記録する] が押せない理由の文（判定の枠の案内。押せるときは null） */
@@ -142,7 +141,7 @@ export function verdictNotes(
   };
 }
 
-/** 3 つのタップと LC の「なし」（押した後に判定の枠を見える範囲へ寄せる。AC-3） */
+/** 決済までの行動のタップ（編集の前からの記録の LC を入る前に決めていたかも）と LC の「なし」（押した後に判定の枠を見える範囲へ寄せる。AC-3） */
 const TAP_FIELDS: readonly DraftField[] = ['lcDecided', 'lcMove', 'timeframeChange', 'lcNone'];
 
 export function isTapAction(action: DraftAction): boolean {

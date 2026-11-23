@@ -1,5 +1,5 @@
 // 取引の欄（記録する画面 #13 と直す画面 #9 が共有する。Issue #9 で Record.tsx から出した。id・クラス・文言・順は同じ）。
-// TradeCoreFields = 「取引」の欄（取引の欄のシートの中）、LcFields = LC と一言、TapFields = 3 つのタップ、TradeMoreBody = ほかの欄（任意。
+// TradeCoreFields = 「取引」の欄（取引の欄のシートの中）、LcFields = LC と一言、TapFields = 決済までの行動のタップ、TradeMoreBody = ほかの欄（任意。
 // 取引の欄のシートの次の段）。記録する・編集の画面は 1 画面の形に並べる（#130・#131）。
 // 「取引」の並び（#58）: 銘柄 | 数量（通貨が違うときは銘柄だけ・数量は為替と並ぶ）/ L / S / イン | 決済 / エントリーの時刻（任意）| 決済の時刻
 // hook を持たない（テストは関数を呼んで木にする）。値はテキストのノードだけ（HTML の文字列を DOM に入れない）
@@ -51,7 +51,12 @@ export interface TradeFieldsProps {
   readonly accountAction?: ComponentChildren;
   /** 見出しの下に開く口座を足す欄（開いている間は口座の欄を隠す） */
   readonly accountAdd?: ComponentChildren;
-  /** 3 つ目のタップの下に添える 1 行（チャートの時間足の違いと食い違うとき。記録する画面だけ。#27） */
+  /**
+   * 「LC を入る前に決めていたか」を LC の行の下で聞く（編集の画面で、前からの「価格あり・決めていなかった」の取引だけ。
+   * edit-form の asksLcDecided。記録する画面は渡さない = 聞かず LC の欄から決める。C57・#202）
+   */
+  readonly askLcDecided?: boolean;
+  /** 時間足を変えたかの下に添える 1 行（チャートの時間足の違いと食い違うとき。記録する画面だけ。#27） */
   readonly timeframeHint?: string | null;
   /**
    * 「狭めた = …」の 1 行を出さず、「i」の説明（用語集の lcMove の先頭の文）に任せる（記録する画面の 1 画面の高さ。#130）。
@@ -127,6 +132,22 @@ export const EXIT_REASONS: readonly { value: ExitReason; label: string }[] = [
 /** LC を動かしたかの 3 択の下の 1 行（どちらに当たるかの手がかり。L / S で同じ。#56 デザインレビュー 4） */
 export const LC_MOVE_HINT =
   '狭めた = インに近づけた、広げた = 遠ざけた、取消 = 持っている間に逆指値の注文を取消';
+/**
+ * LC の行の下の添え（C57・#202）。LC を入る前に決めていたかは聞かず、この欄から決めるので、後付けの価格を入れさせない言い方に
+ * する（してはいけないことを先に言い、押す先のボタンの名前「LC なし」を太字で結ぶ。色だけに頼らない）。「LC なし」を選んだ後は、
+ * 押した結果（C になる理由）を同じ行で言う
+ */
+export const LC_LATE_NOTE = {
+  before: 'エントリー後に決めた価格は入れず',
+  key: '「LC なし」',
+  after: 'へ',
+} as const;
+export const LC_LATE_TEXT = `${LC_LATE_NOTE.before}${LC_LATE_NOTE.key}${LC_LATE_NOTE.after}`;
+export const LC_NONE_NOTE = 'LC を決めずに入った取引として記録します';
+export const LC_LATE_ID = 'record-lc-late';
+/** 編集の画面の前からの「価格あり・決めていなかった」の取引の問いに添える 1 行（なぜこの取引だけ聞くか。#202） */
+export const LC_DECIDED_ASK_NOTE = '後から書いた LC として保存した記録です';
+export const LC_DECIDED_ASK_ID = 'record-lc-decided-hint';
 export const LC_MOVE_HINT_ID = 'record-lc-move-hint';
 
 /** 逆指値の未設定の切り替えの読み上げの名前（C56・#165） */
@@ -375,6 +396,8 @@ export function LcFields(p: TradeFieldsProps) {
   const chain = enterChain(['record-lc', lossPlanAfterLc && 'record-loss-plan', 'record-broken']);
   // 逆指値の未設定の切り替え（と、その意味の「i」）は LC の価格を置く計画のときだけ（C56・#165・#201）
   const stopShown = !d.lcNone && !maxLossOn;
+  // 編集の画面の前からの「価格あり・決めていなかった」の取引だけ、LC の行の下で LC を入る前に決めていたかを問う（#202）
+  const askDecided = p.askLcDecided === true && !d.lcNone;
   return (
     <>
       <div class="lcrow">
@@ -386,12 +409,18 @@ export function LcFields(p: TradeFieldsProps) {
           onInput={set('lc')}
           placeholder={d.lcNone ? 'なし' : maxLossOn ? MAX_LOSS_LABEL : '0.00'}
           {...(lock
-            ? { locked: { note: lcLockNote(lock), onUnlock: () => onUpdate(lcUnlockAction(lock)) } }
+            ? {
+                locked: {
+                  note: lcLockNote(lock),
+                  onUnlock: () => onUpdate(lcUnlockAction(lock)),
+                },
+              }
             : {})}
           // 「逆指値 未設定」の意味の「i」は切り替えの隣でなく欄の名前の横（LC の価格の欄の幅を保つ）。切り替えを出している
           // 間だけ（「LC なし」「最大損失まで」で切り替えが隠れている間は、名前の言葉が画面に無いので出さない。#201）
           {...(stopShown ? { info: <InfoTip term="stopNotPlaced" /> } : {})}
           hint="思惑が外れたと確認できる価格"
+          {...(askDecided ? {} : { describedBy: LC_LATE_ID })}
           {...enterPropsOf(chain, 'record-lc')}
           {...(e.lc ? { error: e.lc } : {})}
         />
@@ -415,7 +444,11 @@ export function LcFields(p: TradeFieldsProps) {
             aria-pressed={d.stopNotPlaced ? 'true' : 'false'}
             aria-label={STOP_NOT_PLACED_NAME}
             onClick={() =>
-              onUpdate({ type: 'set', field: 'stopNotPlaced', value: !d.stopNotPlaced })
+              onUpdate({
+                type: 'set',
+                field: 'stopNotPlaced',
+                value: !d.stopNotPlaced,
+              })
             }
           >
             {/* チェックの四角（押す前は空 = 選べる印、押したら塗りとチェック）。色は CSS のトークン */}
@@ -429,7 +462,41 @@ export function LcFields(p: TradeFieldsProps) {
             </span>
           </button>
         )}
+        {/* 欄の名前の「入る前に」の添え（LC を入る前に決めていたかは聞かず、この欄から決める。C57・#202）。LC の行のすぐ下の 1 行 */}
+        {askDecided ? null : (
+          <p id={LC_LATE_ID} class="field__hint lcrow__late">
+            {d.lcNone ? (
+              LC_NONE_NOTE
+            ) : (
+              <>
+                {LC_LATE_NOTE.before}
+                <strong class="lcrow__key">{LC_LATE_NOTE.key}</strong>
+                {LC_LATE_NOTE.after}
+              </>
+            )}
+          </p>
+        )}
       </div>
+      {/* 前からの「価格あり・決めていなかった」の取引（編集の画面だけ）: 添えの代わりに、LC の行のすぐ下で問う（C57・#202） */}
+      {askDecided ? (
+        <div class="lcdecided">
+          <Segment
+            label="LC を入る前に決めていたか"
+            id="record-lc-decided"
+            info={<InfoTip term="lcDecided" prefer="above" />}
+            value={d.lcDecided === null ? null : d.lcDecided ? 'yes' : 'no'}
+            onChange={(v) => onUpdate({ type: 'set', field: 'lcDecided', value: v === 'yes' })}
+            describedBy={LC_DECIDED_ASK_ID}
+            options={[
+              { value: 'yes', label: '決めていた' },
+              { value: 'no', label: '決めていない' },
+            ]}
+          />
+          <p id={LC_DECIDED_ASK_ID} class="field__hint lcdecided__note">
+            {LC_DECIDED_ASK_NOTE}
+          </p>
+        </div>
+      ) : null}
       {maxLossShown ? (
         <div class="lcmaxloss">
           <button
@@ -488,27 +555,15 @@ export function LossPlanField(
   );
 }
 
-/** 決済までの行動の 3 つのタップ（LC なしの注記・広げた後の LC・チャートとの食い違いの 1 行） */
+/** 決済までの行動のタップ（LC を動かしたか・時間足を変えたか。LC なしの注記・広げた後の LC・チャートとの食い違いの 1 行） */
 export function TapFields(p: TradeFieldsProps) {
-  const { d, e, set, mark, onUpdate } = fieldHelpers(p);
+  const { d, e, set } = fieldHelpers(p);
   return (
     <>
       {d.lcNone ? (
-        <p class="section__note">LC が無いため、「決めていない」「そのまま」として記録します。</p>
+        <p class="section__note">LC が無いため、LC を動かしたかは「そのまま」として記録します。</p>
       ) : (
         <>
-          <Segment
-            label="LC を入る前に決めていたか"
-            id="record-lc-decided"
-            info={<InfoTip term="lcDecided" prefer="above" />}
-            {...mark('lcDecided')}
-            value={d.lcDecided === null ? null : d.lcDecided ? 'yes' : 'no'}
-            onChange={(v) => onUpdate({ type: 'set', field: 'lcDecided', value: v === 'yes' })}
-            options={[
-              { value: 'yes', label: '決めていた' },
-              { value: 'no', label: '決めていない' },
-            ]}
-          />
           {/* 「最大損失まで」は LC を動かしたかを聞かない（5.7 の 5。本文は none。#114 の 1） */}
           {p.option && d.lcMaxLoss ? null : (
             <>

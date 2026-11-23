@@ -13,6 +13,7 @@ import {
   type DraftReading,
   EMPTY_DRAFT,
   FIELD_LABEL,
+  lcDecidedOf,
   lcLockOf,
   lcMoveLabel,
   lcUnlockAction,
@@ -75,6 +76,9 @@ function expectSameAsCore(r: DraftReading, t: TradeInput) {
   expect(r.preview.r).toBe(ev.r);
   expect(r.preview.riskPct).toBe(ev.riskPct);
 }
+
+/** #202 の例の取引（L・イン 100.00・LC 99.50。値は架空） */
+const L100_202: Partial<Draft> = { side: 'L', entryPrice: '100.00', lc: '99.50' };
 
 describe('例の表（AC-1・AC-3）', () => {
   it('E1: B・「LC を広げた（99.5 → 99.2）」・−1.6R・資金が未設定', () => {
@@ -251,6 +255,61 @@ describe('例の表（AC-1・AC-3）', () => {
   });
 });
 
+describe('LC を入る前に決めていたかは LC の欄から決める（#202 AC-2・AC-3・C57）', () => {
+  it('例 #1: LC 99.50・そのまま・変えていない → 聞かずに保存でき、本文は決めていた（true）・判定 A', () => {
+    const d = draft({ ...L100_202, exitPrice: '99.50', lcMove: 'none', timeframeChange: 'none' });
+    expect(d.lcDecided).toBeNull();
+    const r = readDraft(d, NO_CAPITAL);
+    expect(r.missing).toEqual([]);
+    expect(r.canSave).toBe(true);
+    expect(r.body?.lcDecidedBeforeEntry).toBe(true);
+    expect(r.preview.judgment?.grade).toBe('A');
+  });
+
+  it('例 #2: LC なし → 本文は決めていなかった（false）・lcMove none・判定 C', () => {
+    const r = readDraft(
+      draft({
+        side: 'L',
+        entryPrice: '100.00',
+        lcNone: true,
+        exitPrice: '98.00',
+        timeframeChange: 'none',
+      }),
+      NO_CAPITAL,
+    );
+    expect(r.missing).toEqual([]);
+    expect(r.body?.lcDecidedBeforeEntry).toBe(false);
+    expect(r.body?.lcMove).toEqual({ kind: 'none' });
+    expect(r.preview.judgment?.grade).toBe('C');
+  });
+
+  it('例 #11: LC だけ入れて 2 つの問いが未入力 → 足りない欄は 2 つ（LC を入る前に決めていたかは数えない）', () => {
+    const r = readDraft(draft({ ...L100_202, exitPrice: '99.50' }), NO_CAPITAL);
+    expect(r.canSave).toBe(false);
+    expect(r.missing).toEqual([MISSING_LABEL.lcMove, MISSING_LABEL.timeframeChange]);
+  });
+
+  it('下書きに答えがある（編集で開いた前からの記録）ときはその答え。LC なしはいつも false', () => {
+    const base = draft({
+      ...L100_202,
+      exitPrice: '100.75',
+      lcMove: 'none',
+      timeframeChange: 'none',
+    });
+    expect(
+      readDraft(applyDraft(base, { type: 'set', field: 'lcDecided', value: false }), NO_CAPITAL)
+        .body?.lcDecidedBeforeEntry,
+    ).toBe(false);
+    expect(
+      readDraft(applyDraft(base, { type: 'set', field: 'lcDecided', value: true }), NO_CAPITAL).body
+        ?.lcDecidedBeforeEntry,
+    ).toBe(true);
+    expect(lcDecidedOf({ lcNone: true, lcDecided: true })).toBe(false);
+    expect(lcDecidedOf({ lcNone: false, lcDecided: null })).toBe(true);
+    expect(lcDecidedOf({ lcNone: false, lcDecided: false })).toBe(false);
+  });
+});
+
 describe('必須の欄（AC-2・E10・E18）', () => {
   const required: ReadonlyArray<readonly [string, Partial<Draft>]> = [
     [MISSING_LABEL.instrumentName, { instrumentName: '  ' }],
@@ -260,7 +319,6 @@ describe('必須の欄（AC-2・E10・E18）', () => {
     [MISSING_LABEL.quantity, { quantity: '' }],
     [MISSING_LABEL.exitTime, { exitTime: '' }],
     [MISSING_LABEL.lc, { lc: '' }],
-    [MISSING_LABEL.lcDecided, { lcDecided: null }],
     [MISSING_LABEL.lcMove, { lcMove: null }],
     [MISSING_LABEL.timeframeChange, { timeframeChange: null }],
   ];
@@ -302,7 +360,6 @@ describe('必須の欄（AC-2・E10・E18）', () => {
       MISSING_LABEL.quantity,
       MISSING_LABEL.exitTime,
       MISSING_LABEL.lc,
-      MISSING_LABEL.lcDecided,
       MISSING_LABEL.lcMove,
       MISSING_LABEL.timeframeChange,
     ]);

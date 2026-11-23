@@ -247,27 +247,26 @@ describe('fillFromRow', () => {
     expect(f.marks.exitPrice).toBe('read');
   });
 
-  it('E7: 逆指値 → 決済の理由 = LC・決めていた（印「明細から」）・逆指値を入れた = 入れた', () => {
+  it('E7: 逆指値 → 決済の理由 = LC（印「明細から」）・逆指値を入れた = 入れた。決めていたかは既定を置かない（LC の欄から決める。#202 AC-4）', () => {
     const f = fillFromRow(OPENED, ROW_E7, NONE);
     expect(f.draft).toMatchObject({
       exitReason: 'lc',
-      lcDecided: true,
+      lcDecided: null,
       exitOrderType: 'stop',
       stopOrderPlaced: 'placed',
     });
-    expect(f.marks.lcDecided).toBe('statement');
+    expect(f.marks.lcDecided).toBeUndefined();
     expect(f.marks.exitReason).toBe('statement');
   });
 
-  it('E7 で、読み取り中に「決めていない」・決済の理由を選んでいたら、そちらが正（C15）', () => {
+  it('E7 で、読み取り中に決済の理由を選んでいたら、そちらが正（C15）', () => {
     const typed = applyDraft(OPENED, {
       type: 'fill',
-      values: { lcDecided: false, exitReason: 'fearEarly' },
+      values: { exitReason: 'fearEarly' },
     });
-    const f = fillFromRow(typed, ROW_E7, new Set<DraftField>(['lcDecided', 'exitReason']));
-    expect(f.draft.lcDecided).toBe(false);
+    const f = fillFromRow(typed, ROW_E7, new Set<DraftField>(['exitReason']));
     expect(f.draft.exitReason).toBe('fearEarly');
-    expect(f.marks.lcDecided).toBeUndefined();
+    expect(f.marks.exitReason).toBeUndefined();
     // 証拠（注文の種類・逆指値を入れたか）は明細のまま
     expect(f.draft.exitOrderType).toBe('stop');
     expect(f.draft.stopOrderPlaced).toBe('placed');
@@ -297,7 +296,7 @@ describe('印の直し（E5）', () => {
   it('「読み取り」「読み取れませんでした」「時間帯が…」→「直した」、「明細から」→ 外す、印の無い欄はそのまま', () => {
     const m = fillFromRow(OPENED, ROW_E7, NONE).marks;
     expect(markEdited(m, 'exitPrice').exitPrice).toBe('edited');
-    expect(markEdited(m, 'lcDecided').lcDecided).toBeUndefined();
+    expect(markEdited(m, 'exitReason').exitReason).toBeUndefined();
     expect(markEdited(m, 'lc')).toBe(m);
     const e = markEdited(m, 'exitPrice');
     expect(markEdited(e, 'exitPrice')).toBe(e);

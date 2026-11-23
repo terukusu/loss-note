@@ -1,7 +1,7 @@
 /* 記録する画面の 2 つの段（#130。2026-11-21 に 2 段へ。設計書 K17・9.2・docs/ui-guidelines.md 9.4）。部品 pages/Record.tsx が読み込む。
    安全域（上 47・下 34）を入れた 390×844 で、2 段目の 4 つの状態と 1 段目は縦のスクロール 0px（ui:check の R12）。
    1 段目 = 見出し・明細とチャートの絵の枠・［明細なしで手入力］。2 段目 = 入れたもののカード（明細の行・口座・チャートの行）・
-   LC と一言・3 つのタップ、下の帯に判定の 1 行と [記録する]。
+   LC と一言・決済までの行動のタップ、下の帯に判定の 1 行と [記録する]。
    色はトークンだけ（tokens.css）。形（縦・横・広い）で DOM を替えない（9.5）。文字の拡大では縦に伸びてよい */
 
 /* 全画面のシートの中身: 下の余白（--sp-8）と段の間を詰め、下の帯を下の端に付ける */
@@ -508,25 +508,52 @@
   padding: 0 var(--sp-2);
 }
 
-.record__lc .lcrow > .field > .field__error {
+/* 欄の名前の「入る前に」の添え（後付けの価格を入れさせない 1 行。LC なしの間は押した結果。C57・#202）。LC の行のすぐ下に行の幅で 1 行 */
+.record__lc .lcrow > .lcrow__late {
   grid-row: 3;
+  grid-column: 1 / -1;
+  margin: 0;
+  /* 抑止の 1 行なので、欄の名前の右の添え（xs）より 1 段大きく（#202 のデザインレビュー 1） */
+  font-size: var(--fs-sm);
+}
+
+/* 押す先のボタンの名前「LC なし」は本文の色と太字で結ぶ（色だけに頼らない） */
+.lcrow__key {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* 編集の前からの「価格あり・決めていなかった」の取引の問い（LC の行のすぐ下。#202） */
+.lcdecided {
+  display: grid;
+  gap: var(--sp-1);
+}
+
+.lcdecided__note {
+  margin: 0;
+  font-size: var(--fs-xs);
+}
+
+.record__lc .lcrow > .field > .field__error {
+  grid-row: 4;
   grid-column: 1 / -1;
 }
 
 .record--one .record__lc .field {
-  /* 見出しと欄の間（6px から、要約の名前の行に ［編集］ を置いた分を詰めた。#164） */
-  gap: var(--sp-1);
+  /* 見出しと欄の間（#164 で 6px → 4px に詰め、#202 で問いが 1 つ減った分を 6px に戻した） */
+  gap: 6px;
 }
 
-/* ── 3 つのタップ */
+/* ── 決済までの行動のタップ（#202 で 2 つ） */
 .record__taps {
   display: grid;
   gap: var(--sp-2);
 }
 
-/* 2 段目の 3 つのタップの間（要約が 3 行になった分を詰める。#164） */
+/* 2 段目のタップの間（要約が 3 行になった分を詰める。#164） */
 .record--one .record__taps {
-  gap: var(--sp-1);
+  /* #164 で詰めた分を #202 で戻した（問いが 1 つ減って下が空いた） */
+  gap: var(--sp-2);
 }
 
 .record--one .record__taps .field {

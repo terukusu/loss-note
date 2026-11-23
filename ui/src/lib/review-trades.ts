@@ -44,29 +44,48 @@ export function parseTrail(search: string): TrailFilter | null {
   return q.get('after') === AFTER_WIN_STREAK ? { kind: 'winStreak' } : null;
 }
 
-/** 取引の詳細から来た印の鍵と値（`&via=trade`。期間は自動で決めたと範囲の行で言う。#188） */
+/**
+ * 取引の詳細から来た印の **鍵 via と値 trade**（`&via=trade`。期間は自動で決めたと範囲の行で言う。#188）。
+ * 下の元の取引の ID の **鍵 trade**（`&trade=<ID>`）とは別物: 同じ語が `via=trade&trade=x-emo` のように鍵と値に出るが、
+ * 印は isFromTrade（via の値を見る）、ID は originOf（trade の値を見る）だけが読む。印の値は前からの URL（#188）と同じに保つ
+ */
 const VIA = 'via';
 const VIA_TRADE = 'trade';
+/** 押して来た元の取引の ID の鍵（`&trade=<ID>`。一覧のその行に札「この取引」を付ける。#194）。上の印の値とは別 */
+const ORIGIN = 'trade';
+/** 元の取引の行の札 */
+export const ORIGIN_BADGE = 'この取引';
 
 /**
  * 選んだ期間 + 絞り方 → 期間の取引の URL（期間の検索部分は振り返りのタブと同じ。parsePeriod・parseTrail と往復で同じ）。
- * fromTrade = 取引の詳細の心理のチップから（期間は periodAround で自動。`&via=trade`）。期間を選び直すと印は外れる
+ * fromTrade = 取引の詳細の心理のチップから（期間は periodAround で自動。`&via=trade`）。期間を選び直すと印は外れる。
+ * trade = 押して来た元の取引の ID（`&trade=`。#194）。期間を選び直しても呼ぶ側が渡し続ける（元の取引は変わらない）
  */
 export function reviewTradesHref(
   sel: PeriodSelection,
   filter: TrailFilter,
-  opts: { readonly fromTrade?: boolean } = {},
+  opts: { readonly fromTrade?: boolean; readonly trade?: string | null } = {},
 ): string {
   const q = new URLSearchParams(periodSearch(sel).slice(1));
   if (filter.kind === 'emotion') q.set('emotion', filter.id);
   else q.set('after', AFTER_WIN_STREAK);
   if (opts.fromTrade) q.set(VIA, VIA_TRADE);
+  if (opts.trade) q.set(ORIGIN, opts.trade);
   return `/review/trades?${q.toString()}`;
 }
 
 /** URL の検索部分 → 取引の詳細から来た（期間を自動で決めた）か */
 export function isFromTrade(search: string): boolean {
   return new URLSearchParams(search).get(VIA) === VIA_TRADE;
+}
+
+/**
+ * URL の検索部分 → 押して来た元の取引の ID（無い・空なら null）。外から入る値なので、一覧の行の ID と比べるだけで、
+ * 画面の文字にも要求にも使わない（#194）
+ */
+export function originOf(search: string): string | null {
+  const id = new URLSearchParams(search).get(ORIGIN);
+  return id ? id : null;
 }
 
 /**
@@ -82,14 +101,14 @@ export function autoPeriodLead(sel: PeriodSelection, fromTrade: boolean): string
 
 /**
  * 取引の詳細の心理のチップの行き先（#188。設計書 9.4）: その心理で絞った期間の取引。期間は決済の日を含む 3 か月（periodAround）、
- * 取り込んだ取引なら取り込みを含める（押した取引が一覧に入る）
+ * 取り込んだ取引なら取り込みを含める（押した取引が一覧に入る）。押した取引の ID を持たせ、一覧のその行に札を付ける（#194）
  */
 export function tradeEmotionHref(trade: StoredTrade, id: EmotionTagId, now: number): string {
   const imports = trade.record.source === 'import';
   return reviewTradesHref(
     periodAround(trade.record.exit.time, now, imports),
     { kind: 'emotion', id },
-    { fromTrade: true },
+    { fromTrade: true, trade: trade.id },
   );
 }
 
@@ -112,6 +131,8 @@ export interface ReviewTradesModel {
   readonly notes: Readonly<Record<string, string>>;
   /** 期間の取引が上限（2,000 件）を超えたときの文（気づき・規律と同じ。C44）。超えなければ null */
   readonly truncatedText: string | null;
+  /** 札「この取引」を付ける行の ID（URL の元の取引が行にあるときだけ。無い・当たらないなら null。#194） */
+  readonly origin: string | null;
   /** 決済の新しい順の行 */
   readonly rows: readonly TradeRow[];
   readonly empty: boolean;
@@ -164,6 +185,8 @@ export function reviewTradesModel(
     readonly instruments: readonly InstrumentRecord[];
     readonly accounts?: readonly AccountRecord[];
     readonly truncated?: boolean;
+    /** URL の元の取引の ID（originOf） */
+    readonly origin?: string | null;
   },
 ): ReviewTradesModel {
   const title = trailTitle(opts.filter);
@@ -177,6 +200,7 @@ export function reviewTradesModel(
     empty: true,
     emptyText: noneTextOf(opts.filter),
     truncatedText,
+    origin: null,
   };
   if (opts.filter === null) return none;
   const picked = pick(insightItems(trades, opts), opts.filter, opts.includeImports);
@@ -200,6 +224,7 @@ export function reviewTradesModel(
     empty: false,
     emptyText: null,
     truncatedText,
+    origin: opts.origin && ids.has(opts.origin) ? opts.origin : null,
   };
 }
 
@@ -213,6 +238,7 @@ export function reviewTradesModelFor(
     readonly filter: TrailFilter | null;
     readonly instruments: readonly InstrumentRecord[];
     readonly accounts?: readonly AccountRecord[];
+    readonly origin?: string | null;
   },
 ): ReviewTradesModel | null {
   if (state.phase !== 'ready' || !range.ok) return null;

@@ -4,7 +4,7 @@ import { emotionItemOf, insightModel, STREAK_NONE } from '../../ui/src/lib/insig
 import { periodRange } from '../../ui/src/lib/period';
 import { E1, E1_HIDDEN, E6 } from './helpers/insight-examples';
 import { REVIEW_NOW } from './helpers/review-examples';
-import { B, B_HIDDEN, B3, B4, B5 } from './helpers/streak-examples';
+import { B, B_HIDDEN, B3, B4, B5, sequence } from './helpers/streak-examples';
 
 const range7 = periodRange({ key: '7d', imports: false }, REVIEW_NOW);
 const R7 = range7.ok ? { from: range7.from, to: range7.to } : { from: 0, to: 1 };
@@ -115,8 +115,8 @@ describe('AC-5・AC-6: 連勝の後のカード', () => {
       summary: '2 件 · 件数が少ない',
       afterText: 'このうち 調子に乗った 0 件',
       tagText: null,
-      // ほかの取引 = 1・2 件目（勝ち 2 件。判定の出た取引が 5 件未満）
-      others: { rate: 'ほかの取引 件数が少ない', cost: null },
+      // ほかの取引 = 1・2 件目（勝ち 2 件。判定の出た取引が 5 件未満 = あと 3 件で率が出る。#194 の E12）
+      others: { rate: 'ほかの取引 あと 3 件で率を表示', cost: null },
       pairs: [{ label: 'このうち 調子に乗った', value: '0 件', zero: true }],
     });
   });
@@ -145,5 +145,14 @@ describe('AC-5・AC-6: 連勝の後のカード', () => {
       count: 0,
       tagText: '調子に乗った 1 件のうち 連勝の後 0 件',
     });
+  });
+});
+
+describe('Issue #194: ほかの取引が 5 件未満の比べる相手（AC-6。E11）', () => {
+  it('E11: 勝ち 7 件 → 連勝の後 5 件は率が出て、ほかの取引（2 件）は「あと 3 件で率を表示」・規律コストの比べる相手は無い', () => {
+    const W = ['safeWin', 1.0] as const;
+    const s = streak(sequence('w', [W, W, W, W, W, W, W]));
+    expect(s).toMatchObject({ count: 5, few: false, rateText: '100%' });
+    expect(s?.others).toEqual({ rate: 'ほかの取引 あと 3 件で率を表示', cost: null });
   });
 });

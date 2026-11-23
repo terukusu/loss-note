@@ -5043,8 +5043,21 @@ async function main() {
               const mine = await pg.locator('.traderow[href="/trades/x-emo"]').count();
               if (mine !== 1) throw new Error(`押した取引の行 ${mine}（期待 1）`);
               const q = new URL(pg.url()).searchParams;
-              if (q.get('emotion') !== 'recoup' || q.get('via') !== 'trade')
+              if (
+                q.get('emotion') !== 'recoup' ||
+                q.get('via') !== 'trade' ||
+                q.get('trade') !== 'x-emo'
+              )
                 throw new Error(`行き先 ${q.toString()}`);
+              // 押して来た元の取引の行にだけ札「この取引」（#194）
+              const badges = await pg.locator('main .traderow__badge').count();
+              const mineBadge = await pg
+                .locator('.traderow[href="/trades/x-emo"] .traderow__badge', {
+                  hasText: 'この取引',
+                })
+                .count();
+              if (badges !== 1 || mineBadge !== 1)
+                throw new Error(`札 ${badges}・元の取引の行の札 ${mineBadge}（期待 1・1）`);
               // 期間が自動で決まったことを範囲の行で言い、期間の選択肢がある（#188 デザインレビュー 1・2）
               const meta = (await pg.locator('main .review__meta').first().textContent()) ?? '';
               if (!/^この取引(を含む|までの) 3 か月 · /.test(meta.trim()))
@@ -5055,6 +5068,52 @@ async function main() {
                 .waitFor({
                   state: 'attached',
                 });
+            },
+          },
+          // 期間を選び直しても元の取引の ID は URL に残り、via は外れる（#194 の AC-4）。
+          // 「1か月」= x-emo が範囲の外で札なし（E6）→「3か月」に戻す = 選び直した後も札が出る（E5。撮るのはこの形）
+          {
+            path: '/trades/x-emo',
+            h1: '架空指数U · L',
+            slug: 'trade-x-emotion-trail-period',
+            name: '期間の取引で期間を選び直す',
+            trade: TX_EMO,
+            after: async (pg) => {
+              await pg.locator('.emotioncard a.chip', { hasText: '取り戻したい' }).click();
+              await waitReady(pg, '取り戻したい');
+              await pg.locator('.traderow').first().waitFor({ timeout: 15000 });
+              const pick = async (label, key) => {
+                await pg
+                  .locator('main .review__period-bar label', { hasText: label })
+                  .first()
+                  .click();
+                await pg.waitForFunction(
+                  (k) => new URLSearchParams(location.search).get('period') === k,
+                  key,
+                );
+                const q = new URL(pg.url()).searchParams;
+                if (
+                  q.get('trade') !== 'x-emo' ||
+                  q.get('via') !== null ||
+                  q.get('emotion') !== 'recoup'
+                )
+                  throw new Error(`選び直した URL ${q.toString()}`);
+              };
+              await pick('1か月', '1m');
+              await pg.locator('main .review__empty, main .traderow').first().waitFor();
+              const outside = await pg.locator('main .traderow__badge').count();
+              if (outside !== 0) throw new Error(`範囲の外の札 ${outside}（期待 0）`);
+              await pick('3か月', '3m');
+              await pg
+                .locator('.traderow[href="/trades/x-emo"] .traderow__badge', {
+                  hasText: 'この取引',
+                })
+                .waitFor({ timeout: 15000 });
+              const badges = await pg.locator('main .traderow__badge').count();
+              if (badges !== 1) throw new Error(`選び直した後の札 ${badges}（期待 1）`);
+              // via が外れたので範囲の行は日付だけ
+              const meta = (await pg.locator('main .review__meta').first().textContent()) ?? '';
+              if (meta.includes('この取引')) throw new Error(`範囲の行 ${meta}`);
             },
           },
           {

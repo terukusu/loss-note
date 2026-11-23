@@ -14,12 +14,27 @@ import type { TradeRow as Row } from '../lib/trade-view';
 import { Icon } from './Icon';
 
 /**
- * note: 2 行目の下に添える短い文（期間の取引の画面の心理の名前。#185。取引のタブの一覧・ホームでは渡さない = 今までの形）
+ * note: 2 行目の下に添える短い文（期間の取引の画面の心理の名前。#185。取引のタブの一覧・ホームでは渡さない = 今までの形）。
+ * badge: 3 行目の頭の小さな札（期間の取引の画面の「この取引」= 押して来た元の取引。#194）。読み上げの名前の頭にも付ける。
+ * 渡さない描画は今までと同じ DOM
  */
-export function TradeRow({ row, note }: { readonly row: Row; readonly note?: string | undefined }) {
+export function TradeRow({
+  row,
+  note,
+  badge,
+}: {
+  readonly row: Row;
+  readonly note?: string | undefined;
+  readonly badge?: string | undefined;
+}) {
   const m = listRowModel(row);
+  const noteEl = note ? <span class="traderow__note">{note}</span> : null;
   return (
-    <Link href={row.href} class="traderow" aria-label={row.label}>
+    <Link
+      href={row.href}
+      class="traderow"
+      aria-label={badge ? `${badge}、${row.label}` : row.label}
+    >
       <span class={`traderow__mark traderow__mark--${m.tier}`}>
         <Icon name={m.symbol} />
       </span>
@@ -40,7 +55,14 @@ export function TradeRow({ row, note }: { readonly row: Row; readonly note?: str
             {m.when}
           </time>
         </span>
-        {note ? <span class="traderow__note">{note}</span> : null}
+        {badge ? (
+          <span class="traderow__extra">
+            <span class="traderow__badge">{badge}</span>
+            {noteEl}
+          </span>
+        ) : (
+          noteEl
+        )}
       </span>
       <span class="traderow__nums">
         <span class={m.rMissing ? 'traderow__r traderow__none' : 'num traderow__r'}>{m.rText}</span>

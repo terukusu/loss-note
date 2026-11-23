@@ -68,3 +68,31 @@
 .review__trailpart {
   min-width: 0;
 }
+
+/* 押して来た元の取引の札（#194）: 行の 3 行目の頭。判定のカードの答えの札と同じ輪郭の形で、色は足さない（C34 = 色は判定の段だけ）。
+   札の付いた行は見返したい行なので、後ろの心理の名前は省略せずに折り返す（ui-guidelines 10.3。#194 のコードレビュー 1）。
+   札の後ろに入らない名前は札の右で次の行へ折れる */
+.review--trail .traderow__extra {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.review--trail .traderow__extra .traderow__note {
+  flex: 1 1 0;
+  overflow: visible;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.review--trail .traderow__badge {
+  flex: none;
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+  white-space: nowrap;
+}

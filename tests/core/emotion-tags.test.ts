@@ -8,7 +8,9 @@ import {
   type EmotionTagId,
   isEmotionTagId,
   normalizeEmotions,
+  normalizeHidden,
   toggleEmotion,
+  toggleHidden,
 } from '../../core/emotion-tags';
 import { forAll, type Rng } from './helpers/prng';
 
@@ -109,6 +111,42 @@ describe('normalizeEmotions', () => {
       (xs) => {
         const once = normalizeEmotions(xs);
         expect(normalizeEmotions(once)).toEqual(once);
+      },
+    );
+  });
+});
+
+describe('normalizeHidden・toggleHidden（#163 の R2・R7）', () => {
+  it('平常心と知らない値を捨て、重複を 1 つにし、一覧の順に並べる', () => {
+    expect(normalizeHidden(['bargain', 'calm', 'zzz', 'fomo', 'bargain'])).toEqual([
+      'fomo',
+      'bargain',
+    ]);
+    expect(normalizeHidden(null)).toEqual([]);
+  });
+
+  it('押すと足す / 外す。平常心は変えない', () => {
+    expect(toggleHidden([], 'fomo')).toEqual(['fomo']);
+    expect(toggleHidden(['fomo', 'bargain'], 'fomo')).toEqual(['bargain']);
+    expect(toggleHidden(['bargain'], 'fomo')).toEqual(['fomo', 'bargain']);
+    expect(toggleHidden(['fomo'], CALM)).toEqual(['fomo']);
+  });
+
+  it('性質: 2 回押すと元に戻り、平常心は入らない', () => {
+    forAll(
+      163,
+      300,
+      (r) => ({
+        hidden: normalizeHidden(
+          Array.from({ length: r.int(0, 21) }, () => r.pick([...EMOTION_TAG_IDS])),
+        ),
+        id: r.pick([...EMOTION_TAG_IDS]),
+      }),
+      ({ hidden, id }) => {
+        const once = toggleHidden(hidden, id);
+        expect(once).not.toContain(CALM);
+        expect(sorted(order(once))).toBe(true);
+        expect(toggleHidden(once, id)).toEqual(hidden);
       },
     );
   });

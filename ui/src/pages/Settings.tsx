@@ -1,7 +1,7 @@
 // 設定のタブの根（#3 = テーマの切り替えとログアウト、#133 = まとめた一覧。設計書 9.2 の設定の行・K16・ui-guidelines 9.3・
-// 9.9・9.12）と、次の画面「AI の利用状況」（#62・#133）。
-// - 根: 大きな題「設定」（題の下に説明の文は置かない）→ 区切り「口座」（口座 ›）・「記録」（銘柄 › / AI の利用状況 › / 用語集 ›）・
-//   「表示」（テーマ）・「アカウント」（ログアウト）。押せる行の右に数の添え（lib/settings-menu.ts）
+// 9.9・9.12）と、次の画面「AI の利用状況」（#62・#133）・「心理のタグ」（#163）。
+// - 根: 大きな題「設定」（題の下に説明の文は置かない）→ 区切り「口座」（口座 ›）・「記録」（銘柄 › / 心理のタグ › /
+//   AI の利用状況 › / 用語集 ›）・「表示」（テーマ）・「アカウント」（ログアウト）。押せる行の右に数の添え（lib/settings-menu.ts）
 // - 口座・銘柄の一覧と編集は次の画面（pages/SettingsAccounts.tsx・pages/SettingsInstruments.tsx）、用語集は pages/Glossary.tsx
 // Settings は hook を持たない（App のテストが 1 段だけ呼ぶ）。数の添えは SettingsLinks（controller を購読）が描き、描画は hook を
 // 持たない SettingsLinksView に任せる
@@ -10,8 +10,11 @@ import { api } from '../auth/session';
 import { AiUsageCard, useAiUsage } from '../components/AiUsage';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button, RowLink } from '../components/Button';
+import { EmotionChoicesView, useEmotionChoices } from '../components/EmotionChoices';
 import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
+import { hiddenOf } from '../lib/emotion-choices-controller';
+import { EMOTION_CHOICES_TITLE, emotionChoicesMeta } from '../lib/emotion-tags';
 import { GLOSSARY } from '../lib/glossary';
 import { NavigatorContext } from '../lib/router';
 import {
@@ -96,12 +99,16 @@ export function SettingsLinks() {
     return off;
   }, [controller]);
   const usage = useAiUsage();
+  const choices = useEmotionChoices();
   const ready = state.phase === 'ready';
   return (
     <SettingsLinksView
       groups={settingsMenu({
         accounts: ready ? state.accounts : null,
         instruments: ready ? state.instruments.length : null,
+        emotions: emotionChoicesMeta(
+          choices.state.phase === 'ready' ? hiddenOf(choices.state) : null,
+        ),
         usageToday: usage.state.phase === 'ready' ? usage.state.view.todayCount : null,
         glossary: GLOSSARY.length,
       })}
@@ -148,6 +155,29 @@ export function SettingsAiUsageView({ back }: { readonly back?: BackTarget }) {
     <>
       <TopBar back={back ?? { label: '設定', href: '/settings' }} title="AI の利用状況" />
       <AiUsageCard titled={false} />
+    </>
+  );
+}
+
+/** 設定の次の画面「心理のタグ」（#163。選択肢に出すタグを押して選ぶ。押した時点で保存） */
+export function SettingsEmotions() {
+  const nav = useContext(NavigatorContext);
+  const choices = useEmotionChoices();
+  return <SettingsEmotionsView back={backTargetOf(nav, '/settings')} {...choices} />;
+}
+
+export function SettingsEmotionsView(
+  p: Parameters<typeof EmotionChoicesView>[0] & { readonly back?: BackTarget },
+) {
+  return (
+    <>
+      <TopBar back={p.back ?? { label: '設定', href: '/settings' }} title={EMOTION_CHOICES_TITLE} />
+      <EmotionChoicesView
+        state={p.state}
+        onToggle={p.onToggle}
+        onReload={p.onReload}
+        onRelogin={p.onRelogin}
+      />
     </>
   );
 }

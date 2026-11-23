@@ -214,6 +214,7 @@ describe('設定の根（#133 の AC-1）', () => {
         groups: settingsMenu({
           accounts: [defaultAccount(1_000_000), account('b', '口座 B', 500_000)],
           instruments: 3,
+          emotions: '21 / 21 個',
           usageToday: 3,
           glossary: 17,
         }),
@@ -224,6 +225,7 @@ describe('設定の根（#133 の AC-1）', () => {
     expect(links.map((a) => [a.props.href, text(a)])).toEqual([
       ['/settings/accounts', '口座2 件'],
       ['/settings/instruments', '銘柄3 件'],
+      ['/settings/emotions', '心理のタグ21 / 21 個'],
       ['/settings/ai-usage', 'AI の利用状況今日 3 回'],
       ['/glossary', '用語集17 語'],
     ]);
@@ -233,11 +235,17 @@ describe('設定の根（#133 の AC-1）', () => {
   it('読めていない数は添えを出さない（行は出す）', () => {
     const tree = expand(
       SettingsLinksView({
-        groups: settingsMenu({ accounts: null, instruments: null, usageToday: null, glossary: 17 }),
+        groups: settingsMenu({
+          accounts: null,
+          instruments: null,
+          emotions: null,
+          usageToday: null,
+          glossary: 17,
+        }),
       }),
     );
     expect(all(tree, (e) => cls(e) === 'rowlink__meta').map(text)).toEqual(['17 語']);
-    expect(all(tree, (e) => e.type === 'a')).toHaveLength(4);
+    expect(all(tree, (e) => e.type === 'a')).toHaveLength(5);
   });
 
   it('ログアウトの最中は押せず「ログアウトしています…」、失敗は role="alert"', () => {

@@ -23,3 +23,18 @@ ORDER = {tag: i for i, tag in enumerate(EMOTION_TAG_IDS)}
 def ordered(tags: list[str]) -> list[str]:
     """一覧の順に並べる（検査を通った ID だけを渡す）"""
     return sorted(tags, key=ORDER.__getitem__)
+
+
+# 選択肢に出さないにできるタグ（平常心を除く。#163・ADR-0023。平常心は気づきの基準の行なので常に出す）
+HIDEABLE = tuple(t for t in EMOTION_TAG_IDS if t != CALM)
+
+
+def hidden_of(doc: dict | None) -> list[str]:
+    """保存した選択肢の設定 → 出さないタグ（一覧の順。平常心・知らない ID・重複・形の違う値を落とす）。
+
+    知らない ID は、後の版で足したタグを出さないにした後で前の版へ戻したときに起きる（読むときだけ落とし、書かない）
+    """
+    raw = (doc or {}).get("hidden")
+    if not isinstance(raw, list):
+        return []
+    return ordered(list({t for t in raw if isinstance(t, str) and t in ORDER and t != CALM}))

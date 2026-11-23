@@ -769,3 +769,49 @@ def validate_emotion_tags(body: Any) -> tuple[dict | None, list[Issue], bool]:
     if bad_id:
         return None, [], True
     return out, [], False
+
+
+# ── 心理のタグの選択肢の設定（#163・ADR-0023）──────────────
+
+_EMOTION_SETTINGS_FIELDS = ("hidden",)
+
+
+def validate_emotion_settings(body: Any) -> tuple[dict | None, list[Issue]]:
+    """``PUT /api/settings/emotion-tags`` の本文 → ``(値, issues)``。
+
+    値は ``{"hidden": [一覧の順]}``。hidden は 0〜20 個の一覧の ID・重複なし・平常心を含まない（``calm``）。
+    issues は道筋と種類だけ（送った値を映さない）
+    """
+    c = _Checker()
+    src = c.obj(body, "", _EMOTION_SETTINGS_FIELDS)
+    if src is None:
+        return None, c.issues
+
+    def hidden(v: Any, path: str) -> Any:
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if len(v) > len(emotion_tags.HIDEABLE):
+            c.add(path, "count")
+            return INVALID
+        ok = True
+        for i, x in enumerate(v):
+            if not isinstance(x, str) or x not in emotion_tags.ORDER:
+                c.add(f"{path}.{i}", "enum")
+                ok = False
+        if not ok:
+            return INVALID
+        if len(set(v)) != len(v):
+            c.add(path, "duplicate")
+            return INVALID
+        if emotion_tags.CALM in v:
+            c.add(path, "calm")
+            return INVALID
+        return emotion_tags.ordered(list(v))
+
+    out: dict = {}
+    _put(out, "hidden", c.field(src, "hidden", "", hidden, required=True))
+    if c.issues:
+        return None, c.issues
+    return out, []
+

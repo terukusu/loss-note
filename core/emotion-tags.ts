@@ -80,3 +80,18 @@ export function toggleEmotion(current: readonly EmotionTagId[], id: EmotionTagId
   if (id === CALM) return [CALM];
   return normalizeEmotions([...now.filter((t) => t !== CALM), id]);
 }
+
+/**
+ * 選択肢に出さないタグ（#163・ADR-0023）: 知らない値・平常心（常に出す）を捨て、重複を 1 つにし、一覧の順に並べる（冪等）。
+ * 保存の後のシート・詳細のシートの選択肢を絞るだけで、付いたタグ・集計は変えない
+ */
+export function normalizeHidden(ids: unknown): EmotionTagId[] {
+  return normalizeEmotions(ids).filter((t) => t !== CALM);
+}
+
+/** 設定の画面でタグを押した後の「出さない」集合（入っていれば出す = 外す、無ければ出さない = 足す）。平常心は変えない */
+export function toggleHidden(hidden: readonly EmotionTagId[], id: EmotionTagId): EmotionTagId[] {
+  const now = normalizeHidden(hidden);
+  if (id === CALM) return now;
+  return now.includes(id) ? now.filter((t) => t !== id) : normalizeHidden([...now, id]);
+}

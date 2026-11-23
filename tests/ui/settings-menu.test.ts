@@ -18,38 +18,71 @@ const flat = (m: ReturnType<typeof settingsMenu>) =>
   m.flatMap((g) => g.rows.map((r) => `${g.title}|${r.label}|${r.meta ?? ''}|${r.href}`));
 
 describe('settingsMenu（AC-1）', () => {
-  it('R1: 口座 2（設定済み）・銘柄 3・今日 3 回・用語 17 → 区切り 口座 / 記録 と、行の添え', () => {
-    const m = settingsMenu({ accounts: [A1, A2], instruments: 3, usageToday: 3, glossary: 17 });
+  it('R1: 口座 2（設定済み）・銘柄 3・心理 19 / 21・今日 3 回・用語 17 → 区切り 口座 / 記録 と、行の添え', () => {
+    const m = settingsMenu({
+      accounts: [A1, A2],
+      instruments: 3,
+      emotions: '19 / 21 個',
+      usageToday: 3,
+      glossary: 17,
+    });
     expect(m.map((g) => g.title)).toEqual(['口座', '記録']);
     expect(flat(m)).toEqual([
       '口座|口座|2 件|/settings/accounts',
       '記録|銘柄|3 件|/settings/instruments',
+      '記録|心理のタグ|19 / 21 個|/settings/emotions',
       '記録|AI の利用状況|今日 3 回|/settings/ai-usage',
       '記録|用語集|17 語|/glossary',
     ]);
   });
 
   it('読めていない数は添えを出さない（「0 件」と見せない）。0 は 0 のまま', () => {
-    const m = settingsMenu({ accounts: null, instruments: 0, usageToday: null, glossary: 17 });
-    expect(m.flatMap((g) => g.rows.map((r) => r.meta))).toEqual([null, '0 件', null, '17 語']);
+    const m = settingsMenu({
+      accounts: null,
+      instruments: 0,
+      emotions: null,
+      usageToday: null,
+      glossary: 17,
+    });
+    expect(m.flatMap((g) => g.rows.map((r) => r.meta))).toEqual([
+      null,
+      '0 件',
+      null,
+      null,
+      '17 語',
+    ]);
   });
 
   it('壊れた数（負・小数・NaN）は添えを出さない。大きな数は桁区切り', () => {
     const m = settingsMenu({
       accounts: null,
       instruments: 1.5,
+      emotions: null,
       usageToday: Number.NaN,
       glossary: 1200,
     });
-    expect(m.flatMap((g) => g.rows.map((r) => r.meta))).toEqual([null, null, null, '1,200 語']);
+    expect(m.flatMap((g) => g.rows.map((r) => r.meta))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      '1,200 語',
+    ]);
   });
 
   it('AC-2: 行き先はどれもアプリの画面（設定のタブの次の画面）', () => {
-    const m = settingsMenu({ accounts: [A1], instruments: 1, usageToday: 0, glossary: 17 });
+    const m = settingsMenu({
+      accounts: [A1],
+      instruments: 1,
+      emotions: null,
+      usageToday: 0,
+      glossary: 17,
+    });
     const names = m.flatMap((g) => g.rows.map((r) => parseRoute(r.href, { dev: false })?.name));
     expect(names).toEqual([
       'settingsAccounts',
       'settingsInstruments',
+      'settingsEmotions',
       'settingsAiUsage',
       'glossary',
     ]);
@@ -58,7 +91,8 @@ describe('settingsMenu（AC-1）', () => {
 
 describe('根の「口座」の添えは中身（#133 デザインレビュー a-3）', () => {
   const meta = (accounts: Parameters<typeof settingsMenu>[0]['accounts']) =>
-    settingsMenu({ accounts, instruments: 0, usageToday: 0, glossary: 17 })[0]?.rows[0]?.meta;
+    settingsMenu({ accounts, instruments: 0, emotions: null, usageToday: 0, glossary: 17 })[0]
+      ?.rows[0]?.meta;
   it('口座が 1 つ: 口座の一覧の 2 行目と同じ「資金 · 許容」', () => {
     expect(meta([A1])).toBe('1,000,000円 · 許容 1%');
   });

@@ -30,6 +30,7 @@ import { ACCOUNT_FIELD_ID, AccountField } from '../components/AccountField';
 import { SheetBar } from '../components/AppBar';
 import { Button, RowLink } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
+import { useEmotionChoices } from '../components/EmotionChoices';
 import { EmotionSheetBody } from '../components/Emotions';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
@@ -78,6 +79,7 @@ import {
 } from '../lib/draft-status';
 import { recordKey } from '../lib/drafts';
 import { DraftsContext } from '../lib/drafts-context';
+import { hiddenOf } from '../lib/emotion-choices-controller';
 import {
   createEmotionController,
   type EmotionController,
@@ -333,6 +335,8 @@ export function RecordScreen() {
   // 保存の後のシートの心理のタグ（#156）。保存のたびに作り直し、シートを閉じても送りが終わるまで残す（画面を離れたら捨てる）
   const emotion = useRef<EmotionController | null>(null);
   const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
+  // 心理の選択肢の設定（#163）。画面を開くたびに読む（読めない・読み込み中はすべて出す）
+  const choices = useEmotionChoices();
   useEffect(() => () => emotion.current?.dispose(), []);
 
   useEffect(() => {
@@ -573,6 +577,7 @@ export function RecordScreen() {
       onSheet={onSheet}
       {...(emotionState ? { emotion: emotionState } : {})}
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
+      emotionHidden={hiddenOf(choices.state)}
       legUndo={legUndo}
       legNotice={legNotice}
       readFlash={readFlash}
@@ -702,6 +707,8 @@ export interface RecordViewProps {
   readonly emotion?: EmotionState;
   /** チップを押した */
   readonly onEmotionToggle?: (id: EmotionTagId) => void;
+  /** 心理の選択肢に出さないタグ（#163 の設定。省く・読めない・読み込み中 = すべて出す） */
+  readonly emotionHidden?: readonly EmotionTagId[];
   /** 開いているシート（#130。省けばどれも閉じている） */
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
@@ -955,6 +962,7 @@ function SavedPanel(p: RecordViewProps) {
             context="saved"
             state={p.emotion}
             verdicts={savedVerdicts(saved)}
+            {...(p.emotionHidden ? { hidden: p.emotionHidden } : {})}
             onToggle={(id) => p.onEmotionToggle?.(id)}
             onClose={() => p.onSheet?.(null)}
           />

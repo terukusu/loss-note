@@ -24,7 +24,14 @@ from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.logs import log_event
 from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
-from loss_note_api.store import Conflict, MissingAccount, MissingInstrument, StoreUnavailable, check_known_version
+from loss_note_api.store import (
+    EMOTION_SETTINGS_DOC,
+    Conflict,
+    MissingAccount,
+    MissingInstrument,
+    StoreUnavailable,
+    check_known_version,
+)
 
 _ALNUM = string.ascii_letters + string.digits
 
@@ -396,3 +403,12 @@ class MemoryStore:
             new = mutate(copy.deepcopy(col.get("current")))
             col["current"] = copy.deepcopy(new)
             return new
+
+    # ── 心理のタグの選択肢の設定（#163）──
+    def get_emotion_settings(self, uid):
+        with self._lock:
+            return copy.deepcopy(self._col(uid, "settings").get(EMOTION_SETTINGS_DOC))
+
+    def put_emotion_settings(self, uid, doc):
+        with self._lock:
+            self._col(uid, "settings")[EMOTION_SETTINGS_DOC] = copy.deepcopy(doc)

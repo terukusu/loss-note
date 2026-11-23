@@ -1388,7 +1388,11 @@ describe('複数行（AC-9）', () => {
     const btn = all(tree, (e) => e.type === 'button' && text(e) === 'この行をスキップ')[0] as El;
     (btn.props.onClick as () => void)();
     expect(skipped).toBe(1);
+    // 2 段目は明細の行の読み上げの領域に入る（#180。新しい段落の role="status" は描かない）
     expect(all(tree, (e) => e.props.role === 'status').map(text)).toContain(
+      '1 / 3 行目を記録しました',
+    );
+    expect(all(tree, hasClass('statement__text')).map(text)).not.toContain(
       '1 / 3 行目を記録しました',
     );
   });
@@ -2955,21 +2959,54 @@ describe('読み取りが終わったことの知らせ（#166。例は Issue �
     expect(all(t8, hasClass('rsum__mark'))).toHaveLength(0);
   });
 
-  it('#14: 次の行へ進んだ → 知らせ 1 つだけ（完了の文・領域の文なし）。#15: 手入力 → 出ない', () => {
+  it('#14: 次の行へ進んだ → 知らせ 1 つだけを名前の上の 1 行に（完了の文なし。領域の中身は知らせ。#180）。#15: 手入力 → 出ない', () => {
     const f = filledE1();
     const notice = '1 / 2 行目を記録しました。次の行（2 / 2）です';
     const t = view(
       withStatement(f.draft, { marks: f.marks, rows: [ROW_E1, ROW_E1], index: 1, notice }),
     );
-    expect(visible(t)).toHaveLength(0);
-    expect(text(region(t))).toBe('');
-    expect(all(t, (e) => text(e) === notice && e.type === 'p')).toHaveLength(1);
-    // 次の行は名前の右の印「読み取り」（今のまま）
+    const v = visible(t);
+    expect(v).toHaveLength(1);
+    expect(cls(v[0] as El)).toBe('rsum__status rsum__status--notice');
+    expect((v[0] as El).props['aria-hidden']).toBe('true');
+    expect(text(v[0] as El)).toBe(notice);
+    // 文ごとの塊（文の間で折る）
+    expect(all([v[0] as El], hasClass('rsum__sentence')).map(text)).toEqual([
+      '1 / 2 行目を記録しました。',
+      '次の行（2 / 2）です',
+    ]);
+    // 印（チェック・「!」）は付けない（完了の文と見分ける）
+    expect(all(t, hasClass('rsum__statusicon'))).toHaveLength(0);
+    expect(all(t, hasClass('rsum__status--done'))).toHaveLength(0);
+    expect(text(region(t))).toBe(notice);
+    // 文を持つ段落は読み上げの領域（sr-only）と名前の上の 1 行の 2 つだけ（要約の下の段落に出さない）・読み上げの領域は 1 つ
+    expect(all(t, (e) => text(e) === notice && e.type === 'p')).toHaveLength(2);
+    expect(all(t, hasClass('statement__text'))).toHaveLength(0);
+    expect(all([area(t)], (e) => e.props.role === 'status')).toHaveLength(1);
+    // 次の行は名前の右の印「読み取り」（今のまま。#180 の R5）
     expect(text(all(t, hasClass('rsum__mark')))).toBe('読み取り');
     const manual = view({ ...stateFor(draft({}), NO_CAPITAL), manual: true });
     expect(area(manual).props['data-area']).toBe('summary');
     expect(visible(manual)).toHaveLength(0);
     expect(text(region(manual))).toBe('');
+  });
+
+  it('#180 の #4: 最初の行でポジションを分けた知らせは完了の文の代わりに同じ 1 行。#7: 1 段目では枠の下の今の段落のまま', () => {
+    const f = filledE1();
+    const split = 'レッグを別のポジションにしました。次の取引（2 / 3）で記録します';
+    const t = view(
+      withStatement(f.draft, { marks: f.marks, rows: [ROW_E1, ROW_E1, ROW_E1], notice: split }),
+    );
+    expect(visible(t).map(text)).toEqual([split]);
+    expect(text(region(t))).toBe(split);
+    const notice = '1 / 2 行目を記録しました。次の行（2 / 2）です';
+    const s1 = view({
+      ...withStatement(f.draft, { marks: f.marks, rows: [ROW_E1, ROW_E1], index: 1, notice }),
+      stage: 'input',
+    });
+    const para = all(s1, hasClass('statement__text'));
+    expect(para.map(text)).toEqual([notice]);
+    expect((para[0] as El).props.role).toBe('status');
   });
 
   it('動きの印: readFlash の間だけ明細の行に rstmt--flash（hook の層が 1 回だけ立てる）', () => {

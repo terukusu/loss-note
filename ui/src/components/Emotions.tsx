@@ -2,10 +2,12 @@
 // - EmotionSheetBody: 保存の後のシート「記録しました」と詳細のシート「心理」の中身。上に判定（保存の後だけ。1 件は判定の
 //   理由の先頭の 1 行も）、まとまりの見出し（「i」で一言の並び）の下に押す形のチップ（aria-pressed）、失敗の文言、下に貼り付く
 //   ［あとで］ / ［完了］。チップは設定で選択肢に出すタグと、開いたときに付いていたタグだけ（#163）。良い状態（平常心）は
-//   ほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）
+//   ほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）。保存の後のシートは心理の段の下に
+//   Good / More の段（children。#220）を置き、それが付いていればボタンを ［完了］ にする（alsoAttached）
 // - EmotionCard: 詳細の「心理」のカード（付いているタグ + ［変更］。無ければ押せる行「＋ 心理を付ける」）。タグは行き先
 //   （hrefOf）があれば押せるチップ（同じ心理の「期間の取引」へ。#188）、無ければ押せない輪郭の札
 // 色はどのタグにも付けない（C34）。名前・一言は固定の文字（ID から引く）をテキストのノードで入れる
+import type { ComponentChildren } from 'preact';
 import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { EmotionState } from '../lib/emotion-controller';
 import {
@@ -44,6 +46,10 @@ export interface EmotionSheetBodyProps {
   readonly hidden?: readonly EmotionTagId[];
   readonly onToggle: (id: EmotionTagId) => void;
   readonly onClose: () => void;
+  /** 心理の段の下に置く中身（保存の後のシートの Good / More の段。#220） */
+  readonly children?: ComponentChildren;
+  /** 心理のほかに付いているもの・書きかけがある（#220。あれば下の帯のボタンを ［あとで］ でなく ［完了］ にする） */
+  readonly alsoAttached?: boolean;
 }
 
 export function EmotionSheetBody(p: EmotionSheetBodyProps) {
@@ -52,6 +58,8 @@ export function EmotionSheetBody(p: EmotionSheetBodyProps) {
   const headingId = `${p.prefix}-emotion-heading`;
   // 2 件以上の件数はシートの題（emotionSheetTitle）が言うので、ここでは繰り返さない
   const reason = verdicts.length === 1 ? verdicts[0]?.reason : undefined;
+  // 下の帯のボタン: 心理のほかに Good / More が付いている・書きかけがあれば 1 つ分と数える（#220）
+  const attached = p.state.selected.length + (p.alsoAttached ? 1 : 0);
   return (
     <div class="emotions">
       {verdicts.length > 0 ? (
@@ -113,18 +121,15 @@ export function EmotionSheetBody(p: EmotionSheetBodyProps) {
           </div>
         );
       })}
+      {p.children}
       {p.state.error !== null ? (
         <p class="notice notice--error" role="alert">
           {p.state.error}
         </p>
       ) : null}
       <div class="emotions__actions">
-        <Button
-          block
-          variant={p.state.selected.length > 0 ? 'primary' : 'secondary'}
-          onClick={p.onClose}
-        >
-          {closeLabelOf(p.context, p.state.selected.length)}
+        <Button block variant={attached > 0 ? 'primary' : 'secondary'} onClick={p.onClose}>
+          {closeLabelOf(p.context, attached)}
         </Button>
       </div>
     </div>

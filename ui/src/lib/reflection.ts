@@ -52,6 +52,27 @@ export const REFLECTION_HINT =
 export const REFLECTION_NOTE_LABEL = '自分で書く';
 export const REFLECTION_NOTE_ADD = '追加';
 export const REFLECTION_DONE = '完了';
+/** 保存の後のシートで「自分で書く」の欄を開くボタン（#220。押すまで欄をたたむ = 押すだけの人の手間を増やさない） */
+export const REFLECTION_COMPOSE = '＋ 自分で書く';
+
+/** 「＋ 自分で書く」の読み上げの名前（「Good を自分で書く」。開いた後の欄の名前と同じ） */
+export function composeLabel(side: ReflectionSide): string {
+  return `${REFLECTION_SIDE_TEXT[side].name} を${REFLECTION_NOTE_LABEL}`;
+}
+
+/**
+ * 話題・自分で書いた行・空白でない書きかけのどれかがあるか（#220。保存の後のシートの下の帯のボタンを ［あとで］ から
+ * ［完了］ にする。［完了］ は書きかけを行として足すので、書きかけだけでも ［完了］）
+ */
+export function reflectionHasInput(
+  value: Reflection,
+  drafts: { readonly good: string; readonly more: string },
+): boolean {
+  return REFLECTION_SIDES.some(
+    (side) =>
+      value[side].topics.length > 0 || value[side].notes.length > 0 || drafts[side].trim() !== '',
+  );
+}
 
 export function notePlaceholder(side: ReflectionSide): string {
   return side === 'good' ? '例: 前提が崩れたので LC の前に決済した' : '例: 入る前に TP を決める';

@@ -1,4 +1,4 @@
-// Good / More の付け外しの通信と状態（#123・設計書 9.4・ADR-0024）。DOM なし。詳細のシートが使う（保存の後のシートは Issue 220）。
+// Good / More の付け外しの通信と状態（#123・設計書 9.4・ADR-0024）。DOM なし。詳細のシートと、記録の保存の後のシート（#220）が使う。
 // 心理のタグの controller（emotion-controller.ts）と同じ規則:
 // - チップを押す・行を足す・消すと、その時点の Good / More をすぐ見せて送る（PUT /api/trade-reflections。取引の集合ごと置き換え）
 // - 要求は 1 本ずつ。送っている間に変えたら、終わった後に最新の値を 1 本だけ送る（後に届いた古い値で上書きしない）
@@ -69,7 +69,7 @@ const withSide = <T>(x: PerSide<T>, side: ReflectionSide, v: T): PerSide<T> =>
 
 export function createReflectionController(deps: {
   readonly request: RequestFn;
-  /** 付ける取引（詳細は 1 件。保存の後のシートは同じ明細から保存した行すべて = Issue 220） */
+  /** 付ける取引（詳細は 1 件。保存の後のシートは同じ明細から保存した行すべて。#220） */
   readonly tradeIds: readonly string[];
   readonly initial: unknown;
   /** 保存できたとき（詳細の取引に写す） */

@@ -18,6 +18,7 @@ import { notePress, takeSubmit } from '../lib/keyboard-reveal';
 import '../styles/record.css';
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { EmotionTagId } from '../../../core/emotion-tags';
+import type { ReflectionSide, ReflectionTopicId } from '../../../core/reflection';
 import type { Side, Timeframe } from '../../../core/trade';
 import { api, signOutActive } from '../auth/session';
 import {
@@ -44,6 +45,7 @@ import {
   SummaryCard,
   VerdictLineButton,
 } from '../components/RecordParts';
+import { noteFieldId, ReflectionSides } from '../components/Reflection';
 import { Segment } from '../components/Segment';
 import { Sheet } from '../components/Sheet';
 import {
@@ -133,6 +135,12 @@ import {
   tradeSummary,
   verdictLine,
 } from '../lib/record-screen';
+import { reflectionHasInput } from '../lib/reflection';
+import {
+  createReflectionController,
+  type ReflectionController,
+  type ReflectionState,
+} from '../lib/reflection-controller';
 import { createRequest } from '../lib/request';
 import { sheetDismiss } from '../lib/sheet';
 import { accountHintOf, learnedText, pnlFillOf } from '../lib/statement-account';
@@ -344,7 +352,18 @@ export function RecordScreen() {
   const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
   // 心理の選択肢の設定（#163）。画面を開くたびに読む（読めない・読み込み中はすべて出す）
   const choices = useEmotionChoices();
-  useEffect(() => () => emotion.current?.dispose(), []);
+  // 保存の後のシートの Good / More（#220）。心理と同じく保存のたびに作り直し、閉じても送りが終わるまで残す
+  const reflection = useRef<ReflectionController | null>(null);
+  const [reflectionState, setReflectionState] = useState<ReflectionState | null>(null);
+  // 「自分で書く」の欄を開いた段（保存のたびにたたむ）
+  const [composing, setComposing] = useState<Readonly<Record<ReflectionSide, boolean>>>(NO_COMPOSE);
+  useEffect(
+    () => () => {
+      emotion.current?.dispose();
+      reflection.current?.dispose();
+    },
+    [],
+  );
 
   useEffect(() => {
     const off = controller.subscribe((s) => {
@@ -412,6 +431,16 @@ export function RecordScreen() {
         });
         emotion.current = c;
         c.subscribe(setEmotionState);
+        // Good / More（#220）も同じ取引の集合へ。前の保存の書きかけ・失敗は持ち越さない
+        reflection.current?.dispose();
+        const r = createReflectionController({
+          request: createRequest(api),
+          tradeIds: (saved.trades ?? [saved.trade]).map((t) => t.id),
+          initial: undefined,
+        });
+        reflection.current = r;
+        r.subscribe(setReflectionState);
+        setComposing(NO_COMPOSE);
         setSheet({ kind: 'emotion' });
       } else {
         setSheet(null);
@@ -543,6 +572,9 @@ export function RecordScreen() {
       setLegNotice(null);
       // 保存の後のシートを閉じた: 判定の枠の見出しへ（#156。保存の後の画面には LC が無い）
       if (controller.getState().phase === 'saved') {
+        // ✕・戻るで閉じたら Good / More の書きかけを捨てる（［あとで］ / ［完了］ は足してから閉じるので空。設計書 9.4・#220）
+        reflection.current?.setDraft('good', '');
+        reflection.current?.setDraft('more', '');
         setTimeout(() => document.getElementById(VERDICT_TITLE_ID)?.focus(), 0);
       } else setTimeout(focusAfterSheet, 0);
     }
@@ -585,6 +617,19 @@ export function RecordScreen() {
       {...(emotionState ? { emotion: emotionState } : {})}
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
       emotionHidden={hiddenOf(choices.state)}
+      {...(reflectionState ? { reflection: reflectionState } : {})}
+      reflectionComposing={composing}
+      onReflection={{
+        toggle: (side, id) => reflection.current?.toggle(side, id),
+        draft: (side, text) => reflection.current?.setDraft(side, text),
+        add: (side) => reflection.current?.addNote(side),
+        remove: (side, i) => reflection.current?.removeNote(side, i),
+        compose: (side) => {
+          setComposing((cur) => ({ ...cur, [side]: true }));
+          focusSoon(noteFieldId('record', side));
+        },
+        done: () => reflection.current?.commitDrafts() ?? true,
+      }}
       legUndo={legUndo}
       legNotice={legNotice}
       readFlash={readFlash}
@@ -708,6 +753,20 @@ export function RecordScreen() {
   );
 }
 
+/** 保存の後のシートの Good / More の操作（#220） */
+export interface SavedReflectionActions {
+  readonly toggle: (side: ReflectionSide, id: ReflectionTopicId) => void;
+  readonly draft: (side: ReflectionSide, text: string) => void;
+  readonly add: (side: ReflectionSide) => void;
+  readonly remove: (side: ReflectionSide, index: number) => void;
+  /** 「＋ 自分で書く」を押した（欄を開いてフォーカスを移す） */
+  readonly compose: (side: ReflectionSide) => void;
+  /** ［あとで］ / ［完了］: 書きかけを足す。足せない欄があれば false（閉じない） */
+  readonly done: () => boolean;
+}
+
+const NO_COMPOSE: Readonly<Record<ReflectionSide, boolean>> = { good: false, more: false };
+
 export interface RecordViewProps {
   readonly state: RecordState;
   /** 保存の後のシートの心理のタグ（#156。省けば保存の後のシートを出さない） */
@@ -716,6 +775,11 @@ export interface RecordViewProps {
   readonly onEmotionToggle?: (id: EmotionTagId) => void;
   /** 心理の選択肢に出さないタグ（#163 の設定。省く・読めない・読み込み中 = すべて出す） */
   readonly emotionHidden?: readonly EmotionTagId[];
+  /** 保存の後のシートの Good / More（#220。省けば Good / More の段を出さない） */
+  readonly reflection?: ReflectionState;
+  /** 「自分で書く」の欄を開いた段（省けばどちらもたたむ） */
+  readonly reflectionComposing?: Readonly<Record<ReflectionSide, boolean>>;
+  readonly onReflection?: SavedReflectionActions;
   /** 開いているシート（#130。省けばどれも閉じている） */
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
@@ -952,6 +1016,11 @@ function SavedPanel(p: RecordViewProps) {
           {p.emotion.error}
         </p>
       ) : null}
+      {p.reflection?.error && p.sheet?.kind !== 'emotion' ? (
+        <p class="notice notice--error" role="alert">
+          {p.reflection.error}
+        </p>
+      ) : null}
       {/* 保存の後はボタン 1 つなので帯（カード）に包まず、判定の枠の下に直に置く */}
       <Button block icon="record" onClick={p.onNext}>
         次の取引を記録
@@ -971,8 +1040,34 @@ function SavedPanel(p: RecordViewProps) {
             verdicts={savedVerdicts(saved)}
             {...(p.emotionHidden ? { hidden: p.emotionHidden } : {})}
             onToggle={(id) => p.onEmotionToggle?.(id)}
-            onClose={() => p.onSheet?.(null)}
-          />
+            alsoAttached={
+              p.reflection ? reflectionHasInput(p.reflection.value, p.reflection.drafts) : false
+            }
+            onClose={() => {
+              // 書きかけを行として足してから閉じる（足せなければ欄の下に理由を出して閉じない。#220）
+              if (p.onReflection?.done() ?? true) p.onSheet?.(null);
+            }}
+          >
+            {p.reflection ? (
+              <div class="reflection reflection--saved">
+                <ReflectionSides
+                  prefix="record"
+                  state={p.reflection}
+                  composing={p.reflectionComposing ?? NO_COMPOSE}
+                  onToggle={(side, id) => p.onReflection?.toggle(side, id)}
+                  onDraft={(side, text) => p.onReflection?.draft(side, text)}
+                  onAddNote={(side) => p.onReflection?.add(side)}
+                  onRemoveNote={(side, i) => p.onReflection?.remove(side, i)}
+                  onCompose={(side) => p.onReflection?.compose(side)}
+                />
+                {p.reflection.error !== null ? (
+                  <p class="notice notice--error" role="alert">
+                    {p.reflection.error}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </EmotionSheetBody>
         </Sheet>
       ) : null}
     </div>

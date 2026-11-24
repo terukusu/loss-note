@@ -2,16 +2,20 @@
 // - ReflectionSheetBody: 詳細のシート「Good / More」の中身。Good と More の段ごとに、押す形のチップ（aria-pressed）、
 //   自分で書いた行（行ごとに削除のアイコンのボタン）、「自分で書く」の欄と ［追加］（決定キー = 追加。変換中は除く）。
 //   失敗の文言、下に貼り付く ［完了］（書きかけがあれば行として足してから閉じる。押した・足した時点で保存済み）
+// - ReflectionSides: Good と More の段（シートの中身と、記録の保存の後のシート「記録しました」の心理の段の下が共有する。#220）。
+//   composing を渡すと、開いていない段は欄の代わりに「＋ 自分で書く」を出す（保存の後のシート。書きかけ・理由があれば欄のまま）
 // - ReflectionCard: 詳細の「Good / More」のカード（付いている話題の札と行 + ［変更］。無ければ押せる行「＋ Good / More を書く」）
 // 色は付けない（Good を緑・More を赤にしない。C34）。行（自分で書いた文）はテキストのノードで入れる（HTML にしない）
 import type { ReflectionSide, ReflectionTopicId } from '../../../core/reflection';
 import { REFLECTION_SIDES } from '../../../core/reflection';
 import {
+  composeLabel,
   noteIssueText,
   notePlaceholder,
   noteRemoveLabel,
   REFLECTION_CHANGE,
   REFLECTION_CHANGE_LABEL,
+  REFLECTION_COMPOSE,
   REFLECTION_DONE,
   REFLECTION_EMPTY,
   REFLECTION_HINT,
@@ -29,7 +33,7 @@ import '../styles/emotions.css';
 import '../styles/reflection.css';
 
 export interface ReflectionSheetBodyProps {
-  /** id の接頭辞（detail。保存の後のシート（Issue 220）では record） */
+  /** id の接頭辞（detail。保存の後のシート（#220）では record） */
   readonly prefix: string;
   readonly state: ReflectionState;
   readonly onToggle: (side: ReflectionSide, id: ReflectionTopicId) => void;
@@ -48,6 +52,42 @@ export function ReflectionSheetBody(p: ReflectionSheetBodyProps) {
   return (
     <div class="reflection">
       <p class="reflection__hint">{REFLECTION_HINT}</p>
+      <ReflectionSides {...p} />
+      {s.error !== null ? (
+        <p class="notice notice--error" role="alert">
+          {s.error}
+        </p>
+      ) : null}
+      <div class="emotions__actions reflection__actions">
+        <Button block variant="primary" onClick={p.onClose}>
+          {REFLECTION_DONE}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+export interface ReflectionSidesProps {
+  /** id の接頭辞（detail / record） */
+  readonly prefix: string;
+  readonly state: ReflectionState;
+  readonly onToggle: (side: ReflectionSide, id: ReflectionTopicId) => void;
+  readonly onDraft: (side: ReflectionSide, text: string) => void;
+  readonly onAddNote: (side: ReflectionSide) => void;
+  readonly onRemoveNote: (side: ReflectionSide, index: number) => void;
+  /**
+   * 保存の後のシート（#220）: 段ごとに「自分で書く」の欄を開いているか。渡すと、開いておらず書きかけ・足せない理由も無い段は
+   * 欄の代わりに「＋ 自分で書く」を出す。省けば（詳細のシート）欄を初めから出す
+   */
+  readonly composing?: Readonly<Record<ReflectionSide, boolean>>;
+  /** 「＋ 自分で書く」を押した（欄を開いてフォーカスを移すのは画面の hook の層） */
+  readonly onCompose?: (side: ReflectionSide) => void;
+}
+
+export function ReflectionSides(p: ReflectionSidesProps) {
+  const s = p.state;
+  return (
+    <>
       {REFLECTION_SIDES.map((side) => {
         const text = REFLECTION_SIDE_TEXT[side];
         const headId = `${p.prefix}-reflection-${side}`;
@@ -55,6 +95,8 @@ export function ReflectionSheetBody(p: ReflectionSheetBodyProps) {
         const selected = new Set<string>(part.topics);
         const issue = s.noteIssues[side];
         const fieldId = noteFieldId(p.prefix, side);
+        const showField =
+          p.composing === undefined || p.composing[side] || s.drafts[side] !== '' || issue !== null;
         return (
           <section key={side} class="reflection__side" aria-labelledby={headId}>
             <h3 class="reflection__sname" id={headId}>
@@ -89,39 +131,42 @@ export function ReflectionSheetBody(p: ReflectionSheetBodyProps) {
                 ))}
               </ul>
             ) : null}
-            <div class="reflection__add">
-              <TextField
-                id={fieldId}
-                label={`${text.name} を${REFLECTION_NOTE_LABEL}`}
-                value={s.drafts[side]}
-                onInput={(v) => p.onDraft(side, v)}
-                placeholder={notePlaceholder(side)}
-                enterKeyHint="done"
-                onEnter={() => p.onAddNote(side)}
-                {...(issue !== null ? { error: noteIssueText(issue) } : {})}
-              />
-              <Button
-                variant="secondary"
-                onClick={() => p.onAddNote(side)}
-                label={`${text.name} に追加`}
-              >
-                {REFLECTION_NOTE_ADD}
-              </Button>
-            </div>
+            {showField ? (
+              <div class="reflection__add">
+                <TextField
+                  id={fieldId}
+                  label={`${text.name} を${REFLECTION_NOTE_LABEL}`}
+                  value={s.drafts[side]}
+                  onInput={(v) => p.onDraft(side, v)}
+                  placeholder={notePlaceholder(side)}
+                  enterKeyHint="done"
+                  onEnter={() => p.onAddNote(side)}
+                  {...(issue !== null ? { error: noteIssueText(issue) } : {})}
+                />
+                <Button
+                  variant="secondary"
+                  onClick={() => p.onAddNote(side)}
+                  label={`${text.name} に追加`}
+                >
+                  {REFLECTION_NOTE_ADD}
+                </Button>
+              </div>
+            ) : (
+              <div class="reflection__compose">
+                <Button
+                  variant="tonal"
+                  size="sm"
+                  label={composeLabel(side)}
+                  onClick={() => p.onCompose?.(side)}
+                >
+                  {REFLECTION_COMPOSE}
+                </Button>
+              </div>
+            )}
           </section>
         );
       })}
-      {s.error !== null ? (
-        <p class="notice notice--error" role="alert">
-          {s.error}
-        </p>
-      ) : null}
-      <div class="emotions__actions reflection__actions">
-        <Button block variant="primary" onClick={p.onClose}>
-          {REFLECTION_DONE}
-        </Button>
-      </div>
-    </div>
+    </>
   );
 }
 

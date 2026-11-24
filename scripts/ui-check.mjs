@@ -2229,6 +2229,23 @@ const RECORD_STATES = [
     },
   },
   {
+    // 保存の後のシートの Good / More（#220）: Good の「＋ 自分で書く」で欄を開き、話題を 1 つ押した状態（全幅で横スクロール・当たり）
+    slug: 'record-6d-saved-reflection',
+    name: '保存の後・Good / More の欄',
+    noBar: true,
+    anchor: '#record-emotion-sheet',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      const sheet = p.locator('#record-emotion-sheet[open]');
+      await sheet.waitFor();
+      await sheet.getByRole('button', { name: '利を伸ばせた', exact: true }).click();
+      await sheet.getByRole('button', { name: 'Good を自分で書く', exact: true }).click();
+      await sheet.locator('#record-reflection-good-note').waitFor({ state: 'visible' });
+      await sheet.locator('.emotions__actions button', { hasText: '完了' }).waitFor();
+    },
+  },
+  {
     slug: 'record-6c-saved-closed',
     name: '保存の後・シートを閉じた',
     noBar: true,
@@ -9164,6 +9181,168 @@ async function runFlows(browser, base, signedIn) {
       await c.close();
     }
     return `記録する画面の 4 つのシートが下から窓の中・86% 以下・見出しへフォーカス・閉じたら開いたボタンへ。取引の欄は 段 2 → 戻るで段 1 → 戻るで閉じる・Esc も 1 段ずつ（${out.join(' / ')}）`;
+  });
+
+  // GM1（#220。設計書 9.4・C58）: 保存の後のシート「記録しました」の Good / More の段を 360×780・390×844 × ダーク / ライトで
+  //   - 心理の段の下に Good と More の段（7 + 7 個のチップ。C58 の順）。「＋ 自分で書く」を押すまで欄は出ない
+  //   - 何も押していない間は ［あとで］。Good のチップを押すと保存した取引に付き（偽の API）、ボタンは ［完了］
+  //   - More の「＋ 自分で書く」→ 欄にフォーカス → 決定キーで行が足されて取引に付く
+  //   - 下の帯のボタンがどのスクロールの位置でも窓の中・横スクロール 0・部品のはみ出し 0・幅 360 の当たり 44 未満 0
+  //   - 書きかけを残して閉じる: ダークは ✕（書きかけを送らない）、ライトは ［完了］（行として足してから閉じる）。どちらも保存の後の画面
+  // --shots なら開いた直後（gm1-top）・いちばん下まで流した所（gm1-bottom）・欄を開いて行を足した所（gm1-written）を撮る
+  await check('GM1', async () => {
+    const out = [];
+    const GOOD = [
+      '早めに撤退できた',
+      '方向の読みは合っていた',
+      'ルールどおりに動けた',
+      '利を伸ばせた',
+      '衝動を抑えられた',
+      '欲張らずに決済した',
+      'サインが出るまで待てた',
+    ];
+    const MORE = [
+      '根拠が揃う前に入った',
+      '上位足の流れに逆らった',
+      '数量が多すぎた',
+      'LC が近すぎた',
+      '出口を決めていなかった',
+      'すぐ再エントリーした',
+      '発注を間違えた',
+    ];
+    const scrollSheet = (p, to) =>
+      p.evaluate((to) => {
+        for (const el of document.querySelectorAll('#record-emotion-sheet *')) {
+          const oy = getComputedStyle(el).overflowY;
+          if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight + 2)
+            el.scrollTop = to === 'bottom' ? el.scrollHeight : 0;
+        }
+      }, to);
+    const barInView = (p) =>
+      p.evaluate(() => {
+        const b = document.querySelector('#record-emotion-sheet .emotions__actions button');
+        if (!b) return false;
+        const r = b.getBoundingClientRect();
+        return r.top >= 0 && r.bottom <= window.innerHeight + 0.5 && r.height > 0;
+      });
+    for (const theme of THEMES)
+      for (const [w, h] of [
+        [360, 780],
+        [390, 844],
+      ]) {
+        const tag = `${w}×${h} ${theme}`;
+        const shot = (s) => join(opts.shots, `${w}x${h}-${theme}-gm1-${s}.png`);
+        const c = await browser.newContext({
+          viewport: { width: w, height: h },
+          storageState: signedIn,
+          hasTouch: true,
+        });
+        try {
+          await setupContext(c, theme);
+          const fake = await installFakeApi(c);
+          const p = await c.newPage();
+          const errors = [];
+          p.on('pageerror', (e) => errors.push(e.message));
+          await openRecord(p, base);
+          await fillRecord(p, EX_E1);
+          await p.locator('button[type="submit"]').click();
+          const sheet = p.locator('#record-emotion-sheet[open]');
+          await sheet.waitFor({ timeout: 10000 });
+          await settleSheet(p);
+          if (opts.shots) await p.screenshot({ path: shot('top') });
+          await scrollSheet(p, 'bottom');
+          await p.waitForTimeout(150);
+          if (opts.shots) await p.screenshot({ path: shot('bottom') });
+          if (!(await barInView(p))) throw new Error(`${tag}: いちばん下で下の帯のボタンが窓の外`);
+          await scrollSheet(p, 'top');
+          const heads = (await sheet.locator('.reflection__sname').allTextContents()).map((t) =>
+            t.trim(),
+          );
+          if (heads.length !== 2 || !heads[0].startsWith('Good') || !heads[1].startsWith('More'))
+            throw new Error(`${tag}: Good / More の段の見出し ${JSON.stringify(heads)}`);
+          const chips = (await sheet.locator('.reflection__chips button').allTextContents()).map(
+            (t) => t.trim(),
+          );
+          if (JSON.stringify(chips) !== JSON.stringify([...GOOD, ...MORE]))
+            throw new Error(`${tag}: 話題のチップ ${JSON.stringify(chips)}`);
+          if ((await sheet.locator('.reflection__add input').count()) !== 0)
+            throw new Error(`${tag}: 「＋ 自分で書く」を押す前に欄がある`);
+          const label = async () =>
+            ((await sheet.locator('.emotions__actions button').textContent()) ?? '').trim();
+          if ((await label()) !== 'あとで')
+            throw new Error(`${tag}: 押す前のボタン「${await label()}」`);
+          await sheet.getByRole('button', { name: '早めに撤退できた', exact: true }).click();
+          await sheet
+            .locator('.reflection__chips [aria-pressed="true"]', { hasText: '早めに撤退できた' })
+            .waitFor();
+          for (let i = 0; i < 50 && !fake.trades.at(-1)?.reflection; i++)
+            await p.waitForTimeout(100);
+          if (JSON.stringify(fake.trades.at(-1)?.reflection?.good?.topics) !== '["cutEarly"]')
+            throw new Error(
+              `${tag}: 取引に付いた Good ${JSON.stringify(fake.trades.at(-1)?.reflection)}`,
+            );
+          if ((await label()) !== '完了')
+            throw new Error(`${tag}: 押した後のボタン「${await label()}」`);
+          await sheet.getByRole('button', { name: 'More を自分で書く', exact: true }).click();
+          const field = sheet.locator('#record-reflection-more-note');
+          await field.waitFor({ state: 'visible', timeout: 5000 });
+          const focused = await p.evaluate(() => document.activeElement?.id ?? '');
+          if (focused !== 'record-reflection-more-note')
+            throw new Error(`${tag}: 「＋ 自分で書く」の後のフォーカス ${focused}`);
+          await field.fill('入る前に TP を決める');
+          await field.press('Enter');
+          await sheet
+            .locator('.reflection__notetext', { hasText: '入る前に TP を決める' })
+            .waitFor();
+          for (
+            let i = 0;
+            i < 50 && (fake.trades.at(-1)?.reflection?.more?.notes ?? []).length === 0;
+            i++
+          )
+            await p.waitForTimeout(100);
+          if (
+            JSON.stringify(fake.trades.at(-1)?.reflection?.more?.notes) !==
+            '["入る前に TP を決める"]'
+          )
+            throw new Error(
+              `${tag}: 取引に付いた More ${JSON.stringify(fake.trades.at(-1)?.reflection)}`,
+            );
+          await p.waitForTimeout(150);
+          const m = await measure(p, w === 360, TAP);
+          if (m.h !== 0) throw new Error(`${tag}: 横スクロール ${m.h}px`);
+          if (m.clipped.length > 0) throw new Error(`${tag}: はみ出し ${m.clipped.join('・')}`);
+          if (m.small.length > 0) throw new Error(`${tag}: 当たり<44 ${m.small.join('・')}`);
+          if (!(await barInView(p)))
+            throw new Error(`${tag}: 欄を開いた後に下の帯のボタンが窓の外`);
+          if (opts.shots) await p.screenshot({ path: shot('written') });
+          // 書きかけを残して閉じる: ダークは ✕（書きかけを捨てる = 送らない）、ライトは ［完了］（行として足してから閉じる）
+          await field.fill('架空の書きかけ');
+          if (theme === 'dark')
+            await sheet.getByRole('button', { name: '閉じる', exact: true }).click();
+          else await sheet.locator('.emotions__actions button', { hasText: '完了' }).click();
+          await p
+            .locator('#record-emotion-sheet:not([open])')
+            .waitFor({ state: 'attached', timeout: 5000 });
+          await p.waitForTimeout(300);
+          const notes = JSON.stringify(fake.trades.at(-1)?.reflection?.more?.notes);
+          const want = JSON.stringify(
+            theme === 'dark'
+              ? ['入る前に TP を決める']
+              : ['入る前に TP を決める', '架空の書きかけ'],
+          );
+          if (notes !== want)
+            throw new Error(`${tag}: 閉じた後の More の行 ${notes}（期待 ${want}）`);
+          await p
+            .getByRole('status')
+            .filter({ hasText: '記録しました' })
+            .waitFor({ timeout: 5000 });
+          if (errors.length > 0) throw new Error(`${tag}: ページのエラー ${errors.join(' / ')}`);
+          out.push(tag);
+        } finally {
+          await c.close();
+        }
+      }
+    return `保存の後のシートの Good / More: 7 + 7 個のチップ・欄はたたむ・［あとで］ → ［完了］・押す / 足すと取引に付く・下の帯が窓の中・横 0・はみ出し 0・当たり 0（${out.join(' / ')}）`;
   });
 
   await check('R13', async () => {

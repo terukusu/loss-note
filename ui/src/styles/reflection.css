@@ -137,3 +137,14 @@
 .reflectioncard__notes li + li {
   margin-top: var(--sp-1);
 }
+
+/* 記録の保存の後のシート「記録しました」の Good / More の段（#220）: 心理の段の下に区切りの線で分けて置く。
+   「＋ 自分で書く」は段の左に寄せる（押すまで欄をたたむ） */
+.reflection--saved {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+.reflection__compose {
+  display: flex;
+}

@@ -1,5 +1,6 @@
 // 設定のタブの根のまとめた一覧（#133。設計書 9.2 の設定の行・ui-guidelines 9.3・9.9・9.12）の純関数。DOM・通信を持たない。
-// - 区切りは 口座 / 記録 / 表示 / アカウント。口座・銘柄・AI の利用状況・用語集は次の画面への押せる行（右に ›）
+// - 区切りは 口座 / 記録 / 表示 / アカウント。口座・銘柄・心理のタグ（#163）・AI の利用状況・用語集は次の画面への
+//   押せる行（右に ›）
 // - 行の右の添えは数（「2 件」「今日 3 回」「17 語」）。読めていない・読めなかった数は添えを出さない（「0 件」と見せない）
 // - 口座の添えは中身（口座が 1 つ = 「1,000,000円 · 許容 1%」、資金が未設定の口座がある = 「資金 未設定」、ほか = 件数）。
 //   冒頭の説明の文を無くした代わりに、根で「まず資金を入れる」を伝える（#133 デザインレビュー a-3）
@@ -8,7 +9,7 @@
 import type { AccountRecord } from '../../../core/record';
 import { accountLine } from './accounts';
 
-export type SettingsLinkId = 'accounts' | 'instruments' | 'aiUsage' | 'glossary';
+export type SettingsLinkId = 'accounts' | 'instruments' | 'emotions' | 'aiUsage' | 'glossary';
 
 export interface SettingsLinkRow {
   readonly id: SettingsLinkId;
@@ -30,6 +31,8 @@ export interface SettingsMenuInput {
   readonly accounts: readonly AccountRecord[] | null;
   /** 銘柄の数（読めていなければ null） */
   readonly instruments: number | null;
+  /** 心理のタグの行の添え（「19 / 21 個」。読めていなければ null。#163） */
+  readonly emotions: string | null;
   /** 今日の AI の読み取りの回数（読めていなければ null） */
   readonly usageToday: number | null;
   /** 用語集の言葉の数 */
@@ -98,6 +101,12 @@ export function settingsMenu(i: SettingsMenuInput): readonly SettingsLinkGroup[]
           label: '銘柄',
           href: '/settings/instruments',
           meta: countMeta(i.instruments, '件'),
+        },
+        {
+          id: 'emotions',
+          label: '心理のタグ',
+          href: '/settings/emotions',
+          meta: i.emotions,
         },
         {
           id: 'aiUsage',

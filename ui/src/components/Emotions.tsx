@@ -1,7 +1,8 @@
 // 心理のタグの部品（#156・設計書 9.4・C55・docs/ui-guidelines.md 9.3・9.12）。hook を持たない。
 // - EmotionSheetBody: 保存の後のシート「記録しました」と詳細のシート「心理」の中身。上に判定（保存の後だけ。1 件は判定の
 //   理由の先頭の 1 行も）、まとまりの見出し（「i」で一言の並び）の下に押す形のチップ（aria-pressed）、失敗の文言、下に貼り付く
-//   ［あとで］ / ［完了］。良い状態（平常心）はほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）
+//   ［あとで］ / ［完了］。チップは設定で選択肢に出すタグと、開いたときに付いていたタグだけ（#163）。良い状態（平常心）は
+//   ほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）
 // - EmotionCard: 詳細の「心理」のカード（付いているタグ + ［変更］。無ければ押せる行「＋ 心理を付ける」）。タグは行き先
 //   （hrefOf）があれば押せるチップ（同じ心理の「期間の取引」へ。#188）、無ければ押せない輪郭の札
 // 色はどのタグにも付けない（C34）。名前・一言は固定の文字（ID から引く）をテキストのノードで入れる
@@ -36,6 +37,11 @@ export interface EmotionSheetBodyProps {
   readonly state: EmotionState;
   /** 保存の後の判定（保存した取引の順。context = saved のときだけ） */
   readonly verdicts?: readonly SavedVerdict[];
+  /**
+   * 選択肢に出さないタグ（#163 の設定。省く・読めない・読み込み中 = すべて出す）。シートを開いたときに付いていたタグと
+   * 選んでいるタグは、出さない設定でも並べる（外せるように）
+   */
+  readonly hidden?: readonly EmotionTagId[];
   readonly onToggle: (id: EmotionTagId) => void;
   readonly onClose: () => void;
 }
@@ -69,7 +75,10 @@ export function EmotionSheetBody(p: EmotionSheetBodyProps) {
         </h3>
       ) : null}
       <p class="emotions__hint">{EMOTION_HINT}</p>
-      {emotionGroups().map((g) => {
+      {emotionGroups({
+        hidden: p.hidden ?? [],
+        keep: [...p.state.opened, ...p.state.selected],
+      }).map((g) => {
         const gid = `${p.prefix}-emotion-${g.group}`;
         const good = g.group === 'good';
         return (

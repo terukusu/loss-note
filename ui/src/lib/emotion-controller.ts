@@ -23,6 +23,8 @@ export interface EmotionState {
   readonly selected: readonly EmotionTagId[];
   /** 最後に保存できた集合 */
   readonly saved: readonly EmotionTagId[];
+  /** シートを開いたとき（controller を作ったとき）に付いていた集合。選択肢に出さない設定でも並べる（外せるように。#163 R3） */
+  readonly opened: readonly EmotionTagId[];
   readonly sending: boolean;
   /** 失敗の文言（決まった文言だけ） */
   readonly error: string | null;
@@ -54,7 +56,13 @@ export function createEmotionController(deps: {
 }): EmotionController {
   const listeners = new Set<(s: EmotionState) => void>();
   const initial = normalizeEmotions(deps.initial);
-  let state: EmotionState = { selected: initial, saved: initial, sending: false, error: null };
+  let state: EmotionState = {
+    selected: initial,
+    saved: initial,
+    opened: initial,
+    sending: false,
+    error: null,
+  };
   let disposed = false;
 
   const set = (patch: Partial<EmotionState>, dropKind = false) => {

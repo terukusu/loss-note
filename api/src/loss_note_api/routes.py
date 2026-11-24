@@ -33,6 +33,8 @@
 心理のタグ（Issue #156・設計書 C55・ADR-0022）: 取引の文書の最上位の ``emotionTags``（``record`` の外）。書くのは
 ``PUT /api/trade-emotions`` 本文 ``{tradeIds, tags}`` だけで、集合を置き換える。取引の PUT・チャートの入口は文書を
 ``{**doc, ...}`` で組むのでタグを保つ（前の版の API も同じ作りなので、切り戻してもタグは消えない。版は上げない）。
+選択肢に出さないタグの設定（Issue #163・ADR-0023）は ``GET`` / ``PUT /api/settings/emotion-tags`` 本文 ``{hidden}``
+（``users/{uid}/settings/emotionTags``。設定の文書 ``current`` とは別。取引のタグ・集計は変えない）。
 """
 
 from collections.abc import Callable
@@ -46,6 +48,7 @@ from loss_note_api import (
     allowlist,
     chart_read,
     charts,
+    emotion_tags,
     schema,
     statement_profile,
     statement_read,
@@ -66,6 +69,8 @@ from loss_note_api.store import (
 )
 from loss_note_api.trade_version import version_of
 
+# 心理のタグの選択肢の設定（#163）
+EMOTION_SETTINGS_PATH = "/settings/emotion-tags"
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
 _INSTRUMENT_SNAPSHOT_KEYS = ("multiplier", "quantityStep", "priceCurrency", "underlyingKind", "productForm")
 # 明細の特徴の覚えの入口（#66）
@@ -743,6 +748,24 @@ def make_blueprint(
 
         return settings_response(store.update_settings(g.uid, mutate))
 
+    # ── 心理のタグの選択肢の設定（#163・ADR-0023）──
+    # 選択肢に出さないタグの ID の集合。設定の文書 current とは別の文書に丸ごと置き換える（PUT /settings が current を
+    # 値で置き換えても消えない）。平常心は出さないにできない。記録したタグ・集計は変えない（画面の選択肢の絞り込みだけ）
+    @bp.get(EMOTION_SETTINGS_PATH)
+    def get_emotion_settings():
+        return {"hidden": emotion_tags.hidden_of(store.get_emotion_settings(g.uid))}
+
+    @bp.put(EMOTION_SETTINGS_PATH)
+    def put_emotion_settings():
+        body, err = read_body()
+        if err:
+            return err
+        value, issues = schema.validate_emotion_settings(body)
+        if value is None:
+            return invalid(issues)
+        store.put_emotion_settings(g.uid, {"hidden": value["hidden"], "updatedAt": clock()})
+        return {"hidden": value["hidden"]}
+
     # ── 決済明細の読み取り（#11）──
     limits = read_limits or ReadLimits()
     statement_read.register(bp, read_config or statement_read.ReadConfig(None), store, clock, limits)
@@ -771,6 +794,7 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/accounts", methods=["GET", "POST"])
     @bp.route("/accounts/<path:_id>", methods=["GET", "PUT"])
     @bp.route("/settings", methods=["GET", "PUT"])
+    @bp.route(EMOTION_SETTINGS_PATH, methods=["GET", "PUT"])
     @bp.route(f"{STATEMENT_PROFILES_PATH}/<path:_id>", methods=["PUT"])
     @bp.route(statement_read.PATH, methods=["POST"])
     @bp.route(chart_read.PATH, methods=["POST"])

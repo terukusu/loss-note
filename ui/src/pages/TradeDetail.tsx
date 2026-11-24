@@ -20,6 +20,7 @@ import { api, signOutActive } from '../auth/session';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button, IconButton, RowLink } from '../components/Button';
 import { EXTRA_TITLE } from '../components/ChartPanel';
+import { useEmotionChoices } from '../components/EmotionChoices';
 import { EmotionCard, EmotionSheetBody } from '../components/Emotions';
 import { EmptyState } from '../components/EmptyState';
 import { LegTable } from '../components/LegTable';
@@ -46,6 +47,7 @@ import {
 import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { editBlock } from '../lib/edit-form';
+import { hiddenOf } from '../lib/emotion-choices-controller';
 import {
   createEmotionController,
   type EmotionController,
@@ -127,6 +129,8 @@ function TradeDetailScreen({
   // 心理のタグ（#156）: シートを開くときに作り、閉じても送りが終わるまで残す（画面を離れたら捨てる）
   const emotion = useRef<EmotionController | null>(null);
   const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
+  // 心理の選択肢の設定（#163）。画面を開くたびに読む（読めない・読み込み中はすべて出す）
+  const choices = useEmotionChoices();
   useEffect(() => {
     const off = controller.subscribe(setState);
     void controller.load();
@@ -175,6 +179,7 @@ function TradeDetailScreen({
       onSheet={onSheet}
       {...(emotionState ? { emotion: emotionState } : {})}
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
+      emotionHidden={hiddenOf(choices.state)}
       {...(state.phase === 'ready'
         ? {
             emotionHref: (tag: EmotionTagId) => tradeEmotionHref(state.trade, tag, Date.now()),
@@ -237,6 +242,8 @@ export interface TradeDetailViewProps {
   /** 心理のタグの付け外し（#156。省けばシートの中身を出さない） */
   readonly emotion?: EmotionState;
   readonly onEmotionToggle?: (id: EmotionTagId) => void;
+  /** 心理の選択肢に出さないタグ（#163 の設定。省く・読めない・読み込み中 = すべて出す） */
+  readonly emotionHidden?: readonly EmotionTagId[];
   /** 心理のチップの行き先（#188。同じ心理の「期間の取引」。省けばチップは押せない札） */
   readonly emotionHref?: (id: EmotionTagId) => string;
 }
@@ -544,6 +551,7 @@ function DetailSheets(
             prefix="detail"
             context="detail"
             state={p.emotion}
+            {...(p.emotionHidden ? { hidden: p.emotionHidden } : {})}
             onToggle={(id) => p.onEmotionToggle?.(id)}
             onClose={() => open(null)}
           />

@@ -3,6 +3,8 @@
 場所は利用者ごと: ``users/{uid}/trades/{id}``・``users/{uid}/instruments/{id}``・``users/{uid}/settings/current``・
 ``users/{uid}/accounts/{id}``（口座。#47・ADR-0012。既定の口座 ``default`` は口座を読む・使う入口で無ければ、
 設定から決まった ID の 1 文書を create で 1 回だけ作る。取引・設定は書かない）・
+``users/{uid}/settings/emotionTags``（心理のタグのうち選択肢に出さないものの集合 = ``{hidden, updatedAt}``。
+設定の文書 ``current`` とは別の文書。Issue #163・ADR-0023）・
 ``users/{uid}/charts/{tradeId}-{slot}``（根拠の足のチャート画像。1 文書 1 枚 ``{contentType, data}``。
 Issue #12・ADR-0006）・``users/{uid}/statement_profiles/{鍵}``（明細の特徴の覚え = ``{accountId, updatedAt}`` だけ。
 Issue #66・ADR-0017）。
@@ -30,6 +32,8 @@ from loss_note_api.logs import log_event
 from loss_note_api.read_limits import USAGE_MAX_DAYS, effective_user_micro
 
 Doc = dict
+# 心理のタグの選択肢の設定の文書の ID（users/{uid}/settings/ の下。#163）
+EMOTION_SETTINGS_DOC = "emotionTags"
 Mutate = Callable[[Doc], Doc]
 
 
@@ -162,6 +166,10 @@ class Store(Protocol):
 
     def get_settings(self, uid: str) -> Doc | None: ...
     def update_settings(self, uid: str, mutate: Callable[[Doc | None], Doc]) -> Doc: ...
+
+    # 心理のタグの選択肢の設定（#163・ADR-0023）。users/{uid}/settings/emotionTags を丸ごと置き換える
+    def get_emotion_settings(self, uid: str) -> Doc | None: ...
+    def put_emotion_settings(self, uid: str, doc: Doc) -> None: ...
 
     # 明細の特徴の覚え（#66・ADR-0017）。users/{uid}/statement_profiles/{鍵} = {accountId, updatedAt}。
     # 読むだけ（明細の読み取り）と、口座の存在の確かめと上書きを 1 つのトランザクションで（覚える入口）。
@@ -688,3 +696,13 @@ class FirestoreStore:
             return new
 
         return self._transaction(body)
+
+    # ── 心理のタグの選択肢の設定（#163・ADR-0023。設定の文書 current とは別の文書）──
+    @_guard
+    def get_emotion_settings(self, uid):
+        snap = self._user(uid).collection("settings").document(EMOTION_SETTINGS_DOC).get()
+        return snap.to_dict() if snap.exists else None
+
+    @_guard
+    def put_emotion_settings(self, uid, doc):
+        self._user(uid).collection("settings").document(EMOTION_SETTINGS_DOC).set(doc)

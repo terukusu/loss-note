@@ -164,6 +164,8 @@ const PAGES = [
   { path: '/settings/accounts', h1: '口座', wait: '.setrow' },
   { path: '/settings/instruments', h1: '銘柄', wait: '.setrow' },
   { path: '/settings/ai-usage', h1: 'AI の利用状況', wait: '.usage' },
+  // 設定の次の画面「心理のタグ」（#163）
+  { path: '/settings/emotions', h1: '心理のタグ', wait: '.emotionchoices__card' },
   { path: '/dev/parts', h1: '部品の見本' },
 ];
 const SIZES = [
@@ -1069,6 +1071,8 @@ async function waitSaved(p, text) {
 
 async function installFakeApi(context, opts = {}) {
   const api = {
+    /** 心理のタグの選択肢に出さないタグ（#163） */
+    emotionHidden: [],
     instruments: [FAKE_US30],
     trades: opts.trades
       ? [...opts.trades]
@@ -1457,6 +1461,15 @@ async function installFakeApi(context, opts = {}) {
     }
     if (key === 'GET /api/instruments') return json(route, 200, { items: api.instruments });
     if (key === 'GET /api/settings') return json(route, 200, settings());
+    // 心理のタグの選択肢の設定（#163。形は routes.py の get / put_emotion_settings。丸ごと置き換え）
+    if (key === 'GET /api/settings/emotion-tags') {
+      return json(route, 200, { hidden: api.emotionHidden });
+    }
+    if (key === 'PUT /api/settings/emotion-tags') {
+      api.writes.push({ key, body });
+      api.emotionHidden = Array.isArray(body?.hidden) ? body.hidden : [];
+      return json(route, 200, { hidden: api.emotionHidden });
+    }
     if (key === 'POST /api/instruments') {
       api.writes.push({ key, body });
       if (api.instruments.some((i) => nameKey(i.name) === nameKey(body.name))) {
@@ -3436,6 +3449,7 @@ const SETTINGS_SCREENS = {
   '/settings/accounts': { h1: '口座', wait: '#settings-account-add' },
   '/settings/instruments': { h1: '銘柄', wait: '#settings-inst-add' },
   '/settings/ai-usage': { h1: 'AI の利用状況', wait: '.usage' },
+  '/settings/emotions': { h1: '心理のタグ', wait: '.emotionchoices__card' },
 };
 
 /** 設定の画面を開き、中身（根は口座の数の添え、口座・銘柄は ［＋ 〇〇を追加］）が出るまで待つ */

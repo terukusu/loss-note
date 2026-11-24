@@ -1,6 +1,6 @@
 // 心理のタグの言葉（#156・設計書 4.2・9.4・C55・ADR-0022）。ID と並び・選び方は core/emotion-tags.ts、ここは画面に
 // 出す名前・一言・まとまりの見出しと、シートの文字の純関数（DOM なし）。名前は ID から引くので、名前を直しても記録の
-// 意味は変わらない（#163 で出す・出さないを足しても同じ）。色はどのタグにも付けない（C34）
+// 意味は変わらない（#163 の出す・出さないの設定も選択肢を絞るだけ）。色はどのタグにも付けない（C34）
 import {
   EMOTION_GROUPS,
   EMOTION_TAGS,
@@ -59,21 +59,55 @@ export interface EmotionGroupView {
   readonly notes: readonly string[];
 }
 
-/** シートに並べるまとまりとチップ（一覧の順） */
-export function emotionGroups(): readonly EmotionGroupView[] {
-  return EMOTION_GROUPS.map((group) => {
-    const tags = EMOTION_TAGS.filter((t) => t.group === group).map((t) => ({
+/** シートの選択肢の絞り込み（#163。省けば一覧のすべて） */
+export interface EmotionChoiceFilter {
+  /** 選択肢に出さないタグ（設定。読めない・読み込み中は空 = すべて出す。R6） */
+  readonly hidden?: readonly EmotionTagId[];
+  /** 出さない設定でも並べるタグ（シートを開いたときに付いていたタグ・今選んでいるタグ。外せるように。R3） */
+  readonly keep?: readonly EmotionTagId[];
+}
+
+/** シートに並べるまとまりとチップ（一覧の順）。出さないタグを除き、チップが 1 つも無いまとまりは見出しごと出さない（R4） */
+export function emotionGroups(filter: EmotionChoiceFilter = {}): readonly EmotionGroupView[] {
+  const hidden = new Set(filter.hidden ?? []);
+  const keep = new Set(filter.keep ?? []);
+  const shown = (id: EmotionTagId) => !hidden.has(id) || keep.has(id);
+  return EMOTION_GROUPS.flatMap((group) => {
+    const tags = EMOTION_TAGS.filter((t) => t.group === group && shown(t.id)).map((t) => ({
       id: t.id,
       name: EMOTION_TEXT[t.id].name,
     }));
-    return {
-      group,
-      name: EMOTION_GROUP_NAME[group],
-      tags,
-      notes: tags.map((t) => `${t.name} — ${EMOTION_TEXT[t.id].note}`),
-    };
+    if (tags.length === 0) return [];
+    return [
+      {
+        group,
+        name: EMOTION_GROUP_NAME[group],
+        tags,
+        notes: tags.map((t) => `${t.name} — ${EMOTION_TEXT[t.id].note}`),
+      },
+    ];
   });
 }
+
+/** 設定の根の「心理のタグ」の行の添え: 出しているタグの数 / 一覧の数（読めていなければ null） */
+export function emotionChoicesMeta(hidden: readonly EmotionTagId[] | null): string | null {
+  if (hidden === null) return null;
+  return `${EMOTION_TAGS.length - hidden.length} / ${EMOTION_TAGS.length} 個`;
+}
+
+/** 設定の画面「心理のタグ」の文字 */
+export const EMOTION_CHOICES_TITLE = '心理のタグ';
+export const EMOTION_CHOICES_LEAD =
+  '記録の後に心理を選ぶとき、選択肢に出すタグを押して選びます（押すと保存）。付けた記録と集計は変わりません。';
+export const EMOTION_CHOICES_CALM_NOTE = '常に出します';
+/** 出している数の 1 行 */
+export function emotionChoicesCount(hidden: readonly EmotionTagId[]): string {
+  return `${EMOTION_TAGS.length} 個のうち ${EMOTION_TAGS.length - hidden.length} 個を選択肢に出しています`;
+}
+export const EMOTION_CHOICES_LOAD_FAILED =
+  '心理のタグの設定を読み込めませんでした。通信状況を確認して、再読み込みしてください。';
+export const EMOTION_CHOICES_SAVE_FAILED =
+  '心理のタグの設定を保存できませんでした。通信状況を確認して、もう一度押してください。';
 
 /** 付いているタグの名前（一覧の順の ID を受ける） */
 export function emotionNames(ids: readonly EmotionTagId[]): string[] {

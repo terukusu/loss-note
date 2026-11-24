@@ -25,7 +25,7 @@ import { Login } from './pages/Login';
 import { Record } from './pages/Record';
 import { Review, ReviewTablePage } from './pages/Review';
 import { ReviewTradesPage } from './pages/ReviewTrades';
-import { Settings, SettingsAiUsage } from './pages/Settings';
+import { Settings, SettingsAiUsage, SettingsEmotions } from './pages/Settings';
 import { SettingsAccounts } from './pages/SettingsAccounts';
 import { SettingsInstruments } from './pages/SettingsInstruments';
 import { TradeDetail } from './pages/TradeDetail';
@@ -100,6 +100,8 @@ export function Page(p: PageProps) {
       return <SettingsInstruments />;
     case 'settingsAiUsage':
       return <SettingsAiUsage />;
+    case 'settingsEmotions':
+      return <SettingsEmotions />;
     case 'glossary':
       return <Glossary />;
     case 'parts':

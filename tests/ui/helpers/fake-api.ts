@@ -38,13 +38,16 @@
 //   currency を持つ（通貨だけを変えても 1 行）。取引の snapshot に口座の通貨（accountCurrency）を写す
 // - 明細の特徴の覚え（#66）: PUT /api/statement-profiles/<鍵> 本文 { accountId } = 204。鍵が 16 進 32 文字でなければ 404、
 //   口座が無ければ 400 notFound。覚えは profiles（鍵 → 口座の ID）に残す
+// - GET / PUT /api/settings/emotion-tags（#163）: 選択肢に出さないタグ { hidden }。本物と同じ検査の要点で 400
 // 本物との形のずれは api/tests/test_manual_entry_fixture.py・test_statement_entry_fixture.py（画面が作った本文を本物に通す）で塞ぐ
 
 import {
   CALM,
+  type EmotionTagId,
   isEmotionTagId,
   MAX_EMOTION_TRADES,
   normalizeEmotions,
+  normalizeHidden,
 } from '../../../core/emotion-tags';
 import {
   type AccountBody,
@@ -97,6 +100,8 @@ export interface FakeOptions {
   readonly fail?: Readonly<Record<string, number | 'throw'>>;
   /** fail と同じだが 1 回だけ（2 回目からは普通に答える） */
   readonly failOnce?: Readonly<Record<string, number | 'throw'>>;
+  /** 心理のタグの選択肢に出さないタグ（#163。GET / PUT /api/settings/emotion-tags。既定は空） */
+  readonly emotionHidden?: readonly EmotionTagId[];
   /** POST /api/instruments を 1 回だけ 409 にする（ほかの端末が同じ名前を先に足した場面） */
   readonly conflictOnce?: InstrumentRecord;
   /** POST /api/statement-reads の応答（順に使う） */
@@ -122,6 +127,8 @@ export interface FakeApi {
   readonly profiles: Map<string, string>;
   /** 今の設定（PUT /api/settings で変わる） */
   settings(): SettingsRecord;
+  /** 今の心理のタグの選択肢に出さないタグ（PUT /api/settings/emotion-tags で変わる。#163） */
+  emotionHidden(): readonly EmotionTagId[];
   /** 待たせている要求を進める（delay を使うとき） */
   hold(): void;
   release(): void;
@@ -222,6 +229,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   let seq = 0;
   let conflict = opts.conflictOnce;
   const once = new Map(Object.entries(opts.failOnce ?? {}));
+  let emotionHidden: readonly EmotionTagId[] = normalizeHidden(opts.emotionHidden ?? []);
   let gate: Promise<void> | null = null;
   let open: (() => void) | null = null;
   let readGate: Promise<void> | null = null;
@@ -364,6 +372,23 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
         };
       }
       return json(200, { tags: ordered });
+    }
+
+    // 心理のタグの選択肢の設定（#163。本物と同じ検査の要点: 一覧の ID・重複・平常心を含まない・丸ごと置き換え）
+    if (key === 'GET /api/settings/emotion-tags') return json(200, { hidden: emotionHidden });
+    if (key === 'PUT /api/settings/emotion-tags') {
+      const b = (body ?? {}) as { hidden?: unknown };
+      const h = Array.isArray(b.hidden) ? (b.hidden as unknown[]) : null;
+      if (
+        !h ||
+        h.some((t) => !isEmotionTagId(t)) ||
+        new Set(h).size !== h.length ||
+        h.includes(CALM)
+      ) {
+        return json(400, { error: 'invalid' });
+      }
+      emotionHidden = normalizeHidden(h);
+      return json(200, { hidden: emotionHidden });
     }
 
     const profilePath = /^\/api\/statement-profiles\/([^/]+)$/.exec(path);
@@ -740,6 +765,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     charts,
     profiles,
     settings,
+    emotionHidden: () => emotionHidden,
     hold() {
       gate = new Promise((ok) => {
         open = ok;

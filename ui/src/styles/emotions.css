@@ -171,3 +171,17 @@
   padding: 0;
   border: 0;
 }
+
+/* 設定の次の画面「心理のタグ」（#163）: まとまりとチップを 1 枚の面に。出している数の 1 行を上に */
+.emotionchoices__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+}
+
+.emotionchoices__count {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}

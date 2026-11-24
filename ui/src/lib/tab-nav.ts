@@ -102,6 +102,7 @@ export function bootStack(href: string, opts: RouteOptions): string[] {
     case 'settingsAccounts':
     case 'settingsInstruments':
     case 'settingsAiUsage':
+    case 'settingsEmotions':
       return ['/', '/settings', href];
     case 'reviewTable': {
       // 振り返りの根は同じ期間（検索部分）で開く（#128。戻ると見ていた期間の振り返り）

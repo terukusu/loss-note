@@ -5,6 +5,7 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { EMOTION_TAG_IDS, type EmotionTagId, toggleEmotion } from '../../core/emotion-tags';
 import type { StoredTrade } from '../../core/record';
+import { EmotionChoicesView } from '../../ui/src/components/EmotionChoices';
 import { EmotionSheetBody } from '../../ui/src/components/Emotions';
 import { DETAIL_SHEET_ID } from '../../ui/src/lib/detail-view';
 import type { EmotionState } from '../../ui/src/lib/emotion-controller';
@@ -100,6 +101,7 @@ const ISSUE_TABLE: readonly (readonly [string, string, string])[] = [
 const state = (selected: EmotionTagId[] = [], over: Partial<EmotionState> = {}): EmotionState => ({
   selected,
   saved: selected,
+  opened: selected,
   sending: false,
   error: null,
   ...over,
@@ -427,5 +429,107 @@ describe('保存の後の画面（AC-4 の表示の側）', () => {
       EMOTION_SAVE_FAILED,
     ]);
     expect(panelAlerts(recordTree([L1], { emotion: err, sheet: { kind: 'emotion' } }))).toEqual([]);
+  });
+});
+
+describe('選択肢に出すタグの設定（#163 の AC-4・AC-5・AC-6・AC-8・KEEP-2）', () => {
+  const names = (tree: Node[]) => chipsOf(tree).map((c) => c.name);
+  const headings = (tree: Node[]) => all(tree, hasClass('emotions__gname')).map(text);
+
+  it('例 #1: 設定が空なら 21 個', () => {
+    expect(chipsOf(sheet({ hidden: [] }))).toHaveLength(21);
+  });
+
+  it('例 #2: 乗り遅れ怖い・値ごろ感を出さないと 19 個（その 2 つが無い）', () => {
+    const shown = names(sheet({ hidden: ['fomo', 'bargain'] }));
+    expect(shown).toHaveLength(19);
+    expect(shown).not.toContain('乗り遅れ怖い');
+    expect(shown).not.toContain('値ごろ感');
+  });
+
+  it('例 #3: 開いたときに付いていたタグは、出さない設定でも押された形で並び、外した後も並ぶ', () => {
+    const before = chipsOf(
+      sheet({ context: 'detail', hidden: ['fomo'], state: state(['fomo']) }),
+    ).filter((c) => c.name === '乗り遅れ怖い');
+    expect(before).toEqual([{ name: '乗り遅れ怖い', pressed: 'true' }]);
+    // 押して外した後（selected = 空・opened = 開いたときの集合のまま）
+    const after = chipsOf(
+      sheet({
+        context: 'detail',
+        hidden: ['fomo'],
+        state: state([], { saved: [], opened: ['fomo'] }),
+      }),
+    ).filter((c) => c.name === '乗り遅れ怖い');
+    expect(after).toEqual([{ name: '乗り遅れ怖い', pressed: 'false' }]);
+  });
+
+  it('例 #4: まとまりのタグをすべて出さないと、まとまりの見出しも出ない', () => {
+    const tree = sheet({ hidden: ['hope', 'cantCut', 'confirmation', 'bargain'] });
+    expect(headings(tree)).toEqual(['良い状態', '恐れ', '欲', '取り戻し']);
+    expect(chipsOf(tree)).toHaveLength(17);
+  });
+
+  it('例 #7: 設定を読めない（hidden を渡さない）シートは 21 個', () => {
+    expect(chipsOf(sheet())).toHaveLength(21);
+  });
+
+  it('詳細の画面のシートに設定が届く（出さないタグが並ばない）', () => {
+    const tree = detailTree(L1, {
+      sheet: { kind: 'emotion' },
+      emotion: state([]),
+      emotionHidden: ['fomo'],
+    });
+    const sheetEl = all(tree, (e) => e.props.id === DETAIL_SHEET_ID.emotion)[0] as El;
+    const shown = names([sheetEl]);
+    expect(shown).toHaveLength(20);
+    expect(shown).not.toContain('乗り遅れ怖い');
+  });
+
+  it('KEEP-2 例 #6: 詳細のカードには出さない設定のタグも出る', () => {
+    const t: StoredTrade = { ...L1, emotionTags: ['fomo'] };
+    const tree = detailTree(t, { emotionHidden: ['fomo'] });
+    const card = all(tree, hasClass('emotioncard'))[0] as El;
+    expect(all([card], hasClass('emotioncard__tag')).map(text)).toEqual(['乗り遅れ怖い']);
+  });
+});
+
+describe('設定の画面「心理のタグ」（#163 の AC-7・AC-9 の状態の側）', () => {
+  const ready = (hidden: EmotionTagId[], error: string | null = null) =>
+    ({ phase: 'ready', hidden, saved: hidden, sending: false, error }) as const;
+  const view = (
+    s: Parameters<typeof EmotionChoicesView>[0]['state'],
+    onToggle: (id: EmotionTagId) => void = noop,
+  ) =>
+    expand(<EmotionChoicesView state={s} onToggle={onToggle} onReload={noop} onRelogin={noop} />);
+
+  it('20 個の押す形のチップ（押された = 選択肢に出す）と、押せない平常心の札', () => {
+    const tree = view(ready(['fomo']));
+    const chips = chipsOf(tree);
+    expect(chips).toHaveLength(20);
+    expect(chips.filter((c) => c.pressed === 'false').map((c) => c.name)).toEqual(['乗り遅れ怖い']);
+    expect(all(tree, hasClass('emotioncard__tag')).map(text)).toEqual(['平常心']);
+    expect(text(tree)).toContain('常に出します');
+    expect(text(tree)).toContain('21 個のうち 20 個を選択肢に出しています');
+  });
+
+  it('押すとそのタグの ID を渡す', () => {
+    const pressed: EmotionTagId[] = [];
+    const tree = view(ready([]), (id: EmotionTagId) => {
+      pressed.push(id);
+    });
+    const fomo = all(
+      tree,
+      (e) => hasClass('chip--toggle')(e) && text(e) === '乗り遅れ怖い',
+    )[0] as El;
+    (fomo.props.onClick as () => void)();
+    expect(pressed).toEqual(['fomo']);
+  });
+
+  it('保存の失敗は role="alert"、読めないときは ［再読み込み］', () => {
+    const tree = view(ready([], '失敗'));
+    expect(all(tree, (e) => e.props.role === 'alert').map(text)).toEqual(['失敗']);
+    const failed = view({ phase: 'failed', error: '読めない', errorKind: 'network' });
+    expect(chipsOf(failed)).toEqual([]);
+    expect(all(failed, (e) => e.type === 'button').map(text)).toEqual(['再読み込み']);
   });
 });

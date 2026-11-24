@@ -25,4 +25,4 @@
 
 - **本番の静的配信（Flask / Cloud Run）は、`/api` 以外の知らないパスに `index.html` を返す戻しが要る**（設計書 10 章）。静的配信を作る Issue（#4 か縦切り 2）に渡す。手元の Vite の開発サーバーは既定（`appType: 'spa'`）でそうなっているので、#3 では変更しない
   - #42 で実装した（`api/src/loss_note_api/web.py`。catch-all のルートではなく 404 の扱いの中で、GET / HEAD かつ `/api`・`/assets` の配下でないときだけ `index.html` を返す。ADR-0009）
-- 経路を足すときは `routes.ts` の `parseRoute`・`hrefOf`・`titleOf` と `tests/ui/routes.test.ts`、`scripts/ui-check.mjs` の画面の一覧を一緒に直す
+- 経路を足すときは `routes.ts` の `parseRoute`・`hrefOf`・`titleOf` と `tests/ui/routes.test.ts`、`scripts/ui-check.mjs` の画面の一覧を一緒に直す（#226 で画面の一覧は `scripts/ui-check/base.mjs` の `PAGES`、画面 → 検査の単位は `scripts/ui-check/units.mjs` の `unitOfPath` に移った）

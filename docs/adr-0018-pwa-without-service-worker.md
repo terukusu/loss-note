@@ -43,3 +43,10 @@
 ## 追記（2026-11-20。#127・ADR-0021）
 
 - 決定 3 の「`apple-mobile-web-app-status-bar-style` は置かない」は、`docs/ui-guidelines.md` 9.6 で置き換えた。index.html に `black-translucent` を置き、上の安全域まで画面の面を敷く（viewport の `viewport-fit=cover` と組み）。上の安全域の面は殻（`.statusbar-bg`）が描き、ダークは画面の背景をそのまま続け、ライトは状態のバーの白い文字が読めるよう暗い面にする。`apple-mobile-web-app-capable` などの全画面の meta は今までどおり置かない（manifest の display を使う）
+
+## 追記（2026-11-24。#121 アプリとしてインストール）
+
+- **決定 4（SW を置かない）を保つ**。今の Chrome のインストールの条件を一次資料で確かめた: web.dev「What does it take to be installable?」が挙げる `beforeinstallprompt` を出す条件は、まだ入れていない・1 回の操作と 30 秒の閲覧・HTTPS・manifest（`name` か `short_name`、192px と 512px のアイコン、`start_url`、`display` が `standalone` など）・`prefer_related_applications` が無いことだけで、SW は無い。メニューからのインストールは Chrome 108（モバイル）・112（PC）で fetch の扱いを持つ SW の条件が外れた（Chrome の blog「Revisiting Chrome's installability criteria」）。今の manifest はこの条件を満たすので、SW も CSP の `worker-src` も足さない（古い画面で記録する事故の心配も増えない）
+- **設定のタブの根に区切り「アプリ」**（表示とアカウントの間）を置き、端末に合わせて 1 つを出す: ブラウザがインストールの案内の権利を渡したら ［インストール］（押すとブラウザの確認。権利は 1 回で使い切る）/ iPhone・iPad は「共有ボタンから「ホーム画面に追加」」の 1 行（iOS の Safari 以外のブラウザも共有から入れられる） / ホーム画面のアプリとして開いている（`display-mode: standalone`・iOS の `navigator.standalone`）なら「インストール済み」/ それ以外はブラウザのメニューから入れる 1 行。入れたら「インストールしました」
+- **`beforeinstallprompt` は起動のとき（`main.tsx`）に受け、既定の動きを止めて持つ**。Android の Chrome が下に出す小さな帯は、記録の画面の下の帯（［記録する］）と重なるので出さない。入れ方は設定の ［インストール］ とブラウザのメニューに残る。権利の受け取りと確認は `ui/src/lib/install-prompt.ts`、状態の決め方と文言は純関数 `ui/src/lib/install.ts`、区切りの部品は `ui/src/components/InstallApp.tsx`
+- 実機で ［インストール］ が出るか（操作と閲覧の条件）は、本番でオーナーが確かめる（#121 の AC-6・AC-7）。出ないときもメニューからの 1 行で入れられる

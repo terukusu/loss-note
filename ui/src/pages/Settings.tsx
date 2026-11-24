@@ -1,7 +1,8 @@
 // 設定のタブの根（#3 = テーマの切り替えとログアウト、#133 = まとめた一覧。設計書 9.2 の設定の行・K16・ui-guidelines 9.3・
 // 9.9・9.12）と、次の画面「AI の利用状況」（#62・#133）・「心理のタグ」（#163）。
 // - 根: 大きな題「設定」（題の下に説明の文は置かない）→ 区切り「口座」（口座 ›）・「記録」（銘柄 › / 心理のタグ › /
-//   AI の利用状況 › / 用語集 ›）・「表示」（テーマ）・「アカウント」（ログアウト）。押せる行の右に数の添え（lib/settings-menu.ts）
+//   AI の利用状況 › / 用語集 ›）・「表示」（テーマ）・「アプリ」（ホーム画面のアプリとして入れる。#121。
+//   components/InstallApp.tsx）・「アカウント」（ログアウト）。押せる行の右に数の添え（lib/settings-menu.ts）
 // - 口座・銘柄の一覧と編集は次の画面（pages/SettingsAccounts.tsx・pages/SettingsInstruments.tsx）、用語集は pages/Glossary.tsx
 // Settings は hook を持たない（App のテストが 1 段だけ呼ぶ）。数の添えは SettingsLinks（controller を購読）が描き、描画は hook を
 // 持たない SettingsLinksView に任せる
@@ -11,6 +12,7 @@ import { AiUsageCard, useAiUsage } from '../components/AiUsage';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button, RowLink } from '../components/Button';
 import { EmotionChoicesView, useEmotionChoices } from '../components/EmotionChoices';
+import { SettingsInstall } from '../components/InstallApp';
 import { PageHeader } from '../components/PageHeader';
 import { Segment } from '../components/Segment';
 import { hiddenOf } from '../lib/emotion-choices-controller';
@@ -65,6 +67,7 @@ export function Settings({ theme, onTheme, onSignOut, signOutBusy, signOutError 
           />
         </div>
       </section>
+      <SettingsInstall />
       <section class="setgroup" aria-labelledby="settings-group-account">
         <h2 class="setgroup__title" id="settings-group-account">
           {ACCOUNT_GROUP_TITLE}

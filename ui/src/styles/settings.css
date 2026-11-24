@@ -311,3 +311,21 @@
 .setlead .info-wrap {
   margin-inline-start: 2px;
 }
+
+/* アプリの区切り（#121）: 行の右の状態の文（「インストール済み」）と、行の下の手順の 1 行 */
+.setinstall__status {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.setinstall__status:empty {
+  display: none;
+}
+
+.setinstall__hint {
+  margin: 0;
+  padding-inline: var(--sp-4);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}

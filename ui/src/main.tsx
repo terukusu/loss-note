@@ -7,6 +7,8 @@ import { DEV_AUTH_DEFAULTS } from './auth/devDefaults';
 import { UNAVAILABLE } from './auth/errors';
 import { type AuthSession, createFirebaseSession, unavailableSession } from './auth/session';
 import { createBackLayers, installBackLayers, windowBackEnv } from './lib/back-layers';
+import { InstallContext } from './lib/install-context';
+import { createInstallStore } from './lib/install-prompt';
 import { installKeyboardReveal } from './lib/keyboard-reveal';
 import { createNavigator, windowEnv } from './lib/router';
 import { applyTheme, readTheme, safeStorage } from './lib/theme';
@@ -31,6 +33,8 @@ try {
   session = unavailableSession();
   initialLoginError = UNAVAILABLE;
 }
+// アプリとしてインストール（#121）: 描く前に作り、設定のタブを開く前に届いたインストールの案内の権利も受け取る
+const install = createInstallStore(window);
 // 開いて閉じる層（「i」の吹き出し）を戻るで閉じる記録（#57）。画面が移ったら記録を捨てる
 const layers = createBackLayers(windowBackEnv(window));
 installBackLayers(layers);
@@ -47,16 +51,18 @@ const nav = createNavigator(
 const root = document.getElementById('app');
 if (root) {
   render(
-    <App
-      nav={nav}
-      session={session}
-      initialTheme={theme}
-      storage={storage}
-      root={document.documentElement}
-      dev={dev}
-      emulator={config.emulatorUrl !== null}
-      initialLoginError={initialLoginError}
-    />,
+    <InstallContext.Provider value={install}>
+      <App
+        nav={nav}
+        session={session}
+        initialTheme={theme}
+        storage={storage}
+        root={document.documentElement}
+        dev={dev}
+        emulator={config.emulatorUrl !== null}
+        initialLoginError={initialLoginError}
+      />
+    </InstallContext.Provider>,
     root,
   );
 }

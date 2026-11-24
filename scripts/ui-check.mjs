@@ -11002,7 +11002,7 @@ async function runFlows(browser, base, signedIn) {
     return '設定で「口座 C」を足す → 名前の順の位置に入り、「口座 C を追加しました」、フォーカスは新しい行の [直す]';
   });
 
-  // SET6（#133 の AC-1・AC-2・AC-7）: 設定の根のまとめた一覧（題の下に説明の文なし・区切り 4 つ・数の添え）→ 次の画面（口座・銘柄・
+  // SET6（#133 の AC-1・AC-2・AC-7）: 設定の根のまとめた一覧（題の下に説明の文なし・区切り 5 つ・数の添え）→ 次の画面（口座・銘柄・
   // AI の利用状況・用語集）→ 戻るで根。直接開くと下に根を敷く（[/, /settings, /settings/accounts]）。AI の利用状況が読めなくても、
   // 根の行と口座の編集の [保存] は使える（#62 AC-7。別の画面になったので状態の検査から移した）
   await check('SET6', async () => {
@@ -11017,7 +11017,7 @@ async function runFlows(browser, base, signedIn) {
       expectEq(await p.locator('main .pagehead__desc').count(), 0, '題の下の説明の文');
       expectEq(
         (await p.locator('.setgroup__title').allTextContents()).join(' / '),
-        '口座 / 記録 / 表示 / アカウント',
+        '口座 / 記録 / 表示 / アプリ / アカウント',
         '区切り',
       );
       expectEq(
@@ -11142,7 +11142,7 @@ async function runFlows(browser, base, signedIn) {
         }
       }
       expectEq(errors.length, 0, 'ページのエラー');
-      return `根（説明の文なし・区切り 4 つ・添え）→ ${visited.join('・')} → 戻るで根、直接開いた口座 → 戻るで根 → ホーム、AI が読めなくても [保存] は押せる、[保存] は開いた直後も下まで送っても見える（${shown.length} 件）`;
+      return `根（説明の文なし・区切り 5 つ・添え）→ ${visited.join('・')} → 戻るで根、直接開いた口座 → 戻るで根 → ホーム、AI が読めなくても [保存] は押せる、[保存] は開いた直後も下まで送っても見える（${shown.length} 件）`;
     } finally {
       await c.close();
     }

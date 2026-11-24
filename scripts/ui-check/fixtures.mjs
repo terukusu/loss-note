@@ -1,6 +1,7 @@
 // 画面の検査の偽の記録の API と例の取引・画像（値はすべて架空）
 import { readFileSync } from 'node:fs';
 import { crc32, deflateSync } from 'node:zlib';
+import { settleLayers } from './base.mjs';
 
 // ── 偽の記録の API（記憶の中だけ。値はすべて架空。形は api/src/loss_note_api/routes.py に合わせる） ──
 export const FAKE_US30 = {
@@ -790,6 +791,8 @@ export async function waitSaved(p, text) {
   await sheet.locator('.emotions__actions button').click();
   await p.locator('#record-emotion-sheet[open]').waitFor({ state: 'detached', timeout: 10000 });
   await p.getByRole('status').filter({ hasText: text }).waitFor({ timeout: 10000 });
+  // ［あとで］ で閉じた後のアプリの history.go を待つ（続けて goto・goBack を重ねない）
+  await settleLayers(p);
 }
 
 export async function installFakeApi(context, opts = {}) {

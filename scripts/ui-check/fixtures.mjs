@@ -407,6 +407,7 @@ export const REVIEW_TRADES_TITLE = {
   'review-trades-empty': '期間の取引',
   'review-trades-topic': '数量が多すぎた',
   'review-trades-notes': 'More の自分で書いた行',
+  'review-trades-off': '崩れの取引',
 };
 /**
  * 連勝の後（#185）の取引（架空の値。Issue の例 B3 の形）: 決済の古い順に W W B W W A W W B W W A W W A の 15 件（W = 計画どおりの

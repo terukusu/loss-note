@@ -152,22 +152,27 @@ export function reviewStates(recApi) {
       'review-imports-on',
     ],
     ['/review?period=7d', REVIEW_IMPORTS, '.review__toggle', 'review-imports-only'],
-    // 気づき（#162）: 心理ごとの集計（件数が十分な行・件数が少ない行・平常心）と、心理の付いた取引が無い期間
-    ['/review?period=7d&view=insight', REVIEW_INSIGHT, '.insight__row', 'review-insight'],
-    ['/review?period=7d&view=insight', REVIEW_S1, '.insight', 'review-insight-none'],
-    ['/review?period=7d&view=insight', REVIEW_INSIGHT_LONG, '.insight__row', 'review-insight-long'],
-    // 気づきの連勝の後のカード（#185）
-    ['/review?period=7d&view=insight', REVIEW_STREAK, '.winrun', 'review-insight-streak'],
-    // 気づきの Good / More のカード（#221。心理・連勝の後のカードの下。名前の長い話題の件数が少ない行を含む）
+    // なぜ（#228。前は気づきのセグメント #162・#185・#221）: 心理の順位図（件数が十分な行・件数が少ない行・平常心）と、心理の付いた
+    // 取引が無い期間・名前の長い心理・連勝の後・Good / More の切り口。前の URL `&view=insight` は置き換えて受ける（review-insight-legacy）
+    ['/review?period=7d', REVIEW_INSIGHT, '.why .insight__row', 'review-insight'],
+    ['/review?period=7d', REVIEW_S1, '.why', 'review-insight-none'],
+    ['/review?period=7d', REVIEW_INSIGHT_LONG, '.why .insight__row', 'review-insight-long'],
+    ['/review?period=7d', REVIEW_STREAK, '.winrun', 'review-insight-streak'],
+    // Good / More と心理と連勝の後の付いた期間（#221 の合成の取引）: 心理・More・Good の切り口。EPIC #233 の終了条件 3 の長さを測る
+    ['/review?period=7d', REVIEW_REFLECT, '.why .insight__row', 'review-insight-reflection'],
+    ['/review?period=7d&why=more', REVIEW_REFLECT, '.why .insight__row', 'review-insight-more'],
+    ['/review?period=7d&why=good', REVIEW_REFLECT, '.why .insight__row', 'review-insight-good'],
     [
       '/review?period=7d&view=insight',
       REVIEW_REFLECT,
-      '.reflinsight .insight__row',
-      'review-insight-reflection',
+      '.why .insight__row',
+      'review-insight-legacy',
     ],
     // 期間の取引（#221）: 話題の行から・自分で書いた行から
     ['/review/trades?period=7d&more=oversized', REVIEW_REFLECT, '.traderow', 'review-trades-topic'],
     ['/review/trades?period=7d&notes=more', REVIEW_REFLECT, '.traderow', 'review-trades-notes'],
+    // 期間の取引（#228）: 振り返りの「崩れの取引を見る ›」から
+    ['/review/trades?period=7d&tier=off', REVIEW_INSIGHT, '.traderow', 'review-trades-off'],
     // 期間の取引（#185）: 心理の行から・連勝の後から・知らない心理
     ['/review/trades?period=7d&emotion=recoup', REVIEW_INSIGHT, '.traderow', 'review-trades'],
     [

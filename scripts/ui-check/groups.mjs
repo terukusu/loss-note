@@ -429,6 +429,31 @@ export async function reviewGroup(vp, unit) {
           problems.push(`${label}: 当たり<44 ${x}`);
         }
         checkNest(label, m);
+        // 振り返りの 1 本の流れ（#228）: なぜ〜次はの高さ（「何で崩れたか」の上端から流れの下端まで）。幅 360 では 2 画面以内
+        // （EPIC #233 の終了条件 3）。前の URL `&view=insight` は view を外した URL に置き換わる
+        if (!path.startsWith('/review/')) {
+          const flow = await tp.evaluate(() => {
+            const why = document.querySelector('.review .why');
+            const cards = document.querySelector('.review .review__cards');
+            if (!why || !cards) return null;
+            return Math.round(
+              cards.getBoundingClientRect().bottom - why.getBoundingClientRect().top,
+            );
+          });
+          if (flow !== null) {
+            const limit = 2 * hgt;
+            const over = w === 360 && flow > limit;
+            console.log(`    なぜ〜次は ${flow}px（2 画面 = ${limit}px）${over ? '  NG' : ''}`);
+            if (over) problems.push(`${label}: なぜ〜次は ${flow}px（2 画面 ${limit}px を超える）`);
+          }
+          if (slug === 'review-insight-legacy') {
+            const url = await tp.evaluate(() => location.pathname + location.search);
+            if (url !== '/review?period=7d') {
+              console.log(`    前の URL の置き換え: ${url}  NG`);
+              problems.push(`${label}: 前の URL の置き換え ${url}（期待 /review?period=7d）`);
+            }
+          }
+        }
         for (const e of errors.splice(0)) problems.push(`${label}: ページのエラー ${e}`);
         if (opts.shots) {
           await tp.screenshot({

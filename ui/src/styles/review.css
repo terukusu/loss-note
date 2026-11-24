@@ -603,16 +603,50 @@
   }
 }
 
-/* 規律 / 気づき のセグメント（#162。設計書 9.2）。流れる（貼り付くのは期間の行だけ）。見る中身の切り替えは期間より軽い見た目
-   （文字を小さく。枠は入力の部品の 3:1 を保つので消さない。当たりは 44px のまま）にして、2 つの段の上下を分ける（#162 デザインレビュー 6） */
-.review__view {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: var(--sp-1);
+/* なぜ・次はの段の見出し（#228）: 主役の数字の段より小さく、カードの題（シートの題と同じ 2 段目の文字）。いくらの数字に目を譲る */
+.why__title {
+  color: var(--ink);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
 }
 
-.review__view .seg__item {
+/* 切り口の切り替え（心理 / More / Good）: 見る中身の切り替えは期間より軽い見た目（文字を小さく。枠は入力の部品の 3:1 を保つので
+   消さない。当たりは 44px のまま） */
+.why__switch {
+  display: flex;
+  flex-direction: column;
+}
+
+.why__switch .seg__item {
   font-size: var(--fs-sm);
+}
+
+/* 計画どおり率（2 番目の大きさの数字。#228・C60）: いちばん大きい段は規律コストだけ */
+.review__big--lg .review__unit {
+  font-size: var(--fs-md);
+}
+
+/* どの取引: 押せる行を縦に並べる */
+.review__which {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* 次はこうする（#228）: 自分で書いた行を引用の形で（文字の色・太さだけ。色は付けない） */
+.next__quote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  margin: 0;
+  padding-inline-start: var(--sp-3);
+  border-inline-start: 2px solid var(--line-2);
+}
+
+.next__text {
+  color: var(--ink);
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
 }
 
 /* 気づきの心理ごとの集計（#162）。行は振り返りのタブでは押せる行（下の .insight--trail。#185）。区切りは 1 辺の線（カードの中に内枠を作らない）。色・棒は付けない（C34） */
@@ -627,64 +661,49 @@
   max-width: 36rem;
 }
 
-/* 値の行と列の見出しは同じ格子（狭い = 2 段: 名前と件数 / 率（左）・規律コスト（右）） */
-.insight__cols,
+/* 順位図の行（#228）: 1 行目 = 名前・件数と率（左）/ 規律コスト（右）、2 行目 = 横棒（全幅。どの行も同じ左端と長さの物差し） */
 .insight__cells {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
-    "name name"
-    "rate cost";
+    "name cost"
+    "bar bar";
   align-items: baseline;
-  gap: var(--sp-1) var(--sp-3);
+  gap: var(--sp-2) var(--sp-3);
 }
 
-.insight__cols {
-  grid-template-areas: "rate cost";
-  padding-bottom: var(--sp-2);
+/* 棒の凡例の 1 行（列の見出しの代わり。「i」は 2 つ） */
+.insight__key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-4);
+  padding-bottom: var(--sp-1);
   border-bottom: 1px solid var(--line);
   color: var(--ink-2);
   font-size: var(--fs-sm);
 }
 
-.insight__colname {
-  display: none;
-}
-
-.insight__colrate,
-.insight__colcost {
+.insight__keyitem {
   display: inline-flex;
   align-items: center;
   gap: var(--sp-1);
   white-space: nowrap;
 }
 
-.insight__colrate {
-  grid-area: rate;
+/* 横棒: 規律コストの大きさ。色は付けない（判定の段の色を使わない。C34・C60）。溝は線の色、棒は 3 番目の文字の色 */
+.insight__bar {
+  grid-area: bar;
+  display: block;
+  width: 100%;
+  height: 6px;
 }
 
-.insight__colcost {
-  grid-area: cost;
-  justify-self: end;
+.insight__track {
+  fill: var(--line);
 }
 
-@container (min-width: 30em) {
-  /* 広い = 名前 | 率 | 規律コスト の 3 列。列の位置はどの行も同じ（縦に比べられる） */
-  .insight__cols,
-  .insight__cells {
-    grid-template-columns: minmax(0, 1fr) 9em 13em;
-    grid-template-areas: "name rate cost";
-  }
-
-  .insight__colname {
-    display: block;
-    grid-area: name;
-  }
-
-  .insight__colrate,
-  .insight__rate {
-    justify-self: end;
-  }
+.insight__fill {
+  fill: var(--ink-3);
 }
 
 .insight__rows {
@@ -738,7 +757,16 @@
   white-space: nowrap;
 }
 
-.insight__rate,
+/* 順位図の行の件数と率の添えは、幅に入らなければ折り返す（右の › と重ねない。#228 のレビュー） */
+.insight__cells .insight__count {
+  white-space: normal;
+}
+
+/* 折り返すのは「件数 · 率 · R なし」の切れ目だけ（「1 / 件」のように 1 つの添えの中で切らない） */
+.insight__piece {
+  white-space: nowrap;
+}
+
 .insight__cost {
   display: inline-flex;
   align-items: baseline;
@@ -746,19 +774,11 @@
   color: var(--ink);
   font-size: var(--fs-md);
   white-space: nowrap;
-}
-
-.insight__rate {
-  grid-area: rate;
-}
-
-.insight__cost {
   grid-area: cost;
   justify-self: end;
 }
 
-.insight__sub,
-.insight__missing {
+.insight__sub {
   color: var(--ink-2);
   font-size: var(--fs-sm);
 }
@@ -807,10 +827,6 @@
    列の見出しも同じだけ空ける（列の位置をそろえる）。押せない組み立て（trailHref なし）は上の形のまま */
 .insight--trail .insight__row {
   padding: 0;
-}
-
-.insight--trail .insight__cols {
-  padding-inline: var(--sp-2) calc(var(--sp-2) + 1.25rem);
 }
 
 .insight__link {

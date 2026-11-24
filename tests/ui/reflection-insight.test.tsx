@@ -1,4 +1,5 @@
-// 振り返りの気づきの Good / More の話題ごとの集計のカードと、行から「期間の取引」へたどる（Issue #221 の AC-1〜AC-7）。
+// 振り返りの「何で崩れたか」の Good / More の切り口（前は気づきの Good / More の話題ごとの集計のカード）と、行から「期間の取引」へたどる
+// （Issue #221 の AC-1〜AC-7。#228 で切り口の形に読み替えた）。
 // 部品は関数として展開する（DOM を使わない）。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
@@ -10,7 +11,12 @@ import {
   REFLECTION_NONE_LINES,
   REFLECTION_OVERLAP_NOTE,
 } from '../../ui/src/lib/insight-view';
-import { type PeriodSelection, periodRange, reviewTableHref } from '../../ui/src/lib/period';
+import {
+  type PeriodSelection,
+  periodRange,
+  reviewTableHref,
+  type WhyKey,
+} from '../../ui/src/lib/period';
 import type { ReviewState } from '../../ui/src/lib/review-controller';
 import {
   parseTrail,
@@ -86,6 +92,7 @@ function slot(
   sel: PeriodSelection,
   trades: readonly StoredTrade[],
   hidden: ReadonlySet<string>,
+  why: WhyKey = 'more',
 ): ReviewSlot {
   const range = periodRange(sel, REVIEW_NOW);
   const state = ready(sel, trades);
@@ -99,9 +106,13 @@ function slot(
       instruments: INSTRUMENTS,
       now: REVIEW_NOW,
     }),
-    view: 'insight',
-    insight: insightModelFor(state, range, { hidden, includeImports: sel.imports }),
-    onView: noop,
+    why,
+    insight: insightModelFor(state, range, {
+      hidden,
+      includeImports: sel.imports,
+      now: REVIEW_NOW,
+    }),
+    onWhy: noop,
     tableHref: reviewTableHref(sel),
     trailHref: (f: TrailFilter) => reviewTradesHref(sel, f),
     onKey: noop,
@@ -120,7 +131,12 @@ const tradesReady = (trades: readonly StoredTrade[]): TradesState => ({
   more: 'done',
 });
 
-function renderInsight(sel: PeriodSelection, trades: readonly StoredTrade[], hidden = R1_HIDDEN) {
+function renderInsight(
+  sel: PeriodSelection,
+  trades: readonly StoredTrade[],
+  hidden = R1_HIDDEN,
+  why: WhyKey = 'more',
+) {
   return expand(
     <ReviewView
       state={tradesReady(trades)}
@@ -128,13 +144,14 @@ function renderInsight(sel: PeriodSelection, trades: readonly StoredTrade[], hid
       empty={<p>空</p>}
       onReload={noop}
       onRelogin={noop}
-      review={slot(sel, trades, hidden)}
+      review={slot(sel, trades, hidden, why)}
     />,
   );
 }
 
+/** 「何で崩れたか」の段を Good / More の切り口で開いたもの（#228。前は側ごとのカード） */
 const cardOf = (tree: Node[], side: 'good' | 'more') =>
-  all(tree, (e) => hasClass('reflinsight')(e) && e.props['data-side'] === side)[0] as El;
+  all(tree, (e) => hasClass('why')(e) && e.props['data-why'] === side)[0] as El;
 
 /** 行の全文（名前と要約。insight-view の text） */
 const model = (trades: readonly StoredTrade[], includeImports = false, hidden = R1_HIDDEN) =>
@@ -165,14 +182,16 @@ describe('AC-1: E1 の More のカード', () => {
     expect(more?.noneText).toBeNull();
   });
 
-  it('画面: More のカードが Good のカードより先・列の見出しは「話題」・行は押せる行（その話題の期間の取引へ）', () => {
+  it('画面: 切り替えは 心理 → More → Good・More の切り口の行は押せる行（その話題の期間の取引へ）', () => {
     const tree = renderInsight(SEVEN, R1);
-    const cards = all(tree, hasClass('reflinsight'));
-    expect(cards.map((c) => c.props['data-side'])).toEqual(['more', 'good']);
+    expect(
+      all(tree, (e) => e.type === 'input' && e.props.name === 'review-why').map(
+        (e) => e.props.value,
+      ),
+    ).toEqual(['emotion', 'more', 'good']);
     const card = cardOf(tree, 'more');
-    expect(text(all([card], (e) => e.type === 'h2'))).toBe('More の話題ごとの規律');
+    expect(text(all([card], (e) => e.type === 'h2'))).toBe('何で崩れたか');
     expect(text(card)).toContain('11 件のうち 5 件に記入');
-    expect(text(all([card], hasClass('insight__colname')))).toBe('話題');
     const rows = all([card], (e) => e.type === 'li' && e.props['data-topic'] !== undefined);
     expect(rows.map((li) => [li.props['data-topic'], links([li])[0]?.props.href])).toEqual([
       ['oversized', '/review/trades?period=7d&more=oversized'],
@@ -239,15 +258,12 @@ describe('AC-5: Good / More の付いていない期間（E5・E6）', () => {
     const m = model(E1, false, E1_HIDDEN);
     expect(m.reflection).toEqual({ noneLines: REFLECTION_NONE_LINES, cards: [] });
     const tree = renderInsight(SEVEN, E1, E1_HIDDEN);
-    const none = all(tree, hasClass('reflinsight'));
-    expect(none).toHaveLength(1);
-    // 見出しの無いカードは読み上げで場所が分かるように名前を持つ
-    expect(none[0]?.props['aria-label']).toBe('Good / More');
+    const none = [cardOf(tree, 'more')];
     expect(all(none, hasClass('review__note')).map(text)).toEqual([...REFLECTION_NONE_LINES]);
-    expect(links(none)).toEqual([]);
+    expect(all(none, (e) => e.type === 'a')).toEqual([]);
     expect(all(none, hasClass('insight__row'))).toEqual([]);
-    // 心理のカードの行は今までどおり（E1 の 2 行）
-    const emotion = all(tree, hasClass('insight'))[0] as El;
+    // 心理の切り口の行は今までどおり（E1 の 2 行）
+    const emotion = all(renderInsight(SEVEN, E1, E1_HIDDEN, 'emotion'), hasClass('why'))[0] as El;
     expect(all([emotion], hasClass('insight__row'))).toHaveLength(2);
   });
 
@@ -257,16 +273,16 @@ describe('AC-5: Good / More の付いていない期間（E5・E6）', () => {
     expect(good?.noneText).toBe('この期間の取引に Good は付いていません');
     expect(good?.rows).toEqual([]);
     expect(good?.headText).toBe('2 件のうち 0 件に記入');
-    const card = cardOf(renderInsight(SEVEN, R6, new Set()), 'good');
+    const card = cardOf(renderInsight(SEVEN, R6, new Set(), 'good'), 'good');
     expect(all([card], hasClass('review__note')).map(text)).toEqual([
       'この期間の取引に Good は付いていません',
     ]);
-    expect(all([card], hasClass('insight__cols'))).toEqual([]);
+    expect(all([card], hasClass('insight__key'))).toEqual([]);
   });
 
   it('対象が 0 件の期間は Good / More のカードを出さない（心理のカードの空の文だけ）', () => {
     expect(model([]).reflection).toBeNull();
-    expect(all(renderInsight(SEVEN, []), hasClass('reflinsight'))).toEqual([]);
+    expect(all(renderInsight(SEVEN, []), hasClass('why'))).toEqual([]);
   });
 });
 

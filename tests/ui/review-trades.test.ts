@@ -545,3 +545,44 @@ describe('Issue #194: 判定の出た取引が 5 件未満の要約（AC-5。E7�
     expect(p.join('')).not.toContain('件数が少ない');
   });
 });
+
+describe('Issue #228 AC-5: 崩れの取引（`&tier=off`）', () => {
+  const off: TrailFilter = { kind: 'off' };
+
+  it('URL の往復・知らない値は null・ほかの絞り方の鍵が先', () => {
+    const href = reviewTradesHref(SEVEN, off);
+    expect(href).toBe('/review/trades?period=7d&tier=off');
+    expect(parseTrail(href.slice('/review/trades'.length))).toEqual(off);
+    expect(parsePeriod(href.slice('/review/trades'.length))).toEqual(SEVEN);
+    expect(parseTrail('?period=7d&tier=plan')).toBeNull();
+    expect(parseTrail('?period=7d&tier=')).toBeNull();
+    expect(parseTrail('?tier=off&emotion=recoup')).toEqual(recoup);
+    expect(trailTitle(off)).toBe('崩れの取引');
+  });
+
+  it('E6: E1 の崩れ（B・危ない勝ち・C）5 件を決済の新しい順に。要約は名前つき・消した印・期間の外・取り込みは入らない', () => {
+    const m = model(off);
+    expect(m.title).toBe('崩れの取引');
+    expect(ids(m)).toEqual(['t11', 't9', 't8', 't7', 't6']);
+    // 手計算: t6 B −1.6 → −0.6、t7 B −2.0 → −1.0、t11 B −1.2 → −0.2、t8 危ない勝ち（運。差なし）、t9 C は LC なし（R が出ない）
+    expect(m.summaryParts).toEqual(['5 件', '計画どおり率 0%（0 / 5）', '規律コスト 崩れで −1.8R']);
+    // 行の添えは心理（絞った心理が無いので、付いている心理をそのまま一覧の順に）
+    expect(m.notes.t8).toBe('調子に乗った・取り戻したい');
+    // 取り込みを含めると i1（B）が入る
+    expect(ids(model(off, { includeImports: true }))).toEqual([
+      'i1',
+      't11',
+      't9',
+      't8',
+      't7',
+      't6',
+    ]);
+  });
+
+  it('E7: 崩れが無い期間は「この期間に崩れの取引はありません」', () => {
+    const plan = E1.filter((t) => ['t1', 't3'].includes(t.id));
+    const m = model(off, { trades: plan });
+    expect(m.empty).toBe(true);
+    expect(m.emptyText).toBe('この期間に崩れの取引はありません');
+  });
+});

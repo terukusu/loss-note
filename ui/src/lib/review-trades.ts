@@ -4,6 +4,7 @@
 // （そのタグが付いた取引）、連勝の後は core の afterWinStreak の取引。並びは取引の一覧と同じ（決済の新しい順）。
 // 要約は気づきの行・連勝の後のカードと同じ文（summaryOf）。URL の心理は一覧（C55）の ID だけを通す（知らない値は「該当なし」）
 // Good / More（#221）: 話題（`&good=<ID>` / `&more=<ID>`。その側の一覧（C58）の ID だけ）と自分で書いた行（`&notes=good|more`）
+// 崩れの取引（#228。`&tier=off`。判定が B・危ない勝ち・C = core の runKindOf が off。振り返りの「崩れの取引を見る ›」から）
 import {
   type EmotionTagId,
   isEmotionTagId,
@@ -18,7 +19,7 @@ import {
   type ReflectionSide,
   type ReflectionTopicId,
 } from '../../../core/reflection';
-import { afterWinStreak, type ReviewItem, reviewPeriod } from '../../../core/review';
+import { afterWinStreak, type ReviewItem, reviewPeriod, runKindOf } from '../../../core/review';
 import { EMOTION_TEXT } from './emotion-tags';
 import {
   insightItems,
@@ -28,7 +29,13 @@ import {
   STREAK_TITLE,
   summaryOf,
 } from './insight-view';
-import { type PeriodRange, type PeriodSelection, periodAround, periodSearch } from './period';
+import {
+  type PeriodRange,
+  type PeriodSelection,
+  periodAround,
+  periodSearch,
+  type WhyKey,
+} from './period';
 import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
 import { TRUNCATED } from './review-view';
@@ -39,19 +46,30 @@ export const REVIEW_TRADES_NAME = '期間の取引';
 /** 該当の取引が無い（知らない絞り方・0 件） */
 export const REVIEW_TRADES_NONE = 'この期間に該当する取引はありません';
 
-/** 絞り方: 心理（気づきの行）か、連勝の後（連勝の後のカード）か、Good / More の話題・自分で書いた行（#221） */
+/** 崩れの取引の題（#228） */
+export const OFF_TITLE = '崩れの取引';
+/** 振り返りの押せる行「崩れの取引を見る ›」（#228。#142 の「崩れの取引を見る」） */
+export const OFF_LINK = '崩れの取引を見る';
+
+/**
+ * 絞り方: 心理（気づきの行）か、連勝の後（連勝の後のカード）か、Good / More の話題・自分で書いた行（#221）か、
+ * 崩れの取引（#228）
+ */
 export type TrailFilter =
   | { readonly kind: 'emotion'; readonly id: EmotionTagId }
   | { readonly kind: 'winStreak' }
+  | { readonly kind: 'off' }
   | { readonly kind: 'topic'; readonly side: ReflectionSide; readonly id: ReflectionTopicId }
   | { readonly kind: 'notes'; readonly side: ReflectionSide };
 
 const AFTER_WIN_STREAK = 'winStreak';
 const NOTES = 'notes';
+const TIER = 'tier';
+const TIER_OFF = 'off';
 
 /**
  * URL の検索部分 → 絞り方（心理は一覧の ID だけ、話題はその側の一覧の ID だけ。前から 心理 → Good → More → 自分で書いた行 →
- * 連勝の後 の順に最初にある鍵で決め、その値が通らなければ null。どれでもなければ null）
+ * 崩れの取引 → 連勝の後 の順に最初にある鍵で決め、その値が通らなければ null。どれでもなければ null）
  */
 export function parseTrail(search: string): TrailFilter | null {
   const q = new URLSearchParams(search);
@@ -67,7 +85,17 @@ export function parseTrail(search: string): TrailFilter | null {
       ? { kind: 'notes', side: notes as ReflectionSide }
       : null;
   }
+  const tier = q.get(TIER);
+  if (tier !== null) return tier === TIER_OFF ? { kind: 'off' } : null;
   return q.get('after') === AFTER_WIN_STREAK ? { kind: 'winStreak' } : null;
+}
+
+/**
+ * 絞り方 → 戻る先の振り返りの「何で崩れたか」の切り替え（#228）: More / Good の行から来たらその側、ほか（心理・連勝の後・
+ * 崩れの取引・知らない絞り方）は心理
+ */
+export function whyOfTrail(filter: TrailFilter | null): WhyKey {
+  return filter && (filter.kind === 'topic' || filter.kind === 'notes') ? filter.side : 'emotion';
 }
 
 /**
@@ -96,6 +124,7 @@ export function reviewTradesHref(
   if (filter.kind === 'emotion') q.set('emotion', filter.id);
   else if (filter.kind === 'topic') q.set(filter.side, filter.id);
   else if (filter.kind === 'notes') q.set(NOTES, filter.side);
+  else if (filter.kind === 'off') q.set(TIER, TIER_OFF);
   else q.set('after', AFTER_WIN_STREAK);
   if (opts.fromTrade) q.set(VIA, VIA_TRADE);
   if (opts.trade) q.set(ORIGIN, opts.trade);
@@ -157,6 +186,8 @@ export function trailTitle(filter: TrailFilter | null): string {
       return notesTitle(filter.side);
     case 'winStreak':
       return STREAK_TITLE;
+    case 'off':
+      return OFF_TITLE;
   }
 }
 
@@ -186,6 +217,7 @@ export interface ReviewTradesModel {
 function noneTextOf(filter: TrailFilter | null): string {
   if (filter === null) return REVIEW_TRADES_NONE;
   if (filter.kind === 'winStreak') return STREAK_NONE;
+  if (filter.kind === 'off') return `この期間に${OFF_TITLE}はありません`;
   if (filter.kind === 'notes') {
     return `この期間に ${REFLECTION_SIDE_TEXT[filter.side].name} を自分で書いた取引はありません`;
   }
@@ -221,7 +253,7 @@ function noteOf(t: StoredTrade, filter: TrailFilter): string | null {
   if (filter.kind === 'notes') return reflectionNoteOf(t, { side: filter.side });
   let tags: EmotionTagId[] = normalizeEmotions(t.emotionTags);
   if (filter.kind === 'emotion') tags = tags.filter((id) => id !== filter.id);
-  else if (tags.includes(OVERCONFIDENT)) {
+  else if (filter.kind === 'winStreak' && tags.includes(OVERCONFIDENT)) {
     tags = [OVERCONFIDENT, ...tags.filter((id) => id !== OVERCONFIDENT)];
   }
   if (tags.length === 0) return null;
@@ -244,6 +276,7 @@ function pick(
   if (filter.kind === 'notes') {
     return target.filter((i) => (i.reflection?.[filter.side].notes.length ?? 0) > 0);
   }
+  if (filter.kind === 'off') return target.filter((i) => runKindOf(i.grade) === 'off');
   const ids = afterWinStreak(target, { includeImports: true });
   return target.filter((i) => ids.has(i.id));
 }

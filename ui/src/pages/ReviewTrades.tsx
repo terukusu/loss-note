@@ -1,7 +1,8 @@
 // 振り返りの次の画面「期間の取引」（`/review/trades?period=…&emotion=<ID>` / `&after=winStreak`。#185。設計書 9.2・9.4）。
 // 気づきの心理の行・連勝の後のカード・Good / More の行（`&more=<ID>` / `&good=<ID>` / `&notes=more|good`。#221）と、取引の詳細の
 // 心理のチップ（#188。期間は自動 = 範囲の行の頭に「この取引を含む 3 か月」）から開く。
-// 上の帯「‹ 前の画面」（振り返りから = 同じ期間の気づき・詳細から = その詳細）・題（心理の名前 / 連勝の後）→ 期間の選択肢（振り返りと同じ部品）→
+// 振り返りの「崩れの取引を見る ›」（`&tier=off`）・次はの行（`&notes=more`）からも開く（#228）。
+// 上の帯「‹ 前の画面」（振り返りから = 同じ期間の振り返り（More / Good の行からなら切り替えはその側）・詳細から = その詳細）・題（心理の名前 / 連勝の後）→ 期間の選択肢（振り返りと同じ部品）→
 // 範囲の 1 行 → 押した行と同じ値の要約（名前つき）・上限の印 → 取引の一覧と同じ行（決済の新しい順。3 行目に付いている心理。
 // 押すと詳細。詳細の戻るはこの画面）。詳細から来たときは押して来た元の取引の行に札「この取引」（URL の `&trade=`。#194）。
 // 期間の範囲の読み込みは振り返りのタブと同じ hook（useReview）、銘柄・口座の名前は直近の取引の読み込みから。
@@ -26,6 +27,7 @@ import {
   reviewTradesModelFor,
   type TrailFilter,
   trailTitle,
+  whyOfTrail,
 } from '../lib/review-trades';
 import { NavigatorContext } from '../lib/router';
 import { HOME_LIMIT } from '../lib/trade-pages';
@@ -52,8 +54,7 @@ export function ReviewTradesPage() {
   const review = useReview(
     instruments,
     hidden,
-    (sel) =>
-      filter ? reviewTradesHref(sel, filter, { trade: origin }) : reviewHref(sel, 'insight'),
+    (sel) => (filter ? reviewTradesHref(sel, filter, { trade: origin }) : reviewHref(sel)),
     { discipline: false },
   );
   const model = useMemo(
@@ -83,7 +84,7 @@ export function ReviewTradesPage() {
       filter={filter}
       model={model}
       fromTrade={fromTrade}
-      back={backTargetOf(nav, reviewHref(review.selection, 'insight'))}
+      back={backTargetOf(nav, reviewHref(review.selection, whyOfTrail(filter)))}
     />
   );
 }
@@ -101,7 +102,7 @@ export interface ReviewTradesViewProps {
 /** 期間の取引（hook を持たない）: 範囲の 1 行・要約・行。読み込み中・失敗・該当なしは短い文 */
 export function ReviewTradesView(p: ReviewTradesViewProps) {
   const r = p.review;
-  const insightHref = reviewHref(r.selection, 'insight');
+  const insightHref = reviewHref(r.selection, whyOfTrail(p.filter));
   const back: BackTarget = p.back ?? { label: '振り返り', href: insightHref };
   const m = p.model;
   const s = r.state;

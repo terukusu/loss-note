@@ -4,19 +4,29 @@
 // 率は formatRate・分数「5 / 5」、規律コストは 1 枚目のカードの見出しの 3 通りの言い方、判定の出た取引が 5 件未満なら件数だけ。
 // 成績は R だけ・色は付けない（C34。行に棒も置かない）
 // 連勝の後のカード（#185）も同じ対象・同じ文の規則で、連勝の後の取引の部分集合を数える（core の reviewAfterWinStreak）
+// Good / More のカード（#221）も同じ対象・同じ行の文の規則で、話題ごとの部分集合を数える（core の reviewByReflection）
 import { CALM, type EmotionTagId, normalizeEmotions } from '../../../core/emotion-tags';
 import type { StoredTrade } from '../../../core/record';
 import {
+  isEmptyReflection,
+  normalizeReflection,
+  type ReflectionSide,
+} from '../../../core/reflection';
+import {
   MIN_JUDGED_FOR_RATE,
   type PeriodReview,
+  REFLECTION_NOTES,
+  type ReflectionRowKey,
   type ReviewItem,
   reviewAfterWinStreak,
   reviewByEmotion,
+  reviewByReflection,
   WIN_STREAK_MIN,
 } from '../../../core/review';
 import { EMOTION_TEXT } from './emotion-tags';
 import { formatR, formatRate } from './format';
 import { inRange, type PeriodRange } from './period';
+import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
 import {
   HEADLINE_LEAD,
@@ -98,8 +108,8 @@ export function restOf(judged: number): string {
   return `あと ${MIN_JUDGED_FOR_RATE - judged} 件`;
 }
 
-export interface InsightRow {
-  readonly id: EmotionTagId;
+/** 行の文（心理の行・Good / More の行で共有。#221） */
+export interface InsightRowText {
   readonly name: string;
   /** 「5 件」 */
   readonly countText: string;
@@ -128,6 +138,41 @@ export interface InsightRow {
   readonly srText: string;
 }
 
+export interface InsightRow extends InsightRowText {
+  readonly id: EmotionTagId;
+}
+
+/** Good / More の 1 行（#221。key = 話題の ID か自分で書いた行） */
+export interface ReflectionInsightRow extends InsightRowText {
+  readonly key: ReflectionRowKey;
+}
+
+/** Good / More の 1 枚のカード（#221） */
+export interface ReflectionCardModel {
+  readonly side: ReflectionSide;
+  /** 「More の話題ごとの規律」 */
+  readonly title: string;
+  /** 「11 件のうち 5 件に記入」 */
+  readonly headText: string;
+  /** その側が付いた取引が無い期間の 1 行（行があれば null） */
+  readonly noneText: string | null;
+  readonly overlapText: string | null;
+  /** すべての行（話題は件数の多い順 → 一覧の順、最後に自分で書いた行） */
+  readonly rows: readonly ReflectionInsightRow[];
+  /** 値を出す行 */
+  readonly main: readonly ReflectionInsightRow[];
+  /** 件数が少ない行 */
+  readonly few: readonly ReflectionInsightRow[];
+}
+
+/** 気づきの Good / More（#221）。両側とも付いた取引が無ければ cards は空で noneLines だけ */
+export interface ReflectionInsight {
+  /** 両側とも付いた取引が無い期間の文（段落ごと。カードがあれば null） */
+  readonly noneLines: readonly string[] | null;
+  /** More → Good */
+  readonly cards: readonly ReflectionCardModel[];
+}
+
 export interface InsightModel {
   /** 集計の対象が 0 件（行も見出しも出さない） */
   readonly empty: boolean;
@@ -144,6 +189,8 @@ export interface InsightModel {
   readonly few: readonly InsightRow[];
   /** 連勝の後のカード（#185。対象が 0 件なら null。省いた組み立てはカードを出さない） */
   readonly streak?: StreakModel | null;
+  /** Good / More のカード（#221。対象が 0 件なら null。省いた組み立てはカードを出さない） */
+  readonly reflection?: ReflectionInsight | null;
 }
 
 /** 規律コストの言い方（review-view.ts の見出しと同じ規則） */
@@ -252,15 +299,13 @@ function streakOf(items: readonly ReviewItem[], includeImports: boolean): Streak
   };
 }
 
-function rowOf(id: EmotionTagId, v: PeriodReview): InsightRow {
-  const name = EMOTION_TEXT[id].name;
+/** 行の文（名前・基準の印は呼ぶ側。心理の行と Good / More の行で同じ規則） */
+function rowTextOf(name: string, v: PeriodReview, base: boolean): InsightRowText {
   const countText = `${v.total} 件`;
-  const base = id === CALM;
   const baseText = base ? `（${BASE_MARK}）` : '';
   if (v.rate === null) {
     const restText = restOf(v.judged);
     return {
-      id,
       name,
       countText,
       few: true,
@@ -278,7 +323,6 @@ function rowOf(id: EmotionTagId, v: PeriodReview): InsightRow {
   const cost = costOf(v);
   const costText = cost ? [cost.lead, cost.value].filter(Boolean).join(' ') : '';
   return {
-    id,
     name,
     countText,
     few: false,
@@ -292,6 +336,64 @@ function rowOf(id: EmotionTagId, v: PeriodReview): InsightRow {
   };
 }
 
+function rowOf(id: EmotionTagId, v: PeriodReview): InsightRow {
+  return { id, ...rowTextOf(EMOTION_TEXT[id].name, v, id === CALM) };
+}
+
+/** Good / More の自分で書いた行の名前（側ごとに 1 行にまとめる。#221） */
+export const NOTES_ROW_NAME = '自分で書いた行';
+/** Good / More のカードの列の見出し（心理のカードの「心理」にあたる） */
+export const REFLECTION_COLUMN = '話題';
+/** 期間の取引のどれにも Good / More が無い（両側とも。カードは 1 枚にまとめる。#221 の E5） */
+export const REFLECTION_NONE_LINES = [
+  'この期間の取引に Good / More は付いていません。',
+  '取引の詳細の「Good / More」から付けられます。',
+] as const;
+/** 2 つ以上の行（話題 + 自分で書いた行）に入る取引がある側だけ */
+export const REFLECTION_OVERLAP_NOTE =
+  '2 つ以上の行に入る取引は各行に数えるので、行の件数の和は合計より多くなります';
+
+/** Good / More のカードの題（「More の話題ごとの規律」） */
+export function reflectionCardTitle(side: ReflectionSide): string {
+  return `${REFLECTION_SIDE_TEXT[side].name} の話題ごとの規律`;
+}
+
+/** 片側だけ付いていない期間のその側のカードの 1 行（E6） */
+export function reflectionNoneText(side: ReflectionSide): string {
+  return `この期間の取引に ${REFLECTION_SIDE_TEXT[side].name} は付いていません`;
+}
+
+/** Good / More の行の名前（話題の名前・自分で書いた行） */
+export function reflectionRowName(key: ReflectionRowKey): string {
+  return key === REFLECTION_NOTES ? NOTES_ROW_NAME : REFLECTION_TOPIC_NAME[key];
+}
+
+/** 気づきのカードの並びの側（「同じ負け方を繰り返さない」の材料の More を先に） */
+export const REFLECTION_CARD_SIDES: readonly ReflectionSide[] = ['more', 'good'];
+
+function reflectionOf(items: readonly ReviewItem[], includeImports: boolean): ReflectionInsight {
+  const cards = REFLECTION_CARD_SIDES.map((side): ReflectionCardModel => {
+    const v = reviewByReflection(items, side, { includeImports });
+    const rows = v.rows.map((r) => ({
+      key: r.key,
+      ...rowTextOf(reflectionRowName(r.key), r.review, false),
+    }));
+    return {
+      side,
+      title: reflectionCardTitle(side),
+      headText: `${v.total} 件のうち ${v.written} 件に記入`,
+      noneText: rows.length === 0 ? reflectionNoneText(side) : null,
+      overlapText: v.overlap ? REFLECTION_OVERLAP_NOTE : null,
+      rows,
+      main: rows.filter((r) => !r.few),
+      few: rows.filter((r) => r.few),
+    };
+  });
+  return cards.every((c) => c.rows.length === 0)
+    ? { noneLines: REFLECTION_NONE_LINES, cards: [] }
+    : { noneLines: null, cards };
+}
+
 /**
  * 保存した取引 → 集計の 1 件 + 心理のタグ（規律の集計の 1 件 reviewItemOf は変えない = タグで規律が変わらない。#156 の KEEP-1）。
  * 知らない ID は捨てる
@@ -300,6 +402,17 @@ export function emotionItemOf(t: StoredTrade): ReviewItem {
   const emotions = normalizeEmotions(t.emotionTags);
   const item = reviewItemOf(t);
   return emotions.length > 0 ? { ...item, emotions } : item;
+}
+
+/**
+ * 保存した取引 → 気づきの集計の 1 件（心理のタグ + Good / More。#221）。Good / More は normalizeReflection を通し、両側とも空なら
+ * 足さない（規律の集計の 1 件は変えない）
+ */
+export function insightItemOf(t: StoredTrade): ReviewItem {
+  const item = emotionItemOf(t);
+  if (t.reflection === undefined) return item;
+  const reflection = normalizeReflection(t.reflection);
+  return isEmptyReflection(reflection) ? item : { ...item, reflection };
 }
 
 /**
@@ -316,7 +429,7 @@ export function insightItems(
   const range = opts.range;
   return visibleTrades(trades, opts.hidden)
     .filter((t) => range === undefined || inRange(t.record.exit.time, range))
-    .map(emotionItemOf);
+    .map(insightItemOf);
 }
 
 /** 期間の取引（範囲つきの一覧の応答）→ 気づきの表示（規律の reviewModel と同じ対象）。range があれば範囲の外を落とす */
@@ -340,6 +453,7 @@ export function insightModel(
       main: [],
       few: [],
       streak: null,
+      reflection: null,
     };
   }
   const rows = v.rows.map((r) => rowOf(r.id, r.review));
@@ -352,6 +466,7 @@ export function insightModel(
     main: rows.filter((r) => r.base || !r.few),
     few: rows.filter((r) => !r.base && r.few),
     streak: streakOf(items, opts.includeImports),
+    reflection: reflectionOf(items, opts.includeImports),
   };
 }
 

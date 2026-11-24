@@ -708,11 +708,49 @@ const REVIEW_INSIGHT_LONG = [
   withTags(reviewTrade(5, 'rvl-k1', 101), ['calm']),
   withTags(reviewTrade(6, 'rvl-k2', 99.5), ['calm']),
 ];
+/**
+ * 気づきの Good / More（#221）の取引（架空の値）: REVIEW_INSIGHT に Good / More を足す。More = 数量が多すぎた 5 件（値の出る行）・
+ * 名前の長い話題 1〜2 件・自分で書いた行、Good = ルールどおりに動けた 5 件・早めに撤退できた 3 件・自分で書いた行
+ */
+const withReflection = (t, good, more, notes = {}) => ({
+  ...t,
+  reflection: {
+    good: { topics: good, notes: notes.good ?? [] },
+    more: { topics: more, notes: notes.more ?? [] },
+  },
+});
+const REFLECT_PLAN = {
+  'rvi-1': [['cutEarly', 'followedRules'], []],
+  'rvi-2': [['cutEarly', 'followedRules'], [], { good: ['前提が崩れたので LC の前に決済した'] }],
+  'rvi-3': [['followedRules', 'letProfitRun'], []],
+  'rvi-4': [['cutEarly', 'followedRules'], []],
+  'rvi-5': [['followedRules'], []],
+  'rvi-6': [[], ['enteredEarly', 'oversized']],
+  'rvi-7': [[], ['oversized', 'againstHigherTf']],
+  'rvi-8': [[], ['oversized']],
+  'rvi-9': [[], ['oversized', 'noExitPlan']],
+  'rvi-11': [
+    [],
+    ['oversized', 'againstHigherTf', 'reEntered'],
+    {
+      more: [
+        '入る前に数量を 1R から逆算して、許容リスクを超える分は入らない',
+        '同じ日に 2 回目は入らない',
+      ],
+    },
+  ],
+};
+const REVIEW_REFLECT = REVIEW_INSIGHT.map((t) => {
+  const plan = REFLECT_PLAN[t.id];
+  return plan ? withReflection(t, plan[0], plan[1], plan[2]) : t;
+});
 /** 期間の取引（#185）の状態ごとの題 */
 const REVIEW_TRADES_TITLE = {
   'review-trades': '取り戻したい',
   'review-trades-streak': '連勝の後',
   'review-trades-empty': '期間の取引',
+  'review-trades-topic': '数量が多すぎた',
+  'review-trades-notes': 'More の自分で書いた行',
 };
 /**
  * 連勝の後（#185）の取引（架空の値。Issue の例 B3 の形）: 決済の古い順に W W B W W A W W B W W A W W A の 15 件（W = 計画どおりの
@@ -4926,6 +4964,26 @@ async function main() {
             ],
             // 気づきの連勝の後のカード（#185）
             ['/review?period=7d&view=insight', REVIEW_STREAK, '.winrun', 'review-insight-streak'],
+            // 気づきの Good / More のカード（#221。心理・連勝の後のカードの下。名前の長い話題の件数が少ない行を含む）
+            [
+              '/review?period=7d&view=insight',
+              REVIEW_REFLECT,
+              '.reflinsight .insight__row',
+              'review-insight-reflection',
+            ],
+            // 期間の取引（#221）: 話題の行から・自分で書いた行から
+            [
+              '/review/trades?period=7d&more=oversized',
+              REVIEW_REFLECT,
+              '.traderow',
+              'review-trades-topic',
+            ],
+            [
+              '/review/trades?period=7d&notes=more',
+              REVIEW_REFLECT,
+              '.traderow',
+              'review-trades-notes',
+            ],
             // 期間の取引（#185）: 心理の行から・連勝の後から・知らない心理
             [
               '/review/trades?period=7d&emotion=recoup',

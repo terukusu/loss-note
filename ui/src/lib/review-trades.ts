@@ -3,6 +3,7 @@
 // 対象は気づき（insight-view.ts）と同じ: 消した印を外し、範囲の外を落とし、取り込みは切り替えに従う。心理は気づきの行に数えた取引
 // （そのタグが付いた取引）、連勝の後は core の afterWinStreak の取引。並びは取引の一覧と同じ（決済の新しい順）。
 // 要約は気づきの行・連勝の後のカードと同じ文（summaryOf）。URL の心理は一覧（C55）の ID だけを通す（知らない値は「該当なし」）
+// Good / More（#221）: 話題（`&good=<ID>` / `&more=<ID>`。その側の一覧（C58）の ID だけ）と自分で書いた行（`&notes=good|more`）
 import {
   type EmotionTagId,
   isEmotionTagId,
@@ -10,16 +11,25 @@ import {
   OVERCONFIDENT,
 } from '../../../core/emotion-tags';
 import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
+import {
+  isTopicOf,
+  normalizeReflection,
+  REFLECTION_SIDES,
+  type ReflectionSide,
+  type ReflectionTopicId,
+} from '../../../core/reflection';
 import { afterWinStreak, type ReviewItem, reviewPeriod } from '../../../core/review';
 import { EMOTION_TEXT } from './emotion-tags';
 import {
   insightItems,
   labeledSummaryOf,
+  NOTES_ROW_NAME,
   STREAK_NONE,
   STREAK_TITLE,
   summaryOf,
 } from './insight-view';
 import { type PeriodRange, type PeriodSelection, periodAround, periodSearch } from './period';
+import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
 import { TRUNCATED } from './review-view';
 import { sortTrades, type TradeRow, tradeRow } from './trade-view';
@@ -29,18 +39,34 @@ export const REVIEW_TRADES_NAME = '期間の取引';
 /** 該当の取引が無い（知らない絞り方・0 件） */
 export const REVIEW_TRADES_NONE = 'この期間に該当する取引はありません';
 
-/** 絞り方: 心理（気づきの行）か、連勝の後（連勝の後のカード） */
+/** 絞り方: 心理（気づきの行）か、連勝の後（連勝の後のカード）か、Good / More の話題・自分で書いた行（#221） */
 export type TrailFilter =
   | { readonly kind: 'emotion'; readonly id: EmotionTagId }
-  | { readonly kind: 'winStreak' };
+  | { readonly kind: 'winStreak' }
+  | { readonly kind: 'topic'; readonly side: ReflectionSide; readonly id: ReflectionTopicId }
+  | { readonly kind: 'notes'; readonly side: ReflectionSide };
 
 const AFTER_WIN_STREAK = 'winStreak';
+const NOTES = 'notes';
 
-/** URL の検索部分 → 絞り方（心理は一覧の ID だけ。両方あれば心理。どちらでもなければ null） */
+/**
+ * URL の検索部分 → 絞り方（心理は一覧の ID だけ、話題はその側の一覧の ID だけ。前から 心理 → Good → More → 自分で書いた行 →
+ * 連勝の後 の順に最初にある鍵で決め、その値が通らなければ null。どれでもなければ null）
+ */
 export function parseTrail(search: string): TrailFilter | null {
   const q = new URLSearchParams(search);
   const emotion = q.get('emotion');
   if (emotion !== null) return isEmotionTagId(emotion) ? { kind: 'emotion', id: emotion } : null;
+  for (const side of REFLECTION_SIDES) {
+    const id = q.get(side);
+    if (id !== null) return isTopicOf(side, id) ? { kind: 'topic', side, id } : null;
+  }
+  const notes = q.get(NOTES);
+  if (notes !== null) {
+    return (REFLECTION_SIDES as readonly string[]).includes(notes)
+      ? { kind: 'notes', side: notes as ReflectionSide }
+      : null;
+  }
   return q.get('after') === AFTER_WIN_STREAK ? { kind: 'winStreak' } : null;
 }
 
@@ -68,6 +94,8 @@ export function reviewTradesHref(
 ): string {
   const q = new URLSearchParams(periodSearch(sel).slice(1));
   if (filter.kind === 'emotion') q.set('emotion', filter.id);
+  else if (filter.kind === 'topic') q.set(filter.side, filter.id);
+  else if (filter.kind === 'notes') q.set(NOTES, filter.side);
   else q.set('after', AFTER_WIN_STREAK);
   if (opts.fromTrade) q.set(VIA, VIA_TRADE);
   if (opts.trade) q.set(ORIGIN, opts.trade);
@@ -112,10 +140,24 @@ export function tradeEmotionHref(trade: StoredTrade, id: EmotionTagId, now: numb
   );
 }
 
-/** 絞り方の題（心理の名前・「連勝の後」。知らない絞り方は「期間の取引」） */
+/** 自分で書いた行の絞り方の題（「More の自分で書いた行」。#221） */
+export function notesTitle(side: ReflectionSide): string {
+  return `${REFLECTION_SIDE_TEXT[side].name} の${NOTES_ROW_NAME}`;
+}
+
+/** 絞り方の題（心理の名前・「連勝の後」・話題の名前・「More の自分で書いた行」。知らない絞り方は「期間の取引」） */
 export function trailTitle(filter: TrailFilter | null): string {
   if (filter === null) return REVIEW_TRADES_NAME;
-  return filter.kind === 'emotion' ? EMOTION_TEXT[filter.id].name : STREAK_TITLE;
+  switch (filter.kind) {
+    case 'emotion':
+      return EMOTION_TEXT[filter.id].name;
+    case 'topic':
+      return REFLECTION_TOPIC_NAME[filter.id];
+    case 'notes':
+      return notesTitle(filter.side);
+    case 'winStreak':
+      return STREAK_TITLE;
+  }
 }
 
 export interface ReviewTradesModel {
@@ -144,13 +186,39 @@ export interface ReviewTradesModel {
 function noneTextOf(filter: TrailFilter | null): string {
   if (filter === null) return REVIEW_TRADES_NONE;
   if (filter.kind === 'winStreak') return STREAK_NONE;
-  return `この期間に「${EMOTION_TEXT[filter.id].name}」を付けた取引はありません`;
+  if (filter.kind === 'notes') {
+    return `この期間に ${REFLECTION_SIDE_TEXT[filter.side].name} を自分で書いた取引はありません`;
+  }
+  return `この期間に「${trailTitle(filter)}」を付けた取引はありません`;
 }
 
 /** 心理の添えに出す名前の数（超えた分は「ほか N」） */
 const NOTE_NAMES = 2;
 
+/**
+ * Good / More の絞り方の行の添え（#221）: 話題 = 同じ側のほかの話題（一覧の順・2 つまで + 「ほか N」）、自分で書いた行 = 最初の行を
+ * かぎ括弧で（2 行以上なら「ほか N 行」）。文は利用者が書いたものなので、画面はテキストのノードで出す
+ */
+function reflectionNoteOf(
+  t: StoredTrade,
+  filter: { readonly side: ReflectionSide; readonly id?: ReflectionTopicId },
+): string | null {
+  const part = normalizeReflection(t.reflection)[filter.side];
+  if (filter.id === undefined) {
+    const [first, ...rest] = part.notes;
+    if (first === undefined) return null;
+    return rest.length > 0 ? `「${first}」ほか ${rest.length} 行` : `「${first}」`;
+  }
+  const topics = part.topics.filter((id) => id !== filter.id);
+  if (topics.length === 0) return null;
+  const names = topics.slice(0, NOTE_NAMES).map((id) => REFLECTION_TOPIC_NAME[id]);
+  const more = topics.length - NOTE_NAMES;
+  return more > 0 ? `${names.join('・')} ほか ${more}` : names.join('・');
+}
+
 function noteOf(t: StoredTrade, filter: TrailFilter): string | null {
+  if (filter.kind === 'topic') return reflectionNoteOf(t, filter);
+  if (filter.kind === 'notes') return reflectionNoteOf(t, { side: filter.side });
   let tags: EmotionTagId[] = normalizeEmotions(t.emotionTags);
   if (filter.kind === 'emotion') tags = tags.filter((id) => id !== filter.id);
   else if (tags.includes(OVERCONFIDENT)) {
@@ -170,6 +238,12 @@ function pick(
 ): ReviewItem[] {
   const target = includeImports ? [...items] : items.filter((i) => !i.imported);
   if (filter.kind === 'emotion') return target.filter((i) => i.emotions?.includes(filter.id));
+  if (filter.kind === 'topic') {
+    return target.filter((i) => i.reflection?.[filter.side].topics.includes(filter.id));
+  }
+  if (filter.kind === 'notes') {
+    return target.filter((i) => (i.reflection?.[filter.side].notes.length ?? 0) > 0);
+  }
   const ids = afterWinStreak(target, { includeImports: true });
   return target.filter((i) => ids.has(i.id));
 }

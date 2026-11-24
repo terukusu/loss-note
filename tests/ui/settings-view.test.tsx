@@ -4,8 +4,10 @@
 import { h, type VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade } from '../../core/record';
+import { InstallAppView, SettingsInstall } from '../../ui/src/components/InstallApp';
 import { Sheet } from '../../ui/src/components/Sheet';
 import { formatDateTime } from '../../ui/src/lib/datetime';
+import { INSTALL_TEXT, type InstallKind } from '../../ui/src/lib/install';
 import { AUTH_EXPIRED } from '../../ui/src/lib/request';
 import { Link } from '../../ui/src/lib/router';
 import {
@@ -184,13 +186,20 @@ describe('設定の根（#133 の AC-1）', () => {
       signOutError: null,
       ...over,
     }) as VNode<{ children: VNode[] }>;
-  /** 数の添えは controller を購読する SettingsLinks（hook）が描く。展開から外す */
+  /** 数の添えは controller を購読する SettingsLinks（hook）が描く。展開から外す。アプリの区切り（#121。文脈を購読する
+   * SettingsInstall）は hook を持たない InstallAppView の案内を出せない形に置き換える */
   const rootTree = (over: Partial<Parameters<typeof Settings>[0]> = {}) =>
     expand(
-      (root(over).props.children as VNode[]).map((c) => (c?.type === SettingsLinks ? null : c)),
+      (root(over).props.children as VNode[]).map((c) =>
+        c?.type === SettingsLinks
+          ? null
+          : c?.type === SettingsInstall
+            ? h(InstallAppView, { kind: 'other', busy: false, onInstall: noop })
+            : c,
+      ),
     );
 
-  it('大きな題「設定」の下に説明の文が無い。口座・記録の区切り → 表示 → アカウントの順', () => {
+  it('大きな題「設定」の下に説明の文が無い。口座・記録の区切り → 表示 → アプリ → アカウントの順', () => {
     const kids = root().props.children as VNode[];
     expect(kids.map((c) => c?.type).indexOf(SettingsLinks)).toBe(1);
     const tree = rootTree();
@@ -198,6 +207,7 @@ describe('設定の根（#133 の AC-1）', () => {
     expect(text(all(tree, (e) => e.type === 'h1'))).toBe('設定');
     expect(all(tree, (e) => cls(e) === 'setgroup__title').map(text)).toEqual([
       '表示',
+      'アプリ',
       'アカウント',
     ]);
     // テーマはセグメント（ダーク / ライト）、ログアウトは枠つきの面のボタン
@@ -253,6 +263,44 @@ describe('設定の根（#133 の AC-1）', () => {
     const b = all(tree, (e) => e.type === 'button' && text(e) === 'ログアウトしています…')[0];
     expect(b?.props.disabled).toBe(true);
     expect(all(tree, (e) => e.props.role === 'alert').map(text)).toEqual(['失敗']);
+  });
+});
+
+describe('設定のアプリの区切り（#121 の AC-1・AC-3）', () => {
+  const view = (kind: InstallKind, busy = false, onInstall = noop) =>
+    expand(InstallAppView({ kind, busy, onInstall }));
+  const button = (tree: Node[]) => all(tree, (e) => e.type === 'button');
+  const status = (tree: Node[]) => text(all(tree, (e) => e.props.role === 'status'));
+  const hint = (tree: Node[]) => text(all(tree, (e) => cls(e) === 'setinstall__hint'));
+
+  it('権利あり: ［インストール］（読み上げ「アプリとしてインストール」）。押すと onInstall、確認の間は押せない', () => {
+    let pressed = 0;
+    const tree = view('prompt', false, () => {
+      pressed += 1;
+    });
+    const [b] = button(tree);
+    expect(text(b ?? NONE)).toBe('インストール');
+    expect(b?.props['aria-label']).toBe('アプリとしてインストール');
+    const onClick = b?.props.onClick as (() => void) | undefined;
+    onClick?.();
+    expect(pressed).toBe(1);
+    expect(hint(tree)).toBe('');
+    expect(button(view('prompt', true))[0]?.props.disabled).toBe(true);
+  });
+
+  it('インストール済み・インストールしました・iPhone・ほか', () => {
+    for (const [kind, s, h] of [
+      ['installed', INSTALL_TEXT.installed, ''],
+      ['done', INSTALL_TEXT.done, ''],
+      ['ios', '', INSTALL_TEXT.ios],
+      ['other', '', INSTALL_TEXT.other],
+    ] as const) {
+      const tree = view(kind);
+      expect(button(tree), kind).toEqual([]);
+      expect(status(tree), kind).toBe(s);
+      expect(hint(tree), kind).toBe(h);
+      expect(text(all(tree, (e) => cls(e) === 'setgroup__title')), kind).toBe('アプリ');
+    }
   });
 });
 

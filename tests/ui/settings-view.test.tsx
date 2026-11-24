@@ -258,6 +258,29 @@ describe('設定の根（#133 の AC-1）', () => {
     expect(all(tree, (e) => e.type === 'a')).toHaveLength(5);
   });
 
+  it('#167 AC-6: アカウントの区切りにログイン中のメール（Google）と押せる行「データの書き出し」→ ログアウト', () => {
+    const tree = rootTree({ accountEmail: 'fictional.user@example.com' });
+    const who = all(tree, (e) => e.props.id === 'settings-signed-in')[0] ?? NONE;
+    expect(text(who)).toBe('Googlefictional.user@example.com');
+    const link = all(tree, (e) => e.type === 'a' && e.props.href === '/settings/export')[0] ?? NONE;
+    expect(text(link)).toBe('データの書き出し');
+    expect(cls(link)).toBe('rowlink');
+    // 並び: ログイン中 → データの書き出し → ログアウト
+    const flat = text(tree);
+    expect(flat.indexOf('fictional.user@example.com')).toBeLessThan(
+      flat.indexOf('データの書き出し'),
+    );
+    expect(flat.indexOf('データの書き出し')).toBeLessThan(flat.indexOf('ログアウト'));
+  });
+
+  it('#167 R1: メールが分からないときは「Google アカウント」だけ（メールの欄を空で出さない）', () => {
+    for (const accountEmail of [null, undefined, '  ']) {
+      const tree = rootTree({ accountEmail });
+      const who = all(tree, (e) => e.props.id === 'settings-signed-in')[0] ?? NONE;
+      expect(text(who)).toBe('Google アカウントログイン中');
+    }
+  });
+
   it('ログアウトの最中は押せず「ログアウトしています…」、失敗は role="alert"', () => {
     const tree = rootTree({ signOutBusy: true, signOutError: '失敗' });
     const b = all(tree, (e) => e.type === 'button' && text(e) === 'ログアウトしています…')[0];

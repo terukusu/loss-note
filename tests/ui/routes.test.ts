@@ -91,6 +91,7 @@ describe('parseRoute / hrefOf', () => {
     ['/settings/instruments', { name: 'settingsInstruments' }],
     ['/settings/ai-usage', { name: 'settingsAiUsage' }],
     ['/settings/emotions', { name: 'settingsEmotions' }],
+    ['/settings/export', { name: 'settingsExport' }],
     ['/settings/accounts/', { name: 'settingsAccounts' }],
     ['/trades/', { name: 'trades' }],
   ] as const)('%s → %j', (path, route) => {
@@ -135,6 +136,7 @@ describe('parseRoute / hrefOf', () => {
       { name: 'settingsInstruments' },
       { name: 'settingsAiUsage' },
       { name: 'settingsEmotions' },
+      { name: 'settingsExport' },
       { name: 'parts' },
     ];
     for (const r of routes) expect(parseRoute(hrefOf(r), DEV)).toEqual(r);
@@ -148,6 +150,7 @@ describe('parseRoute / hrefOf', () => {
     expect(titleOf({ name: 'settingsInstruments' })).toBe('銘柄 — 損失ノート');
     expect(titleOf({ name: 'settingsAiUsage' })).toBe('AI の利用状況 — 損失ノート');
     expect(titleOf({ name: 'settingsEmotions' })).toBe('心理のタグ — 損失ノート');
+    expect(titleOf({ name: 'settingsExport' })).toBe('データの書き出し — 損失ノート');
   });
 });
 
@@ -424,6 +427,7 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
       [{ name: 'settingsInstruments' }, 'settings'],
       [{ name: 'settingsAiUsage' }, 'settings'],
       [{ name: 'settingsEmotions' }, 'settings'],
+      [{ name: 'settingsExport' }, 'settings'],
       [{ name: 'parts' }, 'home'],
     ];
     for (const [route, tab] of cases) expect(tabOfRoute(route), route.name).toBe(tab);
@@ -442,6 +446,7 @@ describe('画面の種類・タブ・前の画面の名前（#127）', () => {
     expect(screenKindOf({ name: 'settingsInstruments' })).toBe('push');
     expect(screenKindOf({ name: 'settingsAiUsage' })).toBe('push');
     expect(screenKindOf({ name: 'settingsEmotions' })).toBe('push');
+    expect(screenKindOf({ name: 'settingsExport' })).toBe('push');
     expect(isSheetRoute({ name: 'settingsAccounts' })).toBe(false);
     // 詳細の次の画面（#131）
     expect(screenKindOf({ name: 'tradeFields', id: 'a' })).toBe('push');

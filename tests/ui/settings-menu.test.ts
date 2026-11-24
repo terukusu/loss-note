@@ -6,7 +6,9 @@ import {
   ACCOUNTS_LEAD,
   ACCOUNTS_LEAD_SET,
   accountsLead,
+  EXPORT_ROW,
   settingsMenu,
+  signedInRow,
 } from '../../ui/src/lib/settings-menu';
 import { account, defaultAccount } from './helpers/accounts';
 
@@ -120,5 +122,20 @@ describe('口座の画面の先頭の 1 行と「i」（冒頭の説明の移し
     expect(accountsLead([])).toBe(ACCOUNTS_LEAD);
     expect(accountsLead([A1, A2])).toBe(ACCOUNTS_LEAD_SET);
     expect(ACCOUNTS_LEAD_SET).not.toContain('ください');
+  });
+});
+
+describe('アカウントの区切り（#167 の R1・AC-6）', () => {
+  it('ログイン中のアカウント: メールがあれば「Google」とメール（前後の空白は除く）、無ければ「Google アカウント」', () => {
+    expect(signedInRow(' fictional.user@example.com ')).toEqual({
+      label: 'Google',
+      detail: 'fictional.user@example.com',
+    });
+    expect(signedInRow(null)).toEqual({ label: 'Google アカウント', detail: 'ログイン中' });
+    expect(signedInRow('')).toEqual({ label: 'Google アカウント', detail: 'ログイン中' });
+  });
+
+  it('データの書き出しの行き先は設定の次の画面', () => {
+    expect(parseRoute(EXPORT_ROW.href, { dev: false })?.name).toBe('settingsExport');
   });
 });

@@ -175,9 +175,30 @@ const STATEMENT_FILES = [
   '../../ui/src/components/ChartPanel.tsx',
 ];
 
+/**
+ * 書き出したファイルの保存の層（Issue #167・ADR-0025）: object URL を作ってよい唯一のファイル。文字の Blob を a[download] で
+ * 保存するだけ（img の src に使わない = CSP の img-src を広げない）
+ */
+const DOWNLOAD_FILE = '../../ui/src/lib/download.ts';
+
 describe('決済明細の読み取り（Issue #15 AC-11・AC-12・AC-13）', () => {
-  it.each(Object.entries(sources))('AC-13: %s は object URL・data URL を作らない', (_path, src) => {
-    expect(urlViolations(src)).toEqual([]);
+  it.each(Object.entries(sources).filter(([path]) => path !== DOWNLOAD_FILE))(
+    'AC-13: %s は object URL・data URL を作らない',
+    (_path, src) => {
+      expect(urlViolations(src)).toEqual([]);
+    },
+  );
+
+  it('#167 KEEP-3: 例外は保存の層だけ。createObjectURL のほかは作らず、img・canvas に使わない。読み込むのは書き出しの画面だけ', () => {
+    const src = sources[DOWNLOAD_FILE] ?? '';
+    expect(urlViolations(src)).toEqual(['createObjectURL']);
+    expect(src).toContain('new Blob([file.text]');
+    expect(src).toContain('URL.revokeObjectURL(url)');
+    expect(src).not.toMatch(/<img[\s>]|createElement\(\s*['"`](img|iframe|canvas)/);
+    const importers = Object.entries(sources)
+      .filter(([, s]) => /from '(\.\.\/lib|\.)\/download'/.test(s))
+      .map(([path]) => path);
+    expect(importers).toEqual(['../../ui/src/pages/SettingsExport.tsx']);
   });
 
   it.each(STATEMENT_FILES)(

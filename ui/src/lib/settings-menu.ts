@@ -5,6 +5,7 @@
 // - 口座の添えは中身（口座が 1 つ = 「1,000,000円 · 許容 1%」、資金が未設定の口座がある = 「資金 未設定」、ほか = 件数）。
 //   冒頭の説明の文を無くした代わりに、根で「まず資金を入れる」を伝える（#133 デザインレビュー a-3）
 // - 冒頭の説明の文（今までの 4 行）は、口座の画面の先頭の 1 行と「i」の説明に移す（9.2・9.9「カードに説明の文を常に出さない」）
+// - 「アカウント」の区切り（#167）: ログイン中のアカウントの行（押せない）・データの書き出し › ・ログアウトのボタン
 
 import type { AccountRecord } from '../../../core/record';
 import { accountLine } from './accounts';
@@ -44,6 +45,27 @@ export const DISPLAY_GROUP_TITLE = '表示';
 /** 表示とアカウントの間の区切り（ホーム画面のアプリとして入れる。#121。中身は components/InstallApp.tsx） */
 export const APP_GROUP_TITLE = 'アプリ';
 export const ACCOUNT_GROUP_TITLE = 'アカウント';
+
+/**
+ * 「アカウント」の区切りの先頭の行（#167 の R1）: ログイン中のアカウント（Google とメール）。メールが分からないときは
+ * 「Google アカウント」だけ。押せない行（名前と添え）
+ */
+export interface SignedInRow {
+  readonly label: string;
+  readonly detail: string;
+}
+
+export function signedInRow(email: string | null | undefined): SignedInRow {
+  const e = email?.trim();
+  return e ? { label: 'Google', detail: e } : { label: 'Google アカウント', detail: 'ログイン中' };
+}
+
+/** 「アカウント」の区切りの押せる行: データの書き出し（#167。次の画面） */
+export const EXPORT_ROW = {
+  id: 'export',
+  label: 'データの書き出し',
+  href: '/settings/export',
+} as const;
 
 /** 口座の画面の先頭の 1 行と「i」（冒頭の説明の移し先）。頼む文は資金が未設定の口座があるときだけ（a-5） */
 export const ACCOUNTS_LEAD = '記録を始める前に、資金と許容リスクを入力してください。';

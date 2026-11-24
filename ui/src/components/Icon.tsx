@@ -28,7 +28,8 @@ export type IconName =
   | 'plus'
   | 'close'
   | 'chevron'
-  | 'more';
+  | 'more'
+  | 'download';
 
 const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   home: () => (
@@ -84,6 +85,13 @@ const SHAPES: Readonly<Record<IconName, () => JSX.Element>> = {
   edit: () => <path d="M4.5 19.5h4l10-10a2.8 2.8 0 0 0-4-4l-10 10v4zM13 7l4 4" />,
   trash: () => <path d="M5 7h14M10 7V4.5h4V7M7 7l1 12.5h8L17 7" />,
   undo: () => <path d="M9 7.5 4.5 12 9 16.5M5 12h9.5a5 5 0 0 1 0 10H12" />,
+  // データの書き出し（#167。下向きの矢印と受け皿）
+  download: () => (
+    <>
+      <path d="M12 4v11M7.5 10.5 12 15l4.5-4.5" />
+      <path d="M4.5 15.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" />
+    </>
+  ),
   // 計画から外れた答えの印（角の丸い四角に感嘆の形。判定の記号 ○ △ × − と別の形。#34）
   offPlan: () => (
     <>

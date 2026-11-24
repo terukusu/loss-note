@@ -53,6 +53,7 @@ from loss_note_api import (
     chart_read,
     charts,
     emotion_tags,
+    export,
     reflection,
     schema,
     statement_profile,
@@ -241,6 +242,12 @@ def with_chart_summary(doc: dict, chart_docs: dict[str, dict]) -> dict:
     if summary:
         out["charts"] = {s: summary[s] for s in charts.SLOTS if s in summary}
     return out
+
+
+def instrument_sort_key(item: tuple[str, dict]):
+    """銘柄の一覧の並び（名前の同一視の鍵 → 名前 → ID）"""
+    iid, doc = item
+    return (doc["nameKey"], doc["name"], iid)
 
 
 def instrument_response(instrument_id: str, doc: dict) -> dict:
@@ -601,7 +608,7 @@ def make_blueprint(
     # ── 銘柄 ──
     @bp.get("/instruments")
     def list_instruments():
-        items = sorted(store.list_instruments(g.uid), key=lambda it: (it[1]["nameKey"], it[1]["name"], it[0]))
+        items = sorted(store.list_instruments(g.uid), key=instrument_sort_key)
         return {"items": [instrument_response(iid, doc) for iid, doc in items]}
 
     @bp.post("/instruments")
@@ -807,6 +814,26 @@ def make_blueprint(
             return invalid(issues)
         store.put_emotion_settings(g.uid, {"hidden": value["hidden"], "updatedAt": clock()})
         return {"hidden": value["hidden"]}
+    # ── データの書き出し（#167・ADR-0025）──
+    @bp.get(export.PATH)
+    def export_data():
+        # 本人の記録を一覧の API と同じ形・同じ並びで 1 つに。画像のバイト列は含めない（取引の charts は要約だけ）
+        now = clock()
+        trades = sorted(store.list_trades(g.uid), key=trade_sort_key)
+        accts = sorted(store.list_accounts(g.uid, build_default), key=accounts.account_sort_key)
+        insts = sorted(store.list_instruments(g.uid), key=instrument_sort_key)
+        body = export.export_body(
+            now,
+            settings_response(store.get_settings(g.uid)),
+            [accounts.account_response(aid, doc) for aid, doc in accts],
+            [instrument_response(iid, doc) for iid, doc in insts],
+            [trade_response(tid, doc) for tid, doc in trades],
+            {"hidden": emotion_tags.hidden_of(store.get_emotion_settings(g.uid))},
+        )
+        res = jsonify(body)
+        res.headers["Cache-Control"] = "no-store"
+        res.headers["Content-Disposition"] = f'attachment; filename="{export.file_name(now)}"'
+        return res
 
     # ── 決済明細の読み取り（#11）──
     limits = read_limits or ReadLimits()
@@ -841,6 +868,7 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route(statement_read.PATH, methods=["POST"])
     @bp.route(chart_read.PATH, methods=["POST"])
     @bp.route(ai_usage.PATH, methods=["GET"])
+    @bp.route(export.PATH, methods=["GET"])
     def unavailable(_id: str | None = None, _slot: str | None = None):
         return error(503, "unavailable")
 

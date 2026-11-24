@@ -11,7 +11,8 @@ import { hrefOf, type Route, type RouteOptions, safeNext } from '../lib/routes';
 export type AuthState =
   | { readonly kind: 'unknown' }
   | { readonly kind: 'signedOut' }
-  | { readonly kind: 'signedIn' };
+  /** email = ログイン中のアカウントのメール（設定の「アカウント」に出すだけ。ログ・URL に出さない。#167）。分からなければ無し */
+  | { readonly kind: 'signedIn'; readonly email?: string | null };
 
 export interface GateResult {
   readonly render: 'loading' | 'login' | 'page' | 'forbidden';

@@ -453,9 +453,10 @@
 }
 
 .numfield--lg .numfield__input {
-  font-size: var(--fs-num-lg);
+  /* 入力は「出た数」ではないので結果の段より上に置かない（数字の段 row。#236・C62） */
+  font-size: var(--fs-num-row);
   font-weight: var(--fw-bold);
-  letter-spacing: -0.01em;
+  letter-spacing: var(--ls-num-row);
 }
 
 .numfield:has(.numfield__input:disabled) {
@@ -805,9 +806,57 @@
   white-space: nowrap;
 }
 
-.num--lg {
-  font-size: var(--fs-num-lg);
+/* 数字の 4 段（#236・設計書 C62・ui-guidelines 9.9）。大きさ・太さ・字間はトークン */
+.num--display {
+  font-size: var(--fs-num-display);
   font-weight: var(--fw-bold);
+  line-height: 1;
+  letter-spacing: var(--ls-num-display);
+}
+
+.num--hero {
+  font-size: var(--fs-num-hero);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  letter-spacing: var(--ls-num-hero);
+}
+
+.num--title {
+  font-size: var(--fs-num-title);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  letter-spacing: var(--ls-num-title);
+}
+
+.num--row {
+  font-size: var(--fs-num-row);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--ls-num-row);
+}
+
+/* 単位の文法（title 以上）: 単位は数の外の別の塊で、数の 0.5 倍・太さ 1 段下・2 番目の文字の色・同じ基線（inline のまま）。
+   数と単位の間で折り返さない。row 以下は数と同じ塊（.num--row の中の文字） */
+.numu {
+  white-space: nowrap;
+}
+
+.num-unit {
+  margin-inline-start: 0.08em;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  color: var(--ink-2);
+}
+
+.numu--display .num-unit {
+  font-size: calc(var(--fs-num-display) * 0.5);
+}
+
+.numu--hero .num-unit {
+  font-size: calc(var(--fs-num-hero) * 0.5);
+}
+
+.numu--title .num-unit {
+  font-size: calc(var(--fs-num-title) * 0.5);
 }
 
 /* 静かな形の R（危ない勝ち。主役の数字の段に出さない = 本文より小さく・普通の太さ。色は .num に宣言せず、置き場の
@@ -822,29 +871,9 @@
   color: var(--ink-2);
 }
 
-.num--xl {
-  font-size: var(--fs-num-xl);
-  font-weight: var(--fw-bold);
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
-/* 判定の枠の R は主役の数字（44px）。リスク・損益は帯の題の段（17px）の太字で同じ行に並べる（#131。#130 のデザインレビュー b6・
-   #127 の b1。等倍の 360 で R・リスク・損益が 1 行に入る） */
-.verdict__stat .num--lg,
-.verdict__stat .num-money .num--lg {
-  font-size: var(--fs-nav);
-}
-
-/* 外貨の金額（#47 PR-2・U29）: 数は .num、通貨の 3 文字は .num の外で小さく */
+/* 文の中の金額（AmountText。#47 PR-2 デザイン 8）: 数と単位が行の境目で離れない塊 */
 .num-money {
   white-space: nowrap;
-}
-
-.num-unit {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-regular, 400);
-  color: var(--ink-2);
 }
 
 /* ── 空の状態 ─────────────────────── */
@@ -1360,7 +1389,7 @@
 /* 値が出ない場所の「—」（理由は注記に 1 回だけ） */
 .verdict__none {
   display: inline-block;
-  font-size: var(--fs-num-lg);
+  font-size: var(--fs-num-row);
   font-weight: var(--fw-bold);
   line-height: 1;
   color: var(--ink-3);
@@ -2186,7 +2215,7 @@
 
 /* 状態の画面（使えないアカウント。#43）の見出し: 1 段小さくし、句の中では折り返さない（<wbr> の位置だけ） */
 .login__title--status {
-  font-size: var(--fs-num-lg);
+  font-size: var(--fs-lg);
   word-break: keep-all;
   overflow-wrap: anywhere;
 }

@@ -5,6 +5,7 @@
 // 成績は R と % だけ（円を出さない。P2・P3）
 import { type CurvePoint, MIN_JUDGED_FOR_RATE } from '../../../core/review';
 import type { Tier, TierSymbol } from './badge';
+import { splitNumUnit } from './num-tier';
 import type { PeriodRange, PeriodSelection } from './period';
 import { reviewHref } from './period';
 import type { ReviewState } from './review-controller';
@@ -28,15 +29,15 @@ export function homeDate(now: number): string {
   return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAY[d.getDay()]}）`;
 }
 
-/** 主役の数字（数と単位を分ける。単位は小さく添える） */
+/** 今月の規律の数字（数と単位を分ける。単位は数の外の別の塊。数字の段 title。#236・C62） */
 export interface BigNumber {
   readonly value: string;
   readonly unit: string;
 }
 
-/** 「57%」→ 57 と %、「−0.6R」→ −0.6 と R（ホームと振り返りのタブの主役の数字で同じ形。#128 デザインの細かい点） */
+/** 「57%」→ 57 と %、「−0.6R」→ −0.6 と R（分け方は数字の段の 1 か所 = num-tier.ts の splitNumUnit） */
 export function splitUnit(text: string): BigNumber {
-  return { value: text.slice(0, -1), unit: text.slice(-1) };
+  return splitNumUnit(text);
 }
 
 export interface MonthCard {

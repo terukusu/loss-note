@@ -254,7 +254,7 @@ describe('下の帯: 危ない勝ちは R の代わりに帯の文（AC-1・AC-2
     expect(all(tree, hasClass('num'))).toEqual([]);
   });
 
-  it('KEEP-2: 計画どおりの勝ちと B は今のまま（24px の R・帯の文なし）', () => {
+  it('KEEP-2: 計画どおりの勝ちと B は今のまま（数字の段 title の R・帯の文なし。#236 で 24px → title 28px）', () => {
     for (const [d, r] of [
       [DRAFT_SAFE_WIN, '+1.5R'],
       [DRAFT_B, '−1.6R'],
@@ -262,8 +262,8 @@ describe('下の帯: 危ない勝ちは R の代わりに帯の文（AC-1・AC-2
       const { tree } = lineTree(d);
       expect(all(tree, hasClass('vline__caution'))).toEqual([]);
       const nums = all(tree, hasClass('num'));
-      expect(nums.map(cls)).toEqual(['num num--lg']);
-      expect(text(nums)).toBe(r);
+      expect(nums.map(cls)).toEqual(['num num--title']);
+      expect(text(all(tree, hasClass('numu--title')))).toBe(r);
     }
   });
 });
@@ -272,9 +272,9 @@ describe('判定の枠: 危ない勝ちの主役は崩れの文（AC-3・AC-4・
   const verdictTree = (d: typeof DRAFT_B, ctx = NO_CAPITAL) =>
     expand(Verdict({ summary: readDraft(d, ctx).preview, side: 'L' }));
 
-  it('LC を広げた勝ち: 崩れの文と反実の 1 行が R より先、R は静かな形（44px の段に出さない）', () => {
+  it('LC を広げた勝ち: 崩れの文と反実の 1 行が R より先、R は静かな形（数字の段 hero に出さない）', () => {
     const tree = verdictTree(DRAFT_WIDENED_WIN);
-    expect(all(tree, hasClass('num--xl'))).toEqual([]);
+    expect(all(tree, hasClass('num--hero'))).toEqual([]);
     expect(all(tree, hasClass('verdict__breach-what')).map(text)).toEqual([
       'LC を広げた（99.5 → 99.2）',
     ]);
@@ -294,11 +294,11 @@ describe('判定の枠: 危ない勝ちの主役は崩れの文（AC-3・AC-4・
     expect(all(tree, hasClass('num--quiet'))).toEqual([]);
   });
 
-  it('KEEP-2: 計画どおりの勝ち・B は 44px の R のまま、崩れの文の段は無い', () => {
+  it('KEEP-2: 計画どおりの勝ち・B は数字の段 hero の R のまま（#236 で 44px → hero 40px）、崩れの文の段は無い', () => {
     for (const d of [DRAFT_SAFE_WIN, DRAFT_B]) {
       const tree = verdictTree(d);
       expect(all(tree, hasClass('verdict__breach'))).toEqual([]);
-      expect(all(tree, hasClass('num--xl'))).toHaveLength(1);
+      expect(all(tree, hasClass('num--hero'))).toHaveLength(1);
       expect(all(tree, hasClass('num--quiet'))).toEqual([]);
     }
   });
@@ -360,9 +360,11 @@ describe('保存の後のシート（1 件）: 危ない勝ちの R は静かな
 
   it('危ない勝ちは emotions__r--quiet、計画どおりの勝ちは今の形', () => {
     expect(all(sheet('riskyWin'), hasClass('emotions__r')).map(cls)).toEqual([
-      'emotions__r emotions__r--quiet',
+      'num emotions__r emotions__r--quiet',
     ]);
-    expect(all(sheet('safeWin'), hasClass('emotions__r')).map(cls)).toEqual(['emotions__r']);
+    expect(all(sheet('safeWin'), hasClass('emotions__r')).map(cls)).toEqual([
+      'num num--row emotions__r',
+    ]);
   });
 });
 
@@ -426,12 +428,13 @@ describe('判定の枠のほかの数・編集と比較の 1 行（#227 の独�
     expect(list.some((t) => t.startsWith('時間足を変えた'))).toBe(true);
   });
 
-  it('危ない勝ちのリスクと損益も静かな形（主役の段の num--lg を使わない）、計画どおりの勝ちは今のまま', () => {
+  it('危ない勝ちのリスクと損益も静かな形（数字の段 row を使わない）、計画どおりの勝ちは今のまま', () => {
     const risky = expand(
       Verdict({ summary: readDraft(DRAFT_OVER_RISK, CAPITAL_1M).preview, side: 'L' }),
     );
-    expect(all(risky, hasClass('num--lg'))).toEqual([]);
-    expect(all(risky, hasClass('num--quiet')).map(text)).toEqual(['+1.0R', '2.5%', '+25,000']);
+    expect(all(risky, hasClass('num--row'))).toEqual([]);
+    // 静かな形は段に入れず、単位も数と同じ塊（#236・C62）
+    expect(all(risky, hasClass('num--quiet')).map(text)).toEqual(['+1.0R', '2.5%', '+25,000円']);
     expect(all(risky, hasClass('verdict__stat--quiet'))).toHaveLength(3);
     const safe = expand(
       Verdict({ summary: readDraft(DRAFT_SAFE_WIN, CAPITAL_1M).preview, side: 'L' }),

@@ -442,7 +442,7 @@ export async function flows(kit) {
   // #131 AC-4・AC-7（ui-guidelines 9.2・設計書 9.2）: 等倍の文字の 390×844 × ダーク / ライトで、詳細の 1 画面目に判定のカードと
   // チャートの 2 枠（下端が下のタブより上）。測る取引はモックと同じ形の x-m1（決めた LC で決済した A・理由 2 つ・答えは計画どおり・
   // チャート 2 枚）。理由・外れた答え・食い違いの 1 行が多い取引（x-d1 = B・理由 2 つ・外れ 2 つ・食い違い）は中身を畳まないので
-  // 1 画面を越えてよいが、チャートの枠が下のタブの上に 60px 以上のぞく（#131 のデザインレビュー）。R は主役の数字 44px。撮るのはレビューに要る状態だけ（詳細・…のシート・比較・編集・
+  // 1 画面を越えてよいが、チャートの枠が下のタブの上に 60px 以上のぞく（#131 のデザインレビュー）。R は数字の段 hero 40px（#236・C62）。撮るのはレビューに要る状態だけ（詳細・…のシート・比較・編集・
   // 編集の比較）
   await check('D131', async () => {
     const out = [];
@@ -499,11 +499,16 @@ export async function flows(kit) {
         const m = await p.evaluate(() => {
           const grid = document.querySelector('.dcharts__grid')?.getBoundingClientRect();
           const nav = document.querySelector('.appnav')?.getBoundingClientRect();
-          const r = document.querySelector('.verdict__stats .num--xl');
+          const r = document.querySelector('.verdict__stats .num--hero');
+          const u = document.querySelector('.verdict__stats .numu--hero .num-unit');
           return {
             chartsBottom: grid ? Math.round(grid.bottom) : null,
             navTop: nav ? Math.round(nav.top) : window.innerHeight,
             rSize: r ? getComputedStyle(r).fontSize : '',
+            uSize: u ? getComputedStyle(u).fontSize : '',
+            rowSizes: [...document.querySelectorAll('.verdict__stats .num--row')].map(
+              (e) => getComputedStyle(e).fontSize,
+            ),
             statsRows: (() => {
               const tops = [...document.querySelectorAll('.verdict__stats .verdict__stat')].map(
                 (e) => Math.round(e.getBoundingClientRect().top),
@@ -518,7 +523,11 @@ export async function flows(kit) {
           throw new Error(
             `${theme}: チャートの 2 枠の下端 ${m.chartsBottom}px が下のタブ（${m.navTop}px）より下`,
           );
-        expectEq(m.rSize, '44px', `${theme}: 判定の R の大きさ`);
+        // 判定の枠の R は数字の段 hero（40px）+ 単位 20px、リスク・損益は row（20px）（#236・C62）
+        expectEq(m.rSize, '40px', `${theme}: 判定の R の大きさ`);
+        expectEq(m.uSize, '20px', `${theme}: 判定の R の単位の大きさ`);
+        if (m.rowSizes.length === 0 || m.rowSizes.some((s) => s !== '20px'))
+          throw new Error(`${theme}: リスク・損益の大きさ ${m.rowSizes.join(',')}`);
         expectEq(m.statsRows, 1, `${theme}: R・リスク・損益の行の数`);
         expectEq(m.details, 0, `${theme}: 詳細の折りたたみ`);
         expectEq(m.overflow, 0, `${theme}: 横スクロール`);
@@ -557,6 +566,6 @@ export async function flows(kit) {
         await c.close();
       }
     }
-    return `詳細の 1 画面目に判定とチャート 2 枠・R 44px・R / リスク / 損益が 1 行・折りたたみ 0、操作・比較のシートが窓の中（${out.join(' / ')}）`;
+    return `詳細の 1 画面目に判定とチャート 2 枠・R 40px・リスク / 損益 20px・R / リスク / 損益が 1 行・折りたたみ 0、操作・比較のシートが窓の中（${out.join(' / ')}）`;
   });
 }

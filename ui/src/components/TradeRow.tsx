@@ -71,7 +71,7 @@ export function TradeRow({
               ? 'traderow__r traderow__none'
               : m.rQuiet
                 ? 'num traderow__r traderow__r--quiet'
-                : 'num traderow__r'
+                : 'num num--row traderow__r'
           }
         >
           {m.rText}

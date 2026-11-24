@@ -173,14 +173,15 @@ describe('AC-1・AC-2: 1 本の流れ（セグメントなし）', () => {
     );
   });
 
-  it('44px の数字の段（num--xl）は規律コストの 1 つだけ・計画どおり率は 24px（num--lg）', () => {
-    const xl = all([r], hasClass('num--xl'));
+  it('数字の段 display（56px・num--display）は規律コストの 1 つだけ・計画どおり率は title（28px・num--title。#236・C62）', () => {
+    const xl = all([r], hasClass('num--display'));
     expect(xl).toHaveLength(1);
     expect(all([r], hasClass('review__costcard'))[0]).toBeDefined();
     expect(
-      all([all([r], hasClass('review__costcard'))[0] as El], hasClass('num--xl')),
+      all([all([r], hasClass('review__costcard'))[0] as El], hasClass('num--display')),
     ).toHaveLength(1);
-    const rate = all([all([r], hasClass('review__ratecard'))[0] as El], hasClass('num--lg'));
+    expect(all([r], hasClass('num--hero'))).toEqual([]);
+    const rate = all([all([r], hasClass('review__ratecard'))[0] as El], hasClass('num--title'));
     expect(text(rate)).toBe('55');
   });
 

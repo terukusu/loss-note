@@ -67,7 +67,8 @@ export async function flows(kit) {
   // HM1（#128 AC-1・AC-2・AC-3・AC-5。ui-guidelines 9.4・9.10「1 画面に収まる」）: 等倍の文字のホームの縦のスクロール量
   // （scrollHeight − innerHeight）を 390×844 と 360×780 × ダーク / ライト × 取引 0 件・取引あり（今月の取引あり）・書きかけあり
   // で測る。期待はすべて 0px（低い窓は直近の取引を下の行から隠す。最低 1 行・書きかけの行があれば 2 件目から）。あわせて見える
-  // 直近の行の数（390×844 = 3・360×780 = 2・360×780 の書きかけあり = 1）・主役の数字の大きさ（44px）・
+  // 直近の行の数（390×844 = 3・360×780 = 2・360×780 の書きかけあり = 1）・今月の規律の数字の大きさ（数字の段 title
+  // 28px + 単位 14px。#236・C62）・
   // 横スクロール 0。文字の拡大 200%（トークン 2 倍）では縦に伸びてよく（切らない = 直近の行の下端まで送れる）、横は 0
   await check('HM1', async () => {
     const homeTrades = [...homeMonthTrades(), ...TX_H1];
@@ -96,7 +97,10 @@ export async function flows(kit) {
                 x: document.documentElement.scrollWidth - window.innerWidth,
                 rows: [...document.querySelectorAll('.homerow')].filter((r) => r.offsetParent)
                   .length,
-                xl: [...document.querySelectorAll('.homemonth .num--xl')].map(
+                xl: [...document.querySelectorAll('.homemonth .num--title')].map(
+                  (e) => getComputedStyle(e).fontSize,
+                ),
+                units: [...document.querySelectorAll('.homemonth .numu--title .num-unit')].map(
                   (e) => getComputedStyle(e).fontSize,
                 ),
                 bottom: Math.round(last ? last.getBoundingClientRect().bottom : 0),
@@ -110,13 +114,16 @@ export async function flows(kit) {
           // 取引あり
           await p.goto(`${base}/`);
           await waitReady(p, 'ホーム');
-          await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+          await p.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
           let m = await measureHome();
           expectZero(m, '取引あり');
           const wantRows = h >= 820 ? 3 : 2;
           if (m.rows !== wantRows)
             fails.push(`${tag}: 見える直近の行 ${m.rows}（期待 ${wantRows}）`);
-          if (m.xl.join(',') !== '44px,44px') fails.push(`${tag}: 主役の数字 ${m.xl.join(',')}`);
+          if (m.xl.join(',') !== '28px,28px')
+            fails.push(`${tag}: 今月の規律の数字 ${m.xl.join(',')}`);
+          if (m.units.join(',') !== '14px,14px')
+            fails.push(`${tag}: 今月の規律の単位 ${m.units.join(',')}`);
           out.push(`${tag} 取引あり 縦 ${m.v}px・中身の下端 ${m.bottom}px・行 ${m.rows}`);
           if (opts.shots)
             await p.screenshot({ path: join(opts.shots, `${tag}-hm1-home.png`), fullPage: true });
@@ -126,7 +133,7 @@ export async function flows(kit) {
           await p.locator('#record-lc').fill('99.5');
           await p.goBack();
           await p.locator('.homedraft a.rowlink[href="/record"]').waitFor({ timeout: 15000 });
-          await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+          await p.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
           m = await measureHome();
           expectZero(m, '書きかけ');
           // 低い窓（360×780）は書きかけの行があると 2 件目から隠す（最低 1 行。#128 デザイン AC-2）
@@ -170,7 +177,7 @@ export async function flows(kit) {
         const p = await c.newPage();
         await p.goto(`${base}/`);
         await waitReady(p, 'ホーム');
-        await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+        await p.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
         const z = await p.evaluate(() => {
           const se = document.scrollingElement;
           const last = [...document.querySelectorAll('.homerecent .rowlink')].at(-1);
@@ -202,7 +209,7 @@ export async function flows(kit) {
       await p.setViewportSize({ width: 360, height: 780 });
       await p.goto(`${base}/`);
       await waitReady(p, 'ホーム');
-      await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+      await p.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
       const hits = await p
         .locator('.homecard__link')
         .evaluateAll((as) =>
@@ -223,9 +230,9 @@ export async function flows(kit) {
       );
       await p.goBack();
       await waitReady(p, 'ホーム');
-      await p.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+      await p.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
       // 今月の規律: 数字の上を押す
-      const num = await p.locator('.homemonth .num--xl').first().boundingBox();
+      const num = await p.locator('.homemonth .num--title').first().boundingBox();
       await p.mouse.click(num.x + num.width / 2, num.y + num.height / 2);
       await waitReady(p, '振り返り');
       const now = new Date();

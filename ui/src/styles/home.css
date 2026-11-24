@@ -154,8 +154,9 @@
 
 .homemonth__stat {
   display: flex;
-  /* 等倍の幅 360 で 2 つが横に並び（1 つ 132px）、文字の拡大では 1 つずつ縦に並ぶ */
-  flex: 1 1 calc(var(--fs-num-xl) * 3);
+  /* 等倍の幅 360 で 2 つが横に並び（1 つ 132px = この数字の段 title 28px × 33 / 7）、文字の拡大（トークン 2 倍）では
+     1 つずつ縦に並ぶ */
+  flex: 1 1 calc(var(--fs-num-title) * 33 / 7);
   flex-direction: column;
   gap: 2px;
   min-width: 0;
@@ -174,12 +175,6 @@
   min-width: 0;
   color: var(--ink);
   overflow-wrap: anywhere;
-}
-
-.homemonth__unit {
-  color: var(--ink);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-bold);
 }
 
 .homemonth__missing {
@@ -226,7 +221,7 @@
 
 /* 読み込み中は数字の段のおよその高さを先に取る（読み終えてカードの高さが跳ばない） */
 .homemonth__skeleton {
-  min-height: calc(var(--fs-num-xl) + var(--fs-sm) * 3);
+  min-height: calc(var(--fs-num-title) + var(--fs-sm) * 3);
 }
 
 .minicurve {
@@ -453,8 +448,7 @@
 }
 
 .homerow__r {
-  font-size: var(--fs-nav);
-  font-weight: var(--fw-bold);
+  /* 大きさ・太さは数字の段 row（.num--row。#236・C62） */
   line-height: var(--lh-tight);
 }
 

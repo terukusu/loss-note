@@ -326,7 +326,7 @@ export async function flows(kit) {
       expectEq(await p.locator('#record-fee').count(), 0, '手数料（ほかの欄はシートの段 2）');
       const typed = await fillStatementTaps(p);
       await p.locator('.vline .badge', { hasText: 'A' }).waitFor({ timeout: 5000 });
-      await p.locator('.vline .num', { hasText: '−1.0R' }).waitFor({ timeout: 5000 });
+      await p.locator('.vline .numu--title', { hasText: '−1.0R' }).waitFor({ timeout: 5000 });
       await p.locator('button[type="submit"]').click();
       await waitSaved(p, '記録しました');
       const ms = Date.now() - t0;

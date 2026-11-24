@@ -8,7 +8,6 @@
 // 成績は R だけ（円を出さない）。R・% は無色の .num（P3）。色は判定の段（内訳の帯・凡例の記号・差の面・崩れの印）と文字・線だけ（P2）。
 // 図（内訳の帯・曲線）は読み上げから外し、同じ中身を文字（見出しの文・凡例・「数で見る」の表）で読ませる（P5）。
 // 表示の形（model）は hook の層が作って渡す（描画のたびに集計しない。読み終えた範囲が今の期間と違えば null = 読み込み中）
-import { splitUnit } from '../lib/home-view';
 import type { InsightModel } from '../lib/insight-view';
 import type { PeriodKey, PeriodRange, PeriodSelection, WhyKey } from '../lib/period';
 import type { ReviewState } from '../lib/review-controller';
@@ -20,6 +19,7 @@ import { Button, RowLink } from './Button';
 import { CurveLegend, DisciplineCurve } from './DisciplineCurve';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
+import { TierNum } from './Num';
 import { PeriodDates, PeriodSegment } from './PeriodPicker';
 import { StreakCard } from './StreakCard';
 import { NextCard, WhyCard } from './WhyCard';
@@ -69,20 +69,6 @@ function curveDense(n: number) {
 }
 
 export const TABLE_ID = 'review-table';
-
-/**
- * 数字と小さな単位（%・R）。ホームの今月の規律と同じ形（#128 デザインの細かい点）。xl（44px）は振り返りのいちばん大きい数字の段で、
- * 規律コストの見出しだけに使う（#228・C60）。計画どおり率は lg（24px）
- */
-function BigNum({ text, size = 'xl' }: { readonly text: string; readonly size?: 'xl' | 'lg' }) {
-  const n = splitUnit(text);
-  return (
-    <span class={`review__big review__big--${size}`}>
-      <span class={`num num--${size}`}>{n.value}</span>
-      <span class="review__unit">{n.unit}</span>
-    </span>
-  );
-}
 
 export function ReviewSection(p: ReviewSlot) {
   const m = p.model;
@@ -276,10 +262,11 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
         </h2>
         <div class="review__head">
           {h ? (
-            // 主役は崩れで失った R（規律コスト）。数は無色、状態は前の記号の形（○ △ ×）と段の色で
+            // 主役は崩れで失った R（規律コスト）。数は無色、状態は前の記号の形（○ △ ×）と段の色で。数字の段 display（56px）は
+            // 振り返りの規律コストの見出しだけ（#228・C60・#236・C62）
             <p class={`review__headline review__headline--${h.kind}`}>
               <Icon name={HEADLINE_SYMBOL[h.kind]} class="review__headmark" />
-              <span class="review__lead">{h.lead}</span> <BigNum text={h.value} />
+              <span class="review__lead">{h.lead}</span> <TierNum text={h.value} tier="display" />
               <InfoTip term="disciplineCost" size="sm" />
             </p>
           ) : null}
@@ -318,7 +305,7 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
           {m.rateText === null ? (
             <span class="review__missing">{m.rateMissingText}</span>
           ) : (
-            <BigNum text={m.rateText} size="lg" />
+            <TierNum text={m.rateText} tier="title" />
           )}
         </p>
         {m.rateText === null ? <p class="review__sub">{m.rateCountText}</p> : null}

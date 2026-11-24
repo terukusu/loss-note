@@ -14,18 +14,28 @@
   /* 等幅は ID・コードだけ。R・円・割合の数字は本文の書体の桁の揃う数字（.num の tabular-nums。Issue #33） */
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
-  /* 文字は 6 段（ui-guidelines 9.9・A7。#127）: 1 大きな題（タブの根）/ 2 主役の文・シートの題 / 3 帯の題・行の R /
-     4 本文・欄 / 5 補助 / 6 注記・小見出し・タブのラベル。数字は別の 2 段（主役の数字・記録する画面の下の帯の R） */
+  /* 文字は 6 段（ui-guidelines 9.9・A7。#127）: 1 大きな題（タブの根）/ 2 主役の文・シートの題 / 3 帯の題 /
+     4 本文・欄 / 5 補助 / 6 注記・小見出し・タブのラベル。数字は別の 4 段（下の --fs-num-*） */
   --fs-title: 30px;
   --fs-lg: 20px;
   --fs-nav: 17px;
   --fs-md: 16px;
   --fs-sm: 14px;
   --fs-xs: 12px;
-  --fs-num-lg: 24px;
-  /* 主役の数字（ホーム・振り返りの R と %。9.9。#128 で 44px）。今の判定の枠（R・リスク・損益を 1 行に並べる）は幅 360 で
-     44px だと 2 段に折れるので、判定の枠を組み直す U4（#130）・U6（#131）まで枠の中だけ 36px（components.css の .verdict） */
-  --fs-num-xl: 44px;
+  /* 数字の 4 段（#236・設計書 C62・ui-guidelines 9.9）。大きい数字 = 計画どおりに出た数（C59）:
+     display = 振り返りの規律コストだけ（1 画面に 1 つ・+ の値は出さない）/ hero = 1 件の取引の判定の枠の R /
+     title = ホームの今月の規律・振り返りの計画どおり率・下の帯の R / row = 行の R・判定の枠のリスクと損益・入力欄の主の数字。
+     これより下の数字は周りの文字の大きさ。title 以上の単位は数の 0.5 倍の別の塊（components.css の .numu）。
+     文字の拡大の検査が 2 倍にできるよう px の数で書く */
+  --fs-num-display: 56px;
+  --fs-num-hero: 40px;
+  --fs-num-title: 28px;
+  --fs-num-row: 20px;
+  /* 数字の段の字間（大きい段ほど詰める） */
+  --ls-num-display: -0.03em;
+  --ls-num-hero: -0.02em;
+  --ls-num-title: -0.015em;
+  --ls-num-row: -0.01em;
 
   --fw-regular: 400;
   --fw-medium: 500;

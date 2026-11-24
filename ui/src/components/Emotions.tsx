@@ -63,8 +63,14 @@ export function EmotionSheetBody(p: EmotionSheetBodyProps) {
               <li key={i} class="emotions__badge">
                 <JudgeBadge grade={v.grade} />
                 {verdicts.length === 1 ? (
-                  // 危ない勝ちの R は静かな形（#227・C59）
-                  <span class={quietR(v.grade) ? 'emotions__r emotions__r--quiet' : 'emotions__r'}>
+                  // 行の R（数字の段 row。#236）。危ない勝ちの R は静かな形（#227・C59）
+                  <span
+                    class={
+                      quietR(v.grade)
+                        ? 'num emotions__r emotions__r--quiet'
+                        : 'num num--row emotions__r'
+                    }
+                  >
                     {formatR(v.r)}
                   </span>
                 ) : null}

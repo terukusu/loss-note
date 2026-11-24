@@ -762,6 +762,22 @@ export async function settleLayers(page) {
 }
 
 /**
+ * 開いた層（下のシート）の段が履歴に積まれるのを待つ（history.state.back が 1 以上）。シートの `<dialog>` は開いた描画で
+ * open になり、段の pushState は後の effect で走る（数十 ms）。その間に page.goBack すると、層ではなく画面を戻ってしまう
+ * （利用者の指では起きない速さ。SET2）。戻るで閉じる検査は、開いた後にこれを待ってから戻る
+ */
+export async function waitLayerPushed(page) {
+  await page.waitForFunction(
+    () => {
+      const b = history.state?.back;
+      return typeof b === 'number' && b > 0;
+    },
+    null,
+    { timeout: 5000 },
+  );
+}
+
+/**
  * page.goto の代わり。状態を続けて測るときに、前の状態の残りで goto が net::ERR_ABORTED になるのを、検査の期待を変えずに越える。
  * 速い機械（4 vCPU）で出る 2 つの競合:
  * - 書きかけが残っている: 移る確認（beforeunload。worker が受ける）を受けて移動は続くのに、元の goto が ERR_ABORTED で返る

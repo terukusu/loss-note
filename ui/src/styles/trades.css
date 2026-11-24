@@ -272,15 +272,13 @@
   align-items: flex-end;
 }
 
-/* 行の R（段 3。9.9） */
+/* 行の R（大きさ・太さは数字の段 row = .num--row。9.9・#236・C62） */
 .traderow__r {
-  font-size: var(--fs-nav);
-  font-weight: var(--fw-bold);
   line-height: var(--lh-tight);
   white-space: nowrap;
 }
 
-/* 危ない勝ちの R は静かな形（段 3 に出さない。行の高さは変えない。#227・C59） */
+/* 危ない勝ちの R は静かな形（数字の段 row に出さない。行の高さは変えない。#227・C59） */
 .traderow__r--quiet {
   font-size: var(--fs-sm);
   font-weight: var(--fw-regular);

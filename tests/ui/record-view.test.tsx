@@ -211,18 +211,20 @@ describe('判定の段と数字の色（AC-5・C34）', () => {
       const tree = view(stateFor(d, ctx));
       const nums = all(tree, hasClass('num'));
       expect(nums.length).toBeGreaterThanOrEqual(1);
-      for (const n of nums) expect(cls(n)).toMatch(/^num( num--(lg|xl|quiet))?$/);
+      for (const n of nums) expect(cls(n)).toMatch(/^num( num--(display|hero|title|row|quiet))?$/);
       for (const b of all(tree, hasClass('badge'))) expect(all([b], hasClass('num'))).toEqual([]);
     }
     const e4 = text(all(view(stateFor(E4, CAPITAL_1M)), hasClass('num')));
     expect(e4).toContain('+1.0R');
     expect(e4).toContain('2.5%');
-    // 円は数の外に小さく出す（#47 PR-2 デザイン 7）。数の要素は符号つきの数、すぐ後ろに単位の「円」
-    expect(e4).toContain('+25,000');
-    const money = all(view(stateFor(E4, CAPITAL_1M)), hasClass('num-money'));
-    expect(money.map((m) => text(m))).toContain('+25,000円');
-    for (const m of money)
-      expect(all([m], hasClass('num-unit')).map((u) => text(u))).toEqual(['円']);
+    // 単位の文法（#236・C62）: 判定の枠の損益は数字の段 row 以下（E4 は危ない勝ちの静かな形）なので、円は数と同じ塊
+    expect(e4).toContain('+25,000円');
+    expect(all(view(stateFor(E4, CAPITAL_1M)), hasClass('num-unit'))).toEqual([]);
+    // 判定の枠の R（hero）は単位「R」を数の外の別の塊に、文字のつなぎは「−1.6R」のまま
+    const e1 = verdictOf(view(stateFor(E1, NO_CAPITAL)));
+    expect(all([e1], hasClass('numu--hero')).map(text)).toEqual(['−1.6R']);
+    expect(all([e1], hasClass('num--hero')).map(text)).toEqual(['−1.6']);
+    expect(all([e1], hasClass('num-unit')).map(text)).toEqual(['R']);
   });
 
   it('C（LC なしの負け）は極悪の段', () => {
@@ -261,7 +263,7 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
     const t = text(verdictOf(tree));
     expect(count(t, 'LC が無いため')).toBe(1);
     expect(t).toContain('LC が無いため、R・リスクは表示されません');
-    expect(all(tree, hasClass('num--xl'))).toEqual([]);
+    expect(all(tree, hasClass('num--hero'))).toEqual([]);
     expect(all(tree, hasClass('verdict__none'))).toEqual([]);
     expect(all(tree, hasClass('verdict__stats'))).toEqual([]);
     // 添え書き「LC を決めずに入った取引です。」と同じ「LC を決めずに入った」を理由の一覧に出さない
@@ -940,7 +942,7 @@ describe('保存の後', () => {
     expect(text(all(tree, (e) => e.props.role === 'status'))).toBe('記録しました');
     expect(text(badge(tree))).toBe('B 悪い損失');
     expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を広げた（99.5 → 99.2）');
-    expect(text(all(tree, hasClass('num--xl')))).toBe('−1.6R');
+    expect(text(all(tree, hasClass('numu--hero')))).toBe('−1.6R');
     expect(text(tree)).toContain('US30 · L ロング · イン 100 → 決済 99.2 · 数量 10,000');
     expect(all(tree, (e) => e.type === 'input')).toEqual([]);
     // 「i」（説明のボタン。#57）を除いた最初のボタン
@@ -2684,7 +2686,9 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     const tree = view(stateFor(E1, NO_CAPITAL), { onSheet });
     const line = all(tree, (e) => e.props.id === 'record-verdict-line')[0] as El;
     expect(text(all([line], hasClass('badge')))).toBe('B 悪い損失');
-    expect(text(all([line], hasClass('num')))).toContain('R');
+    // 下の帯の R は数字の段 title（28px）で、単位「R」は数の外の別の塊（#236・C62）。文字のつなぎは「−1.6R」
+    expect(all([line], hasClass('numu--title')).map(text)).toEqual(['−1.6R']);
+    expect(all([line], hasClass('num--title')).map(text)).toEqual(['−1.6']);
     expect(line.props['aria-haspopup']).toBe('dialog');
     (line.props.onClick as () => void)();
     expect(got).toEqual([{ kind: 'verdict' }]);

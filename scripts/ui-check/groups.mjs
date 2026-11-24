@@ -446,6 +446,35 @@ export async function reviewGroup(vp, unit) {
             console.log(`    なぜ〜次は ${flow}px（2 画面 = ${limit}px）${over ? '  NG' : ''}`);
             if (over) problems.push(`${label}: なぜ〜次は ${flow}px（2 画面 ${limit}px を超える）`);
           }
+          // 数字の段（#236・C62 の AC-2）: display（56px + 単位 28px）は規律コストの見出しの 1 つだけで + で始まらない、
+          // 計画どおり率は title（28px + 単位 14px）
+          const nums = await tp.evaluate(() => {
+            const q = (s) => [...document.querySelectorAll(s)].filter((e) => e.offsetParent);
+            const size = (e) => getComputedStyle(e).fontSize;
+            return {
+              display: q('.num--display').map((e) => ({ t: e.textContent ?? '', s: size(e) })),
+              inHead: q('.review__headline .num--display').length,
+              dUnit: q('.numu--display .num-unit').map(size),
+              title: q('.review__ratecard .num--title').map(size),
+              tUnit: q('.review__ratecard .numu--title .num-unit').map(size),
+            };
+          });
+          const numNg = [];
+          if (nums.display.length > 1) numNg.push(`display が ${nums.display.length} 個`);
+          if (nums.display.length !== nums.inHead)
+            numNg.push('display が規律コストの見出しの外にある');
+          for (const d of nums.display) {
+            if (d.s !== '56px') numNg.push(`display ${d.t} ${d.s}`);
+            if (d.t.startsWith('+')) numNg.push(`display に + の値 ${d.t}`);
+          }
+          if (nums.dUnit.some((s) => s !== '28px')) numNg.push(`display の単位 ${nums.dUnit}`);
+          if (nums.title.some((s) => s !== '28px')) numNg.push(`計画どおり率 ${nums.title}`);
+          if (nums.tUnit.some((s) => s !== '14px')) numNg.push(`計画どおり率の単位 ${nums.tUnit}`);
+          if (nums.display.length > 0)
+            console.log(
+              `    数字の段 display ${nums.display.map((d) => `${d.t} ${d.s}`).join(',')} / 単位 ${nums.dUnit} / 率 ${nums.title} + ${nums.tUnit}${numNg.length ? '  NG' : ''}`,
+            );
+          for (const x of numNg) problems.push(`${label}: 数字の段 ${x}`);
           if (slug === 'review-insight-legacy') {
             const url = await tp.evaluate(() => location.pathname + location.search);
             if (url !== '/review?period=7d') {
@@ -1160,7 +1189,7 @@ export async function zoomHomeGroup(vp) {
   await zoomState(recPage, '/（今月の取引あり）', 'home-month', async () => {
     await recPage.goto(`${base}/`);
     await waitReady(recPage, 'ホーム');
-    await recPage.locator('.homemonth .num--xl').first().waitFor({ timeout: 15000 });
+    await recPage.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
   });
   recApi.trades = saved;
 }

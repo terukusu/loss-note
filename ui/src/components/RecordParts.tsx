@@ -367,7 +367,7 @@ export function VerdictLineButton(p: {
           <JudgeBadge grade={line.grade} />
           {/* 危ない勝ちは R の代わりに反実の 1 行か崩れの文（本文の大きさ・無色。#227・C59） */}
           {line.caution !== undefined ? <span class="vline__caution">{line.caution}</span> : null}
-          {line.r !== undefined ? <RNum value={line.r} size="lg" /> : null}
+          {line.r !== undefined ? <RNum value={line.r} tier="title" /> : null}
           {line.riskPct !== undefined ? (
             <span class="vline__risk">
               リスク <span class="num">{formatPct(line.riskPct)}</span>

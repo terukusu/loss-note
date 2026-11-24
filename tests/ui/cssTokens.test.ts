@@ -229,9 +229,9 @@ describe('検査そのものの自己テスト', () => {
     ).toEqual(['in srgb, var(--a) 5%, var(--b)']);
   });
 
-  it('NUM_SELECTOR は .num と .num--lg に当たり、.num-table・.numfield に当たらない', () => {
+  it('NUM_SELECTOR は .num と .num--hero に当たり、.num-table・.numfield に当たらない', () => {
     expect(
-      ['.num', '.num--lg', '.hero .num', '.num:hover'].map((x) => NUM_SELECTOR.test(x)),
+      ['.num', '.num--hero', '.hero .num', '.num:hover'].map((x) => NUM_SELECTOR.test(x)),
     ).toEqual([true, true, true, true]);
     expect(
       ['.num-table__id', '.numfield__input', '.number'].map((x) => NUM_SELECTOR.test(x)),
@@ -565,16 +565,52 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
         );
       }
     }
-    // 主役の数字は 44px（9.9。#128）。判定の枠の R も #131 で主役の数字のまま（枠の中で大きさを替える規則を持たない）
-    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
-    expect(root.get('--fs-num-xl')).toBe('44px');
-    const verdictXl = Object.values(files)
+    // 判定の枠の R は数字の段 hero のまま（枠の中で数字の大きさを替える規則を持たない。#131・#236）
+    const inVerdict = Object.values(files)
       .flatMap((raw) => blocks(stripComments(raw)))
-      .find((b) => b.selector === '.verdict .num--xl');
-    expect(verdictXl).toBeUndefined();
+      .filter((b) => /\.verdict/.test(b.selector) && /\.num(--|\b)/.test(b.selector));
+    expect(inVerdict.map((b) => b.selector)).toEqual([]);
   });
 
-  it('#127 A7: 文字の大きさのトークンは 6 段（30 / 20 / 17 / 16 / 14 / 12）と数字の 2 段（44 / 24。#128）だけ', () => {
+  it('#236 C62: 数字の 4 段（display / hero / title / row）は大きさ・650・字間のトークンで、title 以上の単位は数の 0.5 倍・500・2 番目の文字の色', () => {
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(Object.fromEntries([...root].filter(([k]) => k.startsWith('--ls-num-')))).toEqual({
+      '--ls-num-display': '-0.03em',
+      '--ls-num-hero': '-0.02em',
+      '--ls-num-title': '-0.015em',
+      '--ls-num-row': '-0.01em',
+    });
+    const css = blocks(stripComments(files[COMPONENTS] ?? ''));
+    const rule = (sel: string) => decls(css.find((x) => x.selector === sel)?.body ?? '');
+    for (const tier of ['display', 'hero', 'title', 'row']) {
+      const d = rule(`.num--${tier}`);
+      expect(d.get('font-size'), tier).toBe(`var(--fs-num-${tier})`);
+      expect(d.get('font-weight'), tier).toBe('var(--fw-bold)');
+      expect(d.get('letter-spacing'), tier).toBe(`var(--ls-num-${tier})`);
+    }
+    for (const tier of ['display', 'hero', 'title']) {
+      expect(rule(`.numu--${tier} .num-unit`).get('font-size'), tier).toBe(
+        `calc(var(--fs-num-${tier}) * 0.5)`,
+      );
+    }
+    // row は単位を分けない（0.5 倍だと 12px を下回る）
+    expect(css.find((x) => x.selector === '.numu--row .num-unit')).toBeUndefined();
+    const unit = rule('.num-unit');
+    expect(unit.get('font-weight')).toBe('var(--fw-medium)');
+    expect(unit.get('color')).toBe('var(--ink-2)');
+    expect(rule('.numu').get('white-space')).toBe('nowrap');
+    // 単位の大きさ（0.5 倍）が文字のいちばん小さい段（12px）を下回らない
+    const px = (k: string) => Number.parseFloat(root.get(k) ?? 'NaN');
+    for (const tier of ['display', 'hero', 'title']) {
+      expect(px(`--fs-num-${tier}`) * 0.5).toBeGreaterThanOrEqual(px('--fs-xs'));
+    }
+    // 前の数字の段（.num--xl・.num--lg）はどの CSS にも残っていない
+    for (const [path, raw] of Object.entries(files)) {
+      expect(stripComments(raw), path).not.toMatch(/\.num--(xl|lg)\b|--fs-num-(xl|lg)\b/);
+    }
+  });
+
+  it('#127 A7: 文字の大きさのトークンは 6 段（30 / 20 / 17 / 16 / 14 / 12）と数字の 4 段（56 / 40 / 28 / 20。#236・C62）だけ', () => {
     const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
     const fs = [...root].filter(([k]) => k.startsWith('--fs-'));
     expect(Object.fromEntries(fs)).toEqual({
@@ -584,8 +620,10 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       '--fs-md': '16px',
       '--fs-sm': '14px',
       '--fs-xs': '12px',
-      '--fs-num-lg': '24px',
-      '--fs-num-xl': '44px',
+      '--fs-num-display': '56px',
+      '--fs-num-hero': '40px',
+      '--fs-num-title': '28px',
+      '--fs-num-row': '20px',
     });
     // 本文の行の高さは 1.5（9.9）
     expect(root.get('--lh-body')).toBe('1.5');

@@ -195,18 +195,6 @@
   color: var(--tier-worst-ink);
 }
 
-.review__big {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-}
-
-.review__unit {
-  color: var(--ink);
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-bold);
-}
-
 .review__lead {
   color: var(--ink);
   font-size: var(--fs-lg);
@@ -622,10 +610,6 @@
 }
 
 /* 計画どおり率（2 番目の大きさの数字。#228・C60）: いちばん大きい段は規律コストだけ */
-.review__big--lg .review__unit {
-  font-size: var(--fs-md);
-}
-
 /* どの取引: 押せる行を縦に並べる */
 .review__which {
   display: flex;

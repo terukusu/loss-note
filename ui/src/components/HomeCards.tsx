@@ -14,6 +14,7 @@ import type { TradeRow } from '../lib/trade-view';
 import '../styles/home.css';
 import { Button, RowLink } from './Button';
 import { Icon } from './Icon';
+import { SplitNum } from './Num';
 
 export function HomeHead({ today }: { readonly today: string }) {
   return (
@@ -129,10 +130,7 @@ export function MonthCard(p: MonthSlot & { readonly href: string }) {
               <p class="homemonth__label">計画どおり率</p>
               <p class="homemonth__value">
                 {c.rate ? (
-                  <>
-                    <span class="num num--xl">{c.rate.value}</span>
-                    <span class="homemonth__unit">{c.rate.unit}</span>
-                  </>
+                  <SplitNum value={c.rate.value} unit={c.rate.unit} tier="title" />
                 ) : (
                   <span class="homemonth__missing">件数が少ない</span>
                 )}
@@ -146,8 +144,7 @@ export function MonthCard(p: MonthSlot & { readonly href: string }) {
                   <>
                     {/* 差は 0 だが R の出ない取引がある（振り返りの「R で測れる崩れ」と同じ ×。読み上げは下の文。N6） */}
                     {c.costMeasured ? <Icon name="cross" class="homemonth__measured" /> : null}
-                    <span class="num num--xl">{c.cost.value}</span>
-                    <span class="homemonth__unit">{c.cost.unit}</span>
+                    <SplitNum value={c.cost.value} unit={c.cost.unit} tier="title" />
                   </>
                 ) : (
                   <span class="homemonth__missing">—</span>
@@ -200,7 +197,7 @@ export function CompactTradeRow({ row, now }: { readonly row: TradeRow; readonly
               ? 'homerow__r homerow__none'
               : m.rQuiet
                 ? 'num homerow__r homerow__r--quiet'
-                : 'num homerow__r'
+                : 'num num--row homerow__r'
           }
         >
           {m.rText}

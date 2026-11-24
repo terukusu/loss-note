@@ -1,5 +1,11 @@
 import { readFileSync } from 'node:fs';
-import { AUTH_EMULATOR, expectPollAsync, waitReady } from '../base.mjs';
+import {
+  AUTH_EMULATOR,
+  expectPollAsync,
+  settleLayers,
+  waitLayerPushed,
+  waitReady,
+} from '../base.mjs';
 import { ACC_D, ACC_ONE, FAKE_US30, installFakeApi, seedSettings } from '../fixtures.mjs';
 import { pagesGroup, settingsGroup, zoomPagesGroup, zoomSettingsGroup } from '../groups.mjs';
 import { EX_E1, fillRecord, openRecord } from '../helpers.mjs';
@@ -216,9 +222,13 @@ export async function flows(kit) {
           (await p.evaluate(() => document.activeElement?.id)) === 'settings-edit-inst-xau',
         'やめた後のフォーカス',
       );
+      // Esc で閉じた層の段をアプリが history.go で戻し終えるまで待つ（次のシートの段と重ねない。#240 と同じ形）
+      await settleLayers(p);
       // 戻るで閉じる: シートだけが閉じ、画面は銘柄のまま。もう 1 回の戻るで設定の根へ（9.7）
       await p.getByRole('button', { name: 'XAU を編集' }).click();
       await waitSettingsSheet(p, 'settings-inst-sheet');
+      // シートの段が履歴に積まれてから戻る（積まれる前の戻るは画面を戻す。waitLayerPushed）
+      await waitLayerPushed(p);
       await p.goBack();
       await expectPollAsync(
         async () => (await p.locator('dialog[open]').count()) === 0,

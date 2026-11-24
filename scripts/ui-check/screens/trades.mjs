@@ -107,7 +107,8 @@ export async function flows(kit) {
   });
 
   // T-L5（#227 AC-7・C59）: 危ない勝ちの行の R は静かな形。計画どおりの勝ちの行の R より小さい文字で、太字でない。
-  // 押した詳細の判定の枠は 44px の R・17px 太字のリスク / 損益を持たず、崩れの文が数の段より先。
+  // 行の R は数字の段 row（20px。#236・C62）。押した詳細の判定の枠は数字の段（hero の R・row のリスク / 損益）を持たず、
+  // 崩れの文が数の段より先。
   // 360×780 × ダーク / ライト。--shots なら一覧と詳細を撮る
   await check('T-L5', async () => {
     const trades = [TX_L2, ...monthTrades(5)];
@@ -138,6 +139,8 @@ export async function flows(kit) {
         );
         const risky = rs.filter((r) => r.grade === '危ない勝ち' && /R$/.test(r.r));
         const safe = rs.find((r) => r.grade === '計画どおりの勝ち');
+        if (safe && safe.size !== 20)
+          throw new Error(`${theme}: 計画どおりの勝ちの行の R ${safe.size}px（数字の段 row 20px）`);
         if (risky.length === 0 || !safe)
           throw new Error(`行がそろっていない: ${JSON.stringify(rs)}`);
         for (const r of rs) {
@@ -163,7 +166,7 @@ export async function flows(kit) {
             const kids = [...el.querySelectorAll('*')];
             const at = (sel) => kids.findIndex((k) => k.matches(sel));
             return {
-              xl: el.querySelectorAll('.num--xl, .num--lg').length,
+              xl: el.querySelectorAll('.num--display, .num--hero, .num--title, .num--row').length,
               breach: el.querySelector('.verdict__breach-what')?.textContent ?? '',
               cf: el.querySelector('.verdict__breach-if')?.textContent ?? '',
               order: at('.verdict__breach') < at('.verdict__stats'),

@@ -195,7 +195,7 @@ export async function flows(kit) {
       await fillRecord(p, EX_E1, false);
       // タップの前でも R は出る（下の帯の判定の 1 行は判定が出るまで状態の文。判定のシートの中の R を見る。#130）
       await openVerdict(p);
-      await p.locator('.verdict .num--xl', { hasText: '−1.6R' }).waitFor({ timeout: 5000 });
+      await p.locator('.verdict .numu--hero', { hasText: '−1.6R' }).waitFor({ timeout: 5000 });
       await closeSheets(p);
       await fillRecord(p, EX_E1);
       await p.locator('.vline .badge', { hasText: 'B 悪い損失' }).waitFor({ timeout: 5000 });
@@ -1700,6 +1700,38 @@ export async function flows(kit) {
       const p = await c.newPage();
       await openRecord(p, base);
       await fillRecord(p, EX_E1);
+      // 下の帯の R は数字の段 title（28px）+ 単位 14px で、帯の判定の 1 行は 1 段（#236・C62 の AC-5）
+      await p.locator('.vline .badge', { hasText: 'B 悪い損失' }).waitFor({ timeout: 5000 });
+      const bar = await p.evaluate(() => {
+        const line = document.querySelector('#record-verdict-line');
+        const n = line?.querySelector('.num--title');
+        const u = line?.querySelector('.numu--title .num-unit');
+        const badge = line?.querySelector('.badge')?.getBoundingClientRect();
+        const nb = n?.getBoundingClientRect();
+        const limit = Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--submitbar-h'),
+        );
+        return {
+          n: n ? getComputedStyle(n).fontSize : '',
+          u: u ? getComputedStyle(u).fontSize : '',
+          text: line?.querySelector('.numu--title')?.textContent ?? '',
+          lineH: line ? Math.round(line.getBoundingClientRect().height) : 0,
+          limit,
+          // バッジと R が同じ行（縦の中心の差がバッジの高さより小さい）
+          oneRow:
+            badge && nb
+              ? Math.abs(badge.top + badge.height / 2 - (nb.top + nb.height / 2)) < badge.height
+              : false,
+          overflow: Math.max(document.documentElement.scrollWidth - window.innerWidth, 0),
+        };
+      });
+      expectEq(bar.n, '28px', '下の帯の R の数の大きさ');
+      expectEq(bar.u, '14px', '下の帯の R の単位の大きさ');
+      expectEq(bar.text, '−1.6R', '下の帯の R の文字');
+      if (!bar.oneRow) throw new Error('下の帯のバッジと R が 1 行に並んでいない');
+      if (bar.lineH > bar.limit)
+        throw new Error(`下の帯の判定の 1 行の高さ ${bar.lineH}px が上限 ${bar.limit}px を超える`);
+      expectEq(bar.overflow, 0, '横スクロール');
       // 損益（円）を入れて R・リスク・損益の 3 つのラベルを並べる（架空の値）。判定のシートで測る（#130）
       await openMore(p);
       await p.locator('#record-pnl').fill('-8,000');
@@ -1707,21 +1739,67 @@ export async function flows(kit) {
       await p.locator('.verdict .badge', { hasText: 'B 悪い損失' }).waitFor({ timeout: 5000 });
       await p.locator('.verdict__stat dt', { hasText: '損益' }).waitFor({ timeout: 5000 });
       const m = await p.evaluate(() => {
-        const r = document.querySelector('.verdict .num--xl');
+        const r = document.querySelector('.verdict .num--hero');
         const cs = getComputedStyle(r);
+        const unit = document.querySelector('.verdict .numu--hero .num-unit');
+        const rows = [...document.querySelectorAll('.verdict__stats .num--row')];
         const tops = [...document.querySelectorAll('.verdict__stat dt')].map(
           (dt) => dt.getBoundingClientRect().top,
         );
-        return { size: cs.fontSize, family: cs.fontFamily, text: r.textContent, tops };
+        return {
+          size: cs.fontSize,
+          family: cs.fontFamily,
+          text: document.querySelector('.verdict .numu--hero')?.textContent ?? '',
+          unit: unit ? getComputedStyle(unit).fontSize : '',
+          rows: rows.map((e) => `${e.textContent} ${getComputedStyle(e).fontSize}`),
+          units: document.querySelectorAll('.verdict__stats .num--row + .num-unit').length,
+          none: (() => {
+            const e = document.querySelector('.verdict__stats .verdict__none');
+            return e ? getComputedStyle(e).fontSize : '';
+          })(),
+          tops,
+          overflow: Math.max(document.documentElement.scrollWidth - window.innerWidth, 0),
+        };
       });
-      // 判定の枠の R は主役の数字 44px（#131 で判定の枠を組み直した。#130 のデザインレビュー b6・ui-guidelines 9.9。それまでは 36px）
-      expectEq(m.size, '44px', '大きな R の文字の大きさ');
+      // 判定の枠の R は数字の段 hero（40px）+ 単位 20px、リスク・損益は row（20px・単位も同じ塊）（#236・C62。それまでは 44px・
+      // リスクと損益は 17px）
+      expectEq(m.size, '40px', '大きな R の文字の大きさ');
+      expectEq(m.unit, '20px', '大きな R の単位の大きさ');
       if (/mono/i.test(m.family)) throw new Error(`大きな R の書体が等幅 ${m.family}`);
       expectEq(m.text, '−1.6R', 'R の文字（負の符号は U+2212）');
+      // 資金なしの E1 はリスクが「—」（row の大きさ）。損益は「−8,000円」が 1 つの塊で 20px
+      expectEq(m.rows.join(' / '), '−8,000円 20px', 'リスク・損益の数字の段');
+      expectEq(m.none, '20px', 'リスクの「—」の大きさ');
+      expectEq(m.units, 0, 'row の段で数の外に分けた単位');
       expectEq(m.tops.length, 3, 'ラベルの数');
       const spread = Math.max(...m.tops) - Math.min(...m.tops);
       if (spread > 1) throw new Error(`ラベルの上端の差 ${spread.toFixed(1)}px`);
-      return `判定 B の R は 44px・本文の書体（${m.family.split(',')[0]}）、R・リスク・損益のラベルの上端の差 ${spread.toFixed(1)}px`;
+      expectEq(m.overflow, 0, '判定のシートの横スクロール');
+      // 長い額（架空の −1,234,567円）: 損益が row 20px でも横にはみ出さない。1 行に入るか 2 段目に回るかは記録だけ（#236 の
+      // 独立レビュー 5。折り返しは flex-wrap の既定の振る舞い）
+      await closeSheets(p);
+      await openMore(p);
+      await p.locator('#record-pnl').fill('-1,234,567');
+      await openVerdict(p);
+      await p
+        .locator('.verdict__stats .num--row', { hasText: '−1,234,567円' })
+        .waitFor({ timeout: 5000 });
+      const long = await p.evaluate(() => {
+        const tops = [...document.querySelectorAll('.verdict__stats .verdict__stat')].map((e) =>
+          Math.round(e.getBoundingClientRect().top),
+        );
+        const sheet = document.querySelector('dialog[open]');
+        const v = document.querySelector('.verdict__stats')?.getBoundingClientRect();
+        const box = sheet?.getBoundingClientRect();
+        return {
+          rows: new Set(tops).size,
+          overflow: Math.max(document.documentElement.scrollWidth - window.innerWidth, 0),
+          inside: v && box ? v.right <= box.right + 0.5 : false,
+        };
+      });
+      expectEq(long.overflow, 0, '長い額の判定のシートの横スクロール');
+      if (!long.inside) throw new Error('長い額の数の段がシートの右端からはみ出す');
+      return `下の帯の R 28/14px・1 行 ${bar.lineH}px（上限 ${bar.limit}px）、判定 B の R は 40/20px・本文の書体（${m.family.split(',')[0]}）、リスク・損益 20px、R・リスク・損益のラベルの上端の差 ${spread.toFixed(1)}px、長い額 −1,234,567円 は ${long.rows === 1 ? '1 行' : `${long.rows} 段に折り返し`}・横 0`;
     } finally {
       await c.close();
     }

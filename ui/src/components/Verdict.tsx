@@ -14,7 +14,7 @@ import { FX_NOT_CHECKED, sizingLine, verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
 import { JudgeBadge } from './JudgeBadge';
-import { MoneyNum, RNum } from './Num';
+import { MoneyNum, RNum, TierNum } from './Num';
 import { Ruler } from './Ruler';
 
 export const VERDICT_TITLE_ID = 'record-verdict-title';
@@ -183,7 +183,7 @@ export function Verdict(v: VerdictProps) {
                 </dt>
                 <dd>
                   {v.summary.r !== undefined ? (
-                    <RNum value={v.summary.r} size="xl" quiet={risky !== null} />
+                    <RNum value={v.summary.r} tier="hero" quiet={risky !== null} />
                   ) : (
                     <None />
                   )}
@@ -193,9 +193,11 @@ export function Verdict(v: VerdictProps) {
                 <dt class="verdict__label">リスク</dt>
                 <dd>
                   {v.summary.riskPct !== undefined ? (
-                    <span class={risky !== null ? 'num num--quiet' : 'num num--lg'}>
-                      {formatPct(v.summary.riskPct)}
-                    </span>
+                    <TierNum
+                      text={formatPct(v.summary.riskPct)}
+                      tier="row"
+                      quiet={risky !== null}
+                    />
                   ) : (
                     <None />
                   )}
@@ -217,7 +219,7 @@ export function Verdict(v: VerdictProps) {
                 <MoneyNum
                   value={v.summary.pnlYen}
                   currency={v.summary.currency ?? 'JPY'}
-                  size="lg"
+                  tier="row"
                   quiet={risky !== null}
                 />
               </dd>

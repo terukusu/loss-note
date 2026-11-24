@@ -1,59 +1,89 @@
-// R・円の数字（契約 C-1）。色を付けず（本文の文字の色を継ぐ）、本文の書体の桁の揃う数字（tabular-nums）で符号と単位を必ず出す
+// R・円の数字（契約 C-1）。色を付けず（本文の文字の色を継ぐ）、本文の書体の桁の揃う数字（tabular-nums）で符号と単位を必ず出す。
+// 大きさは数字の 4 段（display / hero / title / row）と単位の文法（#236・設計書 C62。分け方は lib/num-tier.ts）
 import { formatMoney, formatR, formatYen } from '../lib/format';
+import { type NumTier, type NumView, numView, numViewOf } from '../lib/num-tier';
 
-type Size = 'md' | 'lg' | 'xl';
+export type { NumTier };
 
-function cls(size: Size | undefined): string {
-  return size && size !== 'md' ? `num num--${size}` : 'num';
+/**
+ * 段つきの数字。title 以上は単位を数の外の別の塊（.num-unit。数の 0.5 倍・太さ 500・2 番目の文字の色・同じ基線）にし、
+ * 数と単位の間で折り返さない（.numu）。row は数と同じ塊。文字としての中身（読み上げ）は元の文字のまま
+ */
+function ViewNum({ view }: { readonly view: NumView }) {
+  if (view.unit === null) return <span class={`num num--${view.tier}`}>{view.value}</span>;
+  return (
+    <span class={`numu numu--${view.tier}`}>
+      <span class={`num num--${view.tier}`}>{view.value}</span>
+      <span class="num-unit">{view.unit}</span>
+    </span>
+  );
 }
 
 /**
- * quiet = 静かな形（危ない勝ちの R。主役の数字の段に出さず、本文より小さく・2 番目の文字の色・普通の太さ。#227・C59）。
- * quiet のときは size を見ない
+ * 表示の文字（formatR・formatPct などの出力）を段で出す。tier が無ければ周りの文字の大きさ（文の中の数字）。
+ * quiet = 静かな形（危ない勝ち。段に入れず、本文より小さく・普通の太さ。色は置き場が 2 番目の文字の色にする。#227・C59）。
+ * quiet のときは tier を見ない
  */
+export function TierNum({
+  text,
+  tier,
+  quiet,
+}: {
+  readonly text: string;
+  readonly tier?: NumTier | undefined;
+  readonly quiet?: boolean | undefined;
+}) {
+  if (quiet) return <span class="num num--quiet">{text}</span>;
+  if (tier === undefined) return <span class="num">{text}</span>;
+  return <ViewNum view={numView(text, tier)} />;
+}
+
+/** 分けてある数と単位（ホームの今月の規律の形 `{value, unit}`）を段で出す */
+export function SplitNum({
+  value,
+  unit,
+  tier,
+}: {
+  readonly value: string;
+  readonly unit: string;
+  readonly tier: NumTier;
+}) {
+  return <ViewNum view={numViewOf(value, unit, tier)} />;
+}
+
 export function RNum({
   value,
-  size,
+  tier,
   quiet,
 }: {
   readonly value: number | null;
-  readonly size?: Size;
+  readonly tier?: NumTier;
   readonly quiet?: boolean;
 }) {
-  return <span class={quiet ? 'num num--quiet' : cls(size)}>{formatR(value)}</span>;
+  return <TierNum text={formatR(value)} tier={tier} quiet={quiet} />;
 }
 
-export function YenNum({ value, size }: { readonly value: number; readonly size?: Size }) {
-  return <span class={cls(size)}>{formatYen(value)}</span>;
+export function YenNum({ value, tier }: { readonly value: number; readonly tier?: NumTier }) {
+  return <TierNum text={formatYen(value)} tier={tier} />;
 }
 
 /**
- * 口座の通貨の損益（#47 PR-2・U29）。数を .num に、単位（円・通貨の 3 文字）は .num の外に小さく
- * （.num-unit = --fs-sm・--ink-2）出す
+ * 口座の通貨の損益（#47 PR-2・U29）。円は空きなし「−8,000円」、外貨は半角の空き「−50.00 USD」（formatMoney と同じ）。
+ * 単位の置き方は段の文法に従う（row 以下は数と同じ塊。#236）
  */
 export function MoneyNum({
   value,
   currency,
-  size,
+  tier,
   quiet,
 }: {
   readonly value: number;
   readonly currency: string;
-  readonly size?: Size;
+  readonly tier?: NumTier;
   /** 静かな形（危ない勝ちの損益。RNum の quiet と同じ。#227・C59） */
   readonly quiet?: boolean;
 }) {
-  // 円も外貨も、単位は数の外に小さく（決定 2.6 を円にも当てる。#47 PR-2 デザイン 7）。円は空きなし「−8,000円」、
-  // 外貨は半角の空き「−50.00 USD」（読み上げ・文字としては formatMoney と同じ）
-  const text = formatMoney(value, currency);
-  const suffix = currency === 'JPY' ? '円' : ` ${currency}`;
-  const num = text.endsWith(suffix) ? text.slice(0, -suffix.length) : text;
-  return (
-    <span class="num-money">
-      <span class={quiet ? 'num num--quiet' : cls(size)}>{num}</span>
-      {num === text ? null : <span class="num-unit">{suffix}</span>}
-    </span>
-  );
+  return <TierNum text={formatMoney(value, currency)} tier={tier} quiet={quiet} />;
 }
 
 /** 文の中の金額（「10,000円」「100.00 USD」）。数と単位を 1 つの塊にする（#47 PR-2 デザイン 8） */

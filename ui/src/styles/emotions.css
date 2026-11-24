@@ -37,10 +37,8 @@
 }
 
 .emotions__r {
-  font-family: var(--mono);
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  font-variant-numeric: tabular-nums;
+  /* 行の R（数字の段 row = .num--row。本文の書体の桁揃え。#236・C62） */
+  line-height: var(--lh-tight);
 }
 
 /* 危ない勝ちの R は静かな形（#227・C59） */

@@ -111,11 +111,11 @@ export function Parts() {
         <div class="hero__stats">
           <div class="stat">
             <span class="stat__label">R</span>
-            <RNum value={2.34} size="xl" />
+            <RNum value={2.34} tier="hero" />
           </div>
           <div class="stat">
             <span class="stat__label">損益</span>
-            <YenNum value={12345} size="lg" />
+            <YenNum value={12345} tier="row" />
           </div>
         </div>
         <p class="hero__reason">LC を広げた後に戻った勝ち。勝っても、規律は崩れています。</p>
@@ -152,9 +152,9 @@ export function Parts() {
               </dt>
               <dd>
                 {n.id === 'N8' || n.id === 'N9' || n.id === 'N10' ? (
-                  <YenNum value={n.value as number} size="lg" />
+                  <YenNum value={n.value as number} tier="row" />
                 ) : (
-                  <RNum value={n.value} size="lg" />
+                  <RNum value={n.value} tier="row" />
                 )}
               </dd>
             </div>

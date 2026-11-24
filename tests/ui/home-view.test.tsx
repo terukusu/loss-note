@@ -236,9 +236,13 @@ describe('HomeView の並び（K18・9.4）', () => {
     );
     expect(monthLink).toHaveLength(1);
     expect(text(monthLink)).toContain('振り返り');
-    // 主役の数字（.num--xl）は 2 つ（率・規律コスト）
-    const nums = all(all(tree, hasClass('homemonth'))[0]?.children ?? [], hasClass('num--xl'));
-    expect(nums.map(text)).toEqual(['57', '−0.6']);
+    // 今月の規律の数字は数字の段 title（28px）の 2 つ（率・規律コスト）。単位は数の外の別の塊（#236・C62）
+    const month = all(tree, hasClass('homemonth'))[0]?.children ?? [];
+    expect(all(month, hasClass('num--title')).map(text)).toEqual(['57', '−0.6']);
+    expect(all(month, hasClass('num-unit')).map(text)).toEqual(['%', 'R']);
+    expect(all(month, hasClass('numu--title')).map(text)).toEqual(['57%', '−0.6R']);
+    expect(all(month, hasClass('num--display'))).toEqual([]);
+    expect(all(month, hasClass('num--hero'))).toEqual([]);
     // 規律コストの下は語の塊ごとに 1 行
     const lines = all(tree, hasClass('homemonth__lines'))[0] as El;
     expect(lines.children.map(text)).toEqual(['守っていれば +0.9R', '実際 +0.3R']);

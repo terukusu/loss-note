@@ -1,8 +1,9 @@
 // 振り返りのタブ（タブ 3。`/review`。#128 = U2。設計書 9.2 の振り返りの行・ui-guidelines 9.3・9.11）と、次の画面
-// 「数で見る」（`/review/table`）。規律の振り返り（#88・C44）をホームから移して作り直した: 期間（上に貼り付く）→ 範囲と件数 →
-// 1 枚目（規律コストの見出しと曲線）→ 2 枚目（計画どおり率と内訳）→「数で見る ›」。上のセグメント 規律 / 気づき（#162）の気づきは
-// 心理ごとの集計（`&view=insight`。期間・取り込みは共通）。気づきの行・連勝の後のカードは次の画面「期間の取引」へ（#185。
-// `pages/ReviewTrades.tsx`）。期間は URL の検索部分（置き換え。履歴を積まない。
+// 「数で見る」（`/review/table`）。1 本の流れ（#228・C60。前の 規律 / 気づき のセグメントはやめた）: 期間（上に貼り付く）→ 範囲と件数 →
+// いくら（規律コストの見出しと曲線・計画どおり率と内訳）→ なぜ（「何で崩れたか」の順位図。切り替え 心理 / More / Good は `&why=`・
+// 連勝の後）→ どの取引（「崩れの取引を見る ›」・「数で見る ›」）→ 次は（More の自分で書いた行の最新 1 行）。なぜの行・連勝の後・
+// 崩れの取引・次はの行は次の画面「期間の取引」へ（#185。`pages/ReviewTrades.tsx`）。前の URL `&view=insight` は view を外した URL に
+// 置き換えて受ける。期間は URL の検索部分（置き換え。履歴を積まない。
 // `/review?period=…`）で、「数で見る」も同じ検索部分（`/review/table?period=…`。戻ると同じ期間の振り返り）。
 // 銘柄の値と消した印は、直近の取引と同じ読み込み（決済の新しい順の先頭 10 件）から取る（#88 のまま）。
 // 3 層: 純関数（lib/period.ts・lib/review-view.ts）→ 通信と状態（lib/review-controller.ts）→ hook を持たない View
@@ -18,15 +19,15 @@ import { type InsightModel, insightModelFor } from '../lib/insight-view';
 import {
   type PeriodSelection,
   parsePeriod,
-  parseReviewView,
-  periodActions,
+  parseWhy,
   periodRange,
-  type ReviewViewKey,
+  periodSearch,
   reviewHref,
   reviewTableHref,
+  type WhyKey,
 } from '../lib/period';
 import { createReviewController, type ReviewState } from '../lib/review-controller';
-import { reviewTradesHref } from '../lib/review-trades';
+import { reviewNavActions } from '../lib/review-nav';
 import { NO_CURVE, type ReviewModel, reviewModelFor } from '../lib/review-view';
 import { type Navigator, NavigatorContext } from '../lib/router';
 import { HOME_LIMIT } from '../lib/trade-pages';
@@ -50,18 +51,40 @@ function useSearch(nav: Navigator | null): string {
 export function useReview(
   instruments: readonly InstrumentRecord[],
   hidden: ReadonlySet<string>,
-  hrefOf: (sel: PeriodSelection, view: ReviewViewKey) => string = reviewHref,
-  /** 規律の表示の形を作るか（期間の取引の画面は使わないので作らない = 期間の全件の集計を省く。#185） */
-  opts: { readonly discipline?: boolean } = {},
+  hrefOf: (sel: PeriodSelection, why: WhyKey) => string = reviewHref,
+  /**
+   * 規律・なぜの表示の形を作るか（期間の取引の画面は使わないので作らない = 期間の全件の集計を省く。#185）。
+   * canonical = 前の URL `&view=insight` を view を外した URL に置き換える（振り返りのタブだけ。#228）
+   */
+  opts: {
+    readonly discipline?: boolean;
+    readonly canonical?: boolean;
+    /** なぜ・次はの形を作るか（既定 = discipline。「数で見る」は表だけなので作らない。#228 のレビュー） */
+    readonly insight?: boolean;
+  } = {},
 ): ReviewSlot {
   const discipline = opts.discipline ?? true;
+  const wantsInsight = opts.insight ?? discipline;
   const nav = useContext(NavigatorContext);
   const search = useSearch(nav);
   const selection = useMemo(() => parsePeriod(search), [search]);
-  // 規律 / 気づき（#162）。期間の操作は今のセグメントを保った URL へ置き換える（期間は 2 つで共通）
-  const view = useMemo(() => parseReviewView(search), [search]);
-  // 「今」は期間を変えるたびに読み直す（開いたまま日をまたいでも、次の操作で今日に合う）
-  const now = useMemo(() => Date.now(), [search]);
+  // 「何で崩れたか」の切り替え（#228）。期間の操作は今の切り替えを保った URL へ置き換える
+  const why = useMemo(() => parseWhy(search), [search]);
+  // URL のつなぎ方（切り替え・期間の操作・前の URL の置き換え）は lib/review-nav.ts（テストが本物の navigator で通す）
+  const actions = reviewNavActions(search, nav, {
+    hrefOf,
+    canonical: opts.canonical ?? false,
+    now: Date.now,
+  });
+  const { canonical, redirect } = actions;
+  useEffect(() => {
+    // 前の気づきのセグメントの URL（#162 の `&view=insight`）は同じ期間・同じ切り替えの今の URL に置き換える（履歴を積まない）
+    if (canonical !== null) redirect();
+  }, [canonical, redirect]);
+  // 「今」は期間を変えるたびに読み直す（開いたまま日をまたいでも、次の操作で今日に合う）。切り替え（`&why=`）だけの変化では
+  // 読み直さない（表示の形を組み直さない。#228 のレビュー）
+  const periodKey = periodSearch(selection);
+  const now = useMemo(() => Date.now(), [periodKey]);
   const range = useMemo(() => periodRange(selection, now), [selection, now]);
   const controller = useMemo(() => createReviewController({ api }), []);
   const [state, setState] = useState<ReviewState>(controller.getState());
@@ -101,13 +124,13 @@ export function useReview(
   // 期間を切り替えて読んでいる間は、前の期間の表示を薄く残す（カードの高さを跳ばさない）
   const last = useRef<ReviewModel | null>(null);
   if (model) last.current = model;
-  // 気づきの表示の形は気づきを開いているときだけ作る（規律と同じ対象・同じ読み込み。#162）
+  // なぜ（心理・Good / More・連勝の後）と次はの表示の形（規律と同じ対象・同じ読み込み。#162・#228）
   const insight = useMemo(
     () =>
-      view === 'insight'
-        ? insightModelFor(state, range, { hidden, includeImports: selection.imports })
+      wantsInsight
+        ? insightModelFor(state, range, { hidden, includeImports: selection.imports, now })
         : null,
-    [view, state, range, hidden, selection.imports],
+    [wantsInsight, state, range, hidden, selection.imports, now],
   );
   const lastInsight = useRef<InsightModel | null>(null);
   if (insight) lastInsight.current = insight;
@@ -117,16 +140,15 @@ export function useReview(
     state,
     model,
     previous: model ? null : last.current,
-    view,
-    insight,
-    previousInsight: insight ? null : lastInsight.current,
-    onView: (next) => {
-      if (next !== view) nav?.replace(reviewHref(selection, next));
-    },
-    tableHref: reviewTableHref(selection),
-    // 気づきの行・連勝の後のカード → 同じ期間の「期間の取引」（#185）
-    trailHref: (filter) => reviewTradesHref(selection, filter),
-    ...periodActions(selection, Date.now, (next) => nav?.replace(hrefOf(next, view))),
+    why,
+    // なぜ・次はを作らない組み立て（数で見る・期間の取引）は undefined（段を出さない）
+    ...(wantsInsight ? { insight, previousInsight: insight ? null : lastInsight.current } : {}),
+    onWhy: actions.onWhy,
+    tableHref: actions.tableHref,
+    trailHref: actions.trailHref,
+    onKey: actions.onKey,
+    onDates: actions.onDates,
+    onImports: actions.onImports,
     onReload: () => {
       void controller.reload();
     },
@@ -157,7 +179,12 @@ export function Review() {
 
 function ReviewScreen({ empty }: { readonly empty: JSX.Element }) {
   const { state, controller, hidden } = useTrades({ pageSize: HOME_LIMIT });
-  const review = useReview(state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS, hidden);
+  const review = useReview(
+    state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS,
+    hidden,
+    reviewHref,
+    { canonical: true },
+  );
   return (
     <ReviewView
       state={state}
@@ -183,7 +210,7 @@ export interface ReviewViewProps {
   readonly onRelogin: () => void;
 }
 
-/** 規律の振り返り（hook を持たない。取引が 0 件なら空の状態） */
+/** 振り返りの 1 本の流れ（hook を持たない。取引が 0 件なら空の状態） */
 export function ReviewView(p: ReviewViewProps) {
   const { state } = p;
   if (state.phase !== 'ready') return <LoadState {...p} />;
@@ -199,6 +226,7 @@ export function ReviewTablePage() {
     state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS,
     hidden,
     reviewTableHref,
+    { insight: false },
   );
   return <ReviewTableView review={review} back={backTargetOf(nav, reviewHref(review.selection))} />;
 }

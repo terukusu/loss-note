@@ -4,13 +4,18 @@ import {
   emotionItemOf,
   FEW,
   INSIGHT_NONE,
+  type InsightRowText,
+  insightItemOf,
   insightModel,
   insightModelFor,
+  nextOf,
   OVERLAP_NOTE,
+  rankRows,
 } from '../../ui/src/lib/insight-view';
 import { periodRange } from '../../ui/src/lib/period';
 import { REVIEW_ONLY_IMPORTS, reviewItemOf, reviewModel } from '../../ui/src/lib/review-view';
 import { E1, E1_HIDDEN, E3, E4, E5, E6, E8 } from './helpers/insight-examples';
+import { reflected } from './helpers/reflection-insight-examples';
 import { REVIEW_NOW } from './helpers/review-examples';
 import { INSTRUMENTS } from './helpers/trade-examples';
 
@@ -265,5 +270,126 @@ describe('insightModelFor: 読み終えた範囲と今の期間', () => {
     ).toBeNull();
     expect(insightModelFor({ phase: 'loading', range: R7 }, range7, opts)).toBeNull();
     expect(insightModelFor(ready, { ok: false, error: 'x' }, opts)).toBeNull();
+  });
+});
+
+/** 順位図の行（rankRows は名前・基準・costR だけを見る） */
+function rowOf(name: string, costR: number | null, base = false): InsightRowText {
+  return {
+    name,
+    countText: '5 件',
+    few: costR === null,
+    base,
+    restText: null,
+    rateText: null,
+    fractionText: null,
+    cost: null,
+    costR,
+    noRText: null,
+    text: name,
+    srText: name,
+  };
+}
+
+describe('Issue #228 AC-3: 何で崩れたかの順位図（rankRows）', () => {
+  it('E1: 基準 → 多く失った順。棒 = |規律コスト| ÷ 最大（1・0.222…・0）', () => {
+    const got = rankRows([
+      rowOf('平常心', 0, true),
+      rowOf('乗り遅れ怖い', -0.4),
+      rowOf('取り戻したい', -1.8),
+    ]);
+    expect(got.map((x) => x.row.name)).toEqual(['平常心', '取り戻したい', '乗り遅れ怖い']);
+    expect(got.map((x) => x.ratio)).toEqual([0, 1, 0.4 / 1.8]);
+  });
+
+  it('E5: どれも ±0.0R → 棒はどれも 0（NaN を出さない）・並びは今の順のまま', () => {
+    const got = rankRows([rowOf('a', 0), rowOf('b', -0), rowOf('c', 0)]);
+    expect(got.map((x) => x.row.name)).toEqual(['a', 'b', 'c']);
+    expect(got.map((x) => x.ratio)).toEqual([0, 0, 0]);
+  });
+
+  it('同じ値は今の順（件数の多い順 → 一覧の順）・R の出ない行は棒 0 で最後・基準は件数が少なくても先頭', () => {
+    const got = rankRows([
+      rowOf('x', -1),
+      rowOf('noR', null),
+      rowOf('y', -1),
+      rowOf('基準', null, true),
+      rowOf('z', -2),
+    ]);
+    expect(got.map((x) => x.row.name)).toEqual(['基準', 'z', 'x', 'y', 'noR']);
+    expect(got.map((x) => x.ratio)).toEqual([0, 1, 0.5, 0.5, 0]);
+  });
+
+  it('性質: どの入力でも ratio は 0〜1・有限、最大の行は 1、入力の値（costR）を変えない', () => {
+    let seed = 7;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed / 2 ** 31;
+    };
+    for (let n = 0; n < 200; n++) {
+      const rows = Array.from({ length: 1 + Math.floor(rnd() * 8) }, (_, i) =>
+        rowOf(`r${i}`, rnd() < 0.2 ? null : -Math.round(rnd() * 500) / 100, i === 0 && rnd() < 0.5),
+      );
+      const before = rows.map((r) => r.costR);
+      const got = rankRows(rows);
+      expect(got).toHaveLength(rows.length);
+      expect(rows.map((r) => r.costR)).toEqual(before);
+      for (const g of got) {
+        expect(Number.isFinite(g.ratio)).toBe(true);
+        expect(g.ratio).toBeGreaterThanOrEqual(0);
+        expect(g.ratio).toBeLessThanOrEqual(1);
+      }
+      const max = Math.max(0, ...rows.map((r) => Math.abs(r.costR ?? 0)));
+      if (max > 0) expect(got.some((g) => g.ratio === 1)).toBe(true);
+      // 基準でない値のある行は規律コストの小さい順
+      const vals = got
+        .filter((g) => !g.row.base && g.row.costR !== null)
+        .map((g) => g.row.costR ?? 0);
+      expect([...vals].sort((a, b) => a - b)).toEqual(vals);
+    }
+  });
+
+  it('E1 の心理の行の costR は規律コストの数（基準 0・取り戻したい −1.8・件数が少ない行は null）', () => {
+    const m = model(E1, false, E1_HIDDEN);
+    expect(m.main.map((r) => [r.id, r.costR])).toEqual([
+      ['calm', 0],
+      ['recoup', expect.closeTo(-1.8, 9)],
+    ]);
+    expect(m.few.every((r) => r.costR === null)).toBe(true);
+  });
+});
+
+describe('Issue #228 AC-6: 次はこうする（nextOf）', () => {
+  it('E8: 決済のいちばん新しい取引の最初の行・日付・件数（取り込みは切り替えに従う）', () => {
+    const items = [
+      reflected('n1', 5, 'B', -1.2, {
+        moreNotes: ['同じ日に 2 回目は入らない', '入る前に LC を置く'],
+      }),
+      reflected('n2', 4, 'B', -1.2, { moreNotes: ['数量を 1R から逆算する'] }),
+      reflected('n3', 6, 'B', -1.2, { moreNotes: ['取り込みの行'] }, { source: 'import' }),
+      reflected('n4', 6, 'A', -1.0, { more: ['oversized'] }),
+    ].map(insightItemOf);
+    expect(nextOf(items, { includeImports: false, now: REVIEW_NOW })).toEqual({
+      text: '同じ日に 2 回目は入らない',
+      dateText: '11/18 の取引',
+      count: 2,
+    });
+    expect(nextOf(items, { includeImports: true, now: REVIEW_NOW })).toEqual({
+      text: '取り込みの行',
+      dateText: '11/19 の取引',
+      count: 3,
+    });
+  });
+
+  it('E9: More の自分で書いた行が無い → text なし・件数 0', () => {
+    expect(nextOf(E1.map(insightItemOf), { includeImports: false, now: REVIEW_NOW })).toEqual({
+      text: null,
+      dateText: null,
+      count: 0,
+    });
+  });
+
+  it('対象 0 件の期間は insightModel が next を作らない（null）', () => {
+    expect(model([]).next).toBeNull();
   });
 });

@@ -95,3 +95,10 @@
   line-height: var(--lh-body);
   white-space: nowrap;
 }
+
+/* 次はこうするのカードの中の押せる行は、カードの面の上なので面を重ねない（#228） */
+.next__more .rowlink {
+  padding-inline: 0;
+  background: none;
+  box-shadow: none;
+}

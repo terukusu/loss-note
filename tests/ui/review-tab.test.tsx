@@ -469,7 +469,7 @@ describe('レビュー後の修正（#88 Phase 4・4b）', () => {
     expect(text(r)).toContain('期間の取引が多いので先頭の 2,000 件で集計しています');
   });
 
-  it('並び: 1 枚目（一言の見出し → 曲線）→ 2 枚目（計画どおり率 → 内訳）→「数で見る ›」。主役の数字（num--xl）は規律コストと率', () => {
+  it('並び: 1 枚目（一言の見出し → 曲線）→ 2 枚目（計画どおり率 → 内訳）→「数で見る ›」。主役の数字（num--xl）は規律コストだけ・率は 2 番目の大きさ（num--lg。#228）', () => {
     const r = reviewOf(home(slot(SEVEN, ready(S1))));
     const cost = all([r], hasClass('review__costcard'))[0] as El;
     const order = all([cost], (e) => ['review__head', 'curve'].some((c) => hasClass(c)(e))).map(
@@ -481,8 +481,9 @@ describe('レビュー後の修正（#88 Phase 4・4b）', () => {
     expect(all([head], hasClass('num--xl'))).toHaveLength(1);
     expect(text(all([r], hasClass('review__subline')))).toBe('守っていれば +0.9R · 実際 +0.3R');
     const rate = all([r], hasClass('review__ratecard'))[0] as El;
-    // 主役の数字は 44px・単位は小さく（ホームと同じ形。デザインの細かい点）
-    expect(all([rate], hasClass('num--xl')).map(text)).toEqual(['57']);
+    // 率は 24px（いちばん大きい段は規律コストだけ。#228・C60）・単位は小さく（ホームと同じ形。デザインの細かい点）
+    expect(all([rate], hasClass('num--xl'))).toEqual([]);
+    expect(all([rate], hasClass('num--lg')).map(text)).toEqual(['57']);
     expect(all([rate], hasClass('review__unit')).map(text)).toEqual(['%']);
     expect(text(rate)).toContain('4 / 7 件');
   });

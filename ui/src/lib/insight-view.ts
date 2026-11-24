@@ -24,7 +24,7 @@ import {
   WIN_STREAK_MIN,
 } from '../../../core/review';
 import { EMOTION_TEXT } from './emotion-tags';
-import { formatR, formatRate } from './format';
+import { formatDay, formatR, formatRate } from './format';
 import { inRange, type PeriodRange } from './period';
 import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
@@ -41,7 +41,7 @@ export const INSIGHT_TITLE = '心理ごとの規律';
 /** 判定の出た取引が 5 件未満の行（6.1。率・分数・規律コストを出さない） */
 export const FEW = '件数が少ない';
 /** 件数が少ない行のまとまりの見出し（値のある行と分けて 1 回だけ。#162 デザインレビュー 1） */
-export const FEW_HEAD = '件数が少ない（判定の出た取引が 5 件未満）';
+export const FEW_HEAD = '件数が少ない（判定の出た取引が 5 件になると表示）';
 /** 列の見出し（#162 デザインレビュー 2） */
 export const COLUMN = { rate: '計画どおり率', cost: '規律コスト' } as const;
 /** 平常心の行の印（比べる基準。#162 デザインレビュー 4） */
@@ -132,6 +132,15 @@ export interface InsightRowText {
     readonly lead: string;
     readonly value: string;
   } | null;
+  /**
+   * 規律コストの数（R。0 以下）。few・R の出る取引が無い行は null。「何で崩れたか」の順位図の並びと棒の長さに使う（#228）
+   */
+  readonly costR: number | null;
+  /**
+   * 順位図の行の 2 行目に添える R の出ない取引の件数（「R なし 1 件」。#228）。few・R の出ない取引が無い行は null。
+   * 規律コストの言い方を「崩れで ±0.0R」にそろえる代わりに、測れていない取引があることをここで言う
+   */
+  readonly noRText: string | null;
   /** 行の全文（テスト・例の表の形。「平常心 5 件 · 100%（5 / 5）· 崩れなし ±0.0R」） */
   readonly text: string;
   /** 読み上げの全文（列の名前つき。見た目の部品は読み上げから外す） */
@@ -191,6 +200,93 @@ export interface InsightModel {
   readonly streak?: StreakModel | null;
   /** Good / More のカード（#221。対象が 0 件なら null。省いた組み立てはカードを出さない） */
   readonly reflection?: ReflectionInsight | null;
+  /** 次はこうする（#228。More の自分で書いた行の最新 1 行。対象が 0 件なら null。省いた組み立ては段を出さない） */
+  readonly next?: NextModel | null;
+}
+
+/** 「次はこうする」の段（#228。設計書 9.2・C60） */
+export interface NextModel {
+  /** More の自分で書いた行のある取引のうち決済のいちばん新しい取引の最初の行（無ければ null = 案内の 1 行） */
+  readonly text: string | null;
+  /** その取引の決済の日（「11/19 の取引」） */
+  readonly dateText: string | null;
+  /** More の自分で書いた行のある取引の件数（押せる行の添え） */
+  readonly count: number;
+}
+
+export const NEXT_TITLE = '次はこうする';
+export const NEXT_NONE = '取引の詳細の「Good / More」で More を書くと、ここに表示されます。';
+export const NEXT_LINK = 'More の自分で書いた行を見る';
+
+/** 決済の新しい順（一覧の並び = 決済の新しい順 → 作った新しい順 → ID の昇順）で a が先か */
+function newerFirst(a: ReviewItem, b: ReviewItem): number {
+  return (
+    b.exitTime - a.exitTime || b.createdAt - a.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+  );
+}
+
+/**
+ * 次はこうする（#228）: 対象（取り込みは切り替えに従う）のうち More の自分で書いた行のある取引の、決済のいちばん新しい取引の
+ * 最初の行と決済の日。now は日付の年を出すかの基準（formatDay。無ければその取引の年 = 年を出さない）
+ */
+export function nextOf(
+  items: readonly ReviewItem[],
+  opts: { readonly includeImports: boolean; readonly now?: number | undefined },
+): NextModel {
+  const written = (opts.includeImports ? [...items] : items.filter((i) => !i.imported))
+    .filter((i) => (i.reflection?.more.notes.length ?? 0) > 0)
+    .sort(newerFirst);
+  const first = written[0];
+  const text = first?.reflection?.more.notes[0];
+  if (first === undefined || text === undefined) return { text: null, dateText: null, count: 0 };
+  return {
+    text,
+    dateText: `${formatDay(first.exitTime, opts.now ?? first.exitTime)} の取引`,
+    count: written.length,
+  };
+}
+
+/**
+ * 順位図の行の規律コストの見た目の文（#228）: 1 枚目の見出しと同じ「崩れで −1.8R」の形にそろえる。崩れの R が 0 の行は、
+ * R の出ない取引があっても「崩れで ±0.0R」（それは行の noRText で言う）、無ければ「崩れなし ±0.0R」。R の出る取引が無い行は
+ * 「R が出る取引がありません」のまま。読み上げ（srText）は前の全文のまま
+ */
+export function rankCostOf(
+  r: Pick<InsightRowText, 'cost'>,
+): { lead: string; value: string } | null {
+  if (!r.cost) return null;
+  return {
+    lead: r.cost.kind === 'measured' ? HEADLINE_LEAD.gap : r.cost.lead,
+    value: r.cost.value,
+  };
+}
+
+/** 順位図の 1 行（#228）: 行と棒の長さ（0〜1。表示中の行のうち規律コストの絶対値の最大に対する割合） */
+export interface RankRow<R extends InsightRowText> {
+  readonly row: R;
+  readonly ratio: number;
+}
+
+/**
+ * 「何で崩れたか」の順位図（#228。設計書 9.4・C60）: 値の出る行を 基準（平常心）→ 規律コストの小さい順（多く失った順）→ 同じ値は
+ * 今の順（件数の多い順 → 一覧の順）に並べ、棒の長さを規律コストの絶対値 ÷ 最大の絶対値にする（最大が 0 なら全部 0）。
+ * 規律コストの無い行（R の出る取引が無い・件数が少ない基準）は棒 0 で値の行の最後（基準は先頭のまま）。値は変えない
+ */
+export function rankRows<R extends InsightRowText>(main: readonly R[]): RankRow<R>[] {
+  const max = main.reduce((m, r) => (r.costR === null ? m : Math.max(m, Math.abs(r.costR))), 0);
+  const order = (r: R) =>
+    r.base ? Number.NEGATIVE_INFINITY : (r.costR ?? Number.POSITIVE_INFINITY);
+  // sort は安定（同じ値は今の順のまま）
+  return [...main]
+    .sort((a, b) => {
+      const x = order(a);
+      const y = order(b);
+      return x === y ? 0 : x < y ? -1 : 1;
+    })
+    .map((row) => ({
+      row,
+      ratio: max > 0 && row.costR !== null ? Math.min(1, Math.abs(row.costR) / max) : 0,
+    }));
 }
 
 /** 規律コストの言い方（review-view.ts の見出しと同じ規則） */
@@ -314,6 +410,8 @@ function rowTextOf(name: string, v: PeriodReview, base: boolean): InsightRowText
       rateText: null,
       fractionText: null,
       cost: null,
+      costR: null,
+      noRText: null,
       text: `${name} ${summaryOf(v)}`,
       srText: `${name}${baseText} ${countText}、${FEW}（${restText}で表示）`,
     };
@@ -331,6 +429,8 @@ function rowTextOf(name: string, v: PeriodReview, base: boolean): InsightRowText
     rateText,
     fractionText,
     cost,
+    costR: v.curve.length === 0 ? null : v.cost,
+    noRText: v.noR > 0 && v.curve.length > 0 ? `R なし ${v.noR} 件` : null,
     text: `${name} ${summaryOf(v)}`,
     srText: `${name}${baseText} ${countText}、${COLUMN.rate} ${rateText}（${fractionText}）、${COLUMN.cost} ${costText}`,
   };
@@ -439,6 +539,8 @@ export function insightModel(
     readonly hidden: ReadonlySet<string>;
     readonly includeImports: boolean;
     readonly range?: { readonly from: number; readonly to: number };
+    /** 次はこうするの日付の年を出すかの基準（無ければ年を出さない） */
+    readonly now?: number;
   },
 ): InsightModel {
   const items = insightItems(trades, opts);
@@ -454,6 +556,7 @@ export function insightModel(
       few: [],
       streak: null,
       reflection: null,
+      next: null,
     };
   }
   const rows = v.rows.map((r) => rowOf(r.id, r.review));
@@ -467,6 +570,7 @@ export function insightModel(
     few: rows.filter((r) => !r.base && r.few),
     streak: streakOf(items, opts.includeImports),
     reflection: reflectionOf(items, opts.includeImports),
+    next: nextOf(items, { includeImports: opts.includeImports, now: opts.now }),
   };
 }
 
@@ -474,7 +578,11 @@ export function insightModel(
 export function insightModelFor(
   state: ReviewState,
   range: PeriodRange,
-  opts: { readonly hidden: ReadonlySet<string>; readonly includeImports: boolean },
+  opts: {
+    readonly hidden: ReadonlySet<string>;
+    readonly includeImports: boolean;
+    readonly now?: number;
+  },
 ): InsightModel | null {
   if (state.phase !== 'ready' || !range.ok) return null;
   if (state.range.from !== range.from || state.range.to !== range.to) return null;

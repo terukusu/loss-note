@@ -1110,7 +1110,7 @@ describe('振り返りの「数で見る」と今月の規律のカード（#128
 
 describe('振り返りの「期間の取引」（#185。AC-4。ui-guidelines 9.3・9.7）', () => {
   const LIST = '/review/trades?period=7d&emotion=recoup';
-  const INSIGHT = '/review?period=7d&view=insight';
+  const INSIGHT = '/review?period=7d';
 
   it('/review/trades は次の画面「期間の取引」（振り返りのタブ）', () => {
     expect(parseRoute('/review/trades', PROD)).toEqual({ name: 'reviewTrades' });
@@ -1122,19 +1122,21 @@ describe('振り返りの「期間の取引」（#185。AC-4。ui-guidelines 9.3
     expect(titleOf({ name: 'reviewTrades' })).toBe('期間の取引 — 損失ノート');
   });
 
-  it('直接開いた /review/trades?… は [/, 同じ期間の気づき, /review/trades?…] に組み直す（絞り方の鍵は根に持ち込まない）', () => {
+  it('直接開いた /review/trades?… は [/, 同じ期間の振り返り, /review/trades?…] に組み直す（絞り方の鍵は根に持ち込まない。#228 E10: More / Good の行からなら切り替えはその側）', () => {
     expect(bootStack(LIST, PROD)).toEqual(['/', INSIGHT, LIST]);
     const imports = '/review/trades?period=1m&imports=1&after=winStreak';
-    expect(bootStack(imports, PROD)).toEqual([
-      '/',
-      '/review?period=1m&imports=1&view=insight',
-      imports,
-    ]);
-    expect(bootStack('/review/trades', PROD)).toEqual([
-      '/',
-      '/review?period=7d&view=insight',
-      '/review/trades',
-    ]);
+    expect(bootStack(imports, PROD)).toEqual(['/', '/review?period=1m&imports=1', imports]);
+    expect(bootStack('/review/trades', PROD)).toEqual(['/', '/review?period=7d', '/review/trades']);
+    for (const [href, root] of [
+      ['/review/trades?period=7d&more=oversized', '/review?period=7d&why=more'],
+      ['/review/trades?period=7d&notes=more', '/review?period=7d&why=more'],
+      ['/review/trades?period=7d&good=followedRules', '/review?period=7d&why=good'],
+      ['/review/trades?period=7d&notes=good', '/review?period=7d&why=good'],
+      ['/review/trades?period=7d&tier=off', '/review?period=7d'],
+      ['/review/trades?period=7d&more=foo', '/review?period=7d'],
+    ] as const) {
+      expect(bootStack(href, PROD)).toEqual(['/', root, href]);
+    }
   });
 
   it('気づき → 期間の取引 → 詳細: 詳細の「‹ 期間の取引」で同じ URL、その戻るで同じ期間の気づき', () => {
@@ -1154,7 +1156,7 @@ describe('振り返りの「期間の取引」（#185。AC-4。ui-guidelines 9.3
     expect(nav.current.search).toBe('?period=7d&emotion=recoup');
     nav.back(INSIGHT);
     expect(nav.current.route).toEqual({ name: 'review' });
-    expect(nav.current.search).toBe('?period=7d&view=insight');
+    expect(nav.current.search).toBe('?period=7d');
   });
 });
 
@@ -1177,7 +1179,7 @@ describe('取引の詳細の心理のチップ → 期間の取引（#188。AC-5
     nav.push('/trades/t2');
     nav.back('/trades');
     expect(nav.current.search).toBe('?period=3m&emotion=recoup');
-    nav.back('/review?period=3m&view=insight');
+    nav.back('/review?period=3m');
     expect(nav.current.route).toEqual({ name: 'trade', id: 't1' });
     expect(nav.current.mark.tab).toBe('trades');
   });
@@ -1185,7 +1187,7 @@ describe('取引の詳細の心理のチップ → 期間の取引（#188。AC-5
 
 describe('#185 の道からチップへ（#188 コードレビュー 4）', () => {
   it('振り返り → 気づき → 期間の取引 → 詳細 → チップ: 振り返りのタブのまま積み、2 回戻ると最初の期間の取引', () => {
-    const INSIGHT = '/review?period=7d&view=insight';
+    const INSIGHT = '/review?period=7d';
     const FIRST = '/review/trades?period=7d&emotion=recoup';
     const CHIP = '/review/trades?period=3m&emotion=recoup&via=trade';
     const b = new MarkBrowser('/');

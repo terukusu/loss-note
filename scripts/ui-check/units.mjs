@@ -285,7 +285,8 @@ export const CHANGE_RULES = [
     /Review|review|PeriodPicker|period\.ts|DisciplineCurve/,
     () => ['review', 'review-more', 'review-insight', 'home'],
   ],
-  [/InsightCard|insight-view|StreakCard|ReflectionInsight/, () => ['review-insight']],
+  // なぜ・次はの段は振り返りのタブの根にも出る（#228）
+  [/InsightCard|WhyCard|insight-view|StreakCard/, () => ['review', 'review-insight']],
   [
     /Settings|settings|AiUsage|ai-usage|export-|download\.ts/,
     () => ['settings', 'settings-accounts'],

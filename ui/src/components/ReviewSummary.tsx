@@ -1,22 +1,18 @@
 // 振り返りのタブ（`/review`）の規律の振り返り（Issue #88 契約 U-1。#128 でホームから移して作り直した。設計書 6.1・6.2・6.3・
 // 9.2 の振り返りの行・C44・ui-guidelines 9.3・9.11）。hook を持たない。
-// 縦の順は 規律 / 気づき のセグメント（#162。気づきは本文だけ InsightCard に替える）→ 期間（上に貼り付く）→ 範囲と件数（・取り込みの切り替え）→ 1 枚目（一言の見出し = 規律コスト・守っていれば · 実際 →
-// 規律コストの曲線と凡例）→ 2 枚目（計画どおり率の主役の数字・判定の内訳の帯と凡例・運と R が出ない件数）→「数で見る ›」
-// （次の画面 `/review/table`。表）。指定の日付の欄と取り込みの切り替えは、期間のシート（U3（#129） の下のシート）ができるまで期間の下。
+// 1 本の流れ（#228・C60。前の 規律 / 気づき のセグメントはやめた）: 期間（上に貼り付く）→ 範囲と件数（・取り込みの切り替え）→
+// いくら = 1 枚目（一言の見出し = 規律コスト・守っていれば · 実際 → 規律コストの曲線と凡例。いちばん大きい数字の段はここだけ）→
+// 2 枚目（計画どおり率（2 番目の大きさの数字）・判定の内訳の帯と凡例・運と R が出ない件数）→ なぜ =「何で崩れたか」（WhyCard）・
+// 連勝の後（StreakCard）→ どの取引 =「崩れの取引を見る ›」（期間の取引 `&tier=off`）・「数で見る ›」（次の画面 `/review/table`。表）→
+// 次は =「次はこうする」（NextCard）。指定の日付の欄と取り込みの切り替えは、期間のシート（#142）ができるまで期間の下。
 // 成績は R だけ（円を出さない）。R・% は無色の .num（P3）。色は判定の段（内訳の帯・凡例の記号・差の面・崩れの印）と文字・線だけ（P2）。
 // 図（内訳の帯・曲線）は読み上げから外し、同じ中身を文字（見出しの文・凡例・「数で見る」の表）で読ませる（P5）。
 // 表示の形（model）は hook の層が作って渡す（描画のたびに集計しない。読み終えた範囲が今の期間と違えば null = 読み込み中）
 import { splitUnit } from '../lib/home-view';
 import type { InsightModel } from '../lib/insight-view';
-import {
-  type PeriodKey,
-  type PeriodRange,
-  type PeriodSelection,
-  REVIEW_VIEW_LABEL,
-  type ReviewViewKey,
-} from '../lib/period';
+import type { PeriodKey, PeriodRange, PeriodSelection, WhyKey } from '../lib/period';
 import type { ReviewState } from '../lib/review-controller';
-import type { TrailFilter } from '../lib/review-trades';
+import { OFF_LINK, type TrailFilter } from '../lib/review-trades';
 import { NO_CURVE, type ReviewModel, ROWS_CAPTION } from '../lib/review-view';
 import '../styles/review.css';
 import { DENSE_NARROW, DENSE_WIDE } from '../lib/review-chart';
@@ -24,11 +20,9 @@ import { Button, RowLink } from './Button';
 import { CurveLegend, DisciplineCurve } from './DisciplineCurve';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
-import { InsightCard } from './InsightCard';
 import { PeriodDates, PeriodSegment } from './PeriodPicker';
-import { ReflectionInsightCards } from './ReflectionInsight';
-import { Segment } from './Segment';
 import { StreakCard } from './StreakCard';
+import { NextCard, WhyCard } from './WhyCard';
 
 export interface ReviewSlot {
   readonly selection: PeriodSelection;
@@ -48,25 +42,23 @@ export interface ReviewSlot {
   readonly onImports: (include: boolean) => void;
   readonly onReload: () => void;
   readonly onRelogin: () => void;
-  /** 上のセグメント（規律 / 気づき。#162）。無ければ規律 */
-  readonly view?: ReviewViewKey;
-  /** 気づきの表示の形（`insightModelFor`。気づきを開いているときだけ作る。読み込み中は null） */
-  readonly insight?: InsightModel | null;
-  /** 期間を切り替えて読んでいる間に残す前の期間の気づき（previous と同じ扱い） */
-  readonly previousInsight?: InsightModel | null;
-  /** セグメントを替えた（URL を置き換える。期間はそのまま）。無ければセグメントを出さない（振り返りのタブの hook は必ず渡す） */
-  readonly onView?: (view: ReviewViewKey) => void;
+  /** 「何で崩れたか」の切り替え（#228。`&why=`）。無ければ心理 */
+  readonly why?: WhyKey;
   /**
-   * 気づきの心理の行・連勝の後のカードの行き先（同じ期間の「期間の取引」。#185）。無ければ行を押せない形のまま
+   * なぜ・次はの表示の形（`insightModelFor`。読み込み中は null）。無ければ（undefined）なぜ・次はの段を出さない
+   * （規律だけの組み立て）
+   */
+  readonly insight?: InsightModel | null;
+  /** 期間を切り替えて読んでいる間に残す前の期間のなぜ・次は（previous と同じ扱い） */
+  readonly previousInsight?: InsightModel | null;
+  /** 切り替えを押した（URL を置き換える。期間はそのまま）。無ければ切り替えを出さない（振り返りのタブの hook は必ず渡す） */
+  readonly onWhy?: (why: WhyKey) => void;
+  /**
+   * なぜの行・連勝の後・崩れの取引・次はの行き先（同じ期間の「期間の取引」。#185・#228）。無ければ行を押せない形のまま
    * （振り返りのタブの hook は必ず渡す）
    */
   readonly trailHref?: (filter: TrailFilter) => string;
 }
-
-const VIEW_OPTIONS = (['discipline', 'insight'] as const).map((v) => ({
-  value: v,
-  label: REVIEW_VIEW_LABEL[v],
-}));
 
 /** 見出しの前の記号（差あり = 崩れの △、差 0 = 計画どおりの ○、差 0 だが曲線の外の取引あり = 極悪の ×） */
 const HEADLINE_SYMBOL = { gap: 'triangle', none: 'circle', measured: 'cross' } as const;
@@ -78,12 +70,15 @@ function curveDense(n: number) {
 
 export const TABLE_ID = 'review-table';
 
-/** 主役の数字（44px）と小さな単位（%・R）。ホームの今月の規律と同じ形（#128 デザインの細かい点） */
-function BigNum({ text }: { readonly text: string }) {
+/**
+ * 数字と小さな単位（%・R）。ホームの今月の規律と同じ形（#128 デザインの細かい点）。xl（44px）は振り返りのいちばん大きい数字の段で、
+ * 規律コストの見出しだけに使う（#228・C60）。計画どおり率は lg（24px）
+ */
+function BigNum({ text, size = 'xl' }: { readonly text: string; readonly size?: 'xl' | 'lg' }) {
   const n = splitUnit(text);
   return (
-    <span class="review__big">
-      <span class="num num--xl">{n.value}</span>
+    <span class={`review__big review__big--${size}`}>
+      <span class={`num num--${size}`}>{n.value}</span>
       <span class="review__unit">{n.unit}</span>
     </span>
   );
@@ -93,19 +88,6 @@ export function ReviewSection(p: ReviewSlot) {
   const m = p.model;
   return (
     <div class="review">
-      {/* 規律 / 気づき（#162。設計書 9.2）。流れる（貼り付くのは期間の行だけ）。期間・取り込みの切り替えは 2 つで共通 */}
-      {p.onView ? (
-        <div class="review__view">
-          <Segment
-            label="表示"
-            name="review-view"
-            showLabel={false}
-            options={VIEW_OPTIONS}
-            value={p.view ?? 'discipline'}
-            onChange={p.onView}
-          />
-        </div>
-      ) : null}
       {/* 貼り付くのは 5 つの選択肢の行だけ。指定の日付の欄は流れる（デザイン a5） */}
       <div class="review__period-bar">
         <PeriodSegment
@@ -181,12 +163,16 @@ function ReviewBody(p: ReviewSlot) {
       </section>
     );
   }
-  const insight = p.view === 'insight';
-  const current = insight ? (p.insight ?? null) : p.model;
+  // なぜ・次はの形を渡す組み立て（振り返りのタブ）は、規律と両方がそろうまで読み込み中（片方だけを出さない）
+  const wantsInsight = p.insight !== undefined;
+  const current: Shown | null =
+    p.model && (!wantsInsight || p.insight) ? { m: p.model, insight: p.insight ?? null } : null;
   const loading = s.phase === 'loading' || !current;
-  const prev = insight ? (p.previousInsight ?? null) : (p.previous ?? null);
+  const prev: Shown | null = p.previous
+    ? { m: p.previous, insight: p.previousInsight ?? null }
+    : null;
   const shown = loading ? prev : current;
-  if (loading && (!shown || shown.empty)) {
+  if (loading && (!shown || shown.m.empty)) {
     // 最初の読み込み: 中身の形の高さを先に取る骨組み（読み終えて中身が出てもカードの高さが大きく跳ばない）
     return (
       <div class="card review__skeleton" aria-busy="true">
@@ -205,31 +191,59 @@ function ReviewBody(p: ReviewSlot) {
           読み込んでいます…
         </p>
         <div class="review__cards" aria-hidden="true" inert>
-          <ViewContent {...p} shown={shown} />
+          <FlowContent {...p} shown={shown} />
         </div>
       </div>
     );
   }
   return (
     <div class="review__cards">
-      <ViewContent {...p} shown={shown} />
+      <FlowContent {...p} shown={shown} />
     </div>
   );
 }
 
-/** 開いているセグメントの中身（規律 = 2 枚のカード、気づき = 心理ごとの集計・連勝の後・Good / More（#221）のカード） */
-function ViewContent(p: ReviewSlot & { readonly shown: ReviewModel | InsightModel }) {
-  if (p.view === 'insight') {
-    const m = p.shown as InsightModel;
-    return (
-      <>
-        <InsightCard m={m} trailHref={p.trailHref} />
-        {m.streak ? <StreakCard s={m.streak} trailHref={p.trailHref} /> : null}
-        {m.reflection ? <ReflectionInsightCards m={m.reflection} trailHref={p.trailHref} /> : null}
-      </>
-    );
-  }
-  return <ReviewContent {...p} m={p.shown as ReviewModel} />;
+/** 表示する形の組（規律 + なぜ・次は。なぜ・次はを作らない組み立ては null） */
+interface Shown {
+  readonly m: ReviewModel;
+  readonly insight: InsightModel | null;
+}
+
+/** 崩れ（B・危ない勝ち・C）の件数（「崩れの取引を見る ›」を出すか。#228） */
+function offCount(m: ReviewModel): number {
+  const c = m.review.counts;
+  return c.B + c.riskyWin + c.C;
+}
+
+/** 1 本の流れ: いくら → なぜ → どの取引 → 次は（#228）。対象が 0 件なら空の箱だけ */
+function FlowContent(p: ReviewSlot & { readonly shown: Shown }) {
+  const { m, insight } = p.shown;
+  if (m.empty) return <ReviewContent {...p} m={m} />;
+  const off = offCount(m);
+  return (
+    <>
+      <ReviewContent {...p} m={m} />
+      {insight && !insight.empty ? (
+        <>
+          <WhyCard m={insight} why={p.why ?? 'emotion'} onWhy={p.onWhy} trailHref={p.trailHref} />
+          {insight.streak ? <StreakCard s={insight.streak} trailHref={p.trailHref} /> : null}
+        </>
+      ) : null}
+      {(p.trailHref && off > 0) || m.rows.length > 0 ? (
+        <div class="review__more review__which">
+          {p.trailHref && off > 0 ? (
+            <RowLink href={p.trailHref({ kind: 'off' })} meta={`${off} 件`}>
+              {OFF_LINK}
+            </RowLink>
+          ) : null}
+          {m.rows.length > 0 ? <RowLink href={p.tableHref}>数で見る</RowLink> : null}
+        </div>
+      ) : null}
+      {insight && !insight.empty && insight.next ? (
+        <NextCard n={insight.next} trailHref={p.trailHref} />
+      ) : null}
+    </>
+  );
 }
 
 function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
@@ -304,7 +318,7 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
           {m.rateText === null ? (
             <span class="review__missing">{m.rateMissingText}</span>
           ) : (
-            <BigNum text={m.rateText} />
+            <BigNum text={m.rateText} size="lg" />
           )}
         </p>
         {m.rateText === null ? <p class="review__sub">{m.rateCountText}</p> : null}
@@ -340,11 +354,6 @@ function ReviewContent(p: ReviewSlot & { readonly m: ReviewModel }) {
           </ul>
         ) : null}
       </section>
-      {m.rows.length > 0 ? (
-        <div class="review__more">
-          <RowLink href={p.tableHref}>数で見る</RowLink>
-        </div>
-      ) : null}
     </>
   );
 }

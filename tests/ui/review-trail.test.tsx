@@ -99,9 +99,13 @@ function slot(
       instruments: INSTRUMENTS,
       now: REVIEW_NOW,
     }),
-    view: 'insight',
-    insight: insightModelFor(state, range, { hidden, includeImports: sel.imports }),
-    onView: noop,
+    why: 'emotion',
+    insight: insightModelFor(state, range, {
+      hidden,
+      includeImports: sel.imports,
+      now: REVIEW_NOW,
+    }),
+    onWhy: noop,
     tableHref: reviewTableHref(sel),
     ...(trail ? { trailHref: (f: TrailFilter) => reviewTradesHref(sel, f) } : {}),
     onKey: noop,
@@ -197,7 +201,10 @@ describe('AC-6・AC-7: 連勝の後のカード', () => {
     ]);
     expect(pairs.some((p) => String(p.props.class).includes('--zero'))).toBe(false);
     expect(t).toContain('期間の中の決済の順で数えます');
-    const more = links(tree).filter((a) => a.props.class === 'rowlink');
+    // 押せる行（rowlink）のうち連勝の後へは 1 つ（ほかは #228 の「崩れの取引を見る」「数で見る」）
+    const more = links(tree).filter(
+      (a) => a.props.class === 'rowlink' && String(a.props.href).includes('after='),
+    );
     expect(more.map((a) => [a.props.href, text(a)])).toEqual([
       ['/review/trades?period=7d&after=winStreak', '連勝の後の取引を見る'],
     ]);
@@ -211,7 +218,11 @@ describe('AC-6・AC-7: 連勝の後のカード', () => {
     expect(pairs.map(text)).toEqual(['調子に乗った 1 件のうち 連勝の後0 件']);
     expect(pairs[0]?.props.class).toContain('winrun__pair--zero');
     expect(all([card], hasClass('winrun__cells'))).toEqual([]);
-    expect(links(tree).filter((a) => a.props.class === 'rowlink')).toEqual([]);
+    expect(
+      links(tree).filter(
+        (a) => a.props.class === 'rowlink' && String(a.props.href).includes('after='),
+      ),
+    ).toEqual([]);
   });
 });
 
@@ -232,7 +243,7 @@ function viewOf(
 }
 
 describe('期間の取引の画面（AC-1・AC-3・AC-4・AC-7・AC-8）', () => {
-  it('L1: 題・範囲・要約・行（押すと詳細）・戻るは同じ期間の気づき', () => {
+  it('L1: 題・範囲・要約・行（押すと詳細）・戻るは同じ期間の振り返り（切り替えは心理 = 鍵なし。#228）', () => {
     const tree = viewOf(SEVEN, E1, E1_HIDDEN, { kind: 'emotion', id: 'recoup' });
     expect(text(all(tree, (e) => e.type === 'h1'))).toBe('取り戻したい');
     expect(text(all(tree, hasClass('review__meta')))).toBe('11/13〜11/19');
@@ -257,7 +268,7 @@ describe('期間の取引の画面（AC-1・AC-3・AC-4・AC-7・AC-8）', () =>
       '/trades/t7',
       '/trades/t6',
     ]);
-    const back = all(tree, (e) => e.type === 'a' && e.props.href === reviewHref(SEVEN, 'insight'));
+    const back = all(tree, (e) => e.type === 'a' && e.props.href === '/review?period=7d');
     expect(back).toHaveLength(1);
     expect(text(back)).toContain('振り返り');
   });
@@ -280,7 +291,7 @@ describe('期間の取引の画面（AC-1・AC-3・AC-4・AC-7・AC-8）', () =>
     ]);
   });
 
-  it('L6: 知らない心理 → 文と ［振り返りへ］（同じ期間の気づき）・行 0', () => {
+  it('L6: 知らない心理 → 文と ［振り返りへ］（同じ期間の振り返り）・行 0', () => {
     const sel: PeriodSelection = { key: '1m', imports: true };
     const tree = viewOf(sel, E1, E1_HIDDEN, null);
     expect(text(all(tree, (e) => e.type === 'h1'))).toBe('期間の取引');
@@ -288,7 +299,7 @@ describe('期間の取引の画面（AC-1・AC-3・AC-4・AC-7・AC-8）', () =>
     expect(all(tree, hasClass('traderow'))).toEqual([]);
     expect(all(tree, hasClass('review__trailsum'))).toEqual([]);
     const go = links(tree).filter((a) => text(a).includes('振り返りへ'));
-    expect(go.map((a) => a.props.href)).toEqual(['/review?period=1m&imports=1&view=insight']);
+    expect(go.map((a) => a.props.href)).toEqual(['/review?period=1m&imports=1']);
   });
 
   it('読み込み中は短い文（前の期間の行を出さない）', () => {
@@ -441,5 +452,22 @@ describe('Issue #194: 札「この取引」と、ほかの取引が少ないと�
       'ほかの取引 あと 3 件で率を表示',
     );
     expect(text(card)).not.toContain('件数が少ない');
+  });
+});
+
+describe('Issue #228 AC-7: 期間の取引の戻るは来た行の側の切り替え', () => {
+  it('More の話題・自分で書いた行 → why=more、Good → why=good、崩れの取引・連勝の後 → 鍵なし', () => {
+    const cases: [TrailFilter, string][] = [
+      [{ kind: 'topic', side: 'more', id: 'oversized' }, reviewHref(SEVEN, 'more')],
+      [{ kind: 'notes', side: 'more' }, '/review?period=7d&why=more'],
+      [{ kind: 'topic', side: 'good', id: 'followedRules' }, '/review?period=7d&why=good'],
+      [{ kind: 'off' }, '/review?period=7d'],
+      [{ kind: 'winStreak' }, '/review?period=7d'],
+    ];
+    for (const [filter, href] of cases) {
+      const tree = viewOf(SEVEN, E1, E1_HIDDEN, filter);
+      const back = all(tree, hasClass('appbar__back'));
+      expect(back.map((a) => a.props.href)).toEqual([href]);
+    }
   });
 });

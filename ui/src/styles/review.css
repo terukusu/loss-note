@@ -276,19 +276,19 @@
 }
 
 .review__seg--plan {
-  fill: var(--tier-plan-ink);
+  fill: var(--tier-plan-solid);
 }
 
 .review__seg--break {
-  fill: var(--tier-break-ink);
+  fill: var(--tier-break-solid);
 }
 
 .review__seg--worst {
-  fill: var(--tier-worst-ink);
+  fill: var(--tier-worst-solid);
 }
 
 .review__seg--neutral {
-  fill: var(--tier-neutral-ink);
+  fill: var(--tier-neutral-solid);
 }
 
 .review__legend {
@@ -388,7 +388,7 @@
 
 /* 差の面: 崩れの段の色を薄く + 斜線の模様（色だけに頼らない） */
 .curve__gap {
-  fill: var(--tier-break-ink);
+  fill: var(--tier-break-solid);
   fill-opacity: 0.24;
   stroke: none;
 }

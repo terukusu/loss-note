@@ -223,17 +223,17 @@
 }
 
 .swatch--tier-plan {
-  background: var(--tier-plan-ink);
+  background: var(--tier-plan-solid);
 }
 
 .swatch--tier-break {
-  background: var(--tier-break-ink);
+  background: var(--tier-break-solid);
 }
 
 .swatch--tier-worst {
-  background: var(--tier-worst-ink);
+  background: var(--tier-worst-solid);
 }
 
 .swatch--tier-neutral {
-  background: var(--tier-neutral-ink);
+  background: var(--tier-neutral-solid);
 }

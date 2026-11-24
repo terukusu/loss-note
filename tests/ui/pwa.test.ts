@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readTokens } from './helpers/css-tokens';
 
 /**
  * ホーム画面に追加して開ける（Issue #77・ADR-0018）。manifest・manifest のアイコン・index.html の head・サービスワーカーを
@@ -32,16 +33,11 @@ const manifestText = text(`${PUBLIC}manifest.webmanifest`);
 const manifest = JSON.parse(manifestText) as Record<string, unknown>;
 const html = text('../../ui/index.html');
 
-/** tokens.css のダークのテーマ（:root[data-theme="dark"] の規則）の --bg */
+/** tokens.css のダークのテーマの --bg（原色まで解いた値。#229） */
 const DARK_BG = (() => {
-  const css = text('../../ui/src/styles/tokens.css').replace(/\/\*[\s\S]*?\*\//g, '');
-  for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    const selectors = (m[1] ?? '').split(',').map((s) => s.replace(/\s+/g, ''));
-    if (!selectors.includes(':root[data-theme="dark"]')) continue;
-    const v = /(?:^|;)\s*--bg\s*:\s*([^;]+);/.exec(m[2] ?? '')?.[1]?.trim();
-    if (v) return v.toLowerCase();
-  }
-  throw new Error('tokens.css にダークの --bg がありません');
+  const v = readTokens(text('../../ui/src/styles/tokens.css')).resolved.dark.get('--bg');
+  if (!v) throw new Error('tokens.css にダークの --bg がありません');
+  return v.toLowerCase();
 })();
 
 /** index.html の tag を属性の辞書で（属性の順・改行に依存しない） */

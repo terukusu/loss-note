@@ -830,7 +830,7 @@
   height: 22px;
   border: 1px solid var(--tier-neutral-line);
   border-radius: var(--radius-pill);
-  background: var(--tier-neutral-bg);
+  background: var(--tier-neutral-tint);
   color: var(--ink);
 }
 

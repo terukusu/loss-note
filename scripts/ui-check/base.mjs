@@ -736,6 +736,62 @@ export async function waitReady(page, h1) {
 }
 
 /**
+ * シートを UI で閉じた後、アプリが積んだ履歴の段（history.state.back）を history.go で戻し終わるまで待つ（back-layers.ts）。
+ * 戻し終わる前に page.goBack() を重ねると 2 つの戻るが 1 つにまとまって画面を離れない（KB1）。page.goto を重ねると、新しい文書に
+ * 着いた後で前へ戻される（DI1）・移動が取り消される（GL1）
+ */
+export async function settleLayers(page) {
+  await page
+    .waitForFunction(
+      () => {
+        const b = history.state?.back;
+        return (
+          !(typeof b === 'number' && b > 0) &&
+          document.querySelectorAll('dialog.sheet[open]').length === 0
+        );
+      },
+      null,
+      { timeout: 3000 },
+    )
+    .catch(() => {});
+}
+
+/**
+ * page.goto の代わり。状態を続けて測るときに、前の状態の残りで goto が net::ERR_ABORTED になるのを、検査の期待を変えずに越える。
+ * 速い機械（4 vCPU）で出る 2 つの競合:
+ * - 書きかけが残っている: 移る確認（beforeunload。worker が受ける）を受けて移動は続くのに、元の goto が ERR_ABORTED で返る
+ *   ことがある。古い文書が捨てられて url の文書が読み込まれたら成功とみなす
+ * - 直前に画面の中のボタン（［あとで］・［取引の欄へ戻る］ など）でシートを閉じた: アプリが積んだ履歴の段を戻す history.go
+ *   （back-layers.ts）が、goto の直後に走って移動を取り消す。古い文書のままなら、落ち着くのを待って 1 回だけ goto し直す
+ * どちらでもなければ（2 回目も取り消された・別の URL に着いた）元の誤りを投げる
+ */
+export async function gotoAcrossUnload(page, url) {
+  for (let attempt = 0; ; attempt++) {
+    // 移る前の文書に印を付ける（about:blank や読み込み中で付けられなくても、そのまま移る）
+    await page.evaluate(() => (window.__uiCheckOldDoc = true)).catch(() => {});
+    try {
+      await page.goto(url);
+      return;
+    } catch (e) {
+      if (!String(e).includes('net::ERR_ABORTED')) throw e;
+      const moved = await page
+        .waitForFunction(() => window.__uiCheckOldDoc !== true, null, { timeout: 5000 })
+        .then(() => page.waitForLoadState('load'))
+        .then(
+          () => true,
+          () => false,
+        );
+      if (moved) {
+        if (page.url() !== url) throw e;
+        return;
+      }
+      if (attempt >= 1) throw e;
+      await page.waitForTimeout(300);
+    }
+  }
+}
+
+/**
  * 取引の詳細に着いた（見出しは取引の名前で、「取引の詳細」は読み込み中だけ。一覧から開くと読み込み済みの取引ですぐ名前になるので、
  * URL と判定の枠で見る。RP1 と同じ）
  */

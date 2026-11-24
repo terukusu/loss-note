@@ -1,9 +1,10 @@
 // 画面の検査の操作の道具（記録する画面・シート・詳細を開く・入れる）
-import { expectPollAsync, waitReady } from './base.mjs';
+import { expectPollAsync, gotoAcrossUnload, settleLayers, waitReady } from './base.mjs';
 import { FAKE_USD_IDX, READ_DONE, READ_E1 } from './fixtures.mjs';
 
 export async function openRecord(page, base) {
-  await page.goto(`${base}/record`);
+  // 状態を続けて測るときは前の状態の書きかけが残っている（移る確認が出る）
+  await gotoAcrossUnload(page, `${base}/record`);
   await waitReady(page, '記録する');
   // 2 段（2026-11-21）: 開いた直後は 1 段目「スクショを入れる」（［明細なしで手入力］ が見える）
   await page.locator('#record-manual').waitFor({ state: 'visible', timeout: 15000 });
@@ -14,6 +15,8 @@ export async function openRecord(page, base) {
  */
 export async function toReviewByPaste(page, fake) {
   fake.read = { status: 200, rows: [READ_E1], holdMs: 0 };
+  // 読み込みが終わる前（「読み込んでいます…」）の貼り付けは「記録の準備ができてから…」で断られる。1 段目が出てから貼る
+  await page.locator('#record-manual').waitFor({ state: 'visible', timeout: 15000 });
   await makeImage(page, STATEMENT_SPEC, 'paste');
   await page.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
   await page.locator(READ_DONE).first().waitFor({ timeout: 10000 });
@@ -198,12 +201,15 @@ export async function openFieldsScreen(page) {
 
 /** 開いているシートを上から全部閉じる（右上の ✕） */
 export async function closeSheets(page) {
+  let closed = false;
   for (let i = 0; i < 4; i++) {
     const open = page.locator('dialog.sheet[open]');
-    if ((await open.count()) === 0) return;
+    if ((await open.count()) === 0) break;
     await open.last().locator('.sheet__close').click();
+    closed = true;
     await settleSheet(page);
   }
+  if (closed) await settleLayers(page);
 }
 
 export const seg = (page, group, text) =>

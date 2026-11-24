@@ -36,14 +36,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
   '.gsi__text': '保険: Google でログインするボタンの文字（ブランドの決まった形）',
 };
 
-/** 残している外れ（直したら消す） */
-const KNOWN: Readonly<Record<string, string>> = {
-  '.rsum__tzmark': '#212 記録するの時刻の印',
-  '.rchart__line': '#212 チャートの小さな枠の状態の 1 行（記録する・編集）',
-  '.rchartrow__l1': '#212 2 段目のチャートの行の 1 行目',
-  '.rchartrow__l2': '#212 2 段目のチャートの行の 2 行目',
-  '.record__lc .lcrow > .field > .field__hint': '#212 LC の欄の手がかり',
-};
+/** 残している外れ（直したら消す。#212 で記録する・編集の 5 つを直して空にした） */
+const KNOWN: Readonly<Record<string, string>> = {};
 
 const stripComments = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, '');
 const norm = (sel: string) => sel.replace(/\s+/g, ' ').trim();
@@ -112,6 +106,22 @@ describe('文字の省略は「省略してよい所」だけ（ui-guidelines 10
   it('省略してよい所の表は使われている（使わなくなったら表から消す）', () => {
     const now = new Set(found.map((f) => f.selector));
     expect(Object.keys(ALLOWED).filter((s) => !now.has(s))).toEqual([]);
+  });
+
+  it('記録する・編集の塊で分けた行（#212）: atom の塊は折らない・4 か所に省略も nowrap も無い', () => {
+    const record = stripComments(files['../../ui/src/styles/record.css'] ?? '');
+    expect(record).toMatch(/\.rpart--atom\s*\{[^}]*white-space:\s*nowrap/);
+    for (const sel of [
+      /\.rchart__line\s*\{([^}]*)\}/,
+      /\.rchartrow__l1,\s*\.rchartrow__l2\s*\{([^}]*)\}/,
+      /\.record__lc \.lcrow > \.field > \.field__hint\s*\{([^}]*)\}/,
+    ]) {
+      const body = sel.exec(record)?.[1] ?? '';
+      expect(body).not.toBe('');
+      expect(body).not.toMatch(/white-space:\s*nowrap|overflow:\s*hidden/);
+    }
+    // 時刻の印は切らない（1 行のまま）。入らなければボタンが次の行へ回る
+    expect(record).toMatch(/\.rsum__tz\s*\{[^}]*flex-wrap:\s*wrap/);
   });
 
   it('詳細のチャートの札の時間足は 1 つの塊（折らない・切らない）', () => {

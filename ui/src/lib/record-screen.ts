@@ -360,8 +360,34 @@ export const FIELD_INPUT_ID: Readonly<Record<NamedFieldId | 'accountId', string>
   accountId: 'record-account',
 };
 
-/** 小さなチャートの枠の 2 行目（時間足・読み取り中・読めた値の案） */
-export function chartSlotLine(c: {
+/**
+ * 折り返してよい所で分けた 1 行の塊（#212。ui-guidelines 10.3）。画面は塊の間（空白 1 つ）で折り、atom の塊（時間足・
+ * 「追加 5 枚」・枠の名前「エントリー時 ·」）は中で折らない。atom でない塊（「時間足を読み取り中…」などの文）は、行より
+ * 長いときだけ中で折る。区切りの「·」は前の塊の末尾に付ける（2 段目の要約の行と同じ。#164）
+ */
+export interface LinePart {
+  readonly text: string;
+  readonly atom: boolean;
+}
+
+const atomPart = (text: string): LinePart => ({ text, atom: true });
+const textPart = (text: string): LinePart => ({ text, atom: false });
+
+/** 塊を元の 1 行の文字に戻す（間は空白 1 つ） */
+export function joinParts(parts: readonly LinePart[]): string {
+  return parts.map((p) => p.text).join(' ');
+}
+
+/** 最後の塊の末尾に区切りの「 ·」を付ける（前の塊の末尾に置く） */
+function withSeparator(parts: readonly LinePart[]): LinePart[] {
+  const out = [...parts];
+  const last = out[out.length - 1];
+  if (last) out[out.length - 1] = { ...last, text: `${last.text} ·` };
+  return out;
+}
+
+/** チャートの枠の状態（小さな枠の 1 行と 2 段目のチャートの行の入力） */
+export interface ChartLike {
   readonly hasChart: boolean;
   readonly preparing: boolean;
   readonly reading: boolean;
@@ -373,13 +399,21 @@ export function chartSlotLine(c: {
    * あれば読み取りの途中・案より先に出す（保存で何が変わるかを 2 枠の上で言う）
    */
   readonly change?: string | null;
-}): string {
-  if (c.preparing) return '準備しています…';
-  if (c.change) return c.change;
-  if (!c.hasChart) return c.failed ? '使えない画像です' : 'チャートを選ぶ';
-  if (c.reading) return '時間足を読み取り中…';
-  if (c.suggest) return `チャートからは ${c.suggest}`;
-  return c.timeframe ?? '時間足 指定なし';
+}
+
+/** 小さなチャートの枠の 2 行目（時間足・読み取り中・読めた値の案）を塊で。時間足は atom（#212） */
+export function chartSlotParts(c: ChartLike): readonly LinePart[] {
+  if (c.preparing) return [textPart('準備しています…')];
+  if (c.change) return [textPart(c.change)];
+  if (!c.hasChart) return [textPart(c.failed ? '使えない画像です' : 'チャートを選ぶ')];
+  if (c.reading) return [textPart('時間足を読み取り中…')];
+  if (c.suggest) return [textPart('チャートからは'), atomPart(c.suggest)];
+  return [c.timeframe ? atomPart(c.timeframe) : textPart('時間足 指定なし')];
+}
+
+/** 小さなチャートの枠の 2 行目（時間足・読み取り中・読めた値の案） */
+export function chartSlotLine(c: ChartLike): string {
+  return joinParts(chartSlotParts(c));
 }
 
 /** 小さなチャートの枠の id（シートの中の今の枠 `record-chart-<slot>` とは別。編集の画面は接頭辞 edit。#131） */
@@ -442,9 +476,6 @@ export function showProceed(s: Parameters<typeof statementArea>[0]): boolean {
   return statementArea(s) !== 'pick';
 }
 
-/** チャートの枠の状態（chartSlotLine の入力と同じ形） */
-export type ChartLike = Parameters<typeof chartSlotLine>[0];
-
 /**
  * 2 段目のチャートの行: 空 = 押すとエントリー時のチャートを選ぶ（1 タップ。準備中・失敗は状態の文）、
  * 入った = 「エントリー時 · 時間足」と決済時の 1 行（押すとチャートのシート）
@@ -453,23 +484,46 @@ export type ChartRow =
   | { readonly kind: 'empty'; readonly status: string | null }
   | { readonly kind: 'full'; readonly line1: string; readonly line2: string };
 
+/** 2 段目のチャートの行を塊で（#212。画面は塊の間で折る。chartRow はこれを 1 行の文字に戻したもの） */
+export type ChartRowParts =
+  | { readonly kind: 'empty'; readonly status: readonly LinePart[] | null }
+  | {
+      readonly kind: 'full';
+      readonly line1: readonly LinePart[];
+      readonly line2: readonly LinePart[];
+    };
+
+export function chartRowParts(c: {
+  readonly entry: ChartLike;
+  readonly exit: ChartLike;
+  readonly extras: number;
+}): ChartRowParts {
+  const { entry, exit } = c;
+  if (!entry.hasChart && !exit.hasChart && c.extras === 0) {
+    const status = entry.preparing || entry.failed ? chartSlotParts(entry) : null;
+    return { kind: 'empty', status };
+  }
+  const line1 = [
+    atomPart('エントリー時 ·'),
+    ...(entry.hasChart ? chartSlotParts(entry) : [atomPart('未選択')]),
+  ];
+  const exitParts =
+    exit.hasChart || exit.preparing
+      ? [atomPart('決済時 ·'), ...chartSlotParts(exit)]
+      : [textPart('決済時のチャートも追加できます')];
+  const line2 =
+    c.extras > 0 ? [...withSeparator(exitParts), atomPart(`追加 ${c.extras} 枚`)] : exitParts;
+  return { kind: 'full', line1, line2 };
+}
+
 export function chartRow(c: {
   readonly entry: ChartLike;
   readonly exit: ChartLike;
   readonly extras: number;
 }): ChartRow {
-  const { entry, exit } = c;
-  if (!entry.hasChart && !exit.hasChart && c.extras === 0) {
-    const status = entry.preparing || entry.failed ? chartSlotLine(entry) : null;
-    return { kind: 'empty', status };
-  }
-  const line1 = `エントリー時 · ${entry.hasChart ? chartSlotLine(entry) : '未選択'}`;
-  const exitText =
-    exit.hasChart || exit.preparing
-      ? `決済時 · ${chartSlotLine(exit)}`
-      : '決済時のチャートも追加できます';
-  const line2 = c.extras > 0 ? `${exitText} · 追加 ${c.extras} 枚` : exitText;
-  return { kind: 'full', line1, line2 };
+  const r = chartRowParts(c);
+  if (r.kind === 'empty') return { kind: 'empty', status: r.status && joinParts(r.status) };
+  return { kind: 'full', line1: joinParts(r.line1), line2: joinParts(r.line2) };
 }
 
 /**

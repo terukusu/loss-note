@@ -37,7 +37,13 @@ import { InfoTip } from '../components/InfoTip';
 import { LegEditor } from '../components/LegEditor';
 import { LEG_LIST_ID, LEG_MERGE_ID } from '../components/LegList';
 import { CandleArt, StatementArt } from '../components/RecordArt';
-import { MiniChart, partIds, SummaryCard, VerdictLineButton } from '../components/RecordParts';
+import {
+  LineParts,
+  MiniChart,
+  partIds,
+  SummaryCard,
+  VerdictLineButton,
+} from '../components/RecordParts';
 import { Segment } from '../components/Segment';
 import { Sheet } from '../components/Sheet';
 import {
@@ -102,6 +108,7 @@ import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS, summarize } from '../li
 import {
   type ChartLike,
   chartRow,
+  chartRowParts,
   FIELD_INPUT_ID,
   focusLcAfterRead,
   miniChartId,
@@ -1990,11 +1997,14 @@ function ChartRowView(p: RecordViewProps) {
   const { state } = p;
   const d = state.draft;
   const charts = state.charts ?? {};
-  const row = chartRow({
+  const rowInput = {
     entry: chartLike(charts.entry, d.entryChartTimeframe),
     exit: chartLike(charts.exit, d.exitChartTimeframe),
     extras: (state.extras ?? []).length,
-  });
+  };
+  const row = chartRow(rowInput);
+  // 画面は塊で描く（塊の間で折る。#212）。読み上げの名前は 1 行の文字（row）のまま
+  const parts = chartRowParts(rowInput);
   const id = miniChartId('entry');
   const blocked = (
     <>
@@ -2035,8 +2045,12 @@ function ChartRowView(p: RecordViewProps) {
             )}
           </span>
           <span class="rchartrow__text">
-            <span class="rchartrow__l1">{row.line1}</span>
-            <span class="rchartrow__l2">{row.line2}</span>
+            <span class="rchartrow__l1">
+              {parts.kind === 'full' ? <LineParts parts={parts.line1} /> : row.line1}
+            </span>
+            <span class="rchartrow__l2">
+              {parts.kind === 'full' ? <LineParts parts={parts.line2} /> : row.line2}
+            </span>
           </span>
           <Icon name="chevron" class="rchartrow__chev" />
         </button>
@@ -2054,7 +2068,13 @@ function ChartRowView(p: RecordViewProps) {
           </span>
         </span>
         <span class="rchartrow__text">
-          <span class="rchartrow__l1">{row.status ?? 'エントリーした足のチャート'}</span>
+          <span class="rchartrow__l1">
+            {parts.kind === 'empty' && parts.status ? (
+              <LineParts parts={parts.status} />
+            ) : (
+              'エントリーした足のチャート'
+            )}
+          </span>
           <span class="charts__notice rchartrow__notice" id={CHART_NOTICE_ID}>
             {CHART_READ_NOTICE}
           </span>

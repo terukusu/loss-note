@@ -332,17 +332,16 @@
 
 .rsum__tz {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--sp-2);
   min-width: 0;
 }
 
+/* 印は切らない（10.3。#212）。入らなければ ［タイムゾーンを選ぶ］ が次の行へ回る */
 .rsum__tzmark {
-  min-width: 0;
-  overflow: hidden;
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 .rsum__tz .btn {
@@ -448,11 +447,24 @@
   color: var(--ink);
 }
 
+/* 状態の 1 行は切らずに塊の間で折る（時間足は塊。#212）。2 枠は格子の同じ行なので高さがそろう */
 .rchart__line {
-  overflow: hidden;
   font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+/* 塊で分けた行（LineParts。#212・10.3）: 塊の間で折る。atom（時間足・「追加 5 枚」）は中で折らない。文の塊は行より
+   長いときだけ中で折る */
+.rpart {
+  display: inline-block;
+  max-width: 100%;
+  /* 句の切れ目で折り、句が行より長いとき（文字の拡大）だけ句の中で折る */
+  word-break: auto-phrase;
+  overflow-wrap: anywhere;
+}
+
+.rpart--atom {
   white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 /* ── LC: 欄の名前の行の右に添え書き（「思惑が外れたと確認できる価格」）。「なし」は欄と同じ段 */
@@ -482,6 +494,8 @@
 .record__lc .lcrow > .field > :is(.field__label, .field__head) {
   grid-row: 1;
   grid-column: 1;
+  /* 欄の名前が入らないとき（オプションの「入る前に決めた LC（原資産）」の幅 360 など）は句の切れ目で折る（#212） */
+  word-break: auto-phrase;
 }
 
 .record__lc .lcrow > .field > .field__hint {
@@ -491,10 +505,12 @@
   align-self: center;
   max-width: 100%;
   margin: 0;
-  overflow: hidden;
   font-size: var(--fs-xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  /* 切らずに折る（文。10.3。#212）。入らなければ句の切れ目で 2 行にし、右にそろえる */
+  text-align: end;
+  word-break: auto-phrase;
+  text-wrap: balance;
 }
 
 .record__lc .lcrow > .field > .numfield {
@@ -1058,12 +1074,10 @@
   grid-column: 2 / 4;
 }
 
+/* 切らずに塊の間で折る（#212。10.3。時間足・「追加 N 枚」は塊） */
 .rchartrow__l1,
 .rchartrow__l2 {
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
   line-height: 1.4;
 }
 

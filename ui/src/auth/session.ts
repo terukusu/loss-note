@@ -47,7 +47,7 @@ export function createFirebaseSession(config: AuthConfig): AuthSession {
   let state: AuthState = { kind: 'unknown' };
   const listeners = new Set<(s: AuthState) => void>();
   onAuthStateChanged(auth, (user) => {
-    state = user ? { kind: 'signedIn' } : { kind: 'signedOut' };
+    state = user ? { kind: 'signedIn', email: user.email } : { kind: 'signedOut' };
     for (const fn of listeners) fn(state);
   });
   const session: AuthSession = {

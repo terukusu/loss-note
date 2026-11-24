@@ -24,6 +24,8 @@ export type Route =
   | { readonly name: 'settingsAiUsage' }
   /** 設定の次の画面「心理のタグ」（選択肢に出すタグ。#163） */
   | { readonly name: 'settingsEmotions' }
+  /** 設定の次の画面「データの書き出し」（#167） */
+  | { readonly name: 'settingsExport' }
   | { readonly name: 'glossary' }
   | { readonly name: 'parts' };
 
@@ -50,6 +52,7 @@ const FIXED: Readonly<Record<string, Route>> = {
   '/settings/instruments': { name: 'settingsInstruments' },
   '/settings/ai-usage': { name: 'settingsAiUsage' },
   '/settings/emotions': { name: 'settingsEmotions' },
+  '/settings/export': { name: 'settingsExport' },
   '/glossary': { name: 'glossary' },
 };
 
@@ -108,6 +111,8 @@ export function hrefOf(route: Route): string {
       return '/settings/ai-usage';
     case 'settingsEmotions':
       return '/settings/emotions';
+    case 'settingsExport':
+      return '/settings/export';
     case 'glossary':
       return '/glossary';
     case 'parts':
@@ -132,6 +137,7 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   settingsInstruments: '銘柄',
   settingsAiUsage: 'AI の利用状況',
   settingsEmotions: '心理のタグ',
+  settingsExport: 'データの書き出し',
   glossary: '用語集',
   // 開発の時だけの画面。名前の文字列を本番のビルドに残さないため、見出しは画面の側に持つ
   parts: '開発用',
@@ -210,6 +216,7 @@ export function tabOfRoute(route: Route): Tab {
     case 'settingsInstruments':
     case 'settingsAiUsage':
     case 'settingsEmotions':
+    case 'settingsExport':
     case 'glossary':
       return 'settings';
     default:

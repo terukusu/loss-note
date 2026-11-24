@@ -68,6 +68,11 @@
   margin-inline-start: 0;
 }
 
+/* 添えの無い行（データの書き出し。#167）も › を右端に置く */
+.setlist .rowlink__text:last-child {
+  margin-inline-end: auto;
+}
+
 .setlist .rowlink:active {
   background: var(--s2);
 }
@@ -328,4 +333,66 @@
   color: var(--ink-2);
   font-size: var(--fs-sm);
   line-height: 1.5;
+}
+
+/* アカウントの区切り（#167）: ログイン中のアカウントの行（押せない。名前と添えのメール。長いメールは折り返す） */
+.setwho {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-3);
+  min-height: calc(var(--tap) + var(--sp-2));
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.setwho__label {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
+}
+
+.setwho__detail {
+  min-width: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+/* データの書き出し（#167）: JSON・CSV の面（名前・中身の 1 行・ボタン） */
+.setexport__option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+}
+
+.setexport__name {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.setexport__note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.setexport__option .btn {
+  margin-block-start: var(--sp-1);
+}
+
+/* 空のときも読み上げの木に残す（display: none にすると文字が入った瞬間に知らせないことがある）。見た目だけ大きさ 0 */
+.setexport__status:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.setexport__status {
+  padding-inline: var(--sp-1);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
 }

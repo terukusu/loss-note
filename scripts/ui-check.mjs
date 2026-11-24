@@ -166,6 +166,8 @@ const PAGES = [
   { path: '/settings/ai-usage', h1: 'AI の利用状況', wait: '.usage' },
   // 設定の次の画面「心理のタグ」（#163）
   { path: '/settings/emotions', h1: '心理のタグ', wait: '.emotionchoices__card' },
+  // データの書き出し（#167）
+  { path: '/settings/export', h1: 'データの書き出し', wait: '#settings-export-csv' },
   { path: '/dev/parts', h1: '部品の見本' },
 ];
 const SIZES = [
@@ -1640,6 +1642,26 @@ async function installFakeApi(context, opts = {}) {
       } catch {
         return undefined; // 待たせている間に画面を離れた
       }
+    }
+    if (key === 'GET /api/export') {
+      // データの書き出し（#167。本物の export.export_body と同じ形: 一覧の API と同じ形・並びの設定・口座・銘柄・取引）
+      ensureDefault();
+      api.exportGets = (api.exportGets ?? 0) + 1;
+      return json(route, 200, {
+        format: 'loss-note-export',
+        version: 1,
+        exportedAt: clock,
+        settings: settings(),
+        emotionTagSettings: { hidden: [...(api.emotionHidden ?? [])] },
+        accounts: sortedAccounts().map(withCurrency),
+        instruments: api.instruments,
+        trades: [...api.trades].sort(
+          (x, y) =>
+            y.record.exit.time - x.record.exit.time ||
+            y.createdAt - x.createdAt ||
+            (x.id < y.id ? -1 : x.id > y.id ? 1 : 0),
+        ),
+      });
     }
     if (key === 'GET /api/health') return json(route, 200, { status: 'ok' });
     return json(route, 404, { error: 'not_found' });
@@ -5954,6 +5976,83 @@ async function runFlows(browser, base, signedIn) {
       }
       expectEq(seen.get('/manifest.webmanifest'), 200, '/manifest.webmanifest の状態');
       return `manifest のエラー 0 件・CSP の違反 0 件・アイコン ${(m.icons ?? []).length} つが 200`;
+    } finally {
+      await c.close();
+    }
+  });
+  // データの書き出し（#167 の AC-7・ADR-0025）: 書き出しの画面の文書に本番の CSP（api の BASE_CSP）を付けて開き、JSON・CSV の
+  // ボタンでファイルが 1 つずつダウンロードされ、CSP の違反が 0 件であることを見る。開発サーバーの都合で足すのは、Vite が CSS を
+  // style 要素で入れる分の style-src 'unsafe-inline' と、HMR の ws・Auth のエミュレーターへの connect-src だけ（本番の値は
+  // image-check.sh・test_web.py が見る）。ダウンロードの遷移が CSP（img-src・connect-src・form-action）に掛からないことの確かめ
+  await check('EX1', async () => {
+    const c = await browser.newContext({
+      viewport: { width: 360, height: 780 },
+      storageState: signedIn,
+      acceptDownloads: true,
+    });
+    try {
+      const fake = await installFakeApi(c);
+      const port = new URL(base).port;
+      const csp = [
+        "default-src 'none'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self'",
+        `connect-src 'self' ws://127.0.0.1:${port} ${AUTH_EMULATOR}`,
+        "manifest-src 'self'",
+        "base-uri 'none'",
+        "form-action 'none'",
+        "frame-ancestors 'none'",
+      ].join('; ');
+      await c.route(`${base}/settings/export`, async (route) => {
+        const res = await route.fetch();
+        await route.fulfill({
+          response: res,
+          headers: { ...res.headers(), 'content-security-policy': csp },
+        });
+      });
+      await c.addInitScript(() => {
+        window.__cspViolations = [];
+        document.addEventListener('securitypolicyviolation', (e) =>
+          window.__cspViolations.push(`${e.violatedDirective} ${e.blockedURI}`),
+        );
+      });
+      const p = await c.newPage();
+      await p.goto(`${base}/settings/export`);
+      await waitReady(p, 'データの書き出し');
+      const got = [];
+      for (const kind of ['json', 'csv']) {
+        const [dl] = await Promise.all([
+          p.waitForEvent('download', { timeout: 10000 }),
+          p.locator(`#settings-export-${kind}`).click(),
+        ]);
+        const name = dl.suggestedFilename();
+        if (!new RegExp(`^loss-note-\\d{8}\\.${kind}$`).test(name))
+          throw new Error(`ファイルの名前: ${name}`);
+        const text = readFileSync(await dl.path(), 'utf8');
+        if (kind === 'json') {
+          const body = JSON.parse(text);
+          expectEq(body.format, 'loss-note-export', 'JSON の形式');
+          expectEq(body.trades.length, fake.trades.length, 'JSON の取引の件数');
+        } else {
+          expectEq(text.startsWith('\uFEFF決済の時刻,'), true, 'CSV の BOM と見出し');
+          expectEq(
+            text.trimEnd().split('\r\n').length >= fake.trades.length + 1,
+            true,
+            'CSV の行の数',
+          );
+        }
+        await p.getByRole('status').filter({ hasText: name }).waitFor({ timeout: 5000 });
+        got.push(name);
+      }
+      expectEq(fake.exportGets, 2, '書き出しの要求の回数');
+      const violations = await p.evaluate(() => window.__cspViolations);
+      expectEq(violations.length, 0, `CSP の違反（${violations.join(' / ')}）`);
+      const wide = await p.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expectEq(wide <= 0, true, `幅 360 の横スクロール（${wide}px）`);
+      return `ダウンロード ${got.join('・')}・CSP の違反 0 件・横スクロール 0`;
     } finally {
       await c.close();
     }

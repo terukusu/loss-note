@@ -27,6 +27,7 @@ import { Review, ReviewTablePage } from './pages/Review';
 import { ReviewTradesPage } from './pages/ReviewTrades';
 import { Settings, SettingsAiUsage, SettingsEmotions } from './pages/Settings';
 import { SettingsAccounts } from './pages/SettingsAccounts';
+import { SettingsExport } from './pages/SettingsExport';
 import { SettingsInstruments } from './pages/SettingsInstruments';
 import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
@@ -54,6 +55,8 @@ export interface PageProps {
   readonly onSignOut: () => void;
   readonly signOutBusy?: boolean;
   readonly signOutError?: string | null;
+  /** ログイン中のアカウントのメール（設定の「アカウント」に出すだけ。#167） */
+  readonly accountEmail?: string | null;
   readonly Parts: ComponentType | null;
 }
 
@@ -92,6 +95,7 @@ export function Page(p: PageProps) {
           onSignOut={onSignOut}
           signOutBusy={p.signOutBusy ?? false}
           signOutError={p.signOutError ?? null}
+          accountEmail={p.accountEmail ?? null}
         />
       );
     case 'settingsAccounts':
@@ -102,6 +106,8 @@ export function Page(p: PageProps) {
       return <SettingsAiUsage />;
     case 'settingsEmotions':
       return <SettingsEmotions />;
+    case 'settingsExport':
+      return <SettingsExport />;
     case 'glossary':
       return <Glossary />;
     case 'parts':
@@ -414,6 +420,7 @@ export function App(props: AppProps) {
           onSignOut={onSignOut}
           signOutBusy={signOutBusy}
           signOutError={signOutError}
+          accountEmail={auth.kind === 'signedIn' ? (auth.email ?? null) : null}
           Parts={Parts}
         />
       </Shell>

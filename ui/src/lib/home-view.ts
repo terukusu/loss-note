@@ -9,6 +9,7 @@ import type { PeriodRange, PeriodSelection } from './period';
 import { reviewHref } from './period';
 import type { ReviewState } from './review-controller';
 import { NO_CURVE, type ReviewModel } from './review-view';
+import { quietR } from './risky-win';
 import type { TradeRow } from './trade-view';
 
 /** ホームに並べる直近の取引の件数（入らない高さでは 3 件目から CSS で隠す。9.4） */
@@ -143,6 +144,8 @@ export interface CompactRow {
   /** R（出ないときは「—」） */
   readonly rText: string;
   readonly rMissing: boolean;
+  /** R を静かな形で出す（危ない勝ちの出る R。主役の段に出さない。#227・C59）。ほかの行には無い */
+  readonly rQuiet?: true;
   /** 「リスク 0.5%」（R が出ない・リスクが出ないときは null） */
   readonly riskText: string | null;
 }
@@ -167,6 +170,7 @@ export function compactRowModel(row: TradeRow, now: number): CompactRow {
     sub: [row.badge.label, date, ...(accountName === null ? [] : [accountName])].join(' · '),
     rText: row.rText,
     rMissing,
+    ...(!rMissing && quietR(row.grade) ? { rQuiet: true as const } : {}),
     riskText: rMissing || row.riskNote !== null ? null : `リスク ${row.riskText}`,
   };
 }

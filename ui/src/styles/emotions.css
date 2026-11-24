@@ -43,6 +43,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 危ない勝ちの R は静かな形（#227・C59） */
+.emotions__r--quiet {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--ink-2);
+}
+
 .emotions__heading {
   margin: 0 0 calc(-1 * var(--sp-3));
   font-size: var(--fs-md);

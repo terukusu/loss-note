@@ -45,7 +45,7 @@ export async function zoom(vp) {
   await zoomPagesGroup(vp, id);
 }
 
-/** 手順（T-L4・TL-P1・TL-P2・TL-P3・TL-P4・TL-P5・TL-M1・TL-A1・LV1・T-X1・T-X2） */
+/** 手順（T-L4・T-L5・TL-P1・TL-P2・TL-P3・TL-P4・TL-P5・TL-M1・TL-A1・LV1・T-X1・T-X2） */
 export async function flows(kit) {
   const {
     browser,
@@ -104,6 +104,89 @@ export async function flows(kit) {
       await c.close();
     }
     return '並び L2 → L3 → L1、各行の判定・R・リスク（出ない値は「—」を 1 つ、理由は題の行の「i」のシートに 1 回）が例どおり';
+  });
+
+  // T-L5（#227 AC-7・C59）: 危ない勝ちの行の R は静かな形。計画どおりの勝ちの行の R より小さい文字で、太字でない。
+  // 押した詳細の判定の枠は 44px の R・17px 太字のリスク / 損益を持たず、崩れの文が数の段より先。
+  // 360×780 × ダーク / ライト。--shots なら一覧と詳細を撮る
+  await check('T-L5', async () => {
+    const trades = [TX_L2, ...monthTrades(5)];
+    let n = 0;
+    for (const theme of THEMES) {
+      const { c, p, errors } = await recordContext({ trades });
+      try {
+        await setupContext(c, theme);
+        await p.setViewportSize({ width: 360, height: 780 });
+        await p.goto(`${base}/trades`);
+        await waitReady(p, '取引');
+        await p
+          .locator('a.traderow')
+          .nth(trades.length - 1)
+          .waitFor();
+        const rs = await p.locator('a.traderow').evaluateAll((as) =>
+          as.map((a) => {
+            const r = a.querySelector('.traderow__r');
+            const st = r ? getComputedStyle(r) : null;
+            return {
+              grade: a.querySelector('.traderow__grade')?.textContent ?? '',
+              r: r?.textContent ?? '',
+              quiet: r?.classList.contains('traderow__r--quiet') ?? false,
+              size: st ? Number.parseFloat(st.fontSize) : 0,
+              weight: st ? Number(st.fontWeight) : 0,
+            };
+          }),
+        );
+        const risky = rs.filter((r) => r.grade === '危ない勝ち' && /R$/.test(r.r));
+        const safe = rs.find((r) => r.grade === '計画どおりの勝ち');
+        if (risky.length === 0 || !safe)
+          throw new Error(`行がそろっていない: ${JSON.stringify(rs)}`);
+        for (const r of rs) {
+          if (r.quiet !== (r.grade === '危ない勝ち' && /R$/.test(r.r)))
+            throw new Error(`静かな形の印が危ない勝ちの行だけでない: ${JSON.stringify(r)}`);
+        }
+        for (const r of risky) {
+          if (!(r.size < safe.size))
+            throw new Error(
+              `${theme}: 危ない勝ちの R ${r.size}px ≥ 計画どおりの勝ち ${safe.size}px`,
+            );
+          if (!(r.weight < 600)) throw new Error(`${theme}: 危ない勝ちの R の太さ ${r.weight}`);
+        }
+        if (opts.shots) {
+          await p.screenshot({ path: join(opts.shots, `360x780-${theme}-trades-risky-quiet.png`) });
+        }
+        await p.locator('a.traderow', { hasText: '危ない勝ち' }).last().click();
+        await waitDetail(p);
+        const v = await p
+          .locator('main .verdict')
+          .first()
+          .evaluate((el) => {
+            const kids = [...el.querySelectorAll('*')];
+            const at = (sel) => kids.findIndex((k) => k.matches(sel));
+            return {
+              xl: el.querySelectorAll('.num--xl, .num--lg').length,
+              breach: el.querySelector('.verdict__breach-what')?.textContent ?? '',
+              cf: el.querySelector('.verdict__breach-if')?.textContent ?? '',
+              order: at('.verdict__breach') < at('.verdict__stats'),
+              dup: [...el.querySelectorAll('.reasons__item')].some((li) =>
+                li.textContent?.startsWith('LC を広げた'),
+              ),
+            };
+          });
+        if (v.xl !== 0) throw new Error(`${theme}: 詳細の判定の枠に主役の段の数字が ${v.xl} 個`);
+        if (!v.breach.startsWith('LC を広げた')) throw new Error(`${theme}: 崩れの文 ${v.breach}`);
+        expectEq(v.cf, 'LC で切っていれば −1.0R', '反実の 1 行');
+        if (!v.order) throw new Error(`${theme}: 崩れの文が数の段より後`);
+        if (v.dup) throw new Error(`${theme}: 崩れの文が理由の一覧に重なっている`);
+        if (opts.shots) {
+          await p.screenshot({ path: join(opts.shots, `360x780-${theme}-detail-risky.png`) });
+        }
+        expectEq(errors.length, 0, 'ページのエラー');
+        n++;
+      } finally {
+        await c.close();
+      }
+    }
+    return `危ない勝ちの行の R だけが静かな形（計画どおりの勝ちの R より小さい・太字でない）、詳細の判定の枠は主役の段の数字 0・崩れの文と反実の 1 行が数の段より先・理由の一覧に重ねない（360×780 × ${n} テーマ）`;
   });
 
   await check('TL-P1', async () => {

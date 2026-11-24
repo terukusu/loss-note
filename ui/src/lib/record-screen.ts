@@ -18,6 +18,7 @@ import {
   FIELD_LABEL,
   parseNum,
 } from './record-form';
+import { breachView, cautionText } from './risky-win';
 import type { FieldMark, Marks } from './statement-fill';
 import { submitStatus } from './verdict-notes';
 
@@ -268,6 +269,10 @@ export type VerdictLine =
       readonly grade: Grade;
       readonly r?: number;
       readonly riskPct?: number;
+      /**
+       * 危ない勝ちの帯の文（反実の 1 行か崩れの文。#227・C59）。あるときは R・リスクの数字を帯に出さない（r・riskPct を持たない）
+       */
+      readonly caution?: string;
     }
   | { readonly kind: 'status'; readonly text: string };
 
@@ -287,6 +292,9 @@ export function verdictLine(
     // 欄はそろっているのに判定が出ない（計算できない取引）ときは、数ではなく中立の文（#130 のレビュー N5）
     return { kind: 'status', text: submitStatus(read, errorLabels) || '判定を見る' };
   }
+  // 危ない勝ちは R を帯の主役にしない（実際の R は押して開く判定のシートの中に小さく残る。#227）
+  const risky = breachView(j, read.preview.r, read.body?.side);
+  if (risky) return { kind: 'judged', grade: j.grade, caution: cautionText(risky) };
   return {
     kind: 'judged',
     grade: j.grade,

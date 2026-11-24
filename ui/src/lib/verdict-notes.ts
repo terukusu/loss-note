@@ -15,6 +15,7 @@ import {
   RISK_NOTE,
   type Summary,
 } from './record-form';
+import { breachReason, breachView, cautionText } from './risky-win';
 import { MISSING, riskNoteOf, rNoteOf, SIZING_OVER_STEP, timesText } from './trade-view';
 
 /** チャートの準備中に記録を止めるときの知らせ（controller が使う。純関数の側に置き、層の向きを controller → 純関数に揃える） */
@@ -32,6 +33,9 @@ export function submitStatus(read: DraftReading, errorLabels: readonly string[])
   const j = read.preview.judgment;
   if (!j) return '';
   const label = badgeModel(j.grade).label;
+  // 危ない勝ちは R ではなく帯の文（反実の 1 行か崩れの文）を読ませる（#227・C59）
+  const risky = breachView(j, read.preview.r, read.body?.side);
+  if (risky) return `${label} · ${cautionText(risky)}`;
   return read.preview.r === undefined ? label : `${label} · ${formatR(read.preview.r)}`;
 }
 
@@ -106,8 +110,10 @@ export function verdictNotes(
   const aside = all.filter((r) => r.kind === 'riskNotChecked');
   // C は添え書き（「LC を決めずに入った取引です。」）が「LC を決めずに入った」と同じことを言うので、理由の一覧に重ねない
   const grade = summary.judgment?.grade;
+  // 危ない勝ちも、崩れの文（枠の上の太字）にした理由は一覧に重ねない（#227・C59）
+  const breach = breachReason(summary.judgment);
   const reasons = all.filter(
-    (r) => r.kind !== 'riskNotChecked' && !(grade === 'C' && r.kind === 'noLc'),
+    (r) => r.kind !== 'riskNotChecked' && !(grade === 'C' && r.kind === 'noLc') && r !== breach,
   );
   const hideRisk = !opts.pending && summary.noLc && !summary.invalid;
   const rNone = summary.r === undefined;

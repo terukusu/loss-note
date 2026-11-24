@@ -1,6 +1,6 @@
 // 取引の一覧の行と月の束（Issue #9 契約 U-1・#132 で作り直した。設計書 9.2、ui-guidelines 9.9・9.12）。hook を持たない。
 // - 行は押せる行（行全体が詳細へのリンク。当たり 44px 以上、右の › は擬似要素）。左に判定の段の記号の札、1 行目「銘柄 · L / S」、
-//   2 行目「判定の名前 · 11/19 14:05」、右に R と「リスク 0.8%」。R が出ない行は「—」を 1 つだけ、リスクだけが出ない行は
+//   2 行目「判定の名前 · 11/19 14:05」、右に R と「リスク 0.8%」（危ない勝ちの R は静かな形。#227・C59）。R が出ない行は「—」を 1 つだけ、リスクだけが出ない行は
 //   2 段目を出さない（理由は題の行の「i」と行の読み上げの名前。ホームの詰めた行と同じ規則。#128 デザイン a4）
 // - 2 行目の判定の名前と時刻はどちらも切らない（1 行に入らなければ時刻を次の行へ折る。R7・#176）
 // - 口座が 2 つ以上のときだけ口座の名前（#47）。幅によらず 1 行目の「銘柄 · L / S」の後ろ。4 字ぶん出せない行では区切りごと
@@ -65,7 +65,17 @@ export function TradeRow({
         )}
       </span>
       <span class="traderow__nums">
-        <span class={m.rMissing ? 'traderow__r traderow__none' : 'num traderow__r'}>{m.rText}</span>
+        <span
+          class={
+            m.rMissing
+              ? 'traderow__r traderow__none'
+              : m.rQuiet
+                ? 'num traderow__r traderow__r--quiet'
+                : 'num traderow__r'
+          }
+        >
+          {m.rText}
+        </span>
         {m.riskText !== null ? <span class="traderow__risk">{m.riskText}</span> : null}
       </span>
     </Link>

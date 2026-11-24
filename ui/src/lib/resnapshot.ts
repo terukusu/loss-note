@@ -24,6 +24,7 @@ import { draftFromStored, editBlock, editContext, editSnapshot, mergedOf } from 
 import { formatAmount, formatNumber, formatPct, formatPlain, formatR } from './format';
 import type { Draft, DraftContext, DraftReading, Summary } from './record-form';
 import { fxStale, readDraft, summarize } from './record-form';
+import { quietR } from './risky-win';
 import { PRODUCT_FORM_LABEL, UNDERLYING_KIND_LABEL } from './settings-form';
 
 /** 取引の PUT に付けるクエリ（API の SNAPSHOT_CURRENT と同じ） */
@@ -171,6 +172,9 @@ export interface OutcomeRow {
   readonly from: string;
   readonly to: string;
   readonly changed: boolean;
+  /** R の行で、前 / 後の判定が危ない勝ち（その側の R を静かな形で出す。#227・C59）。ほかの行・判定には無い */
+  readonly fromQuiet?: true;
+  readonly toQuiet?: true;
 }
 
 const NONE = '—';
@@ -185,7 +189,13 @@ export function outcomeRows(before: Summary, after: Summary): readonly OutcomeRo
   const risk = (s: Summary) => (s.riskPct === undefined ? NONE : formatPct(s.riskPct));
   const rows = [
     { label: '判定', from: gradeText(before), to: gradeText(after) },
-    { label: 'R', from: r(before), to: r(after) },
+    {
+      label: 'R',
+      from: r(before),
+      to: r(after),
+      ...(quietR(before.judgment?.grade) ? { fromQuiet: true as const } : {}),
+      ...(quietR(after.judgment?.grade) ? { toQuiet: true as const } : {}),
+    },
     { label: 'リスク', from: risk(before), to: risk(after) },
   ].map((x) => ({ ...x, changed: x.from !== x.to }));
   return [...rows.filter((x) => x.changed), ...rows.filter((x) => !x.changed)];

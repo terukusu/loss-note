@@ -45,6 +45,7 @@ import {
   summarize,
   type TradeBody,
 } from './record-form';
+import { quietR } from './risky-win';
 
 export const EDIT_BLOCKED =
   'エントリーが複数（またはエントリーごとの LC）の取引は、まだ編集できません。削除して、もう一度記録することはできます。';
@@ -294,7 +295,8 @@ export function editPreview(
 
 function verdictText(s: Pick<Summary, 'judgment' | 'r'>): string {
   const label = badgeModel(s.judgment?.grade ?? null).label;
-  return s.r === undefined ? label : `${label} ${formatR(s.r)}`;
+  // 危ない勝ちの R は帯に出さない（下の帯の判定の 1 行と同じ規則 R4。#227・C59）
+  return s.r === undefined || quietR(s.judgment?.grade) ? label : `${label} ${formatR(s.r)}`;
 }
 
 /** 保存の帯に出す、直す前 → 直した後の判定（変わらなければその旨） */
@@ -304,6 +306,9 @@ export function changeText(before: Summary, after: Summary): string {
     return `編集前: ${a}（未入力の欄を入力すると、編集後の判定が表示されます）`;
   const b = verdictText(after);
   if (a !== b) return `判定: ${a} → ${b}`;
+  // 危ない勝ちのまま R だけが変わる（帯に R を出さないので、変わったことだけを言う）
+  if (quietR(after.judgment?.grade) && formatR(before.r) !== formatR(after.r))
+    return `判定は ${a} のまま・R が変わります`;
   // 段と R が同じでも理由が変われば言う（チャートを差し替えて「時間足を変えた（…・チャートから）」が消えるなど。#89）
   return sameReasons(before, after)
     ? `判定は変わりません: ${a}`

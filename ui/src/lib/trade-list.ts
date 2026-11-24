@@ -6,6 +6,7 @@
 // - 続きがある間は、読み込んだ中でいちばん古い月の数がそろっていない（次のページに同じ月の取引が残りうる）。その月は
 //   「N 件を表示中 · 続きあり」として計画どおりの数を出さない（読み込んだ分だけの数を月の数に見せない。#87 の countText と同じ考え）
 import type { Tier, TierSymbol } from './badge';
+import { quietR } from './risky-win';
 import type { TradeRow } from './trade-view';
 
 /** 行の 2 行目の判定の名前と右の数（ホームの詰めた行と同じ規則。#128 デザイン a4） */
@@ -20,6 +21,8 @@ export interface ListRowModel {
   /** R（出ないときは「—」） */
   readonly rText: string;
   readonly rMissing: boolean;
+  /** R を静かな形で出す（危ない勝ちの出る R。主役の段に出さない。#227・C59）。ほかの行には無い */
+  readonly rQuiet?: true;
   /** 「リスク 0.8%」（R が出ない・リスクが出ないときは null = 段を出さない） */
   readonly riskText: string | null;
 }
@@ -48,6 +51,7 @@ export function listRowModel(row: TradeRow): ListRowModel {
     whenIso: whenIso(row.exitTime),
     rText: row.rText,
     rMissing,
+    ...(!rMissing && quietR(row.grade) ? { rQuiet: true as const } : {}),
     riskText: rMissing || row.riskNote !== null ? null : `リスク ${row.riskText}`,
   };
 }

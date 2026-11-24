@@ -647,6 +647,16 @@
   flex: 1 1 auto;
 }
 
+/* 危ない勝ちの帯の文（反実の 1 行か崩れの文）。R の数字の段ではなく段 5 の大きさ・無色（360 でバッジと 1 行に入る。入らなければ
+   折り返す。#227・C59） */
+.vline__caution {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+
 .vline__risk {
   min-width: 0;
   overflow-wrap: anywhere;

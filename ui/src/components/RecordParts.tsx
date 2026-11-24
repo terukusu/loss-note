@@ -2,7 +2,7 @@
 // hook を持たない。id は接頭辞（record / edit）で作り、同じ画面に 2 つ置かない。
 // - SummaryCard: 取引の欄の 3 行の要約・［編集］（取引の欄のシート）・名指しのチップ・口座の札 / Segment・状態の文
 // - MiniCharts: チャートの小さな 2 枠（横に並べる）と、その下のチャートの注意（常に出す。C38）
-// - VerdictLineButton: 下の帯の判定の 1 行（押すと判定のシート）
+// - VerdictLineButton: 下の帯の判定の 1 行（押すと判定のシート）。危ない勝ちは R の代わりに帯の文（#227）
 import { type ComponentChildren, Fragment } from 'preact';
 import type { Timeframe } from '../../../core/trade';
 import { CHART_READ_NOTICE } from '../lib/chart-read';
@@ -365,6 +365,8 @@ export function VerdictLineButton(p: {
       {line.kind === 'judged' ? (
         <>
           <JudgeBadge grade={line.grade} />
+          {/* 危ない勝ちは R の代わりに反実の 1 行か崩れの文（本文の大きさ・無色。#227・C59） */}
+          {line.caution !== undefined ? <span class="vline__caution">{line.caution}</span> : null}
           {line.r !== undefined ? <RNum value={line.r} size="lg" /> : null}
           {line.riskPct !== undefined ? (
             <span class="vline__risk">

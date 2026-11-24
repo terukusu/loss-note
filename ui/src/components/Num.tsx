@@ -7,8 +7,20 @@ function cls(size: Size | undefined): string {
   return size && size !== 'md' ? `num num--${size}` : 'num';
 }
 
-export function RNum({ value, size }: { readonly value: number | null; readonly size?: Size }) {
-  return <span class={cls(size)}>{formatR(value)}</span>;
+/**
+ * quiet = 静かな形（危ない勝ちの R。主役の数字の段に出さず、本文より小さく・2 番目の文字の色・普通の太さ。#227・C59）。
+ * quiet のときは size を見ない
+ */
+export function RNum({
+  value,
+  size,
+  quiet,
+}: {
+  readonly value: number | null;
+  readonly size?: Size;
+  readonly quiet?: boolean;
+}) {
+  return <span class={quiet ? 'num num--quiet' : cls(size)}>{formatR(value)}</span>;
 }
 
 export function YenNum({ value, size }: { readonly value: number; readonly size?: Size }) {
@@ -23,10 +35,13 @@ export function MoneyNum({
   value,
   currency,
   size,
+  quiet,
 }: {
   readonly value: number;
   readonly currency: string;
   readonly size?: Size;
+  /** 静かな形（危ない勝ちの損益。RNum の quiet と同じ。#227・C59） */
+  readonly quiet?: boolean;
 }) {
   // 円も外貨も、単位は数の外に小さく（決定 2.6 を円にも当てる。#47 PR-2 デザイン 7）。円は空きなし「−8,000円」、
   // 外貨は半角の空き「−50.00 USD」（読み上げ・文字としては formatMoney と同じ）
@@ -35,7 +50,7 @@ export function MoneyNum({
   const num = text.endsWith(suffix) ? text.slice(0, -suffix.length) : text;
   return (
     <span class="num-money">
-      <span class={cls(size)}>{num}</span>
+      <span class={quiet ? 'num num--quiet' : cls(size)}>{num}</span>
       {num === text ? null : <span class="num-unit">{suffix}</span>}
     </span>
   );

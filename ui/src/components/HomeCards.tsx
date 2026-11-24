@@ -194,7 +194,17 @@ export function CompactTradeRow({ row, now }: { readonly row: TradeRow; readonly
       </span>
       {/* R が出ない行は「—」を 1 つだけ、リスクが出ない行は 2 段目を出さない（理由は行の読み上げの名前。デザイン a4） */}
       <span class="homerow__nums">
-        <span class={m.rMissing ? 'homerow__r homerow__none' : 'num homerow__r'}>{m.rText}</span>
+        <span
+          class={
+            m.rMissing
+              ? 'homerow__r homerow__none'
+              : m.rQuiet
+                ? 'num homerow__r homerow__r--quiet'
+                : 'num homerow__r'
+          }
+        >
+          {m.rText}
+        </span>
         {m.riskText !== null ? <span class="homerow__risk">{m.riskText}</span> : null}
       </span>
     </Link>

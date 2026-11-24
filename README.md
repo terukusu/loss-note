@@ -164,6 +164,8 @@ mise exec -- bash -c '.github/scripts/repo-values-check.test.sh && .github/scrip
 mise exec -- npx playwright install chromium   # 初回だけ（ブラウザは手元のキャッシュに入ります）
 mise exec -- npm run ui:check
 mise exec -- npm run ui:check -- --shots <出力先のディレクトリ>   # 各状態の画像を撮る（画像はコミットしないでください）
+mise exec -- npm run ui:check -- --changed           # 変えたファイル（origin/main からの差分）の画面だけを流す
+mise exec -- npm run ui:check -- --only review,record   # 画面の単位を選んで流す（単位の一覧は -- --list）
 ```
 
 開発の時だけ <http://localhost:5173/dev/parts> で部品の見本（ボタン・タップ・判定のバッジ・R と円の数字・色のトークン）が開けます。本番のビルドには入りません。画面の原則は [`docs/ui-guidelines.md`](docs/ui-guidelines.md) にあります。

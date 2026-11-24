@@ -20,23 +20,25 @@ import {
 } from '../lib/resnapshot';
 import { Segment } from './Segment';
 
-function Row({ label, from, to, changed }: OutcomeRow) {
+const quietCls = (q: true | undefined) => (q ? 'resnap__quiet' : undefined);
+
+function Row({ label, from, to, changed, fromQuiet, toQuiet }: OutcomeRow) {
   return (
     <div class={changed ? 'resnap__row resnap__row--changed' : 'resnap__row'}>
       <dt class="resnap__label">{label}</dt>
       <dd class="resnap__value">
         {changed ? (
           <>
-            <span>{from}</span>
+            <span class={quietCls(fromQuiet)}>{from}</span>
             <span class="resnap__arrow" aria-hidden="true">
               →
             </span>
             <span class="sr-only">から</span>
-            <span>{to}</span>
+            <span class={quietCls(toQuiet)}>{to}</span>
             <span class="sr-only">へ</span>
           </>
         ) : (
-          <span>{to}（変わらず）</span>
+          <span class={quietCls(toQuiet)}>{to}（変わらず）</span>
         )}
       </dd>
     </div>

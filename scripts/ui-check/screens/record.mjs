@@ -553,7 +553,8 @@ export async function flows(kit) {
   await check('R11', async () => {
     const scenes = [
       ['場面 B', EX_E1, 'B 悪い損失', true],
-      ['場面 危', EX_E3, '危ない勝ち', true],
+      // 危ない勝ちは R の代わりに帯の文（#227 AC-8・C59）。R の数字は帯に出さない
+      ['場面 危', EX_E3, '危ない勝ち', 'caution'],
       ['場面 C', EX_E16, 'C 極悪な損失', false],
       ['例 8（S・広げた）', EX_S8, 'B 悪い損失', true],
     ];
@@ -598,7 +599,15 @@ export async function flows(kit) {
               const vw = window.innerWidth;
               const out = [];
               const parts = [['バッジ', '.vline .badge']];
-              if (withR) parts.push(['R', '.vline .num']);
+              if (withR === true) parts.push(['R', '.vline .num']);
+              if (withR === 'caution') {
+                parts.push(['帯の文', '.vline__caution']);
+                if (document.querySelector('.vline .num'))
+                  out.push('危ない勝ちの帯に R の数字がある');
+                const t = document.querySelector('.vline__caution')?.textContent ?? '';
+                if (t !== 'LC で切っていれば −1.0R') out.push(`帯の文: ${t}`);
+                if (document.documentElement.scrollWidth > vw + 0.5) out.push('横スクロール');
+              }
               for (const [nm, sel] of parts) {
                 const r = document.querySelector(sel)?.getBoundingClientRect();
                 if (!r || r.height === 0) out.push(`${nm} が無い`);
@@ -636,7 +645,7 @@ export async function flows(kit) {
         await c.close();
       }
     }
-    return `最後のタップを押した直後、スクロールせずに下の帯の判定の 1 行（バッジと R）が窓の中・押したタップも見えてフォーカスは動かない（${n} 件 = 4 場面 × 360 / 1440 × 両テーマ + 390（動きを減らす設定））`;
+    return `最後のタップを押した直後、スクロールせずに下の帯の判定の 1 行（バッジと R、危ない勝ちは R の代わりに「LC で切っていれば −1.0R」・横スクロール 0）が窓の中・押したタップも見えてフォーカスは動かない（${n} 件 = 4 場面 × 360 / 1440 × 両テーマ + 390（動きを減らす設定））`;
   });
 
   // R12（#130 で置き換え。2026-11-21 に 2 段へ。ui-guidelines 9.4・9.10 の「1 画面に収まる」）: 等倍の文字の 390×844 で、

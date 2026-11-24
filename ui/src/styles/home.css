@@ -458,6 +458,13 @@
   line-height: var(--lh-tight);
 }
 
+/* 危ない勝ちの R は静かな形（一覧の行と同じ。#227・C59） */
+.homerow__r--quiet {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--ink-2);
+}
+
 .homerow__risk {
   color: var(--ink-2);
   font-size: var(--fs-xs);

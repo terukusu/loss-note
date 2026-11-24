@@ -8,6 +8,7 @@ import { formatPct } from '../lib/format';
 import { optionVerdictLines } from '../lib/option-view';
 import { reasonText } from '../lib/reasons';
 import { type Preview, RISK_NOTE, type Summary } from '../lib/record-form';
+import { breachView, quietR } from '../lib/risky-win';
 import { MISSING, OFF_PLAN_TEXT, TAPS_LABEL, type TapAnswer } from '../lib/trade-view';
 import { FX_NOT_CHECKED, sizingLine, verdictNotes } from '../lib/verdict-notes';
 import { Icon } from './Icon';
@@ -122,6 +123,7 @@ export function Verdict(v: VerdictProps) {
     legsEdited: v.legsEdited === true,
   });
   const maxLossPlan = v.summary.option?.maxLossPlan === true;
+  const risky = pending ? null : breachView(j, v.summary.r, v.side);
   const hint =
     v.hint !== undefined && v.hint !== null
       ? v.hint
@@ -153,27 +155,47 @@ export function Verdict(v: VerdictProps) {
         <p class="verdict__before">
           <span class="verdict__label">編集前</span>
           <JudgeBadge grade={v.before.judgment?.grade ?? null} />
-          {v.before.r !== undefined ? <RNum value={v.before.r} /> : null}
+          {v.before.r === undefined ? null : quietR(v.before.judgment?.grade) ? (
+            // 色は .num に宣言しない（C34 の検査）ので、包みが 2 番目の文字の色にする
+            <span class="verdict__before-quiet">
+              <RNum value={v.before.r} quiet />
+            </span>
+          ) : (
+            <RNum value={v.before.r} />
+          )}
         </p>
       ) : null}
       {lead ? <p class="verdict__lead">{lead}</p> : null}
+      {/* 危ない勝ちの主役は崩れの文と反実の 1 行（R は数の段で小さく添える。#227・C59） */}
+      {risky ? (
+        <div class="verdict__breach">
+          <p class="verdict__breach-what">{risky.breach}</p>
+          {risky.counterfactual ? <p class="verdict__breach-if">{risky.counterfactual}</p> : null}
+        </div>
+      ) : null}
       {n.hideRisk && v.summary.pnlYen === undefined ? null : (
         <dl class="verdict__stats">
           {n.hideRisk ? null : (
             <>
-              <div class="verdict__stat">
+              <div class={risky !== null ? 'verdict__stat verdict__stat--quiet' : 'verdict__stat'}>
                 <dt class="verdict__label verdict__label--info">
                   R<InfoTip term="r" size="sm" prefer="above" />
                 </dt>
                 <dd>
-                  {v.summary.r !== undefined ? <RNum value={v.summary.r} size="xl" /> : <None />}
+                  {v.summary.r !== undefined ? (
+                    <RNum value={v.summary.r} size="xl" quiet={risky !== null} />
+                  ) : (
+                    <None />
+                  )}
                 </dd>
               </div>
-              <div class="verdict__stat">
+              <div class={risky !== null ? 'verdict__stat verdict__stat--quiet' : 'verdict__stat'}>
                 <dt class="verdict__label">リスク</dt>
                 <dd>
                   {v.summary.riskPct !== undefined ? (
-                    <span class="num num--lg">{formatPct(v.summary.riskPct)}</span>
+                    <span class={risky !== null ? 'num num--quiet' : 'num num--lg'}>
+                      {formatPct(v.summary.riskPct)}
+                    </span>
                   ) : (
                     <None />
                   )}
@@ -183,18 +205,20 @@ export function Verdict(v: VerdictProps) {
           )}
           {v.summary.pnlYen !== undefined ? (
             <div
-              class={
+              class={`${
                 (v.summary.currency ?? 'JPY') === 'JPY'
                   ? 'verdict__stat'
                   : 'verdict__stat verdict__stat--pnl-row'
-              }
+              }${risky !== null ? ' verdict__stat--quiet' : ''}`}
             >
               <dt class="verdict__label">損益</dt>
               <dd>
+                {/* 危ない勝ちは金額でも褒めない（静かな形。#227・C59） */}
                 <MoneyNum
                   value={v.summary.pnlYen}
                   currency={v.summary.currency ?? 'JPY'}
                   size="lg"
+                  quiet={risky !== null}
                 />
               </dd>
             </div>

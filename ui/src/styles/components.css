@@ -810,6 +810,18 @@
   font-weight: var(--fw-bold);
 }
 
+/* 静かな形の R（危ない勝ち。主役の数字の段に出さない = 本文より小さく・普通の太さ。色は .num に宣言せず、置き場の
+   .verdict__stat--quiet が 2 番目の文字の色にする。#227・C59） */
+.num--quiet {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+
+.verdict__stat--quiet dd,
+.verdict__before-quiet {
+  color: var(--ink-2);
+}
+
 .num--xl {
   font-size: var(--fs-num-xl);
   font-weight: var(--fw-bold);
@@ -1286,6 +1298,27 @@
 
 .verdict__lead {
   font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* 危ない勝ちの主役: 崩れの文（帯の題の段の太字）と反実の 1 行（本文）。色は付けない（枠の段の色が規律を言う。#227・C59） */
+.verdict__breach {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.verdict__breach-what {
+  margin: 0;
+  font-size: var(--fs-nav);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-tight);
+  color: var(--ink);
+}
+
+.verdict__breach-if {
+  margin: 0;
+  font-size: var(--fs-md);
   color: var(--ink);
 }
 
@@ -2508,6 +2541,12 @@
 .resnap__row--changed .resnap__value {
   font-weight: var(--fw-bold);
   color: var(--ink);
+}
+
+/* 危ない勝ちの側の R は静かな形（変わる行の太字も外す。#227・C59） */
+.resnap__quiet {
+  font-weight: var(--fw-regular);
+  color: var(--ink-2);
 }
 
 .resnap__arrow {

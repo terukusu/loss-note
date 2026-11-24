@@ -64,9 +64,9 @@ describe('submitStatus: 帯の 1 行の文（AC-1・AC-2・例 1・2・3）', ()
     expect(submitStatus(r, [])).toBe('明細を読み取っています');
   });
 
-  it('そろったら判定の要約（文字だけ）: B は「B 悪い損失 · −1.6R」、危ない勝ちは R つき、C は R なし', () => {
+  it('そろったら判定の要約（文字だけ）: B は「B 悪い損失 · −1.6R」、危ない勝ちは R ではなく帯の文（#227）、C は R なし', () => {
     expect(submitStatus(readDraft(E1, NO_CAPITAL), [])).toBe('B 悪い損失 · −1.6R');
-    expect(submitStatus(readDraft(E3, NO_CAPITAL), [])).toMatch(/^危ない勝ち · \+1\.5R$/);
+    expect(submitStatus(readDraft(E3, NO_CAPITAL), [])).toBe('危ない勝ち · LC を決めずに入った');
     expect(submitStatus(readDraft(E16, NO_CAPITAL), [])).toBe('C 極悪な損失');
   });
 

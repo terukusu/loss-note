@@ -211,7 +211,7 @@ describe('判定の段と数字の色（AC-5・C34）', () => {
       const tree = view(stateFor(d, ctx));
       const nums = all(tree, hasClass('num'));
       expect(nums.length).toBeGreaterThanOrEqual(1);
-      for (const n of nums) expect(cls(n)).toMatch(/^num( num--(lg|xl))?$/);
+      for (const n of nums) expect(cls(n)).toMatch(/^num( num--(lg|xl|quiet))?$/);
       for (const b of all(tree, hasClass('badge'))) expect(all([b], hasClass('num'))).toEqual([]);
     }
     const e4 = text(all(view(stateFor(E4, CAPITAL_1M)), hasClass('num')));
@@ -269,9 +269,10 @@ describe('結果の枠（判定・理由・R・リスク）', () => {
     expect(all(tree, hasClass('reasons__item')).map(text)).not.toContain('LC を決めずに入った');
   });
 
-  it('E17（LC なしの危ない勝ち）: 理由の一覧に「LC を決めずに入った」は残る（添え書きが別のことを言う）', () => {
+  it('E17（LC なしの危ない勝ち）: 「LC を決めずに入った」は枠の上の崩れの文に 1 回だけ（理由の一覧に重ねない。#227・C59。C と同じ扱い）', () => {
     const tree = view(stateFor(E17, NO_CAPITAL));
-    expect(all(tree, hasClass('reasons__item')).map(text)).toContain('LC を決めずに入った');
+    expect(all(tree, hasClass('verdict__breach-what')).map(text)).toEqual(['LC を決めずに入った']);
+    expect(all(tree, hasClass('reasons__item')).map(text)).not.toContain('LC を決めずに入った');
   });
 
   it('値が出ない場所の「—」は読み上げから隠し、読み上げには「表示なし」（E1・資金なしのリスク）', () => {

@@ -280,6 +280,13 @@
   white-space: nowrap;
 }
 
+/* 危ない勝ちの R は静かな形（段 3 に出さない。行の高さは変えない。#227・C59） */
+.traderow__r--quiet {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--ink-2);
+}
+
 .traderow__risk {
   color: var(--ink-2);
   font-size: var(--fs-xs);

@@ -23,6 +23,7 @@ import {
   type SavedVerdict,
 } from '../lib/emotion-tags';
 import { formatR } from '../lib/format';
+import { quietR } from '../lib/risky-win';
 import { Button, Chip, RowLink } from './Button';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
@@ -61,7 +62,12 @@ export function EmotionSheetBody(p: EmotionSheetBodyProps) {
               // 取引の並びは保存の順で変わらない（並びの位置を鍵にする）
               <li key={i} class="emotions__badge">
                 <JudgeBadge grade={v.grade} />
-                {verdicts.length === 1 ? <span class="emotions__r">{formatR(v.r)}</span> : null}
+                {verdicts.length === 1 ? (
+                  // 危ない勝ちの R は静かな形（#227・C59）
+                  <span class={quietR(v.grade) ? 'emotions__r emotions__r--quiet' : 'emotions__r'}>
+                    {formatR(v.r)}
+                  </span>
+                ) : null}
               </li>
             ))}
           </ul>

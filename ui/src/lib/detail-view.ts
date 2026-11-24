@@ -12,7 +12,9 @@ export type DetailSheet =
   | { readonly kind: 'compare' }
   | { readonly kind: 'chart'; readonly slot: AnySlot }
   /** 心理のタグを付ける・外す（#156。保存の後のシートと同じ中身） */
-  | { readonly kind: 'emotion' };
+  | { readonly kind: 'emotion' }
+  /** Good / More を付ける・外す・書く（#123） */
+  | { readonly kind: 'reflection' };
 
 /** シートの ID（dialog の id。開いたボタンの aria-controls） */
 export const DETAIL_SHEET_ID = {
@@ -20,6 +22,7 @@ export const DETAIL_SHEET_ID = {
   compare: 'detail-compare-sheet',
   chart: 'detail-chart-viewer',
   emotion: 'detail-emotion-sheet',
+  reflection: 'detail-reflection-sheet',
 } as const;
 
 /** 上の帯の「…」の読み上げの名前と、操作のシートの題 */

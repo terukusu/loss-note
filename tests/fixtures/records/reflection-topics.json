@@ -1,0 +1,22 @@
+{
+  "good": [
+    "cutEarly",
+    "readRight",
+    "followedRules",
+    "letProfitRun",
+    "resistedUrge",
+    "noGreedExit",
+    "waitedForSignal"
+  ],
+  "more": [
+    "enteredEarly",
+    "againstHigherTf",
+    "oversized",
+    "lcTooTight",
+    "noExitPlan",
+    "reEntered",
+    "orderMistake"
+  ],
+  "maxNotes": 10,
+  "maxNoteLength": 100
+}

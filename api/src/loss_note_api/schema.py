@@ -13,7 +13,7 @@ import unicodedata
 from collections.abc import Callable
 from typing import Any
 
-from loss_note_api import emotion_tags
+from loss_note_api import emotion_tags, reflection
 
 MAX_ABS = 1e12
 MAX_TIME_MS = 4_102_444_800_000  # 2100-01-01T00:00:00Z
@@ -764,6 +764,113 @@ def validate_emotion_tags(body: Any) -> tuple[dict | None, list[Issue], bool]:
     out: dict = {}
     _put(out, "tradeIds", c.field(src, "tradeIds", "", trade_ids, required=True))
     _put(out, "tags", c.field(src, "tags", "", tags, required=True))
+    if c.issues:
+        return None, c.issues, False
+    if bad_id:
+        return None, [], True
+    return out, [], False
+
+
+# ── 取引の Good / More（#123・C58・ADR-0024）──────────────────
+
+_REFLECTION_FIELDS = ("tradeIds", "good", "more")
+_REFLECTION_PART_FIELDS = ("topics", "notes")
+# 行の区切り（Zl・Zp）は 1 行の文にしない（text は Cc・Cs・Cf を見る）
+_LINE_BREAK_CATEGORIES = ("Zl", "Zp")
+
+
+def validate_reflection(body: Any) -> tuple[dict | None, list[Issue], bool]:
+    """``PUT /api/trade-reflections`` の本文 → ``(値, issues, 取引の ID の形が崩れている)``。
+
+    値は ``{"tradeIds": [...], "good": {"topics": [一覧の順], "notes": [...]}, "more": {...}}``。tradeIds は心理のタグと
+    同じ 1〜20 件・重複なし。topics はその側の一覧の ID・重複なし。notes は 0〜10 行・前後の空白を除いて 1〜100 字
+    （コードポイント）・改行と制御文字なし（除いた後の値を保存する）。issues は道筋と種類だけ（送った値を映さない）
+    """
+    c = _Checker()
+    src = c.obj(body, "", _REFLECTION_FIELDS)
+    if src is None:
+        return None, c.issues, False
+    bad_id = False
+
+    def trade_ids(v: Any, path: str) -> Any:
+        nonlocal bad_id
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if not 1 <= len(v) <= emotion_tags.MAX_TRADES:
+            c.add(path, "count")
+            return INVALID
+        if any(not isinstance(x, str) or not ID_PATTERN.match(x) for x in v):
+            bad_id = True
+            return INVALID
+        if len(set(v)) != len(v):
+            c.add(path, "duplicate")
+            return INVALID
+        return list(v)
+
+    def part(side: str) -> Callable[[Any, str], Any]:
+        def topics(v: Any, path: str) -> Any:
+            if not isinstance(v, list):
+                c.add(path, "type")
+                return INVALID
+            if len(v) > len(reflection.TOPICS[side]):
+                c.add(path, "count")
+                return INVALID
+            ok = True
+            for i, x in enumerate(v):
+                if not isinstance(x, str) or x not in reflection.ORDER[side]:
+                    c.add(f"{path}.{i}", "enum")
+                    ok = False
+            if not ok:
+                return INVALID
+            if len(set(v)) != len(v):
+                c.add(path, "duplicate")
+                return INVALID
+            return reflection.ordered(side, list(v))
+
+        line = c.text(reflection.MAX_NOTE_LENGTH)
+
+        def notes(v: Any, path: str) -> Any:
+            if not isinstance(v, list):
+                c.add(path, "type")
+                return INVALID
+            if len(v) > reflection.MAX_NOTES:
+                c.add(path, "count")
+                return INVALID
+            out = []
+            for i, x in enumerate(v):
+                p = f"{path}.{i}"
+                if not isinstance(x, str):
+                    c.add(p, "type")
+                    return INVALID
+                s = x.strip()
+                if not s:
+                    c.add(p, "required")
+                    return INVALID
+                if any(unicodedata.category(ch) in _LINE_BREAK_CATEGORIES for ch in s):
+                    c.add(p, "control")
+                    return INVALID
+                checked = line(s, p)
+                if checked is INVALID:
+                    return INVALID
+                out.append(checked)
+            return out
+
+        def check(v: Any, path: str) -> Any:
+            psrc = c.obj(v, path, _REFLECTION_PART_FIELDS)
+            if psrc is None:
+                return INVALID
+            res: dict = {}
+            _put(res, "topics", c.field(psrc, "topics", path, topics, required=True))
+            _put(res, "notes", c.field(psrc, "notes", path, notes, required=True))
+            return res
+
+        return check
+
+    out: dict = {}
+    _put(out, "tradeIds", c.field(src, "tradeIds", "", trade_ids, required=True))
+    for side in reflection.SIDES:
+        _put(out, side, c.field(src, side, "", part(side), required=True))
     if c.issues:
         return None, c.issues, False
     if bad_id:

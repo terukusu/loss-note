@@ -816,6 +816,22 @@ const TX_EMO = {
   id: 'x-emo',
   emotionTags: ['wantPosition', 'overconfident', 'recoup'],
 };
+/** #123: Good / More の付いた取引（話題と自分で書いた行。架空の文） */
+const TX_REFL = {
+  ...TX_FX,
+  id: 'x-refl',
+  emotionTags: ['fomo'],
+  reflection: {
+    good: { topics: ['cutEarly', 'readRight'], notes: [] },
+    more: {
+      topics: ['enteredEarly', 'againstHigherTf', 'lcTooTight'],
+      notes: [
+        '入る前に TP と出口を決め、上位足の向きを確かめてから入る',
+        '架空の長い一言: 刈られた直後に同じ根拠で入り直さず、次の足の確定まで待つことを決まりにする',
+      ],
+    },
+  },
+};
 /** #47 PR-2: USD の口座・USD 建ての取引（明細の損益 −51.50 USD・手数料 1.50 USD。詳細の測りで一時だけ足す。架空の値） */
 const TX_FXU = exampleTrade(
   'x-fxu',
@@ -1056,6 +1072,13 @@ const SYNTHETIC_STATEMENT = 'tools/statement-eval/synthetic/s05.png';
 const EMOTION_ORDER = JSON.parse(
   readFileSync(new URL('../tests/fixtures/records/emotion-tags.json', import.meta.url), 'utf8'),
 ).ids;
+/** Good / More の話題の一覧の順（core/reflection.ts の REFLECTION_TOPICS と同じ。偽の API が並べ直すのに使う。#123） */
+const REFLECTION_ORDER = JSON.parse(
+  readFileSync(
+    new URL('../tests/fixtures/records/reflection-topics.json', import.meta.url),
+    'utf8',
+  ),
+);
 
 /**
  * 記録の保存の後: 心理のシート「記録しました」（#156）が開くのを待って ［あとで］ で閉じ、保存の後の画面の知らせを待つ
@@ -1182,6 +1205,27 @@ async function installFakeApi(context, opts = {}) {
         api.trades[i] = tags.length > 0 ? { ...rest, emotionTags: tags } : rest;
       }
       return json(route, 200, { tags });
+    }
+    // Good / More（Issue #123。形は routes.py の put_trade_reflections: 取引の集合の Good / More を置き換え、両側とも空なら鍵ごと消す）
+    if (key === 'PUT /api/trade-reflections') {
+      const b = JSON.parse(req.postData() ?? '{}');
+      const ids = Array.isArray(b.tradeIds) ? b.tradeIds : [];
+      const idx = ids.map((id) => api.trades.findIndex((t) => t.id === id));
+      if (ids.length === 0 || idx.some((i) => i < 0))
+        return json(route, 404, { error: 'not_found' });
+      const part = (side) => ({
+        topics: REFLECTION_ORDER[side].filter((t) => (b[side]?.topics ?? []).includes(t)),
+        notes: (b[side]?.notes ?? []).map((n) => String(n).trim()),
+      });
+      const saved = { good: part('good'), more: part('more') };
+      const empty = ['good', 'more'].every(
+        (s) => saved[s].topics.length === 0 && saved[s].notes.length === 0,
+      );
+      for (const i of idx) {
+        const { reflection: _old, ...rest } = api.trades[i];
+        api.trades[i] = empty ? rest : { ...rest, reflection: saved };
+      }
+      return json(route, 200, saved);
     }
     const profileM = /^\/api\/statement-profiles\/([0-9a-f]{32})$/.exec(path);
     if (req.method() === 'PUT' && profileM) {
@@ -5263,6 +5307,49 @@ async function main() {
               await sheet
                 .locator('.chip--toggle[aria-pressed="true"]', { hasText: '値ごろ感' })
                 .waitFor();
+            },
+          },
+          // #123: 詳細の Good / More のカード（話題の札と自分で書いた行）
+          {
+            path: '/trades/x-refl',
+            h1: '架空指数U · L',
+            slug: 'trade-x-reflection-card',
+            name: 'Good / More のカード',
+            trade: TX_REFL,
+            after: async (pg) => {
+              const card = pg.locator('.reflectioncard');
+              await card.waitFor();
+              const tags = await card.locator('.emotioncard__tag').count();
+              if (tags !== 5) throw new Error(`Good / More の札 ${tags}（期待 5）`);
+              await card.scrollIntoViewIfNeeded();
+            },
+          },
+          // #123: Good / More のシート（チップを押す・行を足す。足した行は欄の上に並び、欄は空に戻る）
+          {
+            path: '/trades/x-refl',
+            h1: '架空指数U · L',
+            slug: 'trade-x-reflection-sheet',
+            name: 'Good / More のシート',
+            trade: TX_REFL,
+            after: async (pg) => {
+              await pg
+                .locator('.reflectioncard')
+                .getByRole('button', { name: 'Good / More を変更' })
+                .click();
+              const sheet = pg.locator('#detail-reflection-sheet[open]');
+              await sheet.waitFor();
+              await sheet.getByRole('button', { name: '利を伸ばせた', exact: true }).click();
+              await sheet
+                .locator('.chip--toggle[aria-pressed="true"]', { hasText: '利を伸ばせた' })
+                .waitFor();
+              const field = sheet.locator('#detail-reflection-good-note');
+              await field.fill('架空の一言: LC を動かさずに待てた');
+              await field.press('Enter');
+              await sheet
+                .locator('.reflection__notetext', { hasText: 'LC を動かさずに待てた' })
+                .waitFor();
+              if ((await field.inputValue()) !== '') throw new Error('足した後も欄が空でない');
+              await field.blur();
             },
           },
           {

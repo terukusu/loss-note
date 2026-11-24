@@ -35,6 +35,10 @@
 ``{**doc, ...}`` で組むのでタグを保つ（前の版の API も同じ作りなので、切り戻してもタグは消えない。版は上げない）。
 選択肢に出さないタグの設定（Issue #163・ADR-0023）は ``GET`` / ``PUT /api/settings/emotion-tags`` 本文 ``{hidden}``
 （``users/{uid}/settings/emotionTags``。設定の文書 ``current`` とは別。取引のタグ・集計は変えない）。
+
+Good / More（Issue #123・設計書 C58・ADR-0024）: 取引の文書の最上位の ``reflection``（``record`` の外。心理のタグと同じ
+作り）。書くのは ``PUT /api/trade-reflections`` 本文 ``{tradeIds, good, more}`` だけで、取引の集合の Good / More を
+置き換える。両側とも空なら鍵ごと消す。
 """
 
 from collections.abc import Callable
@@ -49,6 +53,7 @@ from loss_note_api import (
     chart_read,
     charts,
     emotion_tags,
+    reflection,
     schema,
     statement_profile,
     statement_read,
@@ -83,6 +88,7 @@ LEGS_MISSING = "legsMissing"
 LEGS_PRODUCT_FORM = "option"
 # 心理のタグの鍵（#156・ADR-0022。取引の文書の最上位 = record の外）
 EMOTION_TAGS_KEY = "emotionTags"
+REFLECTION_KEY = "reflection"
 # 取引の PUT のクエリ snapshot の決まった値（#31。今の口座・銘柄の値で写し直す）
 SNAPSHOT_CURRENT = "current"
 
@@ -145,6 +151,9 @@ def trade_response(trade_id: str, doc: dict) -> dict:
     # 心理のタグ（#156）: 付いている取引だけ。無い取引は今と同じ形（KEEP-4）
     if doc.get(EMOTION_TAGS_KEY):
         res[EMOTION_TAGS_KEY] = doc[EMOTION_TAGS_KEY]
+    # Good / More（#123）: 付いている取引だけ。無い取引は今と同じ形（KEEP-1）
+    if doc.get(REFLECTION_KEY):
+        res[REFLECTION_KEY] = doc[REFLECTION_KEY]
     return res
 
 
@@ -555,6 +564,39 @@ def make_blueprint(
             # 1 件でも無い（ほかの利用者の取引も「無い」と同じ）: 何も書いていない
             return error(404, "not_found")
         return {"tags": tags}
+
+    # ── Good / More（Issue #123・ADR-0024）──
+    # 心理のタグと同じ作り: 取引の集合（1〜20 件）の Good / More を 1 トランザクションで置き換える。record・snapshot・
+    # charts・schemaVersion・心理のタグは変えない。両側とも空なら鍵ごと消す。保存先の書き口は心理のタグと共有する
+    # （set_emotion_tags は「取引の集合を読んで mutate を当てて書く」口で、触る鍵は mutate が決める）
+    @bp.put("/trade-reflections")
+    def put_trade_reflections():
+        body, err = read_body()
+        if err:
+            return err
+        value, issues, bad_id = schema.validate_reflection(body)
+        if bad_id:
+            return error(404, "not_found")
+        if value is None:
+            return invalid(issues)
+        saved = {side: value[side] for side in reflection.SIDES}
+        empty = reflection.is_empty(saved)
+
+        def mutate(doc: dict) -> dict:
+            new = {k: v for k, v in doc.items() if k != REFLECTION_KEY}
+            if not empty:
+                new[REFLECTION_KEY] = {side: {"topics": list(p["topics"]), "notes": list(p["notes"])}
+                                       for side, p in saved.items()}
+            new["updatedAt"] = next_updated_at(clock(), doc.get("updatedAt"))
+            return new
+
+        try:
+            docs = store.set_emotion_tags(g.uid, value["tradeIds"], mutate)
+        except UnknownSchemaVersion:
+            return unknown_version()
+        if docs is None:
+            return error(404, "not_found")
+        return saved
 
     # ── 銘柄 ──
     @bp.get("/instruments")

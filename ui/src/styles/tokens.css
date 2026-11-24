@@ -1,6 +1,7 @@
 /*
  * 見た目のトークン（Issue #3。docs/ui-guidelines.md P12）。
- * 色・影はテーマの 2 つの定義の中だけに書き（AC-2）、部品の CSS は var(--…) だけで書く。
+ * 色は 2 層（#229・設計書 C61）: 色の値は原色の層（--c-*）にだけ書き、テーマの 2 つの定義は原色を参照して役割を決める。
+ * 部品の CSS は役割の var(--…) だけで書く（原色を直接使わない）。
  * 見た目の作り直しは、このファイルと部品の CSS の差し替えで済むようにしてある。
  * テーマは <html data-theme> で選ぶ。OS の設定（prefers-color-scheme）は見ない（既定はダーク。R1）
  */
@@ -85,141 +86,237 @@
   --gutter: 16px;
 }
 
+/* 原色の層（#229・設計書 C61・ui-guidelines P12）。色の値はここにだけ書く。名前は --c-<色相>-<段>（段は OKLCH の明るさの
+   (1 − L) × 1000 を丸めた数 = 大きいほど暗い。-aNN は不透明度 NN%）。テーマの定義はここを参照して役割を決め、部品の CSS は
+   役割だけを使う（原色を直接使わない）。値を OKLCH の階段に引き直すのは後の Issue */
+:root {
+  --c-gray-18: #f8f9fb;
+  --c-gray-33: #f3f4f7;
+  --c-gray-43: #eef1f6;
+  --c-gray-51: #eceef2;
+  --c-gray-60: #e9ebf0;
+  --c-gray-79: #e2e5eb;
+  --c-gray-84: #e3e3e3;
+  --c-gray-144: #cbd0d9;
+  --c-gray-213: #b3bac7;
+  --c-gray-244: #a8b0bf;
+  --c-gray-329: #8d96a7;
+  --c-gray-346: #8e918f;
+  --c-gray-382: #7d8696;
+  --c-gray-434: #747775;
+  --c-gray-461: #646f82;
+  --c-gray-495: #5c6576;
+  --c-gray-562: #4a5263;
+  --c-gray-569: #485062;
+  --c-gray-622: #3a4252;
+  --c-gray-653: #323a48;
+  --c-gray-723: #232833;
+  --c-gray-724: #222834;
+  --c-gray-744: #1e232d;
+  --c-gray-761: #1f1f1f;
+  --c-gray-778: #171b23;
+  --c-gray-809: #11141a;
+  --c-gray-813: #131314;
+  --c-gray-818: #0f1218;
+  --c-gray-818-a04: #0f12180a;
+  --c-gray-818-a05: #0f12180d;
+  --c-gray-818-a06: #0f12180f;
+  --c-gray-818-a08: #0f121814;
+  --c-gray-818-a40: #0f121866;
+  --c-gray-846: #0a0c10;
+  --c-gray-846-a00: #0a0c1000;
+  --c-gray-846-a80: #0a0c10cc;
+  --c-indigo-172: #b8c2ff;
+  --c-indigo-245: #9aa8ff;
+  --c-indigo-356-a12: #6f7dff1f;
+  --c-indigo-389: #6573f2;
+  --c-indigo-389-a14: #6573f224;
+  --c-indigo-448: #4f5ee8;
+  --c-indigo-499: #3d4fd6;
+  --c-indigo-499-a08: #3d4fd614;
+  --c-indigo-499-a10: #3d4fd61a;
+  --c-green-48: #e0f5ec;
+  --c-green-155: #6ee7b7;
+  --c-green-161: #9fd9c1;
+  --c-green-262-a06: #2ec5a00f;
+  --c-green-268: #3cc38f;
+  --c-green-377-a05: #0f9e7a0d;
+  --c-green-390: #1f9a6b;
+  --c-green-538: #09694a;
+  --c-green-577: #1e5a46;
+  --c-green-740: #0e2a21;
+  --c-amber-44: #fcefd6;
+  --c-amber-154: #ecc77f;
+  --c-amber-161: #f7c063;
+  --c-amber-246: #e0a23a;
+  --c-amber-360: #b8800f;
+  --c-amber-511: #855400;
+  --c-amber-559: #6a4d16;
+  --c-amber-736: #2e2310;
+  --c-red-55: #fde6ea;
+  --c-red-196: #f0a8b6;
+  --c-red-226: #ff8fa0;
+  --c-red-230: #ff8f8f;
+  --c-red-312: #ec6a82;
+  --c-red-396: #d9435f;
+  --c-red-497: #b4232f;
+  --c-red-507: #b01c3b;
+  --c-red-600: #7a2536;
+  --c-red-750: #3a121b;
+  --c-white: #ffffff;
+  --c-white-a00: #ffffff00;
+  --c-white-a03: #ffffff08;
+  --c-white-a04: #ffffff0a;
+  --c-white-a18: #ffffff2e;
+  --c-black: #000000;
+  --c-black-a40: #00000066;
+  --c-black-a50: #00000080;
+}
+
 /* ダーク（既定）。落ち着いた深い面に、判定の規律の色だけが映える */
 :root,
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #0a0c10;
-  --s1: #11141a;
-  --s2: #171b23;
-  --s3: #1e232d;
-  --line: #222834;
-  --line-2: #323a48;
+  --bg: var(--c-gray-846);
+  --s1: var(--c-gray-809);
+  --s2: var(--c-gray-778);
+  --s3: var(--c-gray-744);
+  --line: var(--c-gray-724);
+  --line-2: var(--c-gray-653);
   /* 入力の部品（入力欄・セグメント）の枠。面に対して 3:1 以上（WCAG 1.4.11） */
-  --field-line: #646f82;
+  --field-line: var(--c-gray-461);
 
-  --ink: #eef1f6;
-  --ink-2: #a8b0bf;
-  --ink-3: #8d96a7;
+  --ink: var(--c-gray-43);
+  --ink-2: var(--c-gray-244);
+  --ink-3: var(--c-gray-329);
 
-  --accent: #9aa8ff;
-  --on-accent: #0a0c10;
-  --focus: #b8c2ff;
-  --glow: #6f7dff1f;
-  --glow-2: #2ec5a00f;
+  --accent: var(--c-indigo-245);
+  --on-accent: var(--c-gray-846);
+  --focus: var(--c-indigo-172);
+  --glow: var(--c-indigo-356-a12);
+  --glow-2: var(--c-green-262-a06);
 
-  /* 判定の 4 段（計画どおり / 崩れ / 極悪 / 中立）。損益の色ではない */
-  --tier-plan-ink: #6ee7b7;
-  --tier-plan-bg: #0e2a21;
-  --tier-plan-line: #1e5a46;
-  --tier-break-ink: #f7c063;
-  --tier-break-bg: #2e2310;
-  --tier-break-line: #6a4d16;
-  --tier-worst-ink: #ff8fa0;
-  --tier-worst-bg: #3a121b;
-  --tier-worst-line: #7a2536;
-  --tier-neutral-ink: #b3bac7;
-  --tier-neutral-bg: #232833;
-  --tier-neutral-line: #3a4252;
+  /* 判定の 4 段（計画どおり / 崩れ / 極悪 / 中立）。損益の色ではない。役割は 4 つ（#229・C61）: ink = 文字・記号・線 /
+     tint = バッジ・印の地と 1 件の取引の判定のカードの面 / line = 縁 / solid = 帯・面の塗り（面に 3:1 以上） */
+  --tier-plan-ink: var(--c-green-155);
+  --tier-plan-tint: var(--c-green-740);
+  --tier-plan-line: var(--c-green-577);
+  --tier-plan-solid: var(--c-green-268);
+  --tier-break-ink: var(--c-amber-161);
+  --tier-break-tint: var(--c-amber-736);
+  --tier-break-line: var(--c-amber-559);
+  --tier-break-solid: var(--c-amber-246);
+  --tier-worst-ink: var(--c-red-226);
+  --tier-worst-tint: var(--c-red-750);
+  --tier-worst-line: var(--c-red-600);
+  --tier-worst-solid: var(--c-red-312);
+  --tier-neutral-ink: var(--c-gray-213);
+  --tier-neutral-tint: var(--c-gray-723);
+  --tier-neutral-line: var(--c-gray-622);
+  --tier-neutral-solid: var(--c-gray-329);
 
   /* 入力の誤り（判定の色とは別の役割） */
-  --danger: #ff8f8f;
+  --danger: var(--c-red-230);
   /* 確かめてほしい読み取り（限月の年を推定した など。誤りではない。#118） */
-  --warn-ink: #f7c063;
-  --warn-bg: #2e2310;
-  --warn-line: #6a4d16;
+  --warn-ink: var(--c-amber-161);
+  --warn-bg: var(--c-amber-736);
+  --warn-line: var(--c-amber-559);
 
   /* Google でログインするボタン（Sign in with Google のブランドガイドラインのダークの配色。Issue #52）。値を変えない */
-  --gsi-bg: #131314;
-  --gsi-line: #8e918f;
-  --gsi-ink: #e3e3e3;
+  --gsi-bg: var(--c-gray-813);
+  --gsi-line: var(--c-gray-346);
+  --gsi-ink: var(--c-gray-84);
 
   /* アプリの印（ログインの画面・帯・favicon で同じ「藍の地に白い線」。テーマで変えない。判定の段の色を使わない。#52）。
      値は ui/public/favicon.svg と同じ。ダークの面では 1px の明るい縁で浮かせる */
-  --mark-from: #6573f2;
-  --mark-to: #3d4fd6;
-  --mark-ink: #ffffff;
-  --mark-edge: #ffffff2e;
-  --mark-glow: #6573f224;
+  --mark-from: var(--c-indigo-389);
+  --mark-to: var(--c-indigo-499);
+  --mark-ink: var(--c-white);
+  --mark-edge: var(--c-white-a18);
+  --mark-glow: var(--c-indigo-389-a14);
 
-  --shadow-1: 0 1px 0 #ffffff08 inset, 0 1px 2px #00000066;
-  --shadow-2: 0 1px 0 #ffffff0a inset, 0 12px 32px #00000080;
-  --scrim: #0a0c10cc;
+  --shadow-1: 0 1px 0 var(--c-white-a03) inset, 0 1px 2px var(--c-black-a40);
+  --shadow-2: 0 1px 0 var(--c-white-a04) inset, 0 12px 32px var(--c-black-a50);
+  --scrim: var(--c-gray-846-a80);
 
   /* 主のボタン・真ん中の ［＋ 記録］ の面（藍のグラデーション + 白い文字。両端で 4.5:1 以上。9.9。#127） */
-  --primary-from: #4f5ee8;
-  --primary-to: #3d4fd6;
-  --on-primary: #ffffff;
+  --primary-from: var(--c-indigo-448);
+  --primary-to: var(--c-indigo-499);
+  --on-primary: var(--c-white);
   /* カードは面だけ（ダークは線も影も無し。区切りは面の色の差。9.9） */
   --shadow-card: none;
   /* 上の安全域の面に重ねる色（ダークは透明 = 下の画面の背景がそのまま続く。ライトは暗い面。9.6・#127 デザイン a3） */
-  --statusbar-bg: #0a0c1000;
+  --statusbar-bg: var(--c-gray-846-a00);
   /* チャートを全画面で見る層（黒い面・白い文字。テーマによらない。#131・ui-guidelines 9.3） */
-  --viewer-bg: #000000;
-  --viewer-ink: #ffffff;
+  --viewer-bg: var(--c-black);
+  --viewer-ink: var(--c-white);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
 
-  --bg: #f3f4f7;
-  --s1: #ffffff;
-  --s2: #f8f9fb;
-  --s3: #eceef2;
-  --line: #e2e5eb;
-  --line-2: #cbd0d9;
-  --field-line: #7d8696;
+  --bg: var(--c-gray-33);
+  --s1: var(--c-white);
+  --s2: var(--c-gray-18);
+  --s3: var(--c-gray-51);
+  --line: var(--c-gray-79);
+  --line-2: var(--c-gray-144);
+  --field-line: var(--c-gray-382);
 
-  --ink: #0f1218;
-  --ink-2: #485062;
-  --ink-3: #5c6576;
+  --ink: var(--c-gray-818);
+  --ink-2: var(--c-gray-569);
+  --ink-3: var(--c-gray-495);
 
-  --accent: #3d4fd6;
-  --on-accent: #ffffff;
-  --focus: #3d4fd6;
-  --glow: #3d4fd614;
-  --glow-2: #0f9e7a0d;
+  --accent: var(--c-indigo-499);
+  --on-accent: var(--c-white);
+  --focus: var(--c-indigo-499);
+  --glow: var(--c-indigo-499-a08);
+  --glow-2: var(--c-green-377-a05);
 
-  --tier-plan-ink: #09694a;
-  --tier-plan-bg: #e0f5ec;
-  --tier-plan-line: #9fd9c1;
-  --tier-break-ink: #855400;
-  --tier-break-bg: #fcefd6;
-  --tier-break-line: #ecc77f;
-  --tier-worst-ink: #b01c3b;
-  --tier-worst-bg: #fde6ea;
-  --tier-worst-line: #f0a8b6;
-  --tier-neutral-ink: #4a5263;
-  --tier-neutral-bg: #e9ebf0;
-  --tier-neutral-line: #cbd0d9;
+  --tier-plan-ink: var(--c-green-538);
+  --tier-plan-tint: var(--c-green-48);
+  --tier-plan-line: var(--c-green-161);
+  --tier-plan-solid: var(--c-green-390);
+  --tier-break-ink: var(--c-amber-511);
+  --tier-break-tint: var(--c-amber-44);
+  --tier-break-line: var(--c-amber-154);
+  --tier-break-solid: var(--c-amber-360);
+  --tier-worst-ink: var(--c-red-507);
+  --tier-worst-tint: var(--c-red-55);
+  --tier-worst-line: var(--c-red-196);
+  --tier-worst-solid: var(--c-red-396);
+  --tier-neutral-ink: var(--c-gray-562);
+  --tier-neutral-tint: var(--c-gray-60);
+  --tier-neutral-line: var(--c-gray-144);
+  --tier-neutral-solid: var(--c-gray-382);
 
-  --danger: #b4232f;
-  --warn-ink: #855400;
-  --warn-bg: #fcefd6;
-  --warn-line: #ecc77f;
+  --danger: var(--c-red-497);
+  --warn-ink: var(--c-amber-511);
+  --warn-bg: var(--c-amber-44);
+  --warn-line: var(--c-amber-154);
 
   /* Google でログインするボタン（ガイドラインのライトの配色。Issue #52）。値を変えない */
-  --gsi-bg: #ffffff;
-  --gsi-line: #747775;
-  --gsi-ink: #1f1f1f;
+  --gsi-bg: var(--c-white);
+  --gsi-line: var(--c-gray-434);
+  --gsi-ink: var(--c-gray-761);
 
-  --mark-from: #6573f2;
-  --mark-to: #3d4fd6;
-  --mark-ink: #ffffff;
-  --mark-edge: #ffffff00;
-  --mark-glow: #3d4fd61a;
+  --mark-from: var(--c-indigo-389);
+  --mark-to: var(--c-indigo-499);
+  --mark-ink: var(--c-white);
+  --mark-edge: var(--c-white-a00);
+  --mark-glow: var(--c-indigo-499-a10);
 
-  --shadow-1: 0 1px 2px #0f12180f, 0 1px 1px #0f12180a;
-  --shadow-2: 0 2px 4px #0f12180d, 0 16px 40px #0f121814;
-  --scrim: #0f121866;
+  --shadow-1: 0 1px 2px var(--c-gray-818-a06), 0 1px 1px var(--c-gray-818-a04);
+  --shadow-2: 0 2px 4px var(--c-gray-818-a05), 0 16px 40px var(--c-gray-818-a08);
+  --scrim: var(--c-gray-818-a40);
 
-  --primary-from: #4f5ee8;
-  --primary-to: #3d4fd6;
-  --on-primary: #ffffff;
+  --primary-from: var(--c-indigo-448);
+  --primary-to: var(--c-indigo-499);
+  --on-primary: var(--c-white);
   /* ライトは薄い影 1 つ */
-  --shadow-card: 0 1px 3px #0f121814;
-  --statusbar-bg: #11141a;
-  --viewer-bg: #000000;
-  --viewer-ink: #ffffff;
+  --shadow-card: 0 1px 3px var(--c-gray-818-a08);
+  --statusbar-bg: var(--c-gray-809);
+  --viewer-bg: var(--c-black);
+  --viewer-ink: var(--c-white);
 }

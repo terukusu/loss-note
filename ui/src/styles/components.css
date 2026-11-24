@@ -768,25 +768,25 @@
 
 .badge--plan {
   color: var(--tier-plan-ink);
-  background: var(--tier-plan-bg);
+  background: var(--tier-plan-tint);
   border-color: var(--tier-plan-line);
 }
 
 .badge--break {
   color: var(--tier-break-ink);
-  background: var(--tier-break-bg);
+  background: var(--tier-break-tint);
   border-color: var(--tier-break-line);
 }
 
 .badge--worst {
   color: var(--tier-worst-ink);
-  background: var(--tier-worst-bg);
+  background: var(--tier-worst-tint);
   border-color: var(--tier-worst-line);
 }
 
 .badge--neutral {
   color: var(--tier-neutral-ink);
-  background: var(--tier-neutral-bg);
+  background: var(--tier-neutral-tint);
   border-color: var(--tier-neutral-line);
 }
 
@@ -1209,7 +1209,7 @@
 .verdict--plan {
   background: linear-gradient(
     160deg,
-    color-mix(in srgb, var(--tier-plan-bg) 80%, var(--s1)),
+    color-mix(in srgb, var(--tier-plan-tint) 80%, var(--s1)),
     var(--s1) 65%
   );
 }
@@ -1221,7 +1221,7 @@
 .verdict--break {
   background: linear-gradient(
     160deg,
-    color-mix(in srgb, var(--tier-break-bg) 80%, var(--s1)),
+    color-mix(in srgb, var(--tier-break-tint) 80%, var(--s1)),
     var(--s1) 65%
   );
 }
@@ -1233,7 +1233,7 @@
 .verdict--worst {
   background: linear-gradient(
     160deg,
-    color-mix(in srgb, var(--tier-worst-bg) 80%, var(--s1)),
+    color-mix(in srgb, var(--tier-worst-tint) 80%, var(--s1)),
     var(--s1) 65%
   );
 }
@@ -2685,7 +2685,7 @@
 }
 
 /* ── 下のシート（#129。components/Sheet.tsx。ui-guidelines 9.3・9.6・9.8） ─────────────── */
-/* <dialog> の showModal()。縦の形は下から中身の高さ分だけ出る（最大 86dvh・中がスクロール。#110）。上につまみ、後ろは暗く。
+/* <dialog> の showModal()。縦の形は下から中身の高さ分だけ出る（最大 86dvh・中がスクロール。#110）。つまみは出さない（引いて閉じる操作を入れるまで。#229）、後ろは暗く。
    見せ方は <html data-form> で替える（横 = 右のパネル、広い = 説明は押した所の吹き出し・入力は中央のダイアログ）。要素は同じで、
    作り直さない。dialog の既定（中央・枠・余白・最大の大きさ）は外す。面は 1 段（線と影を重ねない。9.9。例外は広い形の
    吹き出し: 後ろを暗くしないので、線で面の端を示す）。中身はパネルが覆う
@@ -2753,14 +2753,10 @@
   padding: 0 calc(var(--gutter) + var(--safe-right)) 0 calc(var(--gutter) + var(--safe-left));
 }
 
-/* つまみ（見た目だけ。引いて閉じる操作は置かない = 9.3 の「しない（最初は）」） */
+/* つまみは出さない（引いて閉じる操作を入れるまで。描いてあって引けないのは操作の嘘。9.3・#229・設計書 C61）。
+   要素（aria-hidden）は残し、引ける操作を入れるときにここで描く */
 .sheet__grip {
-  flex: none;
-  inline-size: 40px;
-  block-size: 5px;
-  margin: var(--sp-2) auto 0;
-  border-radius: var(--radius-pill);
-  background: var(--line-2);
+  display: none;
 }
 
 /* 見出しの行: 題と右上の ✕。前に置くもの（［‹ 前の言葉］）があれば 1 段目の左に置き、題は 2 段目 */
@@ -2771,7 +2767,8 @@
   align-items: center;
   /* 行の間は ［‹ 前の言葉］ の札と題を分けて読ませる（題が札に負けない。#129 のデザインレビュー a-2） */
   gap: var(--sp-3) var(--sp-2);
-  padding-block: var(--sp-3) var(--sp-2);
+  /* 上はつまみの分（#229 で出さなくした）を見出しの余白で取る（題の上端はシートの上端から 20px） */
+  padding-block: var(--sp-5) var(--sp-2);
 }
 
 .sheet__lead {
@@ -2860,9 +2857,11 @@
   padding-inline-start: var(--gutter);
 }
 
-:root[data-form="landscape"] .sheet__grip,
-:root[data-form="wide"] .sheet__grip {
-  display: none;
+/* 横・広いの形と画像を全画面で見る層は、もともとつまみが無かったので見出しの上の余白を前のまま（12px）にする（#229） */
+:root[data-form="landscape"] .sheet__head,
+:root[data-form="wide"] .sheet__head,
+:root .sheet--viewer .sheet__head {
+  padding-block-start: var(--sp-3);
 }
 
 /* 広い形の入力: 中央のダイアログ（幅 480px・最大の高さ 80%） */

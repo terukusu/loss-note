@@ -213,10 +213,6 @@
   padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
 }
 
-.sheet--viewer .sheet__grip {
-  display: none;
-}
-
 .sheet--viewer .sheet__head {
   padding-inline: var(--gutter);
 }

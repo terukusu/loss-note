@@ -84,25 +84,25 @@
 
 .streak__dot--plan {
   color: var(--tier-plan-ink);
-  background: var(--tier-plan-bg);
+  background: var(--tier-plan-tint);
   border-color: var(--tier-plan-line);
 }
 
 .streak__dot--break {
   color: var(--tier-break-ink);
-  background: var(--tier-break-bg);
+  background: var(--tier-break-tint);
   border-color: var(--tier-break-line);
 }
 
 .streak__dot--worst {
   color: var(--tier-worst-ink);
-  background: var(--tier-worst-bg);
+  background: var(--tier-worst-tint);
   border-color: var(--tier-worst-line);
 }
 
 .streak__dot--neutral {
   color: var(--tier-neutral-ink);
-  background: var(--tier-neutral-bg);
+  background: var(--tier-neutral-tint);
   border-color: var(--tier-neutral-line);
 }
 

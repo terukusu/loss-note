@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readTokens } from './helpers/css-tokens';
 
 /**
  * アプリのアイコン（ブラウザーのタブ・iPhone のホーム画面。Issue #52）。ui/public/ の 3 つのファイルと index.html の link。
@@ -26,13 +27,15 @@ const isPng = (b: Uint8Array) => PNG_SIG.every((v, i) => b[i] === v);
 /** PNG の IHDR の幅・高さ */
 const pngSize = (b: Uint8Array) => [be32(b, 16), be32(b, 20)];
 
-/** 判定の段の色（tokens.css の --tier-*）。アイコンには使わない */
-const TIER_COLORS = (() => {
-  const css = fs.readFileSync(new URL('../../ui/src/styles/tokens.css', import.meta.url), 'utf8');
-  return [...css.matchAll(/--tier-[a-z-]+:\s*(#[0-9a-fA-F]{3,8})/g)].map((m) =>
-    (m[1] ?? '').toLowerCase(),
-  );
-})();
+/** tokens.css（役割は原色まで解いて読む。#229） */
+const TOKENS = readTokens(
+  fs.readFileSync(new URL('../../ui/src/styles/tokens.css', import.meta.url), 'utf8'),
+);
+
+/** 判定の段の色（tokens.css の --tier-*。両テーマ）。アイコンには使わない */
+const TIER_COLORS = (['dark', 'light'] as const).flatMap((t) =>
+  [...TOKENS.resolved[t]].filter(([k]) => k.startsWith('--tier-')).map(([, v]) => v.toLowerCase()),
+);
 
 describe('アイコン', () => {
   it('favicon.svg: 外のもの・script・style 属性を持たず、判定の段の色を使わない', () => {
@@ -54,14 +57,8 @@ describe('アイコン', () => {
     const stops = [...svg.matchAll(/stop-color="(#[0-9a-fA-F]{6})"/g)].map((m) =>
       (m[1] ?? '').toLowerCase(),
     );
-    const tokens = fs.readFileSync(
-      new URL('../../ui/src/styles/tokens.css', import.meta.url),
-      'utf8',
-    );
     const valuesOf = (name: string) =>
-      [...tokens.matchAll(new RegExp(`${name}:\\s*(#[0-9a-fA-F]{6})`, 'g'))].map((m) =>
-        (m[1] ?? '').toLowerCase(),
-      );
+      (['dark', 'light'] as const).map((t) => (TOKENS.resolved[t].get(name) ?? '').toLowerCase());
     for (const name of ['--mark-from', '--mark-to', '--mark-ink']) {
       const values = valuesOf(name);
       expect(values, name).toHaveLength(2);

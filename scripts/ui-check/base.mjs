@@ -260,7 +260,12 @@ export function zoomCss() {
 export function darkBg() {
   const css = readFileSync(join(ROOT, 'ui/src/styles/tokens.css'), 'utf8');
   const block = /:root,\s*:root\[data-theme="dark"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
-  return /--bg:\s*(#[0-9a-fA-F]{6})/.exec(block)?.[1]?.toLowerCase() ?? '';
+  // 役割は原色の参照（#229・設計書 C61）。--bg: var(--c-…) を原色の層の値まで解く
+  const ref = /--bg:\s*var\((--c-[\w-]+)\)/.exec(block)?.[1] ?? '';
+  const value = ref
+    ? new RegExp(`${ref}:\\s*(#[0-9a-fA-F]{6})\\b`).exec(css)?.[1]
+    : /--bg:\s*(#[0-9a-fA-F]{6})/.exec(block)?.[1];
+  return value?.toLowerCase() ?? '';
 }
 
 export function freePort() {

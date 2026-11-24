@@ -242,7 +242,7 @@
 }
 
 .minicurve__gap {
-  fill: var(--tier-break-ink);
+  fill: var(--tier-break-solid);
   fill-opacity: 0.24;
   stroke: none;
 }
@@ -362,25 +362,25 @@
 
 .homerow__mark--plan {
   color: var(--tier-plan-ink);
-  background: var(--tier-plan-bg);
+  background: var(--tier-plan-tint);
   border-color: var(--tier-plan-line);
 }
 
 .homerow__mark--break {
   color: var(--tier-break-ink);
-  background: var(--tier-break-bg);
+  background: var(--tier-break-tint);
   border-color: var(--tier-break-line);
 }
 
 .homerow__mark--worst {
   color: var(--tier-worst-ink);
-  background: var(--tier-worst-bg);
+  background: var(--tier-worst-tint);
   border-color: var(--tier-worst-line);
 }
 
 .homerow__mark--neutral {
   color: var(--tier-neutral-ink);
-  background: var(--tier-neutral-bg);
+  background: var(--tier-neutral-tint);
   border-color: var(--tier-neutral-line);
 }
 

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
+import { PRIMITIVE_NAME, readTokens } from './helpers/css-tokens';
 
 /**
  * 画面の CSS（ui/**\/*.css）の色とテーマ（Issue #3 の AC-1・2・3・4・5。docs/ui-guidelines.md P2・P3・P8・P12）。
  * option-simulator の tests/ui/cssTokens.test.ts の解析（blocks・decls・colorHits・luminance・contrast）を移植した。
  *
- * (a) 色の値（16 進・rgb/rgba・hsl/hsla・色の名前）は tokens.css のテーマの定義
- *     （`:root, :root[data-theme="dark"]` と `:root[data-theme="light"]`）の中だけ。color-mix() もトークン同士
+ * (a) 色の値（16 進・rgb/rgba・hsl/hsla・色の名前）は tokens.css の原色の層（`:root` の `--c-*` だけの規則）の中だけ。
+ *     2 つのテーマの定義（`:root, :root[data-theme="dark"]` と `:root[data-theme="light"]`）は原色の参照で役割を決め、
+ *     部品の CSS は役割だけを使う（#229・設計書 C61）。color-mix() もトークン同士。値を比べるときは原色まで解く
  * (b) 2 つの定義の名前の組が同じ
  * (c) var(--x) で使う名前がすべて定義済み
  * (d) 文字 × 面、--on-accent × --accent、バッジ 4 段の文字 × 地のコントラストが両テーマで 4.5:1 以上
@@ -177,12 +179,42 @@ function colorMixArgs(css: string): string[] {
 /** 数字の部品のクラス（.num と .num--<大きさ>）を含む選択子か（.num-table などは別の部品） */
 const NUM_SELECTOR = /\.num(--[\w-]+)?(?![\w-])/;
 
+/**
+ * 段のトークン（--tier-*）を使う規則のうち、選択子が許可の形でないもの（#229 AC-5。ホーム・直近の流れの CSS で、段の色を
+ * 印・記号・図の外 = カードや入れ物の面に使わない）。tint（面に敷く色）は tintAllowed の形の選択子だけ
+ */
+function tierRuleViolations(css: string, allowed: RegExp, tintAllowed: RegExp = allowed): string[] {
+  const bad: string[] = [];
+  for (const b of blocks(css)) {
+    if (!/--tier-/.test(b.body)) continue;
+    const tint = /--tier-[a-z]+-tint/.test(b.body);
+    for (const sel of b.selector.split(',').map((x) => x.trim())) {
+      if (!allowed.test(sel) || (tint && !tintAllowed.test(sel))) bad.push(sel);
+    }
+  }
+  return bad;
+}
+
+/** 原色（--c-*）の参照の名前 */
+function primitiveRefs(css: string): string[] {
+  return [...css.matchAll(/var\(\s*(--c-[\w-]+)/g)].map((m) => m[1] ?? '');
+}
+
 const tokensCss = stripComments(files[TOKENS] ?? '');
 const tokenBlocks = blocks(tokensCss);
 const dark = tokenBlocks.find((b) => b.selector.replace(/\s+/g, ' ') === DARK_SELECTOR);
 const light = tokenBlocks.find((b) => b.selector === LIGHT_SELECTOR);
-const darkDecls = decls(dark?.body ?? '');
-const lightDecls = decls(light?.body ?? '');
+const sheet = readTokens(files[TOKENS] ?? '');
+/** テーマの定義を原色まで解いた値（コントラスト・値の比較はこれで見る） */
+const darkDecls = sheet.resolved.dark;
+const lightDecls = sheet.resolved.light;
+/** 原色の層の規則（`:root` の、宣言がすべて `--c-*` の規則） */
+const primitiveBlock = tokenBlocks.find(
+  (b) =>
+    b.selector === ':root' &&
+    [...decls(b.body).keys()].length > 0 &&
+    [...decls(b.body).keys()].every((k) => k.startsWith('--c-')),
+);
 const THEMES = [
   ['dark', darkDecls],
   ['light', lightDecls],
@@ -218,6 +250,57 @@ describe('検査そのものの自己テスト', () => {
     ).toEqual([]);
   });
 
+  it('#229 E8: 部品の CSS の原色の参照・テーマの定義の色の値を見つける', () => {
+    expect(primitiveRefs('.a { color: var(--c-gray-100); background: var(--s1); }')).toEqual([
+      '--c-gray-100',
+    ]);
+    expect(primitiveRefs('.a { color: var(--ink); }')).toEqual([]);
+    const bad = readTokens(
+      ':root { --c-gray-1: #000000; }\n:root,\n:root[data-theme="dark"] { --ink: #123456; }\n' +
+        ':root[data-theme="light"] { --ink: var(--c-gray-1); }',
+    );
+    expect(bad.raw.dark.get('--ink')).toBe('#123456');
+    expect(colorHits(':root[data-theme="dark"] { --ink: #123456; }')).toEqual(['#123456']);
+    expect(bad.resolved.light.get('--ink')).toBe('#000000');
+    expect(() =>
+      readTokens(
+        ':root { --c-gray-1: #000000; }\n:root,\n:root[data-theme="dark"] { --ink: var(--c-nope); }\n' +
+          ':root[data-theme="light"] { --ink: var(--c-gray-1); }',
+      ),
+    ).toThrow(/--c-nope/);
+  });
+
+  it('#229 AC-5: tierRuleViolations は許可の外の選択子・許可の外の tint を見つける', () => {
+    const allowed = /^\.streak__(dot--|headline--[a-z]+ \.streak__headmark)/;
+    const tint = /^\.streak__dot--/;
+    expect(
+      tierRuleViolations(
+        '.streak__dot--plan { background: var(--tier-plan-tint); }',
+        allowed,
+        tint,
+      ),
+    ).toEqual([]);
+    expect(
+      tierRuleViolations(
+        '.streak__headline--plan .streak__headmark { color: var(--tier-plan-ink); }',
+        allowed,
+        tint,
+      ),
+    ).toEqual([]);
+    // 入れ物の面に tint を敷く・記号の選択子に tint を使う・色の無い規則は数えない
+    expect(
+      tierRuleViolations('.streak { background: var(--tier-plan-tint); }', allowed, tint),
+    ).toEqual(['.streak']);
+    expect(
+      tierRuleViolations(
+        '.streak__headline--plan .streak__headmark { background: var(--tier-plan-tint); }',
+        allowed,
+        tint,
+      ),
+    ).toEqual(['.streak__headline--plan .streak__headmark']);
+    expect(tierRuleViolations('.streak { color: var(--ink); }', allowed, tint)).toEqual([]);
+  });
+
   it('contrast は白黒で 21、#767676 / 白で約 4.54、#rrggbb 以外は NaN', () => {
     expect(contrast('#ffffff', '#000000')).toBeCloseTo(21, 5);
     expect(contrast('#767676', '#ffffff')).toBeCloseTo(4.54, 2);
@@ -241,18 +324,35 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     }
   });
 
-  it('AC-2 (a): 色の値は tokens.css のテーマの定義の中だけ', () => {
+  it('AC-2 (a)・#229 AC-1: 色の値は tokens.css の原色の層の中だけ（テーマの定義にも書かない）', () => {
+    expect(primitiveBlock, '原色の層の規則').toBeDefined();
     for (const [path, raw] of Object.entries(files)) {
       let css = stripComments(raw);
-      if (path === TOKENS) {
-        // テーマの定義を取り除いた残りを調べる（後ろから消して位置をずらさない）
-        for (const b of [dark, light]
-          .filter((x): x is Block => !!x)
-          .sort((a, b) => b.start - a.start)) {
-          css = css.slice(0, b.start) + css.slice(b.end);
-        }
+      if (path === TOKENS && primitiveBlock) {
+        // 原色の層を取り除いた残り（テーマの定義を含む）を調べる
+        css = css.slice(0, primitiveBlock.start) + css.slice(primitiveBlock.end);
       }
       expect(colorHits(css), path).toEqual([]);
+    }
+  });
+
+  it('#229 AC-1: 原色の名前は --c-<色相>-<段> の形。テーマの定義の var() は原色だけを参照する', () => {
+    const names = [...decls(primitiveBlock?.body ?? '').keys()];
+    expect(names.length).toBeGreaterThan(20);
+    expect(names.filter((n) => !PRIMITIVE_NAME.test(n))).toEqual([]);
+    for (const b of [dark, light]) {
+      for (const [name, value] of decls(b?.body ?? '')) {
+        for (const m of value.matchAll(/var\(\s*(--[\w-]+)/g)) {
+          expect(m[1] ?? '', `${name}: ${value}`).toMatch(/^--c-/);
+        }
+      }
+    }
+  });
+
+  it('#229 AC-1: 部品・枠・画面の CSS（tokens.css の外）は原色を参照しない（役割だけを使う）', () => {
+    for (const [path, raw] of Object.entries(files)) {
+      if (path === TOKENS) continue;
+      expect(primitiveRefs(stripComments(raw)), path).toEqual([]);
     }
   });
 
@@ -313,7 +413,9 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(btn.get('color')).toBe('var(--gsi-ink)');
     // 14/20（--fs-sm = 14px。文字の拡大に付いていくようトークンから決める。#79）
     expect(btn.get('font-size')).toBe('var(--fs-sm)');
-    const rootDecls = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    const rootDecls = decls(
+      tokenBlocks.find((b) => b.selector === ':root' && b.body.includes('--fs-sm'))?.body ?? '',
+    );
     expect(rootDecls.get('--fs-sm')).toBe('14px');
     expect(btn.get('line-height')).toBe('calc(var(--fs-sm) * 10 / 7)');
     expect(btn.get('font-weight')).toBe('var(--fw-medium)');
@@ -350,7 +452,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       const pairs = [
         ...TEXT_TOKENS.flatMap((ink) => TEXT_SURFACES.map((surface) => [ink, surface] as const)),
         ['--on-accent', '--accent'] as const,
-        ...TIERS.map((t) => [`--tier-${t}-ink`, `--tier-${t}-bg`] as const),
+        ...TIERS.map((t) => [`--tier-${t}-ink`, `--tier-${t}-tint`] as const),
       ];
       for (const [ink, surface] of pairs) {
         const fg = d.get(ink) ?? '';
@@ -408,7 +510,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
 
   it('AC-4: 判定の 4 段の文字の色・地の色は、両テーマで互いに違う', () => {
     for (const [theme, d] of THEMES) {
-      for (const part of ['ink', 'bg', 'line']) {
+      for (const part of ['ink', 'tint', 'line', 'solid']) {
         const values = TIERS.map((t) => (d.get(`--tier-${t}-${part}`) ?? '').toLowerCase());
         for (const v of values) expect(v, `${theme} --tier-*-${part}`).not.toBe('');
         expect(new Set(values).size, `${theme} --tier-*-${part}: ${values.join(' ')}`).toBe(
@@ -425,7 +527,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       expect(b, `.badge--${t}`).toBeDefined();
       const d = decls(b?.body ?? '');
       expect(d.get('color')).toBe(`var(--tier-${t}-ink)`);
-      expect(d.get('background')).toBe(`var(--tier-${t}-bg)`);
+      expect(d.get('background')).toBe(`var(--tier-${t}-tint)`);
       expect(d.get('border-color')).toBe(`var(--tier-${t}-line)`);
     }
   });
@@ -570,7 +672,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
 
   it('振り返りの段の CSS は判定の段・文字・線のトークンだけ。数字は無色（Issue #88 AC-11）', () => {
     const allowed =
-      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|bg|line))\)|currentColor|none|transparent)$/;
+      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|line|solid))\)|currentColor|none|transparent)$/;
     const css = stripComments(files['../../ui/src/styles/review.css'] ?? '');
     expect(css).not.toBe('');
     // 強調・誤りの色・面の色を使わない（判定の段の色と混ぜない。P2）
@@ -641,7 +743,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
 
   it('直近の流れの CSS は判定の段・文字・線のトークンだけ。点の段のクラスは同じ段のトークン（Issue #35 AC-7）', () => {
     const allowed =
-      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|bg|line))\)|currentColor|none|transparent)$/;
+      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|tint|line))\)|currentColor|none|transparent)$/;
     const css = stripComments(files['../../ui/src/styles/streak.css'] ?? '');
     expect(css).not.toBe('');
     expect(
@@ -680,6 +782,211 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       const css = stripComments(raw);
       expect(/\burl\(/.test(css), `${path} に url(`).toBe(false);
       expect(/@import\b/.test(css), `${path} に @import`).toBe(false);
+    }
+  });
+});
+
+/**
+ * #229 AC-2: 役割のトークンの値（原色まで解いた値）は、2 層にする前（2026-11-25 の main の tokens.css）から 1 つも変えない。
+ * 判定の段の `-bg` は `-tint` の名前で比べる。`-solid` は #229 で足したので表の外。表は変更前の tokens.css から機械的に写した。
+ * 値を意図して替える Issue は、この表を同じ PR で直す（黙って値が変わらないための表）
+ */
+const ROLE_VALUES_BEFORE_229: Record<'dark' | 'light', Record<string, string>> = {
+  dark: {
+    '--bg': '#0a0c10',
+    '--s1': '#11141a',
+    '--s2': '#171b23',
+    '--s3': '#1e232d',
+    '--line': '#222834',
+    '--line-2': '#323a48',
+    '--field-line': '#646f82',
+    '--ink': '#eef1f6',
+    '--ink-2': '#a8b0bf',
+    '--ink-3': '#8d96a7',
+    '--accent': '#9aa8ff',
+    '--on-accent': '#0a0c10',
+    '--focus': '#b8c2ff',
+    '--glow': '#6f7dff1f',
+    '--glow-2': '#2ec5a00f',
+    '--tier-plan-ink': '#6ee7b7',
+    '--tier-plan-tint': '#0e2a21',
+    '--tier-plan-line': '#1e5a46',
+    '--tier-break-ink': '#f7c063',
+    '--tier-break-tint': '#2e2310',
+    '--tier-break-line': '#6a4d16',
+    '--tier-worst-ink': '#ff8fa0',
+    '--tier-worst-tint': '#3a121b',
+    '--tier-worst-line': '#7a2536',
+    '--tier-neutral-ink': '#b3bac7',
+    '--tier-neutral-tint': '#232833',
+    '--tier-neutral-line': '#3a4252',
+    '--danger': '#ff8f8f',
+    '--warn-ink': '#f7c063',
+    '--warn-bg': '#2e2310',
+    '--warn-line': '#6a4d16',
+    '--gsi-bg': '#131314',
+    '--gsi-line': '#8e918f',
+    '--gsi-ink': '#e3e3e3',
+    '--mark-from': '#6573f2',
+    '--mark-to': '#3d4fd6',
+    '--mark-ink': '#ffffff',
+    '--mark-edge': '#ffffff2e',
+    '--mark-glow': '#6573f224',
+    '--shadow-1': '0 1px 0 #ffffff08 inset, 0 1px 2px #00000066',
+    '--shadow-2': '0 1px 0 #ffffff0a inset, 0 12px 32px #00000080',
+    '--scrim': '#0a0c10cc',
+    '--primary-from': '#4f5ee8',
+    '--primary-to': '#3d4fd6',
+    '--on-primary': '#ffffff',
+    '--shadow-card': 'none',
+    '--statusbar-bg': '#0a0c1000',
+    '--viewer-bg': '#000000',
+    '--viewer-ink': '#ffffff',
+  },
+  light: {
+    '--bg': '#f3f4f7',
+    '--s1': '#ffffff',
+    '--s2': '#f8f9fb',
+    '--s3': '#eceef2',
+    '--line': '#e2e5eb',
+    '--line-2': '#cbd0d9',
+    '--field-line': '#7d8696',
+    '--ink': '#0f1218',
+    '--ink-2': '#485062',
+    '--ink-3': '#5c6576',
+    '--accent': '#3d4fd6',
+    '--on-accent': '#ffffff',
+    '--focus': '#3d4fd6',
+    '--glow': '#3d4fd614',
+    '--glow-2': '#0f9e7a0d',
+    '--tier-plan-ink': '#09694a',
+    '--tier-plan-tint': '#e0f5ec',
+    '--tier-plan-line': '#9fd9c1',
+    '--tier-break-ink': '#855400',
+    '--tier-break-tint': '#fcefd6',
+    '--tier-break-line': '#ecc77f',
+    '--tier-worst-ink': '#b01c3b',
+    '--tier-worst-tint': '#fde6ea',
+    '--tier-worst-line': '#f0a8b6',
+    '--tier-neutral-ink': '#4a5263',
+    '--tier-neutral-tint': '#e9ebf0',
+    '--tier-neutral-line': '#cbd0d9',
+    '--danger': '#b4232f',
+    '--warn-ink': '#855400',
+    '--warn-bg': '#fcefd6',
+    '--warn-line': '#ecc77f',
+    '--gsi-bg': '#ffffff',
+    '--gsi-line': '#747775',
+    '--gsi-ink': '#1f1f1f',
+    '--mark-from': '#6573f2',
+    '--mark-to': '#3d4fd6',
+    '--mark-ink': '#ffffff',
+    '--mark-edge': '#ffffff00',
+    '--mark-glow': '#3d4fd61a',
+    '--shadow-1': '0 1px 2px #0f12180f, 0 1px 1px #0f12180a',
+    '--shadow-2': '0 2px 4px #0f12180d, 0 16px 40px #0f121814',
+    '--scrim': '#0f121866',
+    '--primary-from': '#4f5ee8',
+    '--primary-to': '#3d4fd6',
+    '--on-primary': '#ffffff',
+    '--shadow-card': '0 1px 3px #0f121814',
+    '--statusbar-bg': '#11141a',
+    '--viewer-bg': '#000000',
+    '--viewer-ink': '#ffffff',
+  },
+};
+
+/** 判定の段の図の塗りの選択子（#229 AC-4。帯・面は solid で塗る） */
+const SOLID_FILLS: readonly (readonly [string, string, string])[] = [
+  ['review.css', '.review__seg--plan', 'var(--tier-plan-solid)'],
+  ['review.css', '.review__seg--break', 'var(--tier-break-solid)'],
+  ['review.css', '.review__seg--worst', 'var(--tier-worst-solid)'],
+  ['review.css', '.review__seg--neutral', 'var(--tier-neutral-solid)'],
+  ['review.css', '.curve__gap', 'var(--tier-break-solid)'],
+  ['home.css', '.minicurve__gap', 'var(--tier-break-solid)'],
+];
+
+describe('トークンの 2 層と判定の段の 4 つの役割（#229・設計書 C61）', () => {
+  it('AC-2: 役割の値は 2 層にする前と同じ（両テーマ・全部の役割。-solid だけ新しい）', () => {
+    for (const [theme, d] of THEMES) {
+      const before = ROLE_VALUES_BEFORE_229[theme];
+      const now = Object.fromEntries(
+        [...d].filter(([k]) => k.startsWith('--') && !/^--tier-[a-z]+-solid$/.test(k)),
+      );
+      expect(now, theme).toEqual(before);
+    }
+  });
+
+  it('AC-3: 判定の 4 段は ink・tint・line・solid を両テーマで持ち、solid は 4 段で違い、カードとシートの面に 3:1 以上', () => {
+    const low: string[] = [];
+    for (const [theme, d] of THEMES) {
+      for (const t of TIERS) {
+        for (const part of ['ink', 'tint', 'line', 'solid']) {
+          expect(isHex6(d.get(`--tier-${t}-${part}`) ?? ''), `${theme} --tier-${t}-${part}`).toBe(
+            true,
+          );
+        }
+        for (const s of ['--s1', '--s2']) {
+          const fg = d.get(`--tier-${t}-solid`) ?? '';
+          const bg = d.get(s) ?? '';
+          const r = contrast(fg, bg);
+          if (!(r >= 3))
+            low.push(`${theme} --tier-${t}-solid(${fg}) / ${s}(${bg}) = ${r.toFixed(2)}`);
+        }
+      }
+    }
+    expect(low).toEqual([]);
+  });
+
+  it('AC-4: 塗り（fill・background）に段の ink を使わない。段の -bg の名前は残っていない。図の塗りは solid', () => {
+    const bad: string[] = [];
+    for (const [path, raw] of Object.entries(files)) {
+      const css = stripComments(raw);
+      if (/--tier-[a-z]+-bg\b/.test(css)) bad.push(`${path}: --tier-*-bg`);
+      for (const b of blocks(css)) {
+        for (const [name, value] of decls(b.body)) {
+          if (!['fill', 'background', 'background-color'].includes(name)) continue;
+          if (/var\(--tier-[a-z]+-ink\)/.test(value))
+            bad.push(`${path} ${b.selector} { ${name}: ${value} }`);
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+    for (const [file, sel, want] of SOLID_FILLS) {
+      const css = stripComments(files[`../../ui/src/styles/${file}`] ?? '');
+      const b = blocks(css).find((x) => x.selector === sel);
+      expect(b, `${file} ${sel}`).toBeDefined();
+      expect(decls(b?.body ?? '').get('fill'), `${file} ${sel}`).toBe(want);
+    }
+  });
+
+  it('AC-5: ホームと直近の流れは段の色を印・記号・図にだけ使い、カードや入れ物の面に敷かない。振り返りの集計の面にも tint を敷かない', () => {
+    const home = stripComments(files['../../ui/src/styles/home.css'] ?? '');
+    const streak = stripComments(files['../../ui/src/styles/streak.css'] ?? '');
+    expect(home).not.toBe('');
+    expect(streak).not.toBe('');
+    // ホーム: 行の印・規律コストの × の記号・小さな曲線だけ（tint は行の印の地だけ）
+    expect(
+      tierRuleViolations(
+        home,
+        /^\.(homerow__mark|homemonth__measured|minicurve__)/,
+        /^\.homerow__mark--/,
+      ),
+    ).toEqual([]);
+    // 直近の流れ: 点（地は tint）と見出しの記号だけ
+    expect(
+      tierRuleViolations(
+        streak,
+        /^\.streak__(dot--|headline--[a-z]+ \.streak__headmark)/,
+        /^\.streak__dot--/,
+      ),
+    ).toEqual([]);
+    expect(blocks(home).filter((b) => /--tier-/.test(b.body)).length).toBeGreaterThan(3);
+    expect(blocks(streak).filter((b) => /--tier-/.test(b.body)).length).toBeGreaterThan(3);
+    for (const f of ['review.css', 'review-tab.css']) {
+      const css = stripComments(files[`../../ui/src/styles/${f}`] ?? '');
+      expect(css, f).not.toBe('');
+      expect(/--tier-[a-z]+-tint/.test(css), `${f} に tint`).toBe(false);
     }
   });
 });

@@ -38,6 +38,23 @@ import {
 } from '../helpers.mjs';
 import { openSettings } from '../settings-states.mjs';
 
+/** 開いている下のシートのつまみの計算後の display と、題の行の上端とシートの上端の差（#229 AC-6） */
+const gripOf = (p) =>
+  p.evaluate((sel) => {
+    const d = document.querySelector(sel);
+    const g = d?.querySelector('.sheet__grip');
+    const h = d?.querySelector('.sheet__head');
+    const panel = d?.querySelector('.sheet__panel');
+    if (!d || !g || !h || !panel) return { display: 'missing', headGap: -1 };
+    return {
+      display: getComputedStyle(g).display,
+      headGap: Math.round(
+        h.querySelector('.sheet__title').getBoundingClientRect().top -
+          d.getBoundingClientRect().top,
+      ),
+    };
+  }, OPEN_SHEET);
+
 /**
  * 画面の検査の単位「説明と下のシート」: 記録する画面で説明のシートを開いた状態と、説明の「i」IT1〜IT3・
  * 下のシート SH1〜SH3・用語集 GL1・GL2・書きかけ DR1・DR2
@@ -254,7 +271,8 @@ export async function flows(kit) {
   // SH1: 360×780・390×844 × ダーク / ライトと、文字の拡大 200%（ダーク）で「判定」の説明（判定の一覧つきの長い説明）を開く →
   //      下から出る（下端が窓の下端・左右いっぱい）・窓の中・最大 86%・中を最後までスクロールして ［用語集で見る］ が見える・
   //      ✕ の当たり 44・Tab を 12 回押してもシートの外の要素へ移らない（✕ と ［用語集で見る］ に届く）・✕ で閉じたら「i」へ。
-  //      安全域を上 47・下 34 に差し替えた 390×844 で、シートの押せるものが安全域の内側
+  //      安全域を上 47・下 34 に差し替えた 390×844 で、シートの押せるものが安全域の内側。
+  //      つまみは出さない（計算後の display が none）・題の行の上端はシートの上端から 12px 以上（#229 AC-6・設計書 C61）
   await check('SH1', async () => {
     const out = [];
     const runs = [];
@@ -297,13 +315,21 @@ export async function flows(kit) {
         if (Math.abs(r.bottom - r.vh) > 1) throw new Error(`${label}: 下端 ${r.bottom} / ${r.vh}`);
         if (r.left > 0.5 || r.right < r.vw - 0.5)
           throw new Error(`${label}: 左右 ${r.left}〜${r.right} / ${r.vw}`);
+        // つまみは出さない・題の行の上に余白（#229 AC-6）
+        const grip = await gripOf(p);
+        if (grip.display !== 'none')
+          throw new Error(`${label}: つまみが出ている（${grip.display}）`);
+        if (!(grip.headGap >= 12)) throw new Error(`${label}: 題の行の上の余白 ${grip.headGap}px`);
         // ✕ の当たり
         const x = await p.locator(`${OPEN_SHEET} .sheet__close`).boundingBox();
         if (!x || x.width < TAP - 0.5 || x.height < TAP - 0.5)
           throw new Error(`${label}: ✕ の当たり ${x?.width}×${x?.height}`);
-        if (opts.shots && run.w === 390 && !run.safe)
+        if (opts.shots && !run.safe)
           await p.screenshot({
-            path: join(opts.shots, `390x844-${run.theme}${run.zoom ? '-zoom' : ''}-sheet-info.png`),
+            path: join(
+              opts.shots,
+              `${run.w}x${run.h}-${run.theme}${run.zoom ? '-zoom' : ''}-sheet-info.png`,
+            ),
           });
         // 中を最後までスクロールすると ［用語集で見る］ が見える
         const end = await p.evaluate((sel) => {
@@ -396,12 +422,14 @@ export async function flows(kit) {
         await expectPollAsync(async () => (await sheetCount(p)) === 0, `${label}: ✕ で閉じる`);
         expectEq(await focusLabel(p), J, `${label}: 閉じた後のフォーカス`);
         expectEq(errors.length, 0, `${label}: ページのエラー`);
-        out.push(`${label}（高さ ${Math.round((r.height / r.vh) * 100)}%・中 ${end.scroll}px）`);
+        out.push(
+          `${label}（高さ ${Math.round((r.height / r.vh) * 100)}%・中 ${end.scroll}px・題の上 ${grip.headGap}px）`,
+        );
       } finally {
         await c.close();
       }
     }
-    return `下から・窓の中・最大 86%・中を最後までスクロール・✕ 44・Tab で外へ出ない・閉じたら「i」・安全域の内側（${out.join(' / ')}）`;
+    return `下から・窓の中・最大 86%・中を最後までスクロール・✕ 44・Tab で外へ出ない・閉じたら「i」・安全域の内側・つまみなし（${out.join(' / ')}）`;
   });
 
   // SH2（#129 AC-4）: 詳細で [削除] → 一覧に「〜を削除しました」+ [元に戻す] → 別の取引の詳細で説明のシートを開いたまま 9 秒 →
@@ -460,8 +488,10 @@ export async function flows(kit) {
           `横: 右のパネルでない（${Math.round(lr.left)},${Math.round(lr.top)}〜${Math.round(lr.right)},${Math.round(lr.bottom)}）`,
         );
       if (lr.width > 400.5) throw new Error(`横: パネルの幅 ${lr.width}px`);
+      if ((await gripOf(p)).display !== 'none') throw new Error('横: つまみが出ている');
       if (opts.shots)
         await p.screenshot({ path: join(opts.shots, '844x390-dark-sheet-landscape.png') });
+      out.push('つまみなし');
       await closeSheet(p);
       await expectPollAsync(async () => (await sheetCount(p)) === 0, '横: ✕ で閉じる');
       out.push(`横 ${Math.round(lr.width)}×${Math.round(lr.height)} 右端`);
@@ -473,6 +503,7 @@ export async function flows(kit) {
       const btn = await infoButton(p, name).boundingBox();
       if (!btn) throw new Error('広い: 「i」が無い');
       if (wr.width > 360.5) throw new Error(`広い: 吹き出しの幅 ${wr.width}px`);
+      if ((await gripOf(p)).display !== 'none') throw new Error('広い: つまみが出ている');
       const gap = Math.min(Math.abs(wr.top - (btn.y + btn.height)), Math.abs(btn.y - wr.bottom));
       const overlapX = Math.min(wr.right, btn.x + btn.width) - Math.max(wr.left, btn.x);
       if (gap > 16 || overlapX <= 0)

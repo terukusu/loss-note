@@ -26,6 +26,7 @@
 // [再読み込み]）・TL-P4（キーで押したときのフォーカスと末尾の段の高さ）・TL-P5（5 つの状態を 360 / 1440 × ダーク /
 // ライトで測って撮る）を流す。月の区切り（Issue #132）は合成の取引 60 件で手順 TL-M1（月の見出しの数・貼り付く見出し・390×844 の撮影）、口座の名前の置き場は TL-A1。
 // いちばん長い値（Issue #176・ui-guidelines 10.3）は手順 LV1（360×780 のダークの一覧・ホーム・詳細で、省略してよい所の外の「…」0・値の切れ 0）。
+// 記録する・編集のいちばん長い値（Issue #212）は手順 LV2（360×780・390×844 のダークの 2 段目・1 段目・編集で「…」0・値の切れ 0・時間足の塊が 1 行・縦は R12 の上限。文字の拡大 2 倍も）。
 // 設定の画面（Issue #5）は、開いた直後（資金・履歴 3 件・銘柄 3 件）・銘柄を直している・誤りと警告・資金が未設定の状態を
 // 同じ幅とテーマで測り、手順 SET1〜SET3（資金を保存して記録する画面でリスク 0.5% / 銘柄を直す・誤りは送らない・
 // フォーカス / 名前だけで足す・許容リスクの警告と範囲 / 誤り・失敗の後のフォーカス）を流す。セグメントのチェックの記号が
@@ -5790,7 +5791,7 @@ async function main() {
     if (!opts.injectWide && !opts.injectClip && !opts.zoom) {
       console.log('');
       console.log(
-        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・決めていたかの問い LD1・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1 / いちばん長い値 LV1',
+        '行き来 V1〜V7・安全域 SA1・スクロール S1 / テーマ T2〜T4 / ログイン L1〜L7・Google のボタン G1 / 使えないアカウント F1〜F2 / フォーカスの枠 FOC1 / 記録する R1〜R5 / 文言の撮影 W1 / 明細の読み取り R6〜R10 / 密度と階層 R11〜R14・決めていたかの問い LD1・読み取りの終わり RD1・記録する画面のシート RS1 / 設定 SET1〜SET5 / 口座 ACC1〜ACC2 / 数量の比 SZ1 / 為替 FX1 / 説明の「i」IT1〜IT3・下のシート SH1〜SH3・用語集 GL1〜GL2・書きかけ DR1〜DR2・詳細と編集の「i」DI1・置き換え RP1 / 取引 T-L4〜T-X2 / ホーム HM1〜HM2 / ページ分け TL-P1〜TL-P5 / 月の区切り TL-M1・口座の名前 TL-A1 / いちばん長い値 LV1〜LV2',
       );
       const flows = await runFlows(browser, base, signedIn);
       for (const [id, ok, detail] of flows) {
@@ -12269,6 +12270,181 @@ async function runFlows(browser, base, signedIn) {
     }
     if (fails.length > 0) throw new Error(fails.join(' | '));
     return `360×780 ダークのいちばん長い値: 表に無い「…」0・値の切れ 0・横スクロール 0・はみ出し 0（${out.join('・')}）`;
+  });
+
+  // LV2（#212。ui-guidelines 10.3・10.6）: 記録する画面と編集の画面のいちばん長い値で、
+  //   - 2 段目: 時刻の印「時刻が未確定」・チャートの行（エントリー時 = 選んだ値と読めた値が違う「チャートからは 15 分足」、
+  //     決済時 = 読み取り中・追加 5 枚）・LC の欄の手がかり（逆指値の「i」つき）
+  //   - 1 段目: チャートの小さな 2 枠（読み取り中・選んだ値と読めた値が違う）
+  //   - 編集: チャートの小さな 2 枠（差し替え済み・削除（未保存））・LC の欄の手がかり
+  // を 360×780 と 390×844（ダーク）で開き、どの要素にも「…」が出ない（省略してよい所の外）・値の要素が箱の中に全部ある・
+  // 時間足と「追加 N 枚」の塊が中で折れない・横スクロール 0・部品のはみ出し 0、縦は 390×844 の 2 段目と 1 段目で 0px・
+  // 360×780 の記録する画面は 120px 以下（R12 と同じ）を見る。文字の拡大（2 倍）でも「…」0・値の切れ 0・横スクロール 0
+  // （縦は伸びてよい）。--shots なら撮る
+  await check('LV2', async () => {
+    const out = [];
+    const fails = [];
+    const VALUES =
+      '.rsum__tzmark, .rchartrow__l1, .rchartrow__l2, .rchart__line, .record__lc .lcrow .field__hint, .rpart';
+    const look = async (p, what, file, { over = null, zoom = false } = {}) => {
+      const r = await p.evaluate(
+        ({ allowed, values }) => {
+          const cuts = [];
+          for (const el of document.querySelectorAll('main *, header *, nav *, dialog *, form *')) {
+            const cs = getComputedStyle(el);
+            if (cs.textOverflow !== 'ellipsis' || cs.display === 'none') continue;
+            // 読み上げだけの要素（.sr-only = 1px の箱）と入力の欄（ファイルを選ぶ欄の既定の省略）は見ない
+            if (el.matches('.sr-only, input, select, textarea')) continue;
+            if (el.scrollWidth <= el.clientWidth + 1) continue;
+            if (allowed.some((sel) => el.matches(sel))) continue;
+            const cls = typeof el.className === 'string' ? el.className.split(' ')[0] : el.tagName;
+            cuts.push(`${cls}「${(el.textContent || '').trim().slice(0, 24)}」`);
+          }
+          const bad = [];
+          for (const el of document.querySelectorAll(values)) {
+            const r = el.getBoundingClientRect();
+            if (r.width === 0 && r.height === 0) continue;
+            if (el.closest('dialog:not([open])')) continue;
+            const name = `${el.className.split(' ')[0]}「${(el.textContent || '').trim()}」`;
+            if (el.scrollWidth > el.clientWidth + 1) bad.push(`${name}横に切れる`);
+            for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+              const cs = getComputedStyle(a);
+              if (cs.overflowX === 'visible' && cs.overflowY === 'visible') continue;
+              const b = a.getBoundingClientRect();
+              if (
+                r.left < b.left - 1 ||
+                r.right > b.right + 1 ||
+                r.top < b.top - 1 ||
+                r.bottom > b.bottom + 1
+              )
+                bad.push(`${name}${(a.className || a.tagName).toString().split(' ')[0]} の外`);
+              break;
+            }
+          }
+          // 時間足・「追加 N 枚」の塊（.rpart--atom）は 1 行
+          for (const el of document.querySelectorAll('.rpart--atom')) {
+            const tops = new Set([...el.getClientRects()].map((x) => Math.round(x.top)));
+            if (tops.size > 1) bad.push(`塊「${el.textContent}」が中で折れる`);
+          }
+          const se = document.scrollingElement;
+          return { cuts, bad, over: se.scrollHeight - window.innerHeight };
+        },
+        { allowed: CUT_ALLOWED, values: VALUES },
+      );
+      const m = await measure(p, false, TAP);
+      if (r.cuts.length > 0) fails.push(`${what}: 表に無い「…」${r.cuts.join('・')}`);
+      if (r.bad.length > 0) fails.push(`${what}: ${r.bad.join('・')}`);
+      if (m.h !== 0) fails.push(`${what}: 横スクロール ${m.h}px`);
+      // 文字の拡大は「…」・値の切れ・横スクロールだけを見る（部品のはみ出しは拡大の検査の受け持ち）
+      if (!zoom && m.clipped.length > 0) fails.push(`${what}: はみ出し ${m.clipped.join('・')}`);
+      if (over !== null && r.over > over)
+        fails.push(`${what}: 縦のスクロール ${r.over}px（${over}px まで）`);
+      if (opts.shots) await p.screenshot({ path: join(opts.shots, file), fullPage: true });
+      out.push(`${what} 縦 ${r.over}px`);
+    };
+    for (const zoom of [false, true])
+      for (const [w, h] of [
+        [360, 780],
+        [390, 844],
+      ]) {
+        const tag = `${w}×${h}${zoom ? ' 拡大' : ''}`;
+        const file = (s) => `${w}x${h}-dark-${zoom ? 'zoom-' : ''}lv2-${s}.png`;
+        const limit = zoom ? null : w === 360 ? RECORD_OVER_360 : 0;
+        const ctx = await browser.newContext({
+          viewport: { width: w, height: h },
+          storageState: signedIn,
+          hasTouch: true,
+        });
+        try {
+          await setupContext(ctx, 'dark');
+          if (zoom)
+            await ctx.addInitScript((css) => {
+              const put = () => {
+                const st = document.createElement('style');
+                st.textContent = css;
+                document.head.append(st);
+              };
+              if (document.head) put();
+              else document.addEventListener('DOMContentLoaded', put);
+            }, zoomCss());
+          // 口座 3 つ（2 段目に口座の Segment の行が入る、いちばん高い形）
+          const fake = await installFakeApi(ctx, { accounts: ACCOUNTS_3_LONG });
+          // オプションのポジションの取引（合成の fixture option-legs.json の P1。OPT117 と同じ形）
+          const fx = JSON.parse(
+            readFileSync(join(ROOT, 'tests/fixtures/records/option-legs.json'), 'utf8'),
+          ).items.find((x) => x.name === 'P1');
+          const inst = { id: 'inst-xyzopt', ...fx.instrument, createdAt: 1, updatedAt: 1 };
+          delete inst.underlying;
+          fake.instruments.push(inst);
+          fake.trades.push({
+            id: 'x-opt1',
+            schemaVersion: 2,
+            createdAt: 1700000000020,
+            updatedAt: 1700000000020,
+            record: { ...fx.record, instrumentId: inst.id },
+            snapshot: fx.snapshot,
+          });
+          const p = await ctx.newPage();
+          const errors = [];
+          p.on('pageerror', (e) => errors.push(e.message));
+          // 2 段目: 時刻の印・チャートの行・LC の手がかり
+          await openRecord(p, base);
+          fake.read = { status: 200, rows: [READ_E10[0]], holdMs: 0 };
+          await makeImage(p, STATEMENT_SPEC, 'paste');
+          await p.locator('.rsum__tzmark', { hasText: '時刻が未確定' }).waitFor({ timeout: 10000 });
+          fake.chartTimeframes = ['15m'];
+          fake.chartRead = { status: 200, kind: 'chart', holdMs: 5000 };
+          await pasteChart(p, 'entry');
+          await openChartSheet(p);
+          await p.locator('#record-chart-entry-tf').selectOption('4h');
+          await p.locator('#record-chart-entry .chart__suggest').waitFor({ timeout: 10000 });
+          fake.chartRead = { status: 200, kind: 'chart', holdMs: 60000 };
+          await closeSheets(p);
+          await pasteChart(p, 'exit');
+          await openChartSheet(p);
+          for (let i = 0; i < 5; i++) await p.locator('#record-chart-add').click();
+          for (const slot of ['x1', 'x2', 'x3', 'x4', 'x5']) await pasteChart(p, slot);
+          await closeSheets(p);
+          await p.evaluate(() => window.scrollTo(0, 0));
+          const l1 = (await p.locator('.rchartrow__l1').textContent()) ?? '';
+          const l2 = (await p.locator('.rchartrow__l2').textContent()) ?? '';
+          if (!l1.includes('15 分足') || !l2.includes('読み取り中') || !l2.includes('追加 5 枚'))
+            throw new Error(`${tag} チャートの行: ${l1} / ${l2}`);
+          await p.waitForTimeout(200);
+          await look(p, `${tag} 2 段目`, file('stage2'), { over: limit, zoom });
+          // 1 段目: チャートの小さな 2 枠
+          await p.locator('#record-to-input').click();
+          await p.locator('form[data-stage="input"]').waitFor();
+          await p.waitForTimeout(200);
+          await look(p, `${tag} 1 段目`, file('stage1'), { over: limit, zoom });
+          // 編集: 差し替え済み・削除（未保存）
+          await p.goto(`${base}/trades/x-d1/edit`);
+          await waitReady(p, '取引を編集');
+          await p.locator('#edit-mini-entry canvas').waitFor({ timeout: 15000 });
+          await openEditChartSheet(p);
+          await p.getByRole('button', { name: '決済時のチャートを削除' }).click();
+          const frame = p.locator('#edit-chart-entry');
+          await frame.locator('.chart__name').click();
+          await makeChart(p, 'paste');
+          await frame.locator('.chart__mark', { hasText: '差し替え' }).waitFor();
+          await closeSheets(p);
+          await p.evaluate(() => window.scrollTo(0, 0));
+          await p.waitForTimeout(200);
+          await look(p, `${tag} 編集`, file('edit'), { zoom });
+          // 編集のオプションのポジション（LC の欄の名前がいちばん長い「入る前に決めた LC（原資産）」）
+          await p.goto(`${base}/trades/x-opt1/edit`);
+          await waitReady(p, '取引を編集');
+          await p.locator('#record-lc').waitFor({ timeout: 15000 });
+          await p.locator('.record__lc .field__label', { hasText: '（原資産）' }).waitFor();
+          await p.waitForTimeout(200);
+          await look(p, `${tag} 編集（オプション）`, file('edit-option'), { zoom });
+          if (errors.length > 0) fails.push(`${tag}: ページのエラー ${errors.length}`);
+        } finally {
+          await ctx.close();
+        }
+      }
+    if (fails.length > 0) throw new Error(fails.join(' | '));
+    return `いちばん長い値の記録する・編集: 表に無い「…」0・値の切れ 0・横スクロール 0（${out.join('・')}）`;
   });
 
   await check('T-D1', async () => {

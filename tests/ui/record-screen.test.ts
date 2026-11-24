@@ -10,8 +10,11 @@ import {
 import { EMPTY_DRAFT, readDraft } from '../../ui/src/lib/record-form';
 import {
   chartRow,
+  chartRowParts,
   chartSlotLine,
+  chartSlotParts,
   focusLcAfterRead,
+  joinParts,
   NAMED_LEAD,
   namedLabel,
   READ_CANCELLED,
@@ -338,6 +341,84 @@ describe('2 段（入れる → 振り返る。設計書 K17・2026-11-21）', (
       kind: 'full',
       line1: 'エントリー時 · 未選択',
       line2: '決済時 · 時間足 指定なし',
+    });
+  });
+});
+
+describe('チャートの行・枠の 1 行の塊（#212 AC-3・AC-6。ui-guidelines 10.3）', () => {
+  const none = {
+    hasChart: false,
+    preparing: false,
+    reading: false,
+    failed: false,
+    timeframe: null,
+    suggest: null,
+  };
+  const has = { ...none, hasChart: true };
+  const atoms = (parts: readonly { text: string; atom: boolean }[]) =>
+    parts.filter((p) => p.atom).map((p) => p.text);
+
+  it('例 1: 読めた値の案は「チャートからは」と時間足の塊（時間足は中で折らない）', () => {
+    const parts = chartSlotParts({ ...has, timeframe: '4 時間足', suggest: '15 分足' });
+    expect(parts).toEqual([
+      { text: 'チャートからは', atom: false },
+      { text: '15 分足', atom: true },
+    ]);
+    expect(joinParts(parts)).toBe('チャートからは 15 分足');
+  });
+
+  it('時間足は atom・文（読み取り中・指定なし・印）は atom でない', () => {
+    expect(chartSlotParts({ ...has, timeframe: '日足' })).toEqual([{ text: '日足', atom: true }]);
+    for (const c of [
+      { ...has, reading: true },
+      has,
+      { ...has, change: '差し替え済み' },
+      { ...none, preparing: true },
+      { ...none, failed: true },
+      none,
+    ]) {
+      expect(chartSlotParts(c).every((p) => !p.atom)).toBe(true);
+    }
+  });
+
+  it('例 2: 決済時の行は「決済時 ·」・状態・「追加 5 枚」。区切りの「·」は前の塊の末尾', () => {
+    const r = chartRowParts({
+      entry: { ...has, timeframe: '4 時間足', suggest: '15 分足' },
+      exit: { ...has, reading: true },
+      extras: 5,
+    });
+    if (r.kind !== 'full') throw new Error('full でない');
+    expect(r.line1.map((p) => p.text)).toEqual(['エントリー時 ·', 'チャートからは', '15 分足']);
+    expect(r.line2.map((p) => p.text)).toEqual(['決済時 ·', '時間足を読み取り中… ·', '追加 5 枚']);
+    expect(atoms(r.line2)).toEqual(['決済時 ·', '追加 5 枚']);
+    // どの塊も「·」で始まらない（折り返した行の頭に区切りを残さない）
+    for (const p of [...r.line1, ...r.line2]) expect(p.text.startsWith('·')).toBe(false);
+  });
+
+  it('例 8: 塊をつないだ文字は chartRow の文字と同じ（読み上げの名前も変わらない）', () => {
+    const cases = [
+      { entry: none, exit: none, extras: 0 },
+      { entry: { ...none, preparing: true }, exit: none, extras: 0 },
+      { entry: { ...has, timeframe: '4 時間足' }, exit: { ...has, timeframe: '日足' }, extras: 2 },
+      { entry: { ...has, timeframe: '1時間足' }, exit: none, extras: 0 },
+      { entry: none, exit: has, extras: 0 },
+      { entry: none, exit: none, extras: 3 },
+      { entry: { ...has, reading: true }, exit: { ...none, preparing: true }, extras: 1 },
+    ];
+    for (const c of cases) {
+      const row = chartRow(c);
+      const parts = chartRowParts(c);
+      if (row.kind === 'empty' && parts.kind === 'empty') {
+        expect(parts.status && joinParts(parts.status)).toBe(row.status);
+      } else if (row.kind === 'full' && parts.kind === 'full') {
+        expect(joinParts(parts.line1)).toBe(row.line1);
+        expect(joinParts(parts.line2)).toBe(row.line2);
+      } else throw new Error('形が違う');
+    }
+    expect(chartRow(cases[2] as (typeof cases)[number])).toEqual({
+      kind: 'full',
+      line1: 'エントリー時 · 4 時間足',
+      line2: '決済時 · 日足 · 追加 2 枚',
     });
   });
 });

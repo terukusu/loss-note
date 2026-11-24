@@ -14,6 +14,8 @@ import { TIMEFRAME_NAME } from '../lib/reasons';
 import type { DraftField } from '../lib/record-form';
 import {
   chartSlotLine,
+  chartSlotParts,
+  type LinePart,
   miniChartId,
   NAMED_LEAD,
   namedLabel,
@@ -182,6 +184,23 @@ function Parts({
   );
 }
 
+/**
+ * 塊で分けた 1 行（#212。ui-guidelines 10.3）。塊の間（空白 1 つ）で折り、atom の塊（時間足・「追加 5 枚」）は中で折らない。
+ * 文字は塊をつないだもの = 元の 1 行と同じ
+ */
+export function LineParts({ parts }: { readonly parts: readonly LinePart[] }) {
+  return (
+    <>
+      {parts.map((t, i) => (
+        <Fragment key={i}>
+          {i > 0 ? ' ' : null}
+          <span class={t.atom ? 'rpart rpart--atom' : 'rpart'}>{t.text}</span>
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
 export interface MiniChartsProps {
   readonly prefix: string;
   readonly charts: ChartsState | undefined;
@@ -243,7 +262,7 @@ export function MiniChart(p: {
   const hasChart = c?.phase === 'ready';
   // 編集の画面: 削除した保存済みの枠・読み戻せなかった保存済みの枠も、押すとチャートのシート（[元に戻す]・差し替え）
   const opens = hasChart || c?.phase === 'removed' || (c?.stored === true && c.phase === 'failed');
-  const lineText = chartSlotLine({
+  const like = {
     hasChart,
     preparing: c?.phase === 'preparing',
     reading: c?.read === 'reading',
@@ -251,7 +270,8 @@ export function MiniChart(p: {
     timeframe: p.timeframe ? TIMEFRAME_NAME[p.timeframe] : null,
     suggest: c?.readSuggest ? TIMEFRAME_NAME[c.readSuggest] : null,
     change: p.markChanges ? changeMark(c) : null,
-  });
+  };
+  const lineText = chartSlotLine(like);
   const id = miniChartId(p.slot, p.prefix);
   const body = (
     <>
@@ -276,7 +296,9 @@ export function MiniChart(p: {
       )}
       <span class="rchart__text">
         <span class="rchart__name">{name}</span>
-        <span class="rchart__line">{lineText}</span>
+        <span class="rchart__line">
+          <LineParts parts={chartSlotParts(like)} />
+        </span>
       </span>
     </>
   );

@@ -62,6 +62,14 @@ import {
   type StoredTrade,
   type TradeRecord,
 } from '../../../core/record';
+import {
+  isEmptyReflection,
+  isTopicOf,
+  MAX_REFLECTION_NOTES,
+  normalizeReflection,
+  noteIssue,
+  type ReflectionSide,
+} from '../../../core/reflection';
 import { nameKey } from '../../../ui/src/lib/instrument-name';
 import type { ApiFn } from '../../../ui/src/lib/request';
 
@@ -372,6 +380,48 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
         };
       }
       return json(200, { tags: ordered });
+    }
+
+    // Good / More（#123。本物の put_trade_reflections と同じ検査の要点: 両側の topics・notes が必須・その側の一覧の ID・
+    // 重複なし・行は前後の空白を除いて 1〜100 字で改行なし・10 行まで・1 件でも無ければ 404。両側とも空なら鍵ごと消す）
+    if (key === 'PUT /api/trade-reflections') {
+      const b = (body ?? {}) as Record<string, unknown>;
+      const ids = Array.isArray(b.tradeIds) ? (b.tradeIds as unknown[]) : null;
+      const partOk = (side: ReflectionSide) => {
+        const v = b[side] as { topics?: unknown; notes?: unknown } | undefined;
+        if (!v || !Array.isArray(v.topics) || !Array.isArray(v.notes)) return false;
+        const topics = v.topics as unknown[];
+        const notes = v.notes as unknown[];
+        return (
+          topics.every((t) => isTopicOf(side, t)) &&
+          new Set(topics).size === topics.length &&
+          notes.length <= MAX_REFLECTION_NOTES &&
+          notes.every((n) => typeof n === 'string' && noteIssue(n) === null)
+        );
+      };
+      if (
+        !ids ||
+        ids.length < 1 ||
+        ids.length > MAX_EMOTION_TRADES ||
+        new Set(ids).size !== ids.length ||
+        !partOk('good') ||
+        !partOk('more')
+      ) {
+        return json(400, { error: 'invalid' });
+      }
+      const idx = ids.map((id) => trades.findIndex((t) => t.id === id));
+      if (idx.some((i) => i < 0)) return json(404, { error: 'not_found' });
+      const saved = normalizeReflection(b);
+      clock += 1;
+      for (const i of idx) {
+        const { reflection: _old, ...rest } = trades[i] as StoredTrade;
+        trades[i] = {
+          ...rest,
+          ...(isEmptyReflection(saved) ? {} : { reflection: saved }),
+          updatedAt: Math.max(clock, rest.updatedAt + 1),
+        };
+      }
+      return json(200, saved);
     }
 
     // 心理のタグの選択肢の設定（#163。本物と同じ検査の要点: 一覧の ID・重複・平常心を含まない・丸ごと置き換え）

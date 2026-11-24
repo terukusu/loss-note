@@ -1,0 +1,139 @@
+/* Good / More（#123・設計書 9.4・ui-guidelines 9.12）。色は付けない（Good を緑・More を赤にしない。C34）。
+   色の値は tokens.css だけ。下に貼り付く ［完了］ の帯・カードの見出しの行・札は心理の部品（emotions.css）と共有する */
+
+/* シートの中身 */
+.reflection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.reflection__hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* 段（Good / More）: 2 つの段は区切りの線で分ける */
+.reflection__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.reflection__side + .reflection__side {
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
+.reflection__sname,
+.reflectioncard__sname {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+.reflection__snote {
+  font-weight: var(--fw-regular);
+  color: var(--ink-2);
+}
+
+/* チップの組（fieldset の既定の枠・余白を消す） */
+.reflection__chips {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+/* 自分で書いた行（文は折り返す。右に削除のアイコンのボタン） */
+.reflection__notes {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reflection__note {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.reflection__notetext {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+}
+
+.reflection__remove {
+  flex: 0 0 auto;
+}
+
+/* 「自分で書く」の欄と ［追加］: 欄の中身（名前・入力・誤りの文）をこの格子に並べ、［追加］ は入力と同じ段に置く。誤りの文が
+   出ても入力の下の段に入るだけで、ボタンは動かない（文字を大きくしても名前の段の高さに左右されない） */
+.reflection__add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--sp-2);
+  row-gap: var(--sp-2);
+  align-items: center;
+  min-width: 0;
+}
+
+.reflection__add > .field {
+  display: contents;
+}
+
+.reflection__add .field__head {
+  grid-column: 1 / -1;
+}
+
+.reflection__add .numfield {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.reflection__add > .btn {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.reflection__add .field__error,
+.reflection__add .field__hint {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+/* 詳細の「Good / More」のカード */
+.reflectioncard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.reflectioncard__side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.reflectioncard__notes {
+  margin: 0;
+  padding-inline-start: 1.2em;
+  list-style: disc;
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.reflectioncard__notes li + li {
+  margin-top: var(--sp-1);
+}

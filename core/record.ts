@@ -5,6 +5,7 @@
 // 金額の鍵の名前（capitalYen・statementPnlYen・amountYen・valueYen）は歴史的に `…Yen` のまま。外貨の口座ではその通貨の金額
 // （#47 PR-2・C43。鍵を変えると保存済みの取引・口座を書き換えることになるため。円の口座では今と同じ円）
 import type { EmotionTagId } from './emotion-tags';
+import type { Reflection } from './reflection';
 import type {
   Entry,
   ExitOrderType,
@@ -158,6 +159,11 @@ export interface StoredTrade {
    * （一覧の順・重複なし・平常心はほかと同時に無い）。書くのは PUT /api/trade-emotions だけ
    */
   readonly emotionTags?: readonly EmotionTagId[];
+  /**
+   * Good / More（#123・C58・ADR-0024。record の外で判定・R・集計の入力に入らない）。両側とも空なら鍵が無い。
+   * 書くのは PUT /api/trade-reflections だけ。読むときは core/reflection.ts の normalizeReflection を通す
+   */
+  readonly reflection?: Reflection;
 }
 
 /** 銘柄の本文（省いた欄は API が既定を入れる） */

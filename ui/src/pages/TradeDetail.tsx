@@ -16,6 +16,11 @@ import { Fragment, type JSX } from 'preact';
 import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { type EmotionTagId, normalizeEmotions } from '../../../core/emotion-tags';
 import { accountCurrencyOf } from '../../../core/record';
+import {
+  normalizeReflection,
+  type ReflectionSide,
+  type ReflectionTopicId,
+} from '../../../core/reflection';
 import { api, signOutActive } from '../auth/session';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { Button, IconButton, RowLink } from '../components/Button';
@@ -24,6 +29,7 @@ import { useEmotionChoices } from '../components/EmotionChoices';
 import { EmotionCard, EmotionSheetBody } from '../components/Emotions';
 import { EmptyState } from '../components/EmptyState';
 import { LegTable } from '../components/LegTable';
+import { ReflectionCard, ReflectionSheetBody } from '../components/Reflection';
 import { ResnapshotSummary } from '../components/Resnapshot';
 import { Sheet } from '../components/Sheet';
 import { Verdict } from '../components/Verdict';
@@ -55,6 +61,12 @@ import {
 } from '../lib/emotion-controller';
 import { EMOTION_SHEET_TITLE } from '../lib/emotion-tags';
 import { legRows } from '../lib/option-view';
+import { REFLECTION_TITLE, reflectionCardSides } from '../lib/reflection';
+import {
+  createReflectionController,
+  type ReflectionController,
+  type ReflectionState,
+} from '../lib/reflection-controller';
 import { createRequest } from '../lib/request';
 import {
   COMPARE_ROW_LABEL,
@@ -129,6 +141,9 @@ function TradeDetailScreen({
   // 心理のタグ（#156）: シートを開くときに作り、閉じても送りが終わるまで残す（画面を離れたら捨てる）
   const emotion = useRef<EmotionController | null>(null);
   const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
+  // Good / More（#123）: 心理のタグと同じく、シートを開くときに作り、送りが終わるまで残す
+  const reflection = useRef<ReflectionController | null>(null);
+  const [reflectionState, setReflectionState] = useState<ReflectionState | null>(null);
   // 心理の選択肢の設定（#163）。画面を開くたびに読む（読めない・読み込み中はすべて出す）
   const choices = useEmotionChoices();
   useEffect(() => {
@@ -139,8 +154,11 @@ function TradeDetailScreen({
       controller.dispose();
       emotion.current?.dispose();
       emotion.current = null;
+      reflection.current?.dispose();
+      reflection.current = null;
       // 別の取引へ移ったとき、前の取引の失敗の文言・集合を残さない
       setEmotionState(null);
+      setReflectionState(null);
     };
   }, [controller]);
   const onSheet = (next: DetailSheet | null) => {
@@ -157,6 +175,26 @@ function TradeDetailScreen({
         });
         emotion.current = c;
         c.subscribe(setEmotionState);
+      }
+    }
+    // ✕・戻るで閉じたら書きかけを捨てる（送り中で controller を使い続けるときも、開き直したら空の欄。設計書 9.4）
+    if (next?.kind !== 'reflection' && reflection.current) {
+      reflection.current.setDraft('good', '');
+      reflection.current.setDraft('more', '');
+    }
+    if (next?.kind === 'reflection') {
+      const cur = controller.getState();
+      // 送っている間は同じ controller を使い続ける（押した値・書きかけを捨てない）。ほかは読んだ取引の値から作り直す
+      if (cur.phase === 'ready' && !reflection.current?.getState().sending) {
+        reflection.current?.dispose();
+        const c = createReflectionController({
+          request: createRequest(api),
+          tradeIds: [cur.trade.id],
+          initial: cur.trade.reflection,
+          onSaved: (r) => controller.applyReflection(r),
+        });
+        reflection.current = c;
+        c.subscribe(setReflectionState);
       }
     }
     setSheet(next);
@@ -180,6 +218,14 @@ function TradeDetailScreen({
       {...(emotionState ? { emotion: emotionState } : {})}
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
       emotionHidden={hiddenOf(choices.state)}
+      {...(reflectionState ? { reflection: reflectionState } : {})}
+      onReflection={{
+        toggle: (side, id) => reflection.current?.toggle(side, id),
+        draft: (side, text) => reflection.current?.setDraft(side, text),
+        add: (side) => reflection.current?.addNote(side),
+        remove: (side, i) => reflection.current?.removeNote(side, i),
+        done: () => reflection.current?.commitDrafts() ?? true,
+      }}
       {...(state.phase === 'ready'
         ? {
             emotionHref: (tag: EmotionTagId) => tradeEmotionHref(state.trade, tag, Date.now()),
@@ -246,6 +292,19 @@ export interface TradeDetailViewProps {
   readonly emotionHidden?: readonly EmotionTagId[];
   /** 心理のチップの行き先（#188。同じ心理の「期間の取引」。省けばチップは押せない札） */
   readonly emotionHref?: (id: EmotionTagId) => string;
+  /** Good / More の付け外し・書く（#123。省けばシートの中身を出さない） */
+  readonly reflection?: ReflectionState;
+  readonly onReflection?: ReflectionActions;
+}
+
+/** Good / More のシートの操作（#123） */
+export interface ReflectionActions {
+  readonly toggle: (side: ReflectionSide, id: ReflectionTopicId) => void;
+  readonly draft: (side: ReflectionSide, text: string) => void;
+  readonly add: (side: ReflectionSide) => void;
+  readonly remove: (side: ReflectionSide, index: number) => void;
+  /** ［完了］: 書きかけを足す。足せない欄があれば false（閉じない） */
+  readonly done: () => boolean;
 }
 
 /** 「…」のボタンの id */
@@ -357,6 +416,12 @@ function DetailBody(p: TradeDetailViewProps) {
         error={p.sheet?.kind === 'emotion' ? null : (p.emotion?.error ?? null)}
         onOpen={() => p.onSheet?.({ kind: 'emotion' })}
         {...(p.emotionHref ? { hrefOf: p.emotionHref } : {})}
+      />
+      {/* Good / More（#123。設計書 9.4: 付いている話題の札と自分で書いた行と ［変更］、無ければ「＋ Good / More を書く」） */}
+      <ReflectionCard
+        sides={reflectionCardSides(normalizeReflection(t.reflection))}
+        error={p.sheet?.kind === 'reflection' ? null : (p.reflection?.error ?? null)}
+        onOpen={() => p.onSheet?.({ kind: 'reflection' })}
       />
       {/* 「すべての欄」「総評」は次の画面（その場で開かない。設計書 9.2・9.3） */}
       <nav class="dlist detail__links" aria-label="この取引の記録">
@@ -554,6 +619,27 @@ function DetailSheets(
             {...(p.emotionHidden ? { hidden: p.emotionHidden } : {})}
             onToggle={(id) => p.onEmotionToggle?.(id)}
             onClose={() => open(null)}
+          />
+        ) : null}
+      </Sheet>
+      <Sheet
+        id={DETAIL_SHEET_ID.reflection}
+        open={sheet?.kind === 'reflection' && p.reflection !== undefined}
+        kind="form"
+        title={REFLECTION_TITLE}
+        onDismiss={() => open(null)}
+      >
+        {p.reflection ? (
+          <ReflectionSheetBody
+            prefix="detail"
+            state={p.reflection}
+            onToggle={(side, id) => p.onReflection?.toggle(side, id)}
+            onDraft={(side, text) => p.onReflection?.draft(side, text)}
+            onAddNote={(side) => p.onReflection?.add(side)}
+            onRemoveNote={(side, i) => p.onReflection?.remove(side, i)}
+            onClose={() => {
+              if (p.onReflection?.done() ?? true) open(null);
+            }}
           />
         ) : null}
       </Sheet>

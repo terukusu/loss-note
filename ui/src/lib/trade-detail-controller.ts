@@ -6,6 +6,7 @@
 // - 画像・取引は記憶の中だけ（端末の保存先・URL・履歴に書かない）。失敗は決まった文言だけ
 import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
+import { isEmptyReflection, type Reflection } from '../../../core/reflection';
 import { ALL_SLOTS, type AnySlot, type ChartSlot, type ExtraSlot } from './charts';
 import { type ImageType, imageInfo } from './image-limits';
 import { type Summary, summarize } from './record-form';
@@ -59,6 +60,8 @@ export interface DetailController {
   reloadChart(slot: AnySlot): Promise<void>;
   /** 心理のタグを保存できた: 読んだ取引のタグだけを差し替える（#156。判定・チャートは変えない） */
   applyEmotionTags(tags: readonly EmotionTagId[]): void;
+  /** Good / More を保存できた: 読んだ取引の Good / More だけを差し替える（#123。判定・チャートは変えない） */
+  applyReflection(r: Reflection): void;
   /** 画面を離れた: チャートの handle を close し、後で届いた応答を捨てる */
   dispose(): void;
 }
@@ -202,6 +205,11 @@ export function createTradeDetailController(deps: {
       if (disposed || state.phase !== 'ready') return;
       const { emotionTags: _old, ...rest } = state.trade;
       set({ ...state, trade: tags.length > 0 ? { ...rest, emotionTags: [...tags] } : rest });
+    },
+    applyReflection(r) {
+      if (disposed || state.phase !== 'ready') return;
+      const { reflection: _old, ...rest } = state.trade;
+      set({ ...state, trade: isEmptyReflection(r) ? rest : { ...rest, reflection: r } });
     },
     dispose() {
       disposed = true;

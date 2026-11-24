@@ -229,3 +229,22 @@ def test_b_cannot_tag_a_trade(world):
         assert_no_a_values(res)
     assert api.get(f"/api/trades/{tid}", A).get_json() == before
     assert "emotionTags" not in api.get(f"/api/trades/{b_trade['id']}", B).get_json()
+
+
+def test_b_cannot_write_a_reflection(world):
+    """Issue #123 の AC-5: ほかの利用者の取引の Good / More は 404。B の取引と混ぜても何も書かない"""
+    api, trade = world["api"], world["trade"]
+    tid = trade["id"]
+    empty = {"topics": [], "notes": []}
+    good = {"topics": ["cutEarly"], "notes": []}
+    assert api.put("/api/trade-reflections", A, {"tradeIds": [tid], "good": good, "more": empty}).status_code == 200
+    before = api.get(f"/api/trades/{tid}", A).get_json()
+    b_inst = api.instrument(B, "US30")
+    b_trade = api.post("/api/trades", B, t1(b_inst["id"])).get_json()
+    for ids in ([tid], [b_trade["id"], tid]):
+        res = api.put("/api/trade-reflections", B, {"tradeIds": ids, "good": empty, "more": good | {"topics": []}})
+        assert res.status_code == 404
+        assert res.get_json() == {"error": "not_found"}
+        assert_no_a_values(res)
+    assert api.get(f"/api/trades/{tid}", A).get_json() == before
+    assert "reflection" not in api.get(f"/api/trades/{b_trade['id']}", B).get_json()

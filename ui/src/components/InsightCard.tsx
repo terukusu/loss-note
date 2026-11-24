@@ -5,6 +5,7 @@
 // 行全体が当たり・右に ›。ui-guidelines 9.12）。無ければ押せない形のまま。
 // 値の行は格子: 広い = 名前 | 率 | 規律コスト の 3 列（列の位置はどの行も同じ）、狭い = 必ず 2 段（名前と件数 / 率を左・規律コストを右）。
 // 読み上げは行ごとの全文（列の名前つき）で、見た目の部品は外す。色・棒は付けない（C34）。R・% は無色の数（P3）
+// 表（列の見出し・値の行・件数が少ない行のまとまり）は InsightRows に分け、Good / More のカード（ReflectionInsight.tsx。#221）と共有する
 import type { ComponentChildren } from 'preact';
 import {
   BASE_MARK,
@@ -15,13 +16,14 @@ import {
   INSIGHT_TITLE,
   type InsightModel,
   type InsightRow,
+  type InsightRowText,
 } from '../lib/insight-view';
 import type { TrailFilter } from '../lib/review-trades';
 import { Link } from '../lib/router';
 import { Button } from './Button';
 import { InfoTip } from './InfoTip';
 
-function NameCell({ r }: { readonly r: InsightRow }) {
+function NameCell({ r }: { readonly r: InsightRowText }) {
   return (
     <span class="insight__name">
       <span class="insight__tag">{r.name}</span>
@@ -44,15 +46,26 @@ function trail(href: string | undefined, cls: string, children: ComponentChildre
   );
 }
 
-function MainRow({ r, href }: { readonly r: InsightRow; readonly href: string | undefined }) {
+/** 行のデータ属性（心理 = data-emotion、Good / More = data-topic） */
+type RowAttrs = Readonly<Record<string, string>>;
+
+function MainRow({
+  r,
+  href,
+  attrs,
+}: {
+  readonly r: InsightRowText;
+  readonly href: string | undefined;
+  readonly attrs: RowAttrs;
+}) {
   return (
-    <li class={r.base ? 'insight__row insight__row--base' : 'insight__row'} data-emotion={r.id}>
+    <li class={r.base ? 'insight__row insight__row--base' : 'insight__row'} {...attrs}>
       {trail(href, 'insight__link', <MainCells r={r} />)}
     </li>
   );
 }
 
-function MainCells({ r }: { readonly r: InsightRow }) {
+function MainCells({ r }: { readonly r: InsightRowText }) {
   return (
     <>
       <span class="sr-only">{r.srText}</span>
@@ -125,10 +138,40 @@ export function InsightCard({
           </div>
         </div>
       ) : null}
-      {m.main.length > 0 ? (
+      <InsightRows
+        idPrefix="insight"
+        column="心理"
+        main={m.main}
+        few={m.few}
+        keyOf={(r) => r.id}
+        attrsOf={(r) => ({ 'data-emotion': r.id })}
+        hrefOf={hrefOf}
+      />
+      {m.overlapText ? <p class="review__note">{m.overlapText}</p> : null}
+    </section>
+  );
+}
+
+/**
+ * 気づきの表（列の見出し 1 回・値の行・件数が少ない行のまとまり）。心理のカードと Good / More のカード（#221）で共有する。
+ * idPrefix は見出しの id の頭（1 画面に何枚あっても重ならない）、column は名前の列の見出し
+ */
+export function InsightRows<R extends InsightRowText>(p: {
+  readonly idPrefix: string;
+  readonly column: string;
+  readonly main: readonly R[];
+  readonly few: readonly R[];
+  readonly keyOf: (r: R) => string;
+  readonly attrsOf: (r: R) => RowAttrs;
+  readonly hrefOf: (r: R) => string | undefined;
+}) {
+  const fewId = `${p.idPrefix}-few`;
+  return (
+    <>
+      {p.main.length > 0 ? (
         <div class="insight__table">
           <div class="insight__cols">
-            <span class="insight__colname">心理</span>
+            <span class="insight__colname">{p.column}</span>
             <span class="insight__colrate">
               {COLUMN.rate}
               <InfoTip term="planRate" size="sm" />
@@ -139,22 +182,22 @@ export function InsightCard({
             </span>
           </div>
           <ul class="insight__rows">
-            {m.main.map((r) => (
-              <MainRow key={r.id} r={r} href={hrefOf(r)} />
+            {p.main.map((r) => (
+              <MainRow key={p.keyOf(r)} r={r} href={p.hrefOf(r)} attrs={p.attrsOf(r)} />
             ))}
           </ul>
         </div>
       ) : null}
-      {m.few.length > 0 ? (
+      {p.few.length > 0 ? (
         <div class="insight__fewbox">
-          <h3 class="review__label insight__fewhead" id="insight-few">
+          <h3 class="review__label insight__fewhead" id={fewId}>
             {FEW_HEAD}
           </h3>
-          <ul class="insight__few" aria-labelledby="insight-few">
-            {m.few.map((r) => (
-              <li key={r.id} class="insight__fewrow" data-emotion={r.id}>
+          <ul class="insight__few" aria-labelledby={fewId}>
+            {p.few.map((r) => (
+              <li key={p.keyOf(r)} class="insight__fewrow" {...p.attrsOf(r)}>
                 {trail(
-                  hrefOf(r),
+                  p.hrefOf(r),
                   'insight__fewlink',
                   <>
                     <span class="sr-only">{r.srText}</span>
@@ -171,7 +214,6 @@ export function InsightCard({
           </ul>
         </div>
       ) : null}
-      {m.overlapText ? <p class="review__note">{m.overlapText}</p> : null}
-    </section>
+    </>
   );
 }

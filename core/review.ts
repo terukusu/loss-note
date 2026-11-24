@@ -9,9 +9,16 @@
 // 累積は途中で丸めない（丸めは表示だけ）
 // 心理のタグごとの行（reviewByEmotion。#162）は、タグごとの部分集合に reviewPeriod を当てる（定義を二重に持たない）
 // 連勝の後（afterWinStreak・reviewAfterWinStreak。#185）も、連勝の後の取引の部分集合に reviewPeriod を当てる
+// Good / More の話題ごとの行（reviewByReflection。#221）も、話題ごとの部分集合に reviewPeriod を当てる
 import { CALM, EMOTION_TAG_IDS, type EmotionTagId, OVERCONFIDENT } from './emotion-tags';
 import type { Grade } from './judge';
 import { TOL } from './numeric';
+import {
+  REFLECTION_TOPICS,
+  type Reflection,
+  type ReflectionSide,
+  type ReflectionTopicId,
+} from './reflection';
 
 /** 集計の 1 件（画面が保存した取引から作る。grade = 判定。null = 判定なし（計算できない取引）） */
 export interface ReviewItem {
@@ -25,6 +32,8 @@ export interface ReviewItem {
   readonly imported: boolean;
   /** 心理のタグ（付いている取引だけ。一覧の順・重複なし = normalizeEmotions の後。#162） */
   readonly emotions?: readonly EmotionTagId[];
+  /** Good / More（付いている取引だけ。normalizeReflection の後。#221） */
+  readonly reflection?: Reflection;
 }
 
 /** 判定の内訳の鍵（判定 + 判定なし） */
@@ -200,6 +209,81 @@ export function reviewByEmotion(
   return {
     total: target.length,
     tagged,
+    excludedImports: opts.includeImports ? 0 : items.length - target.length,
+    overlap,
+    rows,
+  };
+}
+
+/** Good / More の行の鍵: 話題の ID か、自分で書いた行（#221） */
+export const REFLECTION_NOTES = 'notes';
+export type ReflectionRowKey = ReflectionTopicId | typeof REFLECTION_NOTES;
+
+/** Good / More の 1 行（#221） */
+export interface ReflectionRow {
+  readonly key: ReflectionRowKey;
+  /** その話題（自分で書いた行）が付いた取引だけの期間の集計（total = 行の件数） */
+  readonly review: PeriodReview;
+}
+
+export interface ReflectionReview {
+  readonly side: ReflectionSide;
+  /** 集計の対象の件数（取り込みを外した後。reviewPeriod の total と同じ） */
+  readonly total: number;
+  /** 対象のうち、その側に話題か自分で書いた行が 1 つ以上ある件数（見出しの「記入」） */
+  readonly written: number;
+  /** 外した取り込みの件数（含めるなら 0） */
+  readonly excludedImports: number;
+  /** 2 つ以上の行（話題 + 自分で書いた行）に入る取引がある（行の件数の和が written より多くなる） */
+  readonly overlap: boolean;
+  /** 話題の行（件数の多い順 → 一覧（C58）の順。0 件の話題は無い）→ 最後に自分で書いた行（0 件なら無い） */
+  readonly rows: readonly ReflectionRow[];
+}
+
+/**
+ * Good / More の話題ごとの規律の集計（Issue #221・設計書 6.1・9.4・C58）。対象は reviewPeriod と同じ（取り込みは includeImports の
+ * ときだけ）。側ごと・話題ごとに、その話題が付いた取引を 1 件ずつ数える（2 つ以上の話題の取引は付いた話題すべての行に入る）。
+ * 自分で書いた行は行の数によらず取引 1 件 = 1 件。行の値はその部分集合への reviewPeriod（心理の行 reviewByEmotion と同じ定義）
+ */
+export function reviewByReflection(
+  items: readonly ReviewItem[],
+  side: ReflectionSide,
+  opts: { readonly includeImports: boolean },
+): ReflectionReview {
+  const target = opts.includeImports ? items : items.filter((i) => !i.imported);
+  const byKey = new Map<ReflectionRowKey, ReviewItem[]>();
+  let written = 0;
+  let overlap = false;
+  for (const i of target) {
+    const part = i.reflection?.[side];
+    const keys: ReflectionRowKey[] = [...new Set(part?.topics ?? [])];
+    if ((part?.notes.length ?? 0) > 0) keys.push(REFLECTION_NOTES);
+    if (keys.length === 0) continue;
+    written += 1;
+    if (keys.length > 1) overlap = true;
+    for (const k of keys) {
+      const list = byKey.get(k);
+      if (list) list.push(i);
+      else byKey.set(k, [i]);
+    }
+  }
+  const order: ReadonlyMap<string, number> = new Map(
+    (REFLECTION_TOPICS[side] as readonly string[]).map((id, n) => [id, n]),
+  );
+  const rows: ReflectionRow[] = [...byKey].map(([key, list]) => ({
+    key,
+    review: reviewPeriod(list, { includeImports: true }),
+  }));
+  rows.sort(
+    (a, b) =>
+      Number(a.key === REFLECTION_NOTES) - Number(b.key === REFLECTION_NOTES) ||
+      b.review.total - a.review.total ||
+      (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0),
+  );
+  return {
+    side,
+    total: target.length,
+    written,
     excludedImports: opts.includeImports ? 0 : items.length - target.length,
     overlap,
     rows,

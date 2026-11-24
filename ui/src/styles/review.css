@@ -781,13 +781,16 @@
   list-style: none;
 }
 
+/* 1 つの行は 1 行に収まる間は折り返さず、幅に入らない（名前の長い Good / More の話題。#221）ときは名前と件数の間で折り返す */
 .insight__fewrow {
-  white-space: nowrap;
+  max-width: 100%;
 }
 
 .insight__fewname {
   color: var(--ink-2);
   font-size: var(--fs-sm);
+  /* 名前だけで幅を超える（文字の拡大・長い話題の名前）ときは名前の中でも折り返す（#221 のレビュー 3） */
+  overflow-wrap: anywhere;
 }
 
 .insight__none {
@@ -843,6 +846,7 @@
 
 .insight__fewlink {
   display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: var(--sp-2);
   min-height: var(--tap);

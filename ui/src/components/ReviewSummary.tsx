@@ -26,6 +26,7 @@ import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
 import { InsightCard } from './InsightCard';
 import { PeriodDates, PeriodSegment } from './PeriodPicker';
+import { ReflectionInsightCards } from './ReflectionInsight';
 import { Segment } from './Segment';
 import { StreakCard } from './StreakCard';
 
@@ -216,7 +217,7 @@ function ReviewBody(p: ReviewSlot) {
   );
 }
 
-/** 開いているセグメントの中身（規律 = 2 枚のカード、気づき = 心理ごとの集計のカード） */
+/** 開いているセグメントの中身（規律 = 2 枚のカード、気づき = 心理ごとの集計・連勝の後・Good / More（#221）のカード） */
 function ViewContent(p: ReviewSlot & { readonly shown: ReviewModel | InsightModel }) {
   if (p.view === 'insight') {
     const m = p.shown as InsightModel;
@@ -224,6 +225,7 @@ function ViewContent(p: ReviewSlot & { readonly shown: ReviewModel | InsightMode
       <>
         <InsightCard m={m} trailHref={p.trailHref} />
         {m.streak ? <StreakCard s={m.streak} trailHref={p.trailHref} /> : null}
+        {m.reflection ? <ReflectionInsightCards m={m.reflection} trailHref={p.trailHref} /> : null}
       </>
     );
   }

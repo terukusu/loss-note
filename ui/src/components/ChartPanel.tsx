@@ -9,7 +9,13 @@
 // - 編集の画面（markChanges）: 変えた枠の名前の横に印「差し替え」「追加」、削除した保存済みの枠は「チャートなし（保存で
 //   削除）」と [元に戻す]
 import type { Timeframe } from '../../../core/trade';
-import { CHART_READ_MARK, CHART_READ_NOTICE, suggestButton, suggestText } from '../lib/chart-read';
+import {
+  CHART_READ_MARK,
+  CHART_READ_NOTICE,
+  CHART_SEND_INFO,
+  suggestButton,
+  suggestText,
+} from '../lib/chart-read';
 import { CHART_REMOVED, type ChartState, type ChartsState } from '../lib/chart-slots';
 import {
   type AnySlot,
@@ -28,6 +34,7 @@ import {
 } from '../lib/charts';
 import { Button } from './Button';
 import { Icon } from './Icon';
+import { InfoTip } from './InfoTip';
 import { TextField } from './TextField';
 
 export interface ChartPanelProps {
@@ -107,8 +114,15 @@ export function ChartPanel(p: ChartPanelProps) {
           {EXTRA_FULL}
         </p>
       ) : null}
-      {/* 送る前の注意（常に出す。追加のチャートも時間足を読むために送る。C38・#27） */}
-      <p class="charts__notice">{CHART_READ_NOTICE}</p>
+      {/* 送る前の注意（常に出す 1 行。追加のチャートも時間足を読むために送る。C38・#27）。中身の補足は「i」（#251） */}
+      <p class="charts__notice">
+        {CHART_READ_NOTICE}
+        <InfoTip
+          label={CHART_SEND_INFO.label}
+          body={CHART_SEND_INFO.body}
+          id={CHART_SEND_INFO.id}
+        />
+      </p>
       {p.blocked ? (
         <p class="statement__text" role="status">
           {p.blocked}

@@ -17,9 +17,21 @@ export const CHART_READ_TIMEOUT_MS = 30_000;
 /** 読んだ値で埋めた欄の印（ラベルと並べて幅 360px でも折り返さない長さ） */
 export const CHART_READ_MARK = 'チャートから';
 
-/** 送る前の注意（チャートの枠の見出しの下に常に出す。C38。チャートは記録と一緒に保存するので明細の注意と主語を分ける） */
-export const CHART_READ_NOTICE =
-  '時間足を読むため AI（Anthropic）に送ります。チャートは記録と一緒に保存します。';
+/**
+ * 送る前の注意（チャートを送れる所に常に出す 1 行。C38 の同意の代わりなので畳まない）。何のために送るか・記録と一緒に保存
+ * することは、横の「i」の中（CHART_SEND_INFO。#251・設計書 C70）。明細の注意とは主語を分ける
+ */
+export const CHART_READ_NOTICE = 'チャートは AI（Anthropic）に送ります。';
+
+/** 送る前の注意の「i」（言葉「チャートの送り方」。説明のシートの ID は `record-` で始めない） */
+export const CHART_SEND_INFO = {
+  label: 'チャートの送り方',
+  body: [
+    '時間足を読むため、チャートを AI の提供元（Anthropic）に送ります。',
+    'チャートの画像は記録と一緒に保存します。',
+  ],
+  id: 'info-chart-send',
+} as const;
 
 export const CHART_READ_MSG = {
   /** 時間足の読み取り中の帯の文（読み取りを待たずに記録できる。幅 360px でボタンと並べて 1 行。読み取り中は枠に出す） */

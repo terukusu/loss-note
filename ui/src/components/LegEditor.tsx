@@ -10,6 +10,7 @@ import { LEG_FIELD_LABEL, toggleExpired, YEAR_INFERRED_HINT } from '../lib/legs-
 import '../styles/legs.css';
 import { Button } from './Button';
 import { Icon } from './Icon';
+import { InfoTip } from './InfoTip';
 import { NumberField } from './NumberField';
 import { Segment } from './Segment';
 import { TextField } from './TextField';
@@ -28,7 +29,12 @@ export interface LegEditorProps {
 export const SPLIT_LABEL = '別のポジションにする';
 
 export const EXPIRED_LABEL = '満期で消滅';
-export const EXPIRED_HINT = '決済明細に出ないレッグ。決済は SQ での価値（OTM なら 0）';
+/** ［満期で消滅］ の意味（横の「i」の中。欄の下の 1 行から移した。#251・設計書 C70） */
+export const EXPIRED_INFO = {
+  label: EXPIRED_LABEL,
+  body: '決済明細に出ないレッグです。決済は SQ での価値（OTM なら 0）です。',
+  id: 'info-leg-expired',
+} as const;
 
 export function LegEditor(p: LegEditorProps) {
   const l = p.leg;
@@ -98,22 +104,21 @@ export function LegEditor(p: LegEditorProps) {
           {...err('quantity')}
         />
         <div class="legedit__expired">
-          <button
-            type="button"
-            class="lcnone legedit__toggle"
-            id={id('expired')}
-            aria-pressed={l.expired ? 'true' : 'false'}
-            aria-describedby={id('expired-hint')}
-            onClick={() => p.onChange(toggleExpired(l))}
-          >
-            {l.expired ? <Icon name="check" /> : null}
-            <span>{EXPIRED_LABEL}</span>
-          </button>
+          <div class="legedit__expiredrow">
+            <button
+              type="button"
+              class="lcnone legedit__toggle"
+              id={id('expired')}
+              aria-pressed={l.expired ? 'true' : 'false'}
+              onClick={() => p.onChange(toggleExpired(l))}
+            >
+              {l.expired ? <Icon name="check" /> : null}
+              <span>{EXPIRED_LABEL}</span>
+            </button>
+            <InfoTip label={EXPIRED_INFO.label} body={EXPIRED_INFO.body} id={EXPIRED_INFO.id} />
+          </div>
         </div>
       </div>
-      <p class="field__hint legedit__hint" id={id('expired-hint')}>
-        {EXPIRED_HINT}
-      </p>
       <div class="record__pair record__pair--prices">
         <NumberField
           id={id('entry')}

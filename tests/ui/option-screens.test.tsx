@@ -3,12 +3,12 @@
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade } from '../../core/record';
-import { LegEditor } from '../../ui/src/components/LegEditor';
+import { EXPIRED_INFO, LegEditor } from '../../ui/src/components/LegEditor';
 import { LEG_LIST_ID, LEG_MERGE_ID, LEG_UNDO_ID, LegList } from '../../ui/src/components/LegList';
 import { LEG_TABLE_TITLE_ID, LegTable } from '../../ui/src/components/LegTable';
 import {
   LcFields,
-  LOSS_PLAN_HINT,
+  LOSS_PLAN_INFO,
   MAX_LOSS_LABEL,
   NEW_MULTIPLIER_ID,
   newInstrumentText,
@@ -223,13 +223,12 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
     expect(text(byId(lc, 'record-lc-late') as El)).toBe(
       'エントリー後に決めた価格は入れず「LC なし」へ',
     );
-    // 前からの記録の編集（askLcDecided）: 添えの代わりに LC の行の下で問い、理由の 1 行を添える
+    // 前からの記録の編集（askLcDecided）: 添えの代わりに LC の行の下で問う。なぜ聞くかの 1 行は置かない（#251）
     const asked = expand(<LcFields {...props(fresh)} askLcDecided />);
     expect(text(asked)).toContain('LC を入る前に決めていたか');
     expect(byId(asked, 'record-lc-late')).toBeUndefined();
-    expect(text(byId(asked, 'record-lc-decided-hint') as El)).toBe(
-      '後から書いた LC として保存した記録です',
-    );
+    expect(byId(asked, 'record-lc-decided-hint')).toBeUndefined();
+    expect(text(asked)).not.toContain('後から書いた LC として保存した記録です');
     expect(text(expand(<TapFields {...props(fresh)} askLcDecided />))).not.toContain(
       'LC を入る前に決めていたか',
     );
@@ -259,7 +258,16 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
   it('売りの裸で 1R が出ないときは見込みの欄を LC の枠に、ほかは「ほかの欄」', () => {
     const lcNaked = expand(<LcFields {...props(naked)} />);
     expect(byId(lcNaked, 'record-loss-plan')).toBeDefined();
-    expect(text(lcNaked)).toContain(LOSS_PLAN_HINT);
+    // 売りの裸の説明は欄の下に出さず、欄の名前の横の「i」の中（#251・AC-2）
+    expect(text(lcNaked)).not.toContain('売りの裸は 1R が表示されないことがあります');
+    expect(byId(lcNaked, 'record-loss-plan-hint')).toBeUndefined();
+    expect(
+      all(lcNaked, (e) => e.props['aria-label'] === '「LC での損失の見込み」の説明'),
+    ).toHaveLength(1);
+    expect(LOSS_PLAN_INFO.body).toBe(
+      '売りの裸は 1R が表示されないことがあります。入力すると R とリスクが表示されます。',
+    );
+    expect(LOSS_PLAN_INFO.id.startsWith('record-')).toBe(false);
     expect(byId(expand(<TradeMoreBody {...props(naked)} />), 'record-loss-plan')).toBeUndefined();
     // 「最大損失まで」の買いのスプレッドは見込みを持たない（どちらにも出さない）
     expect(byId(expand(<LcFields {...props(spread)} />), 'record-loss-plan')).toBeUndefined();
@@ -301,6 +309,13 @@ describe('レッグの部品', () => {
     );
     expect((byId(tree, 'leg-1-expired') as El).props['aria-pressed']).toBe('true');
     expect(text(byId(tree, 'leg-1-remove') as El)).toContain('このレッグを削除');
+    // 満期で消滅の意味は欄の下に出さず、押す形の横の「i」の中（#251・AC-2）
+    expect(text(tree)).not.toContain('決済明細に出ないレッグ');
+    expect(byId(tree, 'leg-1-expired-hint')).toBeUndefined();
+    expect((byId(tree, 'leg-1-expired') as El).props['aria-describedby']).toBeUndefined();
+    expect(all(tree, (e) => e.props['aria-label'] === '「満期で消滅」の説明')).toHaveLength(1);
+    expect(EXPIRED_INFO.body).toContain('決済明細に出ないレッグ');
+    expect(EXPIRED_INFO.body).toContain('SQ での価値（OTM なら 0）');
     expect(labels(tree)).toEqual(
       expect.arrayContaining(['P', '買い', '売り', '限月', '行使価格', '枚数', 'イン', '決済']),
     );

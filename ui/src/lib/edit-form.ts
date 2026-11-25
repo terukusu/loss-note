@@ -299,8 +299,11 @@ function verdictText(s: Pick<Summary, 'judgment' | 'r'>): string {
   return s.r === undefined || quietR(s.judgment?.grade) ? label : `${label} ${formatR(s.r)}`;
 }
 
-/** 保存の帯に出す、直す前 → 直した後の判定（変わらなければその旨） */
-export function changeText(before: Summary, after: Summary): string {
+/**
+ * 保存の帯に出す、直す前 → 直した後の判定。段・R・理由が変わらなければ null（すぐ上の判定の 1 行と同じことを
+ * 2 回言わない。Issue 251・設計書 C70）
+ */
+export function changeText(before: Summary, after: Summary): string | null {
   const a = verdictText(before);
   if (after.judgment === undefined)
     return `編集前: ${a}（未入力の欄を入力すると、編集後の判定が表示されます）`;
@@ -310,9 +313,7 @@ export function changeText(before: Summary, after: Summary): string {
   if (quietR(after.judgment?.grade) && formatR(before.r) !== formatR(after.r))
     return `判定は ${a} のまま・R が変わります`;
   // 段と R が同じでも理由が変われば言う（チャートを差し替えて「時間足を変えた（…・チャートから）」が消えるなど。#89）
-  return sameReasons(before, after)
-    ? `判定は変わりません: ${a}`
-    : `判定は ${a} のまま・理由が変わります`;
+  return sameReasons(before, after) ? null : `判定は ${a} のまま・理由が変わります`;
 }
 
 function sameReasons(a: Summary, b: Summary): boolean {
@@ -326,15 +327,19 @@ function sameReasons(a: Summary, b: Summary): boolean {
   return key(a) === key(b);
 }
 
+/** 保存の帯の先頭（記録したときの値でなく今の値で再計算して保存する。#31） */
+export const BAR_REFRESH = '今の値で再計算';
+
 /**
- * 保存の帯の文: チャートを変えたら「・チャート n か所を変更」を足す。判定が同じなら「判定は同じ（…）」に縮めて
- * 360px で 1 行に収める（#89）
+ * 保存の帯の文: 今の値で再計算する印 · 判定の変化・チャートの変更の数（「・チャート n か所を変更」）。判定が変わらなければ
+ * 判定の文を出さず、何も言うことが無ければ空（#89・#251）
  */
-export function bandText(change: string, chartChanges: number): string {
-  if (chartChanges === 0) return change;
-  const same = /^判定は変わりません: (.*)$/.exec(change);
-  const head = same ? `判定は同じ（${same[1]}）` : change;
-  return `${head}・チャート ${chartChanges} か所を変更`;
+export function bandText(change: string | null, chartChanges: number, refresh = false): string {
+  const charts = chartChanges > 0 ? `チャート ${chartChanges} か所を変更` : null;
+  const body = [change, charts].filter((x): x is string => x !== null).join('・');
+  return [refresh ? BAR_REFRESH : null, body === '' ? null : body]
+    .filter((x): x is string => x !== null)
+    .join(' · ');
 }
 
 /** 為替の保ち方: 欄が出ていれば下書き、出ていなければ為替が意味を失っていないとき（fxStale でない）だけ元の為替を保つ */

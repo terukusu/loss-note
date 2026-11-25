@@ -70,14 +70,17 @@
   min-width: 0;
 }
 
+/* 押す形と、その意味の「i」（欄の下の 1 行から移した。#251）。「最大損失まで」と同じ横並び */
+.legedit__expiredrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
 /* LC の「なし」と同じ押す形（枚数の欄の右。欄の下の端にそろえる） */
 .legedit__toggle {
   margin-top: 0;
-}
-
-/* 満期で消滅の説明は 2 列の段の下に詰める */
-.legedit__hint {
-  margin-top: calc(var(--sp-1) - var(--sp-4));
 }
 
 /* 削除は区切りの下に離す（［満期で消滅］ と押し間違えない。デザインレビュー B1） */

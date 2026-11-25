@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { ChartPanel, type ChartPanelProps } from '../../ui/src/components/ChartPanel';
 import { CHART_MSG, CHART_REMOVED } from '../../ui/src/lib/chart-slots';
 import { EXTRA_FULL, type ExtraEntry } from '../../ui/src/lib/charts';
+import { closedInfoTip } from './helpers/info-tip';
 import { fakePreview } from './helpers/statement-rows';
 
 interface El {
@@ -18,6 +19,8 @@ function expand(v: unknown): Node[] {
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  const tip = closedInfoTip(vn);
+  if (tip) return expand(tip);
   if (typeof vn.type === 'function') return expand((vn.type as (p: unknown) => unknown)(vn.props));
   const { children, ...props } = vn.props ?? {};
   return [{ type: String(vn.type), props, children: expand(children) }];

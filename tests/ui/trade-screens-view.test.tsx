@@ -940,12 +940,11 @@ describe('AC-4: 直す（例 E1・E2）', () => {
     expect(group).toHaveLength(1);
     const checked = all(group, (e) => e.type === 'input' && e.props.checked === true);
     expect(checked.map((e) => e.props.value)).toEqual(['no']);
-    // 添えは出さず、問いの下に理由の 1 行（添えと問いが食い違わない。#202 のデザインレビュー 2）
+    // 添えは出さない（添えと問いが食い違わない。#202 のデザインレビュー 2）。理由の 1 行も置かない（#251・AC-1）
     expect(all(tree, (e) => e.props.id === 'record-lc-late')).toEqual([]);
-    expect(text(all(tree, (e) => e.props.id === 'record-lc-decided-hint')[0] as El)).toBe(
-      '後から書いた LC として保存した記録です',
-    );
-    expect(String(group[0]?.props['aria-describedby'])).toContain('record-lc-decided-hint');
+    expect(all(tree, (e) => e.props.id === 'record-lc-decided-hint')).toEqual([]);
+    expect(text(tree)).not.toContain('後から書いた LC として保存した記録です');
+    expect(group[0]?.props['aria-describedby']).toBeUndefined();
     const none = await editTree(L3);
     expect(
       all(
@@ -1193,7 +1192,8 @@ describe('レビュー後: 詳細の見出し・時間足の行・直す前 → 
         />,
       );
     const change = () => text(all(view(), (e) => e.props.id === 'edit-change')[0] as El);
-    expect(change()).toBe('判定は変わりません: B 悪い損失 −1.0R');
+    // 判定が変わらない間は帯に判定の文を出さない（すぐ上の判定の 1 行と同じ。#251・AC-3）
+    expect(change()).toBe('');
     c.update({ type: 'set', field: 'lcMove', value: 'none' });
     expect(change()).toBe('判定: B 悪い損失 −1.0R → A いい損失 −1.0R');
     const before = all(view(), hasClass('verdict__before'))[0] as El;

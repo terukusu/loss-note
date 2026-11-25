@@ -508,9 +508,7 @@ describe('画面: 枠と、判定の枠の注記のそばのボタン', () => {
     expect(text(all(after, (e) => e.props.id === 'edit-resnapshot-status')[0] as El)).toContain(
       '戻すには「記録したとき」を選びます',
     );
-    expect(text(all(after, (e) => e.props.id === 'edit-change')[0] as El)).toBe(
-      '今の値で再計算 · 判定は変わりません: A いい損失 −1.0R',
-    );
+    expect(text(all(after, (e) => e.props.id === 'edit-change')[0] as El)).toBe('今の値で再計算');
     // 「記録したとき」を選ぶと戻る
     choices(after)[0]?.onChange();
     expect(c.getState().refresh).toBe(false);

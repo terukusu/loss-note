@@ -536,7 +536,7 @@
   padding: 0 var(--sp-2);
 }
 
-/* 欄の名前の「入る前に」の添え（後付けの価格を入れさせない 1 行。LC なしの間は押した結果。C57・#202）。LC の行のすぐ下に行の幅で 1 行 */
+/* 欄の名前の「入る前に」の添え（後付けの価格を入れさせない 1 行。LC なしの間は出さない。C57・#202・#251）。LC の行のすぐ下に行の幅で 1 行 */
 .record__lc .lcrow > .lcrow__late {
   grid-row: 3;
   grid-column: 1 / -1;
@@ -555,11 +555,6 @@
 .lcdecided {
   display: grid;
   gap: var(--sp-1);
-}
-
-.lcdecided__note {
-  margin: 0;
-  font-size: var(--fs-xs);
 }
 
 .record__lc .lcrow > .field > .field__error {

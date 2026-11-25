@@ -701,10 +701,10 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(bad).toEqual([]);
   });
 
-  it('物差しの CSS は文字・線・段のトークンだけ（新しい色を足さない。Issue #34 AC-5）', () => {
-    const allowed =
-      /^(var\(--(ink|ink-2|ink-3|line|line-2|tier-(plan|break|worst|neutral)-(ink|bg|line))\)|currentColor|none|transparent)$/;
+  it('物差しの CSS は文字・線のトークンと、崩れ・極悪の段の塗りだけ（新しい色を足さない。Issue #34 AC-5・#231 C66）', () => {
+    const allowed = /^(var\(--(ink|ink-2|ink-3|line|line-2)\)|currentColor|none|transparent)$/;
     let seen = 0;
+    let tiered = 0;
     const bad: string[] = [];
     for (const b of blocks(stripComments(files[COMPONENTS] ?? ''))) {
       if (!/\.ruler|\.taps/.test(b.selector)) continue;
@@ -717,6 +717,21 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
           continue;
         }
         seen++;
+        // 段の色は崩れの区間・矢印の線だけで、その段のクラスの下・その段の塗り（solid）に限る（計画どおり・中立は持たない）
+        const tier = value.match(/^var\(--tier-([a-z]+)-([a-z]+)\)$/);
+        if (tier) {
+          const sels = b.selector.split(',').map((x) => x.trim());
+          const ok =
+            name === 'stroke' &&
+            (tier[1] === 'break' || tier[1] === 'worst') &&
+            tier[2] === 'solid' &&
+            sels.every(
+              (x) => x.startsWith(`.ruler--${tier[1]} `) && /\.ruler__(breach|arrow)$/.test(x),
+            );
+          if (ok) tiered++;
+          else bad.push(`${b.selector} { ${name}: ${value} }`);
+          continue;
+        }
         if (!allowed.test(value)) bad.push(`${b.selector} { ${name}: ${value} }`);
       }
       // 面の色・四辺の線を持たない（枠に数えない。入れ子は判定の枠 → 部品の 2 段）
@@ -727,6 +742,7 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
       }
     }
     expect(seen).toBeGreaterThan(5);
+    expect(tiered).toBe(2);
     expect(bad).toEqual([]);
   });
 

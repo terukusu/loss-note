@@ -1,6 +1,6 @@
 // LC の物差しの文字の一覧と越えた行（Issue #34 契約 P-2・AC-3）。値はすべて架空
 import { describe, expect, it } from 'vitest';
-import type { Ruler } from '../../core/ruler';
+import type { NoLcRuler, Ruler } from '../../core/ruler';
 import { formatR } from '../../ui/src/lib/format';
 import { summarize } from '../../ui/src/lib/record-form';
 import {
@@ -8,8 +8,10 @@ import {
   overArc,
   overshootText,
   rulerItems,
+  rulerSegments,
   rulerTicks,
   widenArc,
+  widenArrow,
   xOf,
 } from '../../ui/src/lib/ruler-view';
 import { exitAt, RULER_EXAMPLES } from './helpers/ruler-examples';
@@ -19,7 +21,7 @@ function rulerOfStored(id: string): Ruler {
   const t = RULER_EXAMPLES[id];
   if (!t) throw new Error(id);
   const r = summarize(t).ruler;
-  if (!r) throw new Error(`${id} に物差しが出ません`);
+  if (r?.basis !== 'r') throw new Error(`${id} に R の物差しが出ません`);
   return r;
 }
 
@@ -185,5 +187,83 @@ describe('widenArc・rulerTicks・入る前に決めていない LC（Phase 4b �
     for (const i of rulerItems(rulerOfStored('E2'))) {
       expect(i.text).toBe(`${i.name} ${i.price}${i.rText === null ? '' : `（${i.rText}）`}`);
     }
+  });
+});
+
+// ---- #231（設計書 C66）: 区間・矢印・計画の上限の名前・LC なしの図の文字 ----
+
+describe('rulerSegments・widenArrow（#231）', () => {
+  it('E2: 計画の帯（決めた LC〜イン）・実行の線・広げた区間と越えた区間は崩れの区間', () => {
+    const r = rulerOfStored('E2');
+    expect(rulerSegments(r)).toEqual([
+      { kind: 'plan', from: '23.08%', to: '61.54%', breach: false },
+      { kind: 'exec', from: '0.00%', to: '61.54%', breach: false },
+      { kind: 'widen', from: '0.00%', to: '23.08%', breach: true },
+      { kind: 'over', from: '0.00%', to: '23.08%', breach: true },
+    ]);
+    expect(widenArrow(r)).toEqual({ x: '0.00%', dir: 'left' });
+  });
+
+  it('E1: 計画の帯と実行の線だけ・矢印なし', () => {
+    const r = rulerOfStored('E1');
+    expect(rulerSegments(r).map((g) => g.kind)).toEqual(['plan', 'exec']);
+    expect(widenArrow(r)).toBeNull();
+  });
+
+  it('決済 = イン（E11）は実行の線を描かない（長さ 0）', () => {
+    expect(rulerSegments(rulerOfStored('E11')).map((g) => g.kind)).toEqual(['plan']);
+  });
+
+  it('LC なしの図: イン〜決済だけ（崩れの区間）・矢印なし・目盛りは「LC なし」だけ・一覧は名前と価格', () => {
+    const r: NoLcRuler = {
+      basis: 'price',
+      points: [
+        { kind: 'noLc', pos: 0 },
+        { kind: 'exit', price: 98.75, pos: 0.1 },
+        { kind: 'entry', price: 100, pos: 0.5 },
+        { kind: 'tp', price: 101.5, pos: 0.9 },
+      ],
+    };
+    expect(rulerSegments(r)).toEqual([
+      { kind: 'free', from: '10.00%', to: '50.00%', breach: true },
+    ]);
+    expect(widenArrow(r)).toBeNull();
+    expect(rulerTicks(r)).toEqual([{ key: 'noLc', x: '0.00%', label: 'LC なし', anchor: 'start' }]);
+    expect(rulerItems(r).map((i) => i.text)).toEqual([
+      'LC なし',
+      '決済 98.75',
+      'イン 100',
+      'TP 101.5',
+    ]);
+    expect(overshootText(r)).toBeNull();
+  });
+});
+
+describe('計画の上限の名前（LC の価格の無いオプションのポジション。#231）', () => {
+  const bound = (b: 'maxLoss' | 'lossPlan', decided: boolean): Ruler => ({
+    basis: 'r',
+    bound: b,
+    lo: -1,
+    hi: 1,
+    lcDecidedBeforeEntry: decided,
+    points: [
+      { kind: 'plannedLc', r: -1, pos: 0, outOfRange: false },
+      { kind: 'entry', price: 38_500, r: 0, pos: 0.5, outOfRange: false },
+      { kind: 'exit', price: 38_200, r: -0.4, pos: 0.3, outOfRange: false },
+    ],
+  });
+
+  it('最大損失: 価格なしの「最大損失（−1.0R）」・目盛りは −1R', () => {
+    const r = bound('maxLoss', true);
+    expect(rulerItems(r)[0]?.text).toBe('最大損失（−1.0R）');
+    expect(rulerItems(r)[0]?.price).toBeNull();
+    expect(rulerTicks(r).find((t) => t.key === 'lc')?.label).toBe('−1R');
+  });
+
+  it('LC での損失の見込み（入る前に決めていない）: 名前は見込み・目盛りに「後から」を付けない・計画の帯なし', () => {
+    const r = bound('lossPlan', false);
+    expect(rulerItems(r)[0]?.text).toBe('LC での損失の見込み（−1.0R）');
+    expect(rulerTicks(r).find((t) => t.key === 'lc')?.label).toBe('−1R');
+    expect(rulerSegments(r).map((g) => g.kind)).toEqual(['exec']);
   });
 });

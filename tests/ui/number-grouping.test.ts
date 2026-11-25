@@ -55,7 +55,7 @@ describe('#40 AC4: 表示の価格・数量は 3 桁区切り（丸めない）'
   it('LC の物差しの文字', () => {
     const ruler = summarize(BIG).ruler;
     if (!ruler) throw new Error('物差しが出ません');
-    const texts = rulerItems(ruler).map((i) => i.price);
+    const texts = rulerItems(ruler).flatMap((i) => (i.price === null ? [] : [i.price]));
     expect(texts).toContain('38,250');
     expect(texts).toContain('38,100');
     expect(texts.every((t) => /^\d{1,3}(,\d{3})*(\.\d+)?$/.test(t))).toBe(true);

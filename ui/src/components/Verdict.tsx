@@ -67,6 +67,11 @@ export interface VerdictProps {
   readonly asideAction?: ComponentChildren;
   /** 直す画面でレッグを編集した（明細の損益を外してレッグの合計にした 1 行。#117・4.7） */
   readonly legsEdited?: boolean;
+  /**
+   * LC の物差しを主役にする（取引の詳細だけ。#231・C66）: 物差しを添え書き・崩れの文の直後、数の段の前に置く。
+   * 省けば今の順（数の段 → 注記 → 物差し → 理由。記録する画面・編集の画面の判定のシート）
+   */
+  readonly rulerFirst?: boolean;
 }
 
 /**
@@ -124,6 +129,12 @@ export function Verdict(v: VerdictProps) {
   });
   const maxLossPlan = v.summary.option?.maxLossPlan === true;
   const risky = pending ? null : breachView(j, v.summary.r, v.side);
+  // LC の物差し（#34。判定が出てから）。崩れの区間の色は判定の段（#231・C66）
+  const ruler =
+    !pending && v.summary.ruler ? (
+      <Ruler ruler={v.summary.ruler} underlying={v.summary.option !== undefined} tier={tier} />
+    ) : null;
+  const rulerFirst = v.rulerFirst === true;
   const hint =
     v.hint !== undefined && v.hint !== null
       ? v.hint
@@ -173,6 +184,8 @@ export function Verdict(v: VerdictProps) {
           {risky.counterfactual ? <p class="verdict__breach-if">{risky.counterfactual}</p> : null}
         </div>
       ) : null}
+      {/* 取引の詳細は物差しが主役（事実 → 判定の数。#231・C66） */}
+      {rulerFirst ? ruler : null}
       {n.hideRisk && v.summary.pnlYen === undefined ? null : (
         <dl class="verdict__stats">
           {n.hideRisk ? null : (
@@ -267,10 +280,8 @@ export function Verdict(v: VerdictProps) {
           {t}
         </p>
       ))}
-      {/* LC の物差し（#34。数の後・理由の前に 1 段。判定が出てから） */}
-      {!pending && v.summary.ruler ? (
-        <Ruler ruler={v.summary.ruler} underlying={v.summary.option !== undefined} />
-      ) : null}
+      {/* LC の物差し（#34。数の後・理由の前に 1 段。判定が出てから。取引の詳細は数の前） */}
+      {rulerFirst ? null : ruler}
       {n.reasons.length > 0 ? (
         <ul class="reasons" aria-label="理由">
           {n.reasons.map((r, i) => (

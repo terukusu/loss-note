@@ -1,5 +1,7 @@
 // LC の物差し・詳細の 決済までの行動の答え・「すべての欄」の描画（Issue #34 AC-2・AC-4〜AC-8・契約 U-1・U-2）。
 // DOM のライブラリを使わず、部品の関数を呼んで要素の木に展開して見る（trade-screens-view.test.tsx と同じ道具）。値はすべて架空
+
+import { readFileSync } from 'node:fs';
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
@@ -217,9 +219,8 @@ function verdictTextWithoutRuler(s: Summary, side: 'L' | 'S'): string {
   return text(expand(<Verdict summary={rest} side={side} titleId="x" />));
 }
 
-describe('AC-2: N1〜N4 で物差しの段が無く、ほかの中身は同じ', () => {
+describe('AC-2: N2〜N4 で物差しの段が無く、ほかの中身は同じ（N1 の LC なしは #231 で価格の位置の図）', () => {
   it.each([
-    ['N1', N1],
     ['N2', N2],
     ['N3', N3],
   ] as const)('%s（詳細）', (_id, t) => {
@@ -250,11 +251,13 @@ describe('AC-2: N1〜N4 で物差しの段が無く、ほかの中身は同じ',
     expect(all([verdictOf(tree)], hasClass('ruler'))).toEqual([]);
   });
 
-  it('N1（記録する画面）: LC なしは判定が出ても物差しが無い', () => {
+  it('N1（記録する画面）: LC なしは判定が出たら価格の位置の図（R の目盛りなし。#231・C66）', () => {
     const st = stateFor(DRAFT_NO_LC, CAPITAL_1M);
     expect(st.read.preview.judgment).toBeDefined();
-    const tree = recordTree(st);
-    expect(all([verdictOf(tree)], hasClass('ruler'))).toEqual([]);
+    const v = verdictOf(recordTree(st));
+    const ruler = one([v], hasClass('ruler'));
+    expect(hasClass('ruler--price')(ruler)).toBe(true);
+    expect(all([ruler], hasClass('ruler__tick')).map(text)).toEqual(['LC なし']);
   });
 
   it('N4（記録する画面）: 未入力の欄がある間は物差しが無く、判定の枠の文字は物差しを足す前と同じ', () => {
@@ -559,8 +562,141 @@ describe('物差しの見出しと「i」（#57）', () => {
     expect(text(label)).toBe('LC の物差し');
     const b = one([head], (e) => e.type === 'button');
     expect(b.props['aria-label']).toBe('「LC の物差し」の説明');
-    // N1（物差しが出ない取引）には物差しの「i」も出ない
-    const n1 = verdictOf(detailTree(N1));
-    expect(all([n1], (e) => e.props['aria-label'] === '「LC の物差し」の説明')).toEqual([]);
+    // N3（物差しが出ない取引。買い増し）には物差しの「i」も出ない
+    const n3 = verdictOf(detailTree(N3));
+    expect(all([n3], (e) => e.props['aria-label'] === '「LC の物差し」の説明')).toEqual([]);
+  });
+});
+
+// ---- #231（設計書 C66）: 詳細の主役の物差し・図の文法・LC なしと LC の価格の無いオプションの形 ----
+
+/** オプションのポジションの共有の fixture の P3（「最大損失まで」・レッグ 2 本。値は架空） */
+function optionP3(): StoredTrade {
+  const raw = JSON.parse(
+    readFileSync(new URL('../fixtures/records/option-legs.json', import.meta.url), 'utf8'),
+  ) as {
+    items: { name: string; record: StoredTrade['record']; snapshot: StoredTrade['snapshot'] }[];
+  };
+  const p3 = raw.items.find((i) => i.name === 'P3');
+  if (!p3) throw new Error('P3');
+  return {
+    id: 'r-p3',
+    schemaVersion: 2,
+    createdAt: 1,
+    updatedAt: 1,
+    record: p3.record,
+    snapshot: p3.snapshot,
+  };
+}
+
+const segs = (tree: Node[]) =>
+  all(tree, hasClass('ruler__seg')).map((e) => {
+    const c = cls(e).split(' ');
+    const kind = c.find(
+      (x) => x.startsWith('ruler__') && x !== 'ruler__seg' && x !== 'ruler__breach',
+    );
+    return `${kind?.slice('ruler__'.length)}${c.includes('ruler__breach') ? '!' : ''}`;
+  });
+
+describe('#231 AC-1・KEEP-2: 詳細は物差しが数の段の前（記録する画面は今の順）', () => {
+  it('E2（詳細）: 物差し → 数の段 → 理由 → 札', () => {
+    const v = verdictOf(detailTree(must('E2')));
+    const ruler = childIndex(v, 'ruler');
+    expect(ruler).toBeGreaterThanOrEqual(0);
+    expect(childIndex(v, 'verdict__stats')).toBeGreaterThan(ruler);
+    expect(childIndex(v, 'reasons')).toBeGreaterThan(childIndex(v, 'verdict__stats'));
+    expect(childIndex(v, 'taps')).toBeGreaterThan(childIndex(v, 'reasons'));
+  });
+
+  it('危ない勝ち（E10）: 崩れの文の後に物差し', () => {
+    const v = verdictOf(detailTree(must('E10')));
+    expect(childIndex(v, 'ruler')).toBeGreaterThan(childIndex(v, 'verdict__breach'));
+    expect(childIndex(v, 'verdict__stats')).toBeGreaterThan(childIndex(v, 'ruler'));
+  });
+
+  it('記録する画面: 数の段 → 物差し（今のまま）', () => {
+    const v = verdictOf(recordTree(stateFor(DRAFT_E2, CAPITAL_1M)));
+    expect(childIndex(v, 'ruler')).toBeGreaterThan(childIndex(v, 'verdict__stats'));
+  });
+});
+
+describe('#231 AC-2・AC-3: 図の文法（計画の帯・実行の線・崩れの区間）と段のクラス', () => {
+  it.each([
+    // [例, 段, 区間（! = 崩れの区間）]
+    ['E1', 'plan', ['plan', 'exec']],
+    ['E2', 'break', ['plan', 'exec', 'widen!', 'over!']],
+    ['E3', 'break', ['plan', 'exec', 'widen!', 'over!']],
+    ['E6', 'plan', ['plan', 'exec', 'over!']],
+    ['E10', 'break', ['plan', 'exec', 'widen!']],
+  ] as const)('%s: 段 %s・区間 %j', (id, tier, want) => {
+    const tree = detailTree(must(id));
+    const ruler = one(tree, hasClass('ruler'));
+    expect(hasClass(`ruler--${tier}`)(ruler)).toBe(true);
+    expect(segs(tree)).toEqual(want);
+  });
+
+  it('入る前に決めていない LC は計画の帯を描かない', () => {
+    const t = stored('r-late2', { lcDecidedBeforeEntry: false, exit: exitAt(99.5) });
+    expect(segs(detailTree(t))).toEqual(['exec']);
+  });
+});
+
+describe('#231 AC-4: 広げた向きの矢印', () => {
+  it.each(['E2', 'E3', 'E10'])('%s: 矢印の先が 1 つ・左（広げた後の LC の側）', (id) => {
+    const arrows = all(detailTree(must(id)), hasClass('ruler__arrow'));
+    expect(arrows).toHaveLength(1);
+    expect(hasClass('ruler__arrow--left')(arrows[0] as El)).toBe(true);
+  });
+
+  it('E1（動かしていない）: 矢印なし', () => {
+    expect(all(detailTree(must('E1')), hasClass('ruler__arrow'))).toEqual([]);
+  });
+});
+
+describe('#231 AC-5: LC なし（N1）は価格の位置の図', () => {
+  it('「LC なし」の印・R の目盛りなし・読み上げの一覧・イン〜決済が崩れの区間・極悪の段', () => {
+    const tree = detailTree(N1);
+    const ruler = one(tree, hasClass('ruler'));
+    expect(hasClass('ruler--worst')(ruler)).toBe(true);
+    expect(all([ruler], hasClass('ruler__tick')).map(text)).toEqual(['LC なし']);
+    expect(all(rulerList(tree), (e) => e.type === 'li').map(text)).toEqual([
+      'LC なし',
+      '決済 99.2',
+      'イン 100',
+    ]);
+    expect(segs(tree)).toEqual(['free!']);
+    expect(all([ruler], hasClass('ruler__mark--none'))).toHaveLength(2); // 図と一覧の頭
+    expect(one([ruler], hasClass('ruler__plot')).props['aria-hidden']).toBe('true');
+  });
+});
+
+describe('#231 AC-6: 「最大損失まで」のオプションのポジションは −1R に「最大損失」', () => {
+  it('P3: 一覧に「最大損失（−1.0R）」（価格なし）・題は原資産・目盛りは −1R 0 +1R', () => {
+    const t = optionP3();
+    const s = summarize(t);
+    expect(s.option?.maxLossPlan).toBe(true);
+    const tree = detailTree(t);
+    const list = one(
+      tree,
+      (e) => e.type === 'ul' && e.props['aria-label'] === 'LC の物差し（原資産）',
+    );
+    const items = all([list], (e) => e.type === 'li').map(text);
+    expect(items[0]).toBe('最大損失（−1.0R）');
+    expect(items).toContain('イン 38,500');
+    expect(items.some((i) => i.startsWith('決済 39,300（+0.8R）'))).toBe(true);
+    const ruler = one(tree, hasClass('ruler'));
+    expect(all([ruler], hasClass('ruler__tick')).map(text)).toEqual(['−1R', '0', '+1R']);
+    expect(segs(tree)).toEqual(['plan', 'exec']);
+  });
+
+  it('R の出ないオプションのポジション（P3 から「最大損失まで」を外した LC なし）は図を出さない（ルール 6）', () => {
+    const p3 = optionP3();
+    const { riskPlan: _r, ...record } = p3.record;
+    const t: StoredTrade = { ...p3, record };
+    const s = summarize(t);
+    expect(s.r).toBeUndefined();
+    expect(s.noLc).toBe(true);
+    expect(s.ruler).toBeUndefined();
+    expect(all(detailTree(t), hasClass('ruler'))).toEqual([]);
   });
 });

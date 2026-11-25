@@ -1,6 +1,6 @@
 // 取引の詳細（Issue #9 契約 U-2。設計書 7.5・9.2、ADR-0006 決定 4。#131 で 1 画面の形に作り直した）:
 // - 取引のタブの次の画面。上の帯に「‹ 前の画面」・題（銘柄 · L / S）・［編集］・「…」（操作のシート: 今の値と比べる・削除）
-// - 1 画面目に判定のカード（バッジ・R・リスク・損益・LC の物差し・理由・3 つのタップの答えの札）とチャート 2 枚を横に並べる
+// - 1 画面目に判定のカード（バッジ・LC の物差し〔主役。崩れの文の後・数の前。#231・C66〕・R・リスク・損益・理由・3 つのタップの答えの札）とチャート 2 枚を横に並べる
 //   （押すと全画面で見る層）。追加のチャート（#89）は 2 枚の下に同じ形で並べる
 // - 「すべての欄」「総評」は次の画面（押せる行。その場で開かない）
 // - 比較のシートは見るだけ。［編集で今の値にする］ で編集を「今の値」を選んだ状態で開く（写し直すのは編集の保存のとき。#31 の P4）
@@ -402,6 +402,7 @@ function DetailBody(p: TradeDetailViewProps) {
         summary={state.summary}
         side={t.record.side}
         titleId="detail-verdict-title"
+        rulerFirst
         {...(accountLine === undefined ? {} : { account: accountLine })}
         taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
       />

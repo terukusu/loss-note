@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   expectPollAsync,
   opts,
+  ROOT,
   settle,
   setupContext,
   THEMES,
@@ -27,7 +29,7 @@ import {
 
 /**
  * 画面の検査の単位「取引の詳細」: 詳細（物差し・口座 2 つ・外貨建て・心理・Good / More・チャート 7 枚）と、
- * 置き換え RP1・詳細と編集の「i」DI1・T-D1〜T-D3・H58・D131
+ * 置き換え RP1・詳細と編集の「i」DI1・T-D1〜T-D3・H58・D131・物差しを主役に R231
  */
 export const id = 'detail';
 export const title = '取引の詳細';
@@ -45,7 +47,7 @@ export async function zoom(vp) {
   await zoomPagesGroup(vp, id);
 }
 
-/** 手順（RP1・DI1・T-D1・H58・T-D2・T-D3・D131） */
+/** 手順（RP1・DI1・T-D1・H58・T-D2・T-D3・D131・R231） */
 export async function flows(kit) {
   const {
     base,
@@ -367,18 +369,18 @@ export async function flows(kit) {
         'true',
         '物差しの図の aria-hidden',
       );
-      // 判定の枠の中で、数の段の後・理由の前
-      const order = await p
-        .locator('.verdict')
-        .evaluate((v) =>
-          [...v.children]
-            .map((e) => e.className)
-            .filter((c) => /verdict__stats|^ruler$|^reasons$|^taps$/.test(c)),
-        );
-      expectEq(order.join(' '), 'verdict__stats ruler reasons taps', '判定の枠の中の順');
+      // 判定の枠の中で、詳細は物差しが数の段の前（主役。#231・C66）・理由の前
+      const order = await p.locator('.verdict').evaluate((v) =>
+        [...v.children]
+          // 物差しは段のクラスを持つ（ruler ruler--break ruler--r。#231）ので先頭の名前で見る
+          .map((e) => (e.className.startsWith('ruler ') ? 'ruler' : e.className))
+          .filter((c) => /verdict__stats|^ruler$|^reasons$|^taps$/.test(c)),
+      );
+      expectEq(order.join(' '), 'ruler verdict__stats reasons taps', '判定の枠の中の順');
       // 広げた後の LC〜決めた LC の破線の太線と、越えた区間の実線の太線。目盛りは −1R・0・+1R
       expectEq(await p.locator('.verdict .ruler__widen').count(), 1, '広げた区間');
       expectEq(await p.locator('.verdict .ruler__over').count(), 1, '越えた区間');
+      expectEq(await p.locator('.verdict .ruler__arrow').count(), 1, '広げた向きの矢印');
       expectEq(
         (await p.locator('.verdict .ruler__tick').allTextContents()).join(' '),
         '−1R 0 +1R',
@@ -433,7 +435,7 @@ export async function flows(kit) {
       await p.goBack();
       await waitDetail(p);
       expectEq(errors.length, 0, 'ページのエラー');
-      return `物差しの一覧 5 行・図は読み上げから外す・数の段 → 物差し → 理由 → 札、広げた区間・越えた区間・目盛り、札の外れは 2 つ、「すべての欄」は次の画面（物差しの段の高さ ${Math.round(rulerH)}px @360）`;
+      return `物差しの一覧 5 行・図は読み上げから外す・物差し → 数の段 → 理由 → 札、広げた区間・越えた区間・目盛り、札の外れは 2 つ、「すべての欄」は次の画面（物差しの段の高さ ${Math.round(rulerH)}px @360）`;
     } finally {
       await c.close();
     }
@@ -567,5 +569,165 @@ export async function flows(kit) {
       }
     }
     return `詳細の 1 画面目に判定とチャート 2 枠・R 40px・リスク / 損益 20px・R / リスク / 損益が 1 行・折りたたみ 0、操作・比較のシートが窓の中（${out.join(' / ')}）`;
+  });
+
+  // #231（設計書 C66）: 物差しを主役に。崩れの区間（広げた・越えた・LC なしのイン〜決済）と矢印だけが判定の段（崩れ・極悪）の
+  // 塗りの色、計画どおりの段（決めた LC の A・窓・滑りの A）は段の色を使わない（AC-2・AC-3。ダーク・ライト）。LC なしは価格の
+  // 位置の図（AC-5）、「最大損失まで」のオプションは −1R に「最大損失」（AC-6）。幅 360 で横 0（AC-8）。値はすべて架空
+  await check('R231', async () => {
+    const out = [];
+    const fx = JSON.parse(
+      readFileSync(join(ROOT, 'tests/fixtures/records/option-legs.json'), 'utf8'),
+    ).items.find((x) => x.name === 'P3');
+    for (const theme of THEMES) {
+      const { c, p, fake, errors } = await recordContext();
+      try {
+        await setupContext(c, theme);
+        const inst = {
+          id: 'inst-xyzopt3',
+          ...fx.instrument,
+          createdAt: 1700000000000,
+          updatedAt: 1700000000000,
+        };
+        delete inst.underlying;
+        fake.instruments.push(inst);
+        fake.trades.push(
+          exampleTrade('x-r231-a', 1700000000041),
+          exampleTrade('x-r231-gap', 1700000000042, {
+            exit: {
+              time: 1700000000000,
+              price: 99.2,
+              orderType: 'unknown',
+              reason: 'gapSlip',
+              gapSlip: 'yes',
+            },
+            statementPnlYen: -8000,
+          }),
+          exampleTrade('x-r231-nolc', 1700000000043, {
+            lc: undefined,
+            lcDecidedBeforeEntry: false,
+            exit: {
+              time: 1700000000000,
+              price: 98.75,
+              orderType: 'unknown',
+              reason: 'other',
+              gapSlip: 'unanswered',
+            },
+            statementPnlYen: -12500,
+          }),
+          {
+            id: 'x-r231-opt',
+            schemaVersion: 2,
+            createdAt: 1700000000044,
+            updatedAt: 1700000000044,
+            record: { ...fx.record, instrumentId: inst.id },
+            snapshot: fx.snapshot,
+          },
+        );
+        await p.setViewportSize({ width: 360, height: 780 });
+        /** 物差しの線の計算後の色と、段の塗りの色（同じ要素の種類で解いた値） */
+        const colors = () =>
+          p.evaluate(() => {
+            const plot = document.querySelector('.verdict .ruler__plot');
+            const probe = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+            plot?.appendChild(probe);
+            const tiers = {};
+            // 色のある段だけ（中立の段の線の色は無彩色のトークンと同じ値になりうる）
+            for (const t of ['plan', 'break', 'worst']) {
+              for (const r of ['solid', 'ink', 'line']) {
+                probe.style.stroke = `var(--tier-${t}-${r})`;
+                tiers[`${t}-${r}`] = getComputedStyle(probe).stroke;
+              }
+            }
+            probe.remove();
+            const strokes = [
+              ...document.querySelectorAll('.verdict .ruler__seg, .verdict .ruler__arrow'),
+            ].map((e) => [e.getAttribute('class'), getComputedStyle(e).stroke]);
+            return {
+              tiers,
+              strokes,
+              overflow: Math.max(document.documentElement.scrollWidth - window.innerWidth, 0),
+            };
+          });
+        const tierOf = (m, stroke) =>
+          Object.entries(m.tiers)
+            .filter(([, v]) => v === stroke)
+            .map(([k]) => k);
+        const shot = async (slug) => {
+          if (!opts.shots) return;
+          await p.mouse.move(0, 0);
+          await p.screenshot({ path: join(opts.shots, `360x780-${theme}-${slug}.png`) });
+        };
+        // AC-2: x-d1（B・広げて越えた）と x-r1（危ない勝ち・広げた）の崩れの区間と矢印は崩れの段の塗り
+        for (const [tid, h1, want] of [
+          ['x-d1', 'US30 · L', ['widen', 'over', 'arrow']],
+          ['x-r1', 'US30 · L', ['widen', 'arrow']],
+          ['x-r3', 'US30 · S', ['widen', 'over', 'arrow']],
+        ]) {
+          await p.goto(`${base}/trades/${tid}`);
+          await waitReady(p, h1);
+          await p.locator('.verdict .ruler__plot').waitFor();
+          const m = await colors();
+          const breach = m.strokes.filter(([k]) => /ruler__breach|ruler__arrow/.test(k ?? ''));
+          const kinds = breach.map(([k]) => (k ?? '').match(/ruler__(widen|over|arrow)/)?.[1]);
+          expectEq(kinds.join(' '), want.join(' '), `${theme} ${tid} の崩れの区間`);
+          for (const [k, stroke] of breach) {
+            if (stroke !== m.tiers['break-solid'])
+              throw new Error(
+                `${theme} ${tid} ${k}: ${stroke}（崩れの段の塗り ${m.tiers['break-solid']}）`,
+              );
+          }
+          expectEq(m.overflow, 0, `${theme} ${tid} の横`);
+          await shot(`r231-${tid}`);
+        }
+        // AC-3: x-r231-a（決めた LC の A）と x-r231-gap（窓・滑りの A・越えた）は、どの線にも段の色を使わない
+        for (const tid of ['x-r231-a', 'x-r231-gap']) {
+          await p.goto(`${base}/trades/${tid}`);
+          await waitReady(p, 'US30 · L');
+          await p.locator('.verdict .ruler__plot').waitFor();
+          const m = await colors();
+          const tinted = m.strokes.filter(([, s]) => tierOf(m, s).length > 0);
+          expectEq(tinted.length, 0, `${theme} ${tid} の段の色の線（${JSON.stringify(tinted)}）`);
+          if (tid === 'x-r231-gap')
+            expectEq(await p.locator('.verdict .ruler__over').count(), 1, `${theme} 越えた区間`);
+        }
+        // AC-5: LC なし（C）は価格の位置の図。「LC なし」の印・R の目盛りなし・イン〜決済は極悪の段の塗り
+        await p.goto(`${base}/trades/x-r231-nolc`);
+        await waitReady(p, 'US30 · L');
+        await p.locator('.verdict .ruler__plot').waitFor();
+        expectEq(
+          (await p.locator('ul[aria-label="LC の物差し"] li').allTextContents()).join(' / '),
+          'LC なし / 決済 98.75 / イン 100',
+          `${theme} LC なしの一覧`,
+        );
+        expectEq(
+          (await p.locator('.verdict .ruler__tick').allTextContents()).join(' '),
+          'LC なし',
+          `${theme} LC なしの目盛り`,
+        );
+        const n = await colors();
+        const free = n.strokes.filter(([k]) => /ruler__free/.test(k ?? ''));
+        expectEq(free.length, 1, `${theme} LC なしのイン〜決済`);
+        expectEq(free[0]?.[1], n.tiers['worst-solid'], `${theme} LC なしの区間の色`);
+        expectEq(n.overflow, 0, `${theme} LC なしの横`);
+        await shot('r231-nolc');
+        // AC-6: 「最大損失まで」のオプションのポジション
+        await p.goto(`${base}/trades/x-r231-opt`);
+        await waitDetail(p);
+        await p.locator('.verdict .ruler__plot').waitFor();
+        const items = await p
+          .locator('ul[aria-label="LC の物差し（原資産）"] li')
+          .allTextContents();
+        expectEq(items[0], '最大損失（−1.0R）', `${theme} 最大損失の行`);
+        const o = await colors();
+        expectEq(o.overflow, 0, `${theme} オプションの横`);
+        await shot('r231-opt');
+        expectEq(errors.length, 0, 'ページのエラー');
+        out.push(`${theme} 崩れの段 ${n.tiers['break-solid']}`);
+      } finally {
+        await c.close();
+      }
+    }
+    return `崩れの区間と矢印は崩れの段の塗り（x-d1・x-r1・x-r3）・A と窓・滑りの A は段の色なし・LC なしは「LC なし」の印と極悪の段の塗り・「最大損失（−1.0R）」・幅 360 で横 0（${out.join(' / ')}）`;
   });
 }

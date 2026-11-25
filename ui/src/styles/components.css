@@ -1472,8 +1472,11 @@
   background: var(--ink-3);
 }
 
-/* LC の物差し（#34）。判定の枠の中の 1 段。面の色・四辺の線を持たない（入れ子は判定の枠 → 部品の 2 段のまま）。
-   色は文字・線のトークンだけ（判定の段の色を足さない。点の種類は形、区間は太さと線の種類で見分ける。P2・P5）。
+/* LC の物差し（#34・#231）。判定の枠の中の 1 段（取引の詳細は崩れの文の後・数の前の主役。C66）。面の色・四辺の線を持たない
+   （入れ子は判定の枠 → 部品の 2 段のまま）。図の文法は振り返りの曲線・帯とそろえる: 軌道と計画（決めた LC〜イン）は線の色の
+   無彩色の帯、実行（イン〜決済）は文字の色の線、計画の線の外の区間（広げた・越えた・LC なしのイン〜決済）は崩れの区間。
+   判定の段の色は崩れの区間と広げた向きの矢印だけで、段が崩れ・極悪のときだけ（段の塗り = solid。窓・滑りの A で越えた区間を
+   「計画どおり」の色にしない）。点の種類は形、区間は太さと線の種類でも見分ける（P2・P5）。
    幅は数の段に揃えて 560px まで（損失の取引で右半分が罫線のように伸びない） */
 .ruler {
   display: flex;
@@ -1495,23 +1498,60 @@
   overflow: visible;
 }
 
+/* 軌道（太い丸い帯） */
 .ruler__line {
+  stroke: var(--line);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+/* 計画した損失の幅（決めた LC〜イン。入る前に決めた LC だけ）: 軌道より 1 段濃い無彩色の帯 */
+.ruler__plan {
   stroke: var(--line-2);
+  stroke-width: 10;
+}
+
+/* 実行（イン〜決済）: 文字の色の細い線 */
+.ruler__exec {
+  stroke: var(--ink-2);
   stroke-width: 2;
 }
 
-/* 決めた LC〜広げた後の LC（LC を広げた分。破線の太線） */
-.ruler__widen {
-  stroke: var(--ink-2);
-  stroke-width: 4;
-  stroke-dasharray: 3 3;
+/* 崩れの区間（計画の線の外）。段が計画どおり・中立のときは文字の色 */
+.ruler__breach {
+  stroke: var(--ink);
+  stroke-width: 6;
 }
 
-/* 決済が決めた LC を越えた区間（実線の太線。広げた区間の上に重ねる） */
-.ruler__over {
-  stroke: var(--ink);
-  stroke-width: 5;
+/* 決めた LC〜広げた後の LC（LC を広げた分。破線） */
+.ruler__widen {
+  stroke-dasharray: 4 3;
+}
+
+/* 決済が決めた LC を越えた区間（実線。広げた区間の上に重ねる）・LC なしのイン〜決済 */
+.ruler__over,
+.ruler__free {
   stroke-linecap: round;
+}
+
+/* 広げた向きの矢印の先（決めた LC → 広げた後の LC） */
+.ruler__arrow {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* 判定の段が崩れ・極悪のときだけ、崩れの区間と矢印を段の塗りの色に（C61 の solid。面に 3:1 以上） */
+.ruler--break .ruler__breach,
+.ruler--break .ruler__arrow {
+  stroke: var(--tier-break-solid);
+}
+
+.ruler--worst .ruler__breach,
+.ruler--worst .ruler__arrow {
+  stroke: var(--tier-worst-solid);
 }
 
 .ruler__mark {

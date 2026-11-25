@@ -42,7 +42,7 @@ import {
   DEFAULT_CURRENCY,
   toTradeInput,
 } from '../../../core/record';
-import { type Ruler, rulerOf } from '../../../core/ruler';
+import { type NoLcRuler, noLcRulerOf, type Ruler, rulerOf } from '../../../core/ruler';
 import { reviewSizing } from '../../../core/sizing';
 import type {
   ExitOrderType,
@@ -259,8 +259,10 @@ export interface Summary {
   readonly riskNote?: string;
   /** 保存した記録から計算できない（検査を通らない形。取り込みなど）。R・リスクの場所に RISK_NOTE.invalid を出す */
   readonly invalid?: true;
-  /** LC の物差し（#34。判定の枠の数の後に出す。LC なし・買い増し・計算できないときは無し） */
-  readonly ruler?: Ruler;
+  /**
+   * LC の物差し（#34。判定の枠に出す）。LC なしの取引は価格の位置の図（#231・C66）。買い増し・決済なし・計算できないときは無し
+   */
+  readonly ruler?: Ruler | NoLcRuler;
   /**
    * 数量の比（1R ÷ 許容額）と提案の数量（#67。取引に写した資金・許容リスクで。判定には使わない）。1R・資金・取引の LC
    * が無ければ無し。quantity = 実際の数量（エントリーの数量の合計）。提案の数量はエントリーが 1 つのときだけ
@@ -525,7 +527,9 @@ export function summarize(stored: Pick<StoredTrade, 'record' | 'snapshot'>): Sum
           : fxApplies
             ? RISK_NOTE.noOneRFx
             : RISK_NOTE.noOneR;
-  const ruler = rulerOf(input, stored.record.tp);
+  // LC なし（R が出ない）の取引は価格の位置の図（#231・C66）
+  const ruler =
+    rulerOf(input, stored.record.tp) ?? (noLc ? noLcRulerOf(input, stored.record.tp) : undefined);
   // 取引の LC が無い（エントリーごとの LC だけ）取引は、判定の枠（LC なし）と「すべての欄」を揃えて出さない（#67 R1）。
   // オプションのポジションは数量の比・提案の数量を出さない（枚数の組を 1 つの数に縮められない。5.7 の 4。比は後で）
   const sz = noLc || option !== undefined ? undefined : reviewSizing(input);

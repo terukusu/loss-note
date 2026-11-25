@@ -2,9 +2,11 @@
 // 位置 = (R − 下端) ÷ (上端 − 下端)、R = s ×（価格 − イン）÷ |イン − LC|（設計書 5.1・C30）
 import { describe, expect, it } from 'vitest';
 import { TOL } from '../../core/numeric';
+import { optionOneR } from '../../core/option';
 import { rMultiple } from '../../core/pnl';
-import { type Ruler, type RulerPointKind, rulerOf } from '../../core/ruler';
+import { noLcRulerOf, type Ruler, type RulerPointKind, rulerOf } from '../../core/ruler';
 import type { LcMove, TradeInput } from '../../core/trade';
+import { leg, position } from './helpers/option-builder';
 import { forAll, type Rng } from './helpers/prng';
 import { closedAt, trade, without } from './helpers/trade-builder';
 
@@ -410,6 +412,7 @@ describe('rulerOf の性質', () => {
         const pts = rulerOf(t, tp)?.points ?? [];
         for (const a of pts) {
           for (const b of pts) {
+            if (a.price === undefined || b.price === undefined) continue;
             if (s * a.price < s * b.price && b.r - a.r > TOL) {
               expect(a.pos).toBeLessThanOrEqual(b.pos);
             }
@@ -442,5 +445,214 @@ describe('rulerOf の性質', () => {
 
   it('広げた後の LC の値が有限でなければ物差しを出さない', () => {
     expect(rulerOf(closedAt(trade({ lcMove: widened(Number.NaN) }), 99.2))).toBeUndefined();
+  });
+});
+
+// ---- #231（設計書 C66）: LC なしの価格の位置の図・LC の価格の無いオプションの −1R ----
+// 位置 = (u + 1.25) ÷ 2.5、u = s ×（価格 − イン）÷ D、D = max(|決済 − イン|, 利の側の TP までの幅)
+
+const noLc = (over: Partial<TradeInput> = {}) =>
+  without(trade({ lcDecidedBeforeEntry: false, ...over }), 'lc');
+
+describe('noLcRulerOf（LC なしの図）の手計算の例', () => {
+  it('L・イン 100・決済 98.75（D = 1.25）: LC なし 0・決済 (−1 + 1.25)/2.5 = 0.1・イン 0.5', () => {
+    const r = noLcRulerOf(closedAt(noLc(), 98.75));
+    expect(r?.basis).toBe('price');
+    expect(r?.points.map((p) => [p.kind, p.price, Number(p.pos.toFixed(4))])).toEqual([
+      ['noLc', undefined, 0],
+      ['exit', 98.75, 0.1],
+      ['entry', 100, 0.5],
+    ]);
+  });
+
+  it('L・決済 101・TP 102（D = 2）: 決済 (0.5 + 1.25)/2.5 = 0.7・TP (1 + 1.25)/2.5 = 0.9', () => {
+    const r = noLcRulerOf(closedAt(noLc(), 101), 102);
+    expect(r?.points.map((p) => [p.kind, Number(p.pos.toFixed(4))])).toEqual([
+      ['noLc', 0],
+      ['entry', 0.5],
+      ['exit', 0.7],
+      ['tp', 0.9],
+    ]);
+  });
+
+  it('S・イン 150・決済 151（損）: 左 = 損の側で L と同じ位置（決済 0.1）', () => {
+    const t = closedAt(noLc({ side: 'S', entries: [{ price: 150, quantity: 10_000 }] }), 151);
+    expect(noLcRulerOf(t)?.points.find((p) => p.kind === 'exit')?.pos).toBeCloseTo(0.1, 9);
+  });
+
+  it('損の側の TP・決済 = イン（D = 0 → 1）', () => {
+    const r = noLcRulerOf(closedAt(noLc(), 100), 99);
+    expect(r?.points.map((p) => p.kind)).toEqual(['noLc', 'entry', 'exit']);
+    expect(r?.points.every((p) => p.kind === 'noLc' || p.pos === 0.5)).toBe(true);
+  });
+
+  it('LC がある・決済が無い・エントリーが 2 つなら無し', () => {
+    expect(noLcRulerOf(closedAt(trade(), 99))).toBeUndefined();
+    expect(noLcRulerOf(noLc())).toBeUndefined();
+    const two = noLc({
+      entries: [
+        { price: 100, quantity: 1 },
+        { price: 99, quantity: 1 },
+      ],
+    });
+    expect(noLcRulerOf(closedAt(two, 98))).toBeUndefined();
+  });
+});
+
+describe('noLcRulerOf の性質', () => {
+  interface G {
+    readonly side: 'L' | 'S';
+    readonly entry: number;
+    readonly exit: number;
+    readonly tp?: number;
+  }
+  const g = (r: Rng): G => {
+    const entry = r.int(1, 100_000) / 100;
+    const exit = r.int(1, 100_000) / 100;
+    return {
+      side: r.pick(['L', 'S'] as const),
+      entry,
+      exit,
+      ...(r.bool() ? { tp: r.int(1, 100_000) / 100 } : {}),
+    };
+  };
+  const build = (x: G) =>
+    noLcRulerOf(
+      closedAt(noLc({ side: x.side, entries: [{ price: x.entry, quantity: 1 }] }), x.exit),
+      x.tp,
+    );
+
+  it('位置は 0〜1・NaN なし・イン は真ん中・LC なしは左端・損の側の決済はイン より左', () => {
+    forAll(2311, 1000, g, (x) => {
+      const r = build(x);
+      expect(r).toBeDefined();
+      const pts = r?.points ?? [];
+      for (const p of pts) {
+        expect(Number.isFinite(p.pos)).toBe(true);
+        expect(p.pos).toBeGreaterThanOrEqual(0);
+        expect(p.pos).toBeLessThanOrEqual(1);
+      }
+      expect(pts[0]?.kind).toBe('noLc');
+      expect(pts.find((p) => p.kind === 'entry')?.pos).toBe(0.5);
+      const s = x.side === 'L' ? 1 : -1;
+      const exit = pts.find((p) => p.kind === 'exit')?.pos ?? NaN;
+      if (s * (x.exit - x.entry) < -TOL) expect(exit).toBeLessThan(0.5);
+      if (s * (x.exit - x.entry) > TOL) expect(exit).toBeGreaterThan(0.5);
+      // 並びは位置の小さい順
+      for (let i = 1; i < pts.length; i++)
+        expect((pts[i]?.pos ?? 0) + TOL).toBeGreaterThanOrEqual(pts[i - 1]?.pos ?? 0);
+    });
+  });
+
+  it('L と S の対称: S の価格をイン について折り返すと同じ位置', () => {
+    forAll(2312, 500, g, (x) => {
+      const l = build({ ...x, side: 'L' });
+      const mirror = (p: number) => 2 * x.entry - p;
+      const sr = build({
+        side: 'S',
+        entry: x.entry,
+        exit: mirror(x.exit),
+        ...(x.tp === undefined ? {} : { tp: mirror(x.tp) }),
+      });
+      expect(sr?.points.map((p) => [p.kind, p.pos.toFixed(9)])).toEqual(
+        l?.points.map((p) => [p.kind, p.pos.toFixed(9)]),
+      );
+    });
+  });
+});
+
+describe('LC の価格の無いオプションのポジション（rulerOf の bound）', () => {
+  it('オプションでない LC なしは無し（R の軸の図は出さない）', () => {
+    expect(rulerOf(closedAt(noLc(), 99))).toBeUndefined();
+  });
+
+  // 例 E7 の形（設計書 5.7 の O8 と同じ）: S・建てたときの原資産 38,200・決済したときの原資産 38,600・「最大損失まで」。
+  // P 38,000 買い 400 → 250（−150,000 円）・P 37,000 売り 150 → 130（+20,000 円）= −130,000 円。
+  // 最大損失 (400 − 150) × 1,000 = 250,000 円 → R = −130,000 ÷ 250,000 = −0.52。範囲 −1〜+1 → 位置 (−0.52 + 1) ÷ 2 = 0.24
+  const maxLossS = (sellExit = 130) =>
+    without(
+      position(
+        [leg('P', 38_000, 'buy', 1, 400, 250), leg('P', 37_000, 'sell', 1, 150, sellExit)],
+        38_600,
+        { side: 'S', entries: [{ price: 38_200, quantity: 1 }], riskPlan: 'maxLoss' },
+      ),
+      'lc',
+    );
+
+  it('「最大損失まで」の損（S）: −1R に価格なしの上限・イン 0.5・決済 0.24・入る前に決めた計画', () => {
+    const r = rulerOf(maxLossS());
+    expect(r?.bound).toBe('maxLoss');
+    expect(r?.lcDecidedBeforeEntry).toBe(true);
+    expect(r?.lo).toBe(-1);
+    expect(r?.hi).toBe(1);
+    expect(r?.overshootR).toBeUndefined();
+    expect(
+      r?.points.map((p) => [p.kind, p.price, Number(p.r.toFixed(4)), Number(p.pos.toFixed(4))]),
+    ).toEqual([
+      ['plannedLc', undefined, -1, 0],
+      ['exit', 38_600, -0.52, 0.24],
+      ['entry', 38_200, 0, 0.5],
+    ]);
+    expect(r?.points.find((p) => p.kind === 'exit')?.r).toBeCloseTo(
+      rMultiple(maxLossS()) ?? NaN,
+      12,
+    );
+  });
+
+  // 見込み（LC での損失の見込み）だけ・LC なし: L・売りのプット 150 → 360（−210,000 円）、見込み 200,000 円 → R = −1.05。
+  // 範囲 −1.05〜+1（幅 2.05）→ 上限 (−1 + 1.05) ÷ 2.05 = 0.0244・決済 0・イン 1.05 ÷ 2.05 = 0.5122。越えた幅 0.05R
+  it('見込みだけ（LC なし）: 名前の鍵は lossPlan・決めていない側の線・越えた幅', () => {
+    const t = without(
+      position([leg('P', 37_000, 'sell', 1, 150, 360)], 37_100, {
+        lcLossPlanYen: 200_000,
+        lcDecidedBeforeEntry: false,
+      }),
+      'lc',
+    );
+    const r = rulerOf(t);
+    expect(r?.bound).toBe('lossPlan');
+    expect(r?.lcDecidedBeforeEntry).toBe(false);
+    expect(r?.overshootR).toBeCloseTo(0.05, 9);
+    expect(r?.points.map((p) => [p.kind, Number(p.pos.toFixed(4))])).toEqual([
+      ['exit', 0],
+      ['plannedLc', 0.0244],
+      ['entry', 0.5122],
+    ]);
+  });
+
+  it('LC の価格があるオプションは前と同じ LC の図（上限の印なし。1R が実際の動き・満期の損益から出る場面も）', () => {
+    // 売りのプット 150 → 360、決済したときの原資産 37,100（LC 37,500 を越えた）→ 1R は実際の動きから
+    const moved = position([leg('P', 37_000, 'sell', 1, 150, 360)], 37_100);
+    expect(optionOneR(moved)?.source).toBe('actualMove');
+    const r1 = rulerOf(moved);
+    expect(r1?.bound).toBeUndefined();
+    expect(r1?.points.find((p) => p.kind === 'plannedLc')?.price).toBe(37_500);
+    // 買いのコールのスプレッド（設計書 5.7 の O5 の形）: 1R は原資産 = LC の満期の損益から
+    const expiry = position(
+      [leg('C', 39_000, 'buy', 1, 200, 170), leg('C', 40_000, 'sell', 1, 50, 50)],
+      38_900,
+    );
+    expect(optionOneR(expiry)?.source).toBe('expiry');
+    expect(rulerOf(expiry)?.bound).toBeUndefined();
+  });
+
+  it('LC の価格も見込みも無く「最大損失まで」でもない・最大損失が定まらない・R が出ないオプションは図なし（R の軸も価格の位置も）', () => {
+    const none = without(position([leg('P', 37_000, 'sell', 1, 150, 360)], 37_100), 'lc');
+    expect(rulerOf(none)).toBeUndefined();
+    expect(noLcRulerOf(none)).toBeUndefined();
+    // 売りの裸を「最大損失まで」: 最大損失が定まらない → 1R なし
+    const naked = without(
+      position([leg('P', 37_000, 'sell', 1, 150, 360)], 37_100, { riskPlan: 'maxLoss' }),
+      'lc',
+    );
+    expect(rulerOf(naked)).toBeUndefined();
+    expect(noLcRulerOf(naked)).toBeUndefined();
+    // 「最大損失まで」でも為替が出ない（外貨建て・為替なし）→ R なし → 図なし
+    const noFx = {
+      ...maxLossS(),
+      instrument: { multiplier: 100, quantityStep: 1, priceInAccountCurrency: false },
+    };
+    expect(rMultiple(noFx)).toBeUndefined();
+    expect(rulerOf(noFx)).toBeUndefined();
   });
 });

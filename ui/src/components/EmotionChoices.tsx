@@ -16,12 +16,14 @@ import {
 } from '../lib/emotion-choices-controller';
 import {
   EMOTION_CHOICES_CALM_NOTE,
+  EMOTION_CHOICES_INFO,
   EMOTION_CHOICES_LEAD,
   emotionChoicesCount,
   emotionGroups,
 } from '../lib/emotion-tags';
 import { createRequest } from '../lib/request';
 import { Button, Chip } from './Button';
+import { InfoTip } from './InfoTip';
 import '../styles/emotions.css';
 
 export interface EmotionChoicesHandle {
@@ -90,7 +92,14 @@ export function EmotionChoicesView(p: EmotionChoicesHandle) {
   const hidden = new Set(s.hidden);
   return (
     <div class="emotions emotionchoices">
-      <p class="setlead">{EMOTION_CHOICES_LEAD}</p>
+      <p class="setlead">
+        {EMOTION_CHOICES_LEAD}
+        <InfoTip
+          label={EMOTION_CHOICES_INFO.label}
+          body={EMOTION_CHOICES_INFO.body}
+          id={EMOTION_CHOICES_INFO.id}
+        />
+      </p>
       <section class="card emotionchoices__card" aria-labelledby="settings-emotion-count">
         <p class="emotionchoices__count" id="settings-emotion-count">
           {emotionChoicesCount(s.hidden)}

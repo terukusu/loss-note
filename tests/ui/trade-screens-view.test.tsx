@@ -116,6 +116,12 @@ function rowsOf(tree: Node[]) {
   }));
 }
 
+/** 「なぜ」のカードの「i」のボタンの名前（題の横。#254） */
+const whyTips = (why: El) =>
+  all([why], (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
+    String(e.props['aria-label']),
+  );
+
 /** 「—」の理由の「i」（題の行。#132）の出どころ。無ければ undefined */
 function missingTip(v: unknown): Record<string, unknown> | undefined {
   tipSources.length = 0;
@@ -408,8 +414,9 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     const names = all(detailTree(D1), (e) => e.type === 'button' && hasClass('info')(e)).map((e) =>
       String(e.props['aria-label']),
     );
+    // D1 は崩れで心理も Good / More も無いので、「なぜ」のカードの題の横にも「i」（#254）
     expect([...names].sort()).toEqual(
-      ['「判定」の説明', '「R」の説明', '「LC の物差し」の説明'].sort(),
+      ['「判定」の説明', '「R」の説明', '「LC の物差し」の説明', '「なぜ崩れたか」の説明'].sort(),
     );
   });
 
@@ -609,10 +616,10 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
         'More',
       ]);
       expect(all([why], hasClass('rowlink')).map(text)).toEqual(['＋ 心理を付ける']);
-      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+      expect(whyTips(why)).toEqual([]);
     });
 
-    it('AC-4（W4）: 何も残していない C だけ題の下に案内の 1 行と「＋」の行 2 つ。W1・W7 には出ない', () => {
+    it('AC-4（W4）: 何も残していない C だけ題の横に案内の「i」と「＋」の行 2 つ。W1・W7 には出ない', () => {
       const W4 = stored('w4', {
         lc: undefined,
         lcDecidedBeforeEntry: false,
@@ -623,18 +630,23 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
       const why = whyOf(tree);
       expect(all(tree, hasClass('badge--worst')).length).toBeGreaterThan(0);
       expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ崩れたか');
-      expect(all([why], hasClass('dwhy__hint')).map(text)).toEqual([
+      // 案内は題の横の「i」の中（#254・C70）。題の下に文を置かない
+      expect(whyTips(why)).toEqual(['「なぜ崩れたか」の説明']);
+      tipSources.length = 0;
+      detailTree(W4);
+      expect(tipSources.find((t) => t.id === 'detail-why-info')?.body).toBe(
         '心理と More を残すと、振り返りの「何で崩れたか」に数えられます。',
-      ]);
+      );
+      expect(all([why], (e) => e.type === 'p' && text(e).includes('数えられます'))).toEqual([]);
       expect(all([why], hasClass('rowlink')).map(text)).toEqual([
         '＋ 心理を付ける',
         '＋ Good / More を書く',
       ]);
-      expect(all([whyOf(detailTree(W1))], hasClass('dwhy__hint'))).toEqual([]);
+      expect(whyTips(whyOf(detailTree(W1)))).toEqual([]);
       // W7: 計画どおりの勝ち（L2）・何も無い → 出ない
       const w7 = whyOf(detailTree(L2));
       expect(text(all([w7], (e) => e.type === 'h2')[0] as El)).toBe('なぜ守れたか');
-      expect(all([w7], hasClass('dwhy__hint'))).toEqual([]);
+      expect(whyTips(w7)).toEqual([]);
     });
 
     it('AC-4・AC-5（W5）: 取り込んだ C は案内を出さず、総評の行に先頭の 1 行を添える。押すと総評の画面', () => {
@@ -650,7 +662,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
       // AC-2: 取り込みで LC なしの負けは C（極悪）で、題は「なぜ崩れたか」
       expect(all(tree, hasClass('badge--worst')).length).toBeGreaterThan(0);
       expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ崩れたか');
-      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+      expect(whyTips(why)).toEqual([]);
       const row = all([why], (e) => e.type === 'a' && hasClass('rowlink')(e));
       expect(row.map((a) => a.props.href)).toEqual(['/trades/w5/comment']);
       expect(text(all(row, hasClass('dwhy__name'))[0] as El)).toBe('総評');
@@ -676,7 +688,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
       expect(all([why], (e) => e.type === 'h4').map((h) => text(h).split(' — ')[0])).toEqual([
         'Good',
       ]);
-      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+      expect(whyTips(why)).toEqual([]);
     });
 
     it('AC-2（W6）: 判定なしは題「心理と振り返り」で Good、案内なし', () => {
@@ -695,7 +707,7 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
       expect(all([why], (e) => e.type === 'h4').map((h) => text(h).split(' — ')[0])).toEqual([
         'Good',
       ]);
-      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+      expect(whyTips(why)).toEqual([]);
     });
 
     it('AC-5（W8・W1）: 添えは空の行を飛ばした最初の行。総評が無ければ総評の行を出さない', () => {

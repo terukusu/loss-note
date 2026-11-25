@@ -6,7 +6,13 @@
 // 届いたのに棒が 100% に満たない（次の 1 回分に足りない）ときは、使えない残りを点線の枠で示す
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { api, signOutActive } from '../auth/session';
-import { USAGE_INTRO, USAGE_TITLE, type UsageMeter, type UsageRow } from '../lib/ai-usage';
+import {
+  USAGE_INFO,
+  USAGE_INTRO,
+  USAGE_TITLE,
+  type UsageMeter,
+  type UsageRow,
+} from '../lib/ai-usage';
 import {
   type AiUsageController,
   type AiUsageState,
@@ -15,6 +21,7 @@ import {
 import '../styles/ai-usage.css';
 import { Button } from './Button';
 import { Icon } from './Icon';
+import { InfoTip } from './InfoTip';
 
 export interface AiUsageViewProps {
   readonly state: AiUsageState;
@@ -68,7 +75,10 @@ export function AiUsageView({ state, onReload, onRelogin, titled }: AiUsageViewP
           {USAGE_TITLE}
         </h2>
       ) : null}
-      <p class="section__note">{USAGE_INTRO}</p>
+      <p class="section__note">
+        {USAGE_INTRO}
+        <InfoTip label={USAGE_INFO.label} body={USAGE_INFO.body} id={USAGE_INFO.id} />
+      </p>
       <UsageBody state={state} onReload={onReload} onRelogin={onRelogin} />
     </section>
   );

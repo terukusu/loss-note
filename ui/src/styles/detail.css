@@ -342,12 +342,6 @@
   font-weight: var(--fw-bold);
 }
 
-.dwhy__hint {
-  margin: 0;
-  color: var(--ink-2);
-  font-size: var(--fs-sm);
-}
-
 .dwhy__part + .dwhy__part {
   padding-top: var(--sp-3);
   border-top: 1px solid var(--line);

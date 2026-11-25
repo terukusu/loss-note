@@ -101,8 +101,13 @@ export function emotionChoicesMeta(hidden: readonly EmotionTagId[] | null): stri
 
 /** 設定の画面「心理のタグ」の文字 */
 export const EMOTION_CHOICES_TITLE = '心理のタグ';
-export const EMOTION_CHOICES_LEAD =
-  '記録の後に心理を選ぶとき、選択肢に出すタグを押して選びます（押すと保存）。付けた記録と集計は変わりません。';
+export const EMOTION_CHOICES_LEAD = '選択肢に出すタグを押して選びます（押すと保存）';
+/** 何の選択肢か・出さなくしても記録は変わらないことは「i」の中（C70・#254） */
+export const EMOTION_CHOICES_INFO = {
+  label: '心理のタグ',
+  body: '記録の後に心理を選ぶときの選択肢です。出さないにしても、付けた記録と集計は変わりません。',
+  id: 'settings-emotions-info',
+} as const;
 export const EMOTION_CHOICES_CALM_NOTE = '常に出します';
 /** 出している数の 1 行 */
 export function emotionChoicesCount(hidden: readonly EmotionTagId[]): string {
@@ -128,7 +133,7 @@ export function emotionSheetTitle(count: number): string {
 /** シートの中の見出し（判定の下・チップの上） */
 export const EMOTION_HEADING = 'このときの心理';
 /** シートの中の案内（押した時点で保存されることを言う） */
-export const EMOTION_HINT = '当てはまるものを押してください（押すと保存）';
+export const EMOTION_HINT = '押すと保存します';
 /** 保存の後の短い形の案内（#230。平常心の見出しの塊を出さないので、押すとほかが外れることもここで先に言う） */
 export const EMOTION_SHORT_HINT = '押すと保存・平常心はほかと同時には付きません';
 /** 良い状態（平常心）の見出しの添え書き（R3。押すとほかが外れることを先に言う） */

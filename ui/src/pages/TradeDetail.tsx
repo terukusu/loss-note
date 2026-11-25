@@ -29,6 +29,7 @@ import { EXTRA_TITLE } from '../components/ChartPanel';
 import { useEmotionChoices } from '../components/EmotionChoices';
 import { EmotionCard, EmotionSheetBody } from '../components/Emotions';
 import { EmptyState } from '../components/EmptyState';
+import { InfoTip } from '../components/InfoTip';
 import { LegTable } from '../components/LegTable';
 import { ReflectionCard, ReflectionSheetBody } from '../components/Reflection';
 import { ResnapshotSummary } from '../components/Resnapshot';
@@ -49,6 +50,7 @@ import {
   type DetailSheet,
   detailActions,
   fieldsHref,
+  WHY_INFO_ID,
   WHY_TITLE_ID,
   whyCardModel,
 } from '../lib/detail-view';
@@ -442,8 +444,11 @@ function DetailWhy(p: TradeDetailViewProps) {
     <section class="card dwhy" aria-labelledby={WHY_TITLE_ID}>
       <h2 class="dwhy__title" id={WHY_TITLE_ID}>
         {m.title}
+        {/* 残すと何に効くかは「i」の中（崩れ・極悪で何も残していないときだけ。C70・#254） */}
+        {m.hint !== null ? (
+          <InfoTip label={m.title} body={m.hint} id={WHY_INFO_ID} size="sm" />
+        ) : null}
       </h2>
-      {m.hint !== null ? <p class="dwhy__hint">{m.hint}</p> : null}
       {/* 心理のタグ（#156。設計書 9.4: 付いているチップ〔押すと同じ心理の期間の取引。#188〕と ［変更］、無ければ「＋ 心理を付ける」。押すと同じシート） */}
       <EmotionCard
         tags={tags}

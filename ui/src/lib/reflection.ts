@@ -46,8 +46,7 @@ export const REFLECTION_CHANGE = '変更';
 export const REFLECTION_CHANGE_LABEL = 'Good / More を変更';
 export const REFLECTION_EMPTY = '＋ Good / More を書く';
 /** シートの中の案内（押した・足した時点で保存されることを言う） */
-export const REFLECTION_HINT =
-  '当てはまるものを押すか、自分で書いてください（押す・追加すると保存）';
+export const REFLECTION_HINT = '押す・追加すると保存します';
 /** 自分で書く欄 */
 export const REFLECTION_NOTE_LABEL = '自分で書く';
 export const REFLECTION_NOTE_ADD = '追加';

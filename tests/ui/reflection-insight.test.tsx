@@ -254,7 +254,7 @@ describe('AC-4: 重なりの 1 行（E4）', () => {
 });
 
 describe('AC-5: Good / More の付いていない期間（E5・E6）', () => {
-  it('E5: 両側とも無い → 1 枚にまとめた付け方の 2 行（ボタンは心理のカードの 1 つだけ）・心理のカードはそのまま', () => {
+  it('E5: 両側とも無い → 1 枚にまとめた空の状態の 1 行（ボタンは心理のカードの 1 つだけ）・心理のカードはそのまま', () => {
     const m = model(E1, false, E1_HIDDEN);
     expect(m.reflection).toEqual({ noneLines: REFLECTION_NONE_LINES, cards: [] });
     const tree = renderInsight(SEVEN, E1, E1_HIDDEN);

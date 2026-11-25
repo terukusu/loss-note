@@ -52,7 +52,7 @@ export const instrumentEditButtonId = (id: string) => `settings-edit-${id}`;
 /** ［＋ 銘柄を追加］ の ID */
 export const ADD_INSTRUMENT_ID = 'settings-inst-add';
 /** 初期値のままの銘柄の説明（編集のシートの中。開いている銘柄が初期値のままのときだけ） */
-export const PROVISIONAL_NOTE = `「${PROVISIONAL_MARK}」は、記録したときに名前だけで自動で追加した銘柄です。原資産の種類・価格の通貨・乗数を編集すると、これから記録する取引の 1R・リスク（%）と集計に反映されます。`;
+export const PROVISIONAL_NOTE = `「${PROVISIONAL_MARK}」は名前だけで自動で追加した銘柄です。原資産の種類・価格の通貨・乗数を直せます。`;
 
 export function SettingsInstruments() {
   const nav = useContext(NavigatorContext);

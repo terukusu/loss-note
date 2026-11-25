@@ -241,12 +241,13 @@ describe('AC-1（#162 の値を保つ）: E1 の心理の順位図', () => {
       const bar = all([e], hasClass('insight__bar'))[0] as El;
       expect(bar.props['aria-hidden']).toBe('true');
     }
-    // 押せるのは凡例の「i」2 つだけ（行はリンク・ボタンにしない）
+    // 押せるのは凡例の「i」2 つと重なりの注記の「i」だけ（行はリンク・ボタンにしない。重なりの訳は「i」の中。#254）
     expect(all([card], (e) => e.type === 'a')).toEqual([]);
     const buttons = all([card], (e) => e.type === 'button');
     expect(buttons.map((b) => b.props['aria-label'])).toEqual([
       '「規律コスト」の説明',
       '「計画どおり率」の説明',
+      '「行の件数の和」の説明',
     ]);
   });
 
@@ -360,10 +361,12 @@ describe('AC-4: 切り替え More / Good', () => {
     ]);
   });
 
-  it('Good / More が両側とも付いていない期間は付け方の 2 行', () => {
+  it('Good / More が両側とも付いていない期間は空の状態の 1 行（#254）', () => {
     const r = render(slot(SEVEN, ready(E1), 'more', E1_HIDDEN));
     const card = all([r], hasClass('why'))[0] as El;
-    expect(text(card)).toContain('この期間の取引に Good / More は付いていません。');
+    expect(text(card)).toBe(
+      '何で崩れたか心理崩れ方MoreGoodこの期間の取引に Good / More は付いていません',
+    );
     expect(all([card], hasClass('insight__row'))).toEqual([]);
   });
 });

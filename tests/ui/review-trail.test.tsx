@@ -200,7 +200,11 @@ describe('AC-6・AC-7: 連勝の後のカード', () => {
       ['調子に乗った 4 件のうち 連勝の後', '2 件'],
     ]);
     expect(pairs.some((p) => String(p.props.class).includes('--zero'))).toBe(false);
-    expect(t).toContain('期間の中の決済の順で数えます');
+    // 数え方は題の横の「i」の中（#254・C70）。カードに文を置かない
+    expect(t).not.toContain('期間の中の決済の順で数えます');
+    expect(all([card], (e) => e.type === 'button').map((b) => b.props['aria-label'])).toContain(
+      '「連勝の後」の説明',
+    );
     // 押せる行（rowlink）のうち連勝の後へは 1 つ（ほかは #228 の「崩れの取引を見る」「数で見る」）
     const more = links(tree).filter(
       (a) => a.props.class === 'rowlink' && String(a.props.href).includes('after='),

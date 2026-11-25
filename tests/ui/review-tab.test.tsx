@@ -521,6 +521,8 @@ describe('レビュー後の修正（#88 Phase 4・4b）', () => {
       home(slot(SEVEN, ready(S1.filter((t) => t.id !== 's1-3' && t.id !== 's1-5')))),
     );
     expect(text(all([clean], hasClass('review__headline')))).toBe('崩れなし ±0.0R');
-    expect(text(clean)).toContain('崩れなし（2 本の線は重なっています）');
+    // 見出しが「崩れなし」と言うので、曲線の下は線が 1 本に見える理由だけ（#254・C70）
+    expect(text(clean)).toContain('2 本の線は重なっています');
+    expect(text(clean)).not.toContain('崩れなし（');
   });
 });

@@ -252,7 +252,18 @@ body:has(.shell--bare) {
   white-space: nowrap;
 }
 
-.appbar__back:hover {
+@media (hover: hover) {
+  .appbar__back:hover {
+    background: var(--s2);
+  }
+}
+
+/* 押した手応え（9.8・#136）: 押している間は面を 1 段（hover と同じ）。戻りは --dur-fast */
+.appbar__back {
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.appbar__back:active {
   background: var(--s2);
 }
 
@@ -305,7 +316,15 @@ body:has(.shell--bare) {
   /* ラベルは折り返さない（列は 1fr でも、ラベルの幅より狭くならない。#79） */
   white-space: nowrap;
   color: var(--ink-3);
-  transition: color var(--dur-fast) var(--ease);
+  border-radius: var(--radius-md);
+  transition:
+    color var(--dur-fast) var(--ease),
+    background-color var(--dur-fast) var(--ease);
+}
+
+/* 押した手応え（9.8・#136）: 押している間はタブの面を 1 段。真ん中の ［＋ 記録］ は丸いボタンを 0.97 倍（面は付けない） */
+.appnav__link:not(.appnav__record):active {
+  background: var(--s2);
 }
 
 .appnav__icon {
@@ -346,6 +365,15 @@ body:has(.shell--bare) {
 
 .appnav__record {
   color: var(--ink-2);
+}
+
+.appnav__fab {
+  transition: scale var(--dur-fast) var(--ease);
+}
+
+.appnav__record:active .appnav__fab {
+  scale: 0.97;
+  transition-duration: 0s;
 }
 
 /* 書きかけの印の点（#75）: 丸いボタンの右上に重ねる */
@@ -460,9 +488,11 @@ body:has(.shell--bare) {
     color: var(--ink-2);
   }
 
-  .appnav__link:hover {
-    color: var(--ink);
-    background: var(--s2);
+  @media (hover: hover) {
+    .appnav__link:hover {
+      color: var(--ink);
+      background: var(--s2);
+    }
   }
 
   .appnav__icon {
@@ -481,8 +511,23 @@ body:has(.shell--bare) {
     background: linear-gradient(135deg, var(--primary-from), var(--primary-to));
   }
 
-  .appnav__record:hover {
-    color: var(--on-primary);
+  @media (hover: hover) {
+    .appnav__record:hover {
+      color: var(--on-primary);
+      background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
+    }
+  }
+
+  /* 押した手応え（9.8・#136）: 広い形の ［＋ 記録］ はピル自体を 0.97 倍にし、面を 1 段（主のボタンと同じ。面は即時） */
+  .appnav__record {
+    transition:
+      color var(--dur-fast) var(--ease),
+      background-color var(--dur-fast) var(--ease),
+      scale var(--dur-fast) var(--ease);
+  }
+
+  .appnav__record:active {
+    scale: 0.97;
     background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
   }
 
@@ -497,6 +542,11 @@ body:has(.shell--bare) {
   .appnav__fab .icon {
     width: 18px;
     height: 18px;
+  }
+
+  /* 中の入れ物（アイコン）は縮めない（ピルが縮む） */
+  .appnav__record:active .appnav__fab {
+    scale: none;
   }
 
   .appnav__record .draftdot {
@@ -601,5 +651,215 @@ body:has(.shell--bare) {
     right: calc(var(--sp-6) + var(--safe-right));
     bottom: calc(var(--sp-6) + var(--safe-bottom));
     width: min(420px, calc(100vw - 2 * var(--sp-6)));
+  }
+}
+
+/* 画面の移りの動き（View Transitions。#136・ui-guidelines 9.8・設計書 C64）。<html data-motion> は動きの間だけ付く
+   （lib/view-transition.ts。動きを減らす設定・View Transitions の無いブラウザでは付かない = 今の即時の差し替え）。
+   名前は動きの間だけ付ける（名前の付いた要素は backdrop の基準になり、帯のすりガラスが効かなくなるため）:
+   上の安全域の面・下のタブ・トーストは動かさず、画面（root）だけを動かす。全画面のシートの出入り（up / down）は
+   下のタブも画面と一緒に動かす（シートが下のタブの上に重なって出る・外れて下のタブが現れる） */
+:root[data-motion] .statusbar-bg {
+  view-transition-name: statusbar;
+}
+
+:root[data-motion] .appnav {
+  view-transition-name: appnav;
+}
+
+:root[data-motion] .toast-region {
+  view-transition-name: toast;
+}
+
+:root[data-motion="up"] .appnav,
+:root[data-motion="down"] .appnav {
+  view-transition-name: none;
+}
+
+::view-transition-group(*) {
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--ease);
+}
+
+:root[data-motion]::view-transition-old(root),
+:root[data-motion]::view-transition-new(root) {
+  mix-blend-mode: normal;
+  animation-duration: var(--dur-base);
+  animation-timing-function: var(--ease);
+  animation-fill-mode: both;
+}
+
+/* 進む: 新しい画面が右から重なり、前の画面は少し左へ */
+:root[data-motion="forward"]::view-transition-new(root) {
+  animation-name: vt-from-right;
+}
+
+:root[data-motion="forward"]::view-transition-old(root) {
+  animation-name: vt-to-left;
+}
+
+/* 戻る: 今の画面が右へ外れ（上に重ねたまま）、前の画面が左から戻る */
+:root[data-motion="back"]::view-transition-old(root) {
+  z-index: 1;
+  animation-name: vt-to-right;
+}
+
+:root[data-motion="back"]::view-transition-new(root) {
+  animation-name: vt-from-left;
+}
+
+/* タブの切り替え: 重ねて薄く替える（横に動かさない） */
+:root[data-motion="fade"]::view-transition-old(root) {
+  animation-name: vt-fade-out;
+  animation-duration: var(--dur-fast);
+}
+
+:root[data-motion="fade"]::view-transition-new(root) {
+  animation-name: vt-fade-in;
+  animation-duration: var(--dur-fast);
+}
+
+/* 全画面のシートを開く: 下から出る（下のシートと同じ時間と曲線）。後ろの画面は動かさない */
+:root[data-motion="up"]::view-transition-new(root) {
+  animation-name: vt-from-bottom;
+  animation-duration: var(--dur-sheet);
+  animation-timing-function: var(--ease-sheet);
+}
+
+:root[data-motion="up"]::view-transition-old(root),
+:root[data-motion="down"]::view-transition-new(root) {
+  animation-name: none;
+}
+
+/* 全画面のシートを閉じる: 下へ外れる（上に重ねたまま） */
+:root[data-motion="down"]::view-transition-old(root) {
+  z-index: 1;
+  animation-name: vt-to-bottom;
+  animation-duration: var(--dur-sheet);
+  animation-timing-function: var(--ease-sheet);
+}
+
+@keyframes vt-from-right {
+  from {
+    translate: 100% 0;
+  }
+}
+
+@keyframes vt-to-left {
+  to {
+    translate: -30% 0;
+  }
+}
+
+@keyframes vt-to-right {
+  to {
+    translate: 100% 0;
+  }
+}
+
+@keyframes vt-from-left {
+  from {
+    translate: -30% 0;
+  }
+}
+
+@keyframes vt-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vt-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes vt-from-bottom {
+  from {
+    translate: 0 100%;
+  }
+}
+
+@keyframes vt-to-bottom {
+  to {
+    translate: 0 100%;
+  }
+}
+
+/* 幅 720px 以上: 横いっぱいに滑らせず、薄く替えながら少しだけずらす（向きは同じ）。上の帯は動かさない */
+@media (min-width: 720px) {
+  :root[data-motion] .appnav {
+    view-transition-name: none;
+  }
+
+  :root[data-motion] .apphead {
+    view-transition-name: apphead;
+  }
+
+  :root[data-motion="forward"]::view-transition-new(root) {
+    animation-name: vt-wide-from-right;
+  }
+
+  :root[data-motion="forward"]::view-transition-old(root) {
+    animation-name: vt-wide-to-left;
+  }
+
+  :root[data-motion="back"]::view-transition-old(root) {
+    animation-name: vt-wide-to-right;
+  }
+
+  :root[data-motion="back"]::view-transition-new(root) {
+    animation-name: vt-wide-from-left;
+  }
+
+  :root[data-motion="up"]::view-transition-new(root) {
+    animation-name: vt-wide-from-bottom;
+  }
+
+  :root[data-motion="down"]::view-transition-old(root) {
+    animation-name: vt-wide-to-bottom;
+  }
+}
+
+@keyframes vt-wide-from-right {
+  from {
+    opacity: 0;
+    translate: var(--sp-7) 0;
+  }
+}
+
+@keyframes vt-wide-to-left {
+  to {
+    opacity: 0;
+    translate: calc(-1 * var(--sp-7)) 0;
+  }
+}
+
+@keyframes vt-wide-to-right {
+  to {
+    opacity: 0;
+    translate: var(--sp-7) 0;
+  }
+}
+
+@keyframes vt-wide-from-left {
+  from {
+    opacity: 0;
+    translate: calc(-1 * var(--sp-7)) 0;
+  }
+}
+
+@keyframes vt-wide-from-bottom {
+  from {
+    opacity: 0;
+    translate: 0 var(--sp-7);
+  }
+}
+
+@keyframes vt-wide-to-bottom {
+  to {
+    opacity: 0;
+    translate: 0 var(--sp-7);
   }
 }

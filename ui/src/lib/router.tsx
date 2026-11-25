@@ -13,6 +13,7 @@ import {
   tabOfRoute,
   tabRoot,
 } from './routes';
+import { type PopCause, popCauseOf, type ScreenChange } from './screen-motion';
 import {
   bootMarks,
   MARK_KEYS,
@@ -27,14 +28,23 @@ import {
   type TabMemory,
 } from './tab-nav';
 
+/** popstate に添える知らせ（#136） */
+export interface PopInfo {
+  /** hasUAVisualTransition（端末が自分で動きを付けた。無いブラウザは undefined） */
+  readonly ua?: boolean | undefined;
+}
+
 /** ブラウザの履歴の最小限 */
 export interface NavEnv {
   location(): { readonly pathname: string; readonly search: string };
   /** mark = この項目の印（history.state に持つ。tab-nav.ts。省けば印を持たない） */
   pushState(url: string, mark?: NavMark): void;
   replaceState(url: string, mark?: NavMark): void;
-  /** 戻る・進む（popstate）の購読。やめる関数を返す */
-  onPopState(fn: () => void): () => void;
+  /**
+   * 戻る・進む（popstate）の購読。やめる関数を返す。info.ua = 知らせの hasUAVisualTransition（端末が自分で動きを付けた。
+   * 無いブラウザは undefined。#136）
+   */
+  onPopState(fn: (info?: PopInfo) => void): () => void;
   /** 今の項目の history.state（印を読む。無ければ「印なし」= 起動で並びを組み直す） */
   readState?(): unknown;
   /** ブラウザの戻る（history.back）。無ければ「前の画面」は置き換えに倒れる */
@@ -98,8 +108,12 @@ export function windowEnv(win: Window): NavEnv {
     pushState: (url, mark) => win.history.pushState(stateOf(mark), '', url),
     replaceState: (url, mark) => win.history.replaceState(stateOf(mark), '', url),
     onPopState: (fn) => {
-      win.addEventListener('popstate', fn);
-      return () => win.removeEventListener('popstate', fn);
+      const on = (e: PopStateEvent) => {
+        const ua = (e as PopStateEvent & { hasUAVisualTransition?: boolean }).hasUAVisualTransition;
+        fn({ ua: typeof ua === 'boolean' ? ua : undefined });
+      };
+      win.addEventListener('popstate', on);
+      return () => win.removeEventListener('popstate', on);
     },
     readState: () => win.history.state,
     back: () => win.history.back(),
@@ -133,6 +147,11 @@ export interface NavHooks {
    * （true）。段が無ければ false（すぐ行う）。back-layers.ts の unwind（#57 再レビュー B3）
    */
   readonly unwind?: (done: () => void) => boolean;
+  /**
+   * 画面の移りを画面に知らせる（#136）。update を呼ぶと購読者へ知らせる。動きの糊（view-transition.ts）が View Transitions の
+   * 中で呼ぶ。target は移った後の current（描き終わりの照合に使う）。無ければすぐ知らせる
+   */
+  readonly transition?: (change: ScreenChange, update: () => void, target: object) => void;
 }
 
 /** go の popstate が来ないときに、待ちを解いて続けるまでの時間（ms） */
@@ -189,6 +208,28 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
   const notify = () => {
     for (const fn of listeners) fn();
   };
+  /** 移る前の画面（announce に渡す。sync の前に取る） */
+  const before = () => ({ route: current.route, depth: current.mark.depth, href: at });
+  /** 画面に知らせる（動きの糊があれば包む）。from = before() の値、cause = 戻る / 進むの出どころ */
+  const announce = (from: ReturnType<typeof before>, cause: PopCause | null = null) => {
+    if (!hooks.transition) {
+      notify();
+      return;
+    }
+    const to = current;
+    hooks.transition(
+      {
+        from,
+        to: { route: to.route, depth: to.mark.depth, href: at },
+        via: to.via,
+        cause: to.via === 'pop' ? (cause ?? 'app') : null,
+      },
+      notify,
+      to,
+    );
+  };
+  /** アプリが自分で env.back() した（その popstate の出どころは app。#136） */
+  let appBack = false;
   /** 今の段のスクロールの位置を覚える（上の段は捨てる） */
   const keepScroll = () => {
     scrolls = scrolls.slice(0, mark.depth + 1);
@@ -263,7 +304,9 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
     else job();
   };
 
-  const off = env.onPopState(() => {
+  const off = env.onPopState((info) => {
+    const cause: PopCause = appBack ? 'app' : popCauseOf(info?.ua);
+    appBack = false;
     if (pending) {
       const p = pending;
       pending = null;
@@ -283,12 +326,13 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
     }
     // 積み直した段（タブの切り替え）へ戻った: ブラウザは位置を正しく覚えていないので、覚えていた位置を殻が戻す（#127 N1）
     const landed = readMarkNow();
+    const from = before();
     if (landed && repushed.has(landed.depth)) {
       repushed.delete(landed.depth);
       sync('pop', scrolls[landed.depth] ?? 0);
     } else sync('pop');
     hooks.onNavigate?.();
-    notify();
+    announce(from, cause);
   });
 
   /**
@@ -324,6 +368,7 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
       const mem = memory.get(target) ?? null;
       const plan = planTabSwitch(mark, target, mem);
       goThen(plan.go, () => {
+        const from = before();
         hooks.onNavigate?.();
         if (plan.replace) env.replaceState(plan.replace.href, plan.replace.mark);
         for (const p of plan.push) env.pushState(p.href, p.mark);
@@ -333,7 +378,7 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
         repushed.clear();
         for (const p of plan.push) if (p.mark.depth < plan.top.depth) repushed.add(p.mark.depth);
         sync('tab', plan.scroll);
-        notify();
+        announce(from);
       });
     });
   };
@@ -343,16 +388,18 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
     afterUnwind(() => {
       const plan = planRetap(mark);
       if (plan === 'top') {
+        const from = before();
         hooks.onNavigate?.();
         env.replaceState(here(), mark);
         sync('retap');
-        notify();
+        announce(from);
         return;
       }
       goThen(plan.go, () => {
+        const from = before();
         hooks.onNavigate?.();
         sync('pop');
-        notify();
+        announce(from, 'app');
       });
     });
   };
@@ -384,10 +431,11 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
       // （push）と伝え、見出しへのフォーカスと先頭へのスクロールは今までどおり（R6）
       if (href.split('#')[0] === at) {
         afterUnwind(() => {
+          const from = before();
           hooks.onNavigate?.();
           env.replaceState(href, replaceMark(mark, href));
           sync('push');
-          notify();
+          announce(from);
         });
         return;
       }
@@ -395,6 +443,7 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
       // 見る］ で移る）があれば巻き戻してから積む（層の段の上に積むと、履歴が印の深さより多くなり、タブの切り替えの go がホームの
       // 段に届かない。#129 のレビュー N6）
       afterUnwind(() => {
+        const from = before();
         hooks.onNavigate?.();
         if (r.replace !== undefined) env.replaceState(r.replace, replaceMark(mark, r.replace));
         else {
@@ -402,7 +451,7 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
           env.pushState(href, pushMark(mark, href));
         }
         sync('push');
-        notify();
+        announce(from);
       });
     },
     replace(href) {
@@ -456,7 +505,8 @@ export function createNavigator(env: NavEnv, opts: RouteOptions, hooks: NavHooks
       refresh();
       afterUnwind(() => {
         if (mark.depth > 0 && env.back) {
-          // popstate で画面が移る（onNavigate・notify は popstate の側）
+          // popstate で画面が移る（onNavigate・notify は popstate の側。動きの出どころは app = 端末の動きの印に依らない）
+          appBack = true;
           env.back();
           return;
         }

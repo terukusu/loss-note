@@ -3,7 +3,7 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import type { Grade } from '../../../../core/judge';
-import { Button } from '../../components/Button';
+import { Button, Chip, IconButton, RowLink } from '../../components/Button';
 import { EmptyState } from '../../components/EmptyState';
 import { Icon, type IconName } from '../../components/Icon';
 import { InfoTip } from '../../components/InfoTip';
@@ -92,6 +92,7 @@ export function Parts() {
   const [lcMoved, setLcMoved] = useState<'kept' | 'widened' | 'tightened' | null>(null);
   const [tf, setTf] = useState<'same' | 'longer' | 'shorter' | null>('same');
   const [lc, setLc] = useState('38250');
+  const [chipOn, setChipOn] = useState(false);
   const [entry, setEntry] = useState('38,25.0');
   const [name, setName] = useState('架空指数A');
   const [when, setWhen] = useState('2026-03-04T10:00');
@@ -274,6 +275,23 @@ export function Parts() {
         <Button size="lg" block icon="record">
           記録する
         </Button>
+      </Section>
+
+      <Section title="押せる形（押した手応え。#136）">
+        <div class="row-wrap" id="parts-press">
+          <IconButton icon="edit" label="編集" id="parts-iconbtn" onClick={() => {}} />
+          <span id="parts-chip-toggle">
+            <Chip selected={chipOn} onClick={() => setChipOn(!chipOn)}>
+              焦り
+            </Chip>
+          </span>
+          <span id="parts-chip-link">
+            <Chip href="/dev/parts">期間の取引</Chip>
+          </span>
+        </div>
+        <RowLink id="parts-rowlink" onClick={() => {}} meta="3 件">
+          押せる行
+        </RowLink>
       </Section>
 
       <Section title="空の状態">

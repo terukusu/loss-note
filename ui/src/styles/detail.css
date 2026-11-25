@@ -6,7 +6,14 @@
   background: none;
 }
 
-.appbar .appbar__more:hover:not(:disabled) {
+@media (hover: hover) {
+  .appbar .appbar__more:hover:not(:disabled) {
+    background: var(--s2);
+  }
+}
+
+/* 押した手応え（9.8・#136）: 面を 1 段（hover と同じ） */
+.appbar .appbar__more:active:not(:disabled) {
   background: var(--s2);
 }
 
@@ -39,8 +46,15 @@
   border-top: 1px solid var(--line);
 }
 
-.dlist > .rowlink:hover {
+.dlist > .rowlink:active {
   background: var(--s2);
+}
+
+/* hover はポインタが重なれる端末だけ（タッチで押した後に面が残らない。#136） */
+@media (hover: hover) {
+  .dlist > .rowlink:hover {
+    background: var(--s2);
+  }
 }
 
 /* 添えは › のすぐ左（行の真ん中に浮かせない。#131 のデザインレビュー a3） */
@@ -54,8 +68,14 @@
   box-shadow: none;
 }
 
-.sheet .dlist > .rowlink:hover {
+.sheet .dlist > .rowlink:active {
   background: color-mix(in srgb, var(--ink) 6%, var(--s3));
+}
+
+@media (hover: hover) {
+  .sheet .dlist > .rowlink:hover {
+    background: color-mix(in srgb, var(--ink) 6%, var(--s3));
+  }
 }
 
 /* 広い形の操作・比較のシートは「…」に付ける（押した所の吹き出し。#129 の .info と同じ置き方） */
@@ -169,10 +189,12 @@
   align-self: flex-start;
 }
 
-.dchart--ready:hover {
-  box-shadow:
-    var(--shadow-card),
-    0 0 0 1px var(--line-2);
+@media (hover: hover) {
+  .dchart--ready:hover {
+    box-shadow:
+      var(--shadow-card),
+      0 0 0 1px var(--line-2);
+  }
 }
 
 .dchart:focus-visible {

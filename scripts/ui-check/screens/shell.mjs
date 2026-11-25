@@ -16,7 +16,7 @@ import { closeSheet, OPEN_SHEET, openInfo, sheetCount, toReview } from '../helpe
 
 /**
  * 画面の検査の単位「アプリの殻」: 部品の見本（/dev/parts）と、行き来 V1〜V7・ホーム画面に追加 PWA1・スクロール S1・
- * 安全域 SA1・テーマ T2〜T4
+ * 安全域 SA1・テーマ T2〜T4・画面の移りの動き MO1〜MO3・押した手応え PR1〜PR3（#136）
  */
 export const id = 'shell';
 export const title = 'アプリの殻';
@@ -31,7 +31,7 @@ export async function zoom(vp) {
   await zoomPagesGroup(vp, id);
 }
 
-/** 手順（V1・V2・V3・V4・V5・PWA1・S1・V6・V7・SA1・T2・T3・T4） */
+/** 手順（V1・V2・V3・V4・V5・PWA1・S1・V6・V7・SA1・T2・T3・T4・動き MO1〜MO3・押した手応え PR1〜PR3（#136）） */
 export async function flows(kit) {
   const { browser, base, signedIn, check, expectEq, path } = kit;
   const ctx = await browser.newContext({
@@ -579,5 +579,273 @@ export async function flows(kit) {
       await c.close();
     }
     return '保存が例外 → ダークで開き、切り替えはその場で効く';
+  });
+
+  await motionChecks(kit);
+  await pressChecks(kit);
+}
+
+/**
+ * startViewTransition を包んで、始めた動きを window.__vt に記す（#136）: 始めたときの <html data-motion>、撮影へ進む直前
+ * （update の Promise が解けた時点）の新しい画面の見出しの文字と、見出しにフォーカスがあったか
+ */
+function probeTransitions() {
+  window.__vt = [];
+  const orig = Document.prototype.startViewTransition;
+  if (typeof orig !== 'function') return;
+  Document.prototype.startViewTransition = function (arg) {
+    const rec = {
+      motion: document.documentElement.getAttribute('data-motion'),
+      h1: null,
+      focused: false,
+    };
+    window.__vt.push(rec);
+    const cb = typeof arg === 'function' ? arg : arg?.update;
+    return orig.call(this, async () => {
+      await cb?.();
+      const h = document.querySelector('main h1');
+      rec.h1 = h?.textContent?.trim() ?? null;
+      rec.focused = h !== null && document.activeElement === h;
+    });
+  };
+}
+
+/** View Transitions の無いブラウザの形（#136 AC-5。ui-guidelines 9.8 の「無い場合を確かめる」1 状態） */
+function dropTransitions() {
+  delete Document.prototype.startViewTransition;
+}
+
+/** 一覧 → 詳細（例 #1）の後の URL・見出しのフォーカス・スクロールの位置（MO1 / MO2 / MO3 で比べる） */
+async function landedState(p) {
+  return p.evaluate(() => {
+    const h = document.querySelector('main h1');
+    return {
+      path: location.pathname,
+      focus: h !== null && document.activeElement === h,
+      y: Math.round(window.scrollY),
+    };
+  });
+}
+
+/**
+ * 画面の移りの動き（#136・ui-guidelines 9.8）: MO1 = 動きのある文脈で例 #1・#2・#6・#7・#9・#10 の動きが 1 回ずつ・種類・
+ * 撮影の直前に新しい画面の見出しとフォーカス・終わった後に印が残らない / MO2 = 動きを減らす設定で動きを始めず、移った後は MO1 と
+ * 同じ / MO3 = View Transitions の無いブラウザで動きなしに移り、MO1 と同じ・エラー 0
+ */
+async function motionChecks({ browser, base, signedIn, check, expectEq }) {
+  const open = async (extra = {}, init = []) => {
+    const c = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      storageState: signedIn,
+      ...extra,
+    });
+    await installFakeApi(c);
+    for (const fn of init) await c.addInitScript(fn);
+    const p = await c.newPage();
+    const errors = [];
+    p.on('pageerror', (e) => errors.push(e.message));
+    return { c, p, errors };
+  };
+  /** act の後、動きが落ち着くまで待ち、始めた動き（記録）と終わった後の印を返す */
+  const step = async (p, h1, act) => {
+    await p.evaluate(() => {
+      window.__vt = [];
+    });
+    await act();
+    // 詳細は読めた後の見出し（銘柄と向き）まで待つ
+    await waitReady(p, h1 === '取引の詳細' ? 'US30 · L ロング' : h1);
+    await settle(p);
+    return p.evaluate(() => ({
+      vt: window.__vt ?? [],
+      mark: document.documentElement.getAttribute('data-motion'),
+    }));
+  };
+  const expectOne = (got, motion, h1, what) => {
+    expectEq(got.vt.length, 1, `${what}: 動きの開始の数`);
+    expectEq(got.vt[0]?.motion, motion, `${what}: 動きの種類`);
+    // 詳細の見出しは読み込みの間「取引の詳細」、読めたら銘柄と向き（撮影の前に読めることもある）
+    const want = h1 === '取引の詳細' ? /^(取引の詳細|US30 · L ロング)$/ : new RegExp(`^${h1}$`);
+    if (!want.test(got.vt[0]?.h1 ?? ''))
+      throw new Error(`${what}: 撮影の直前の見出し ${JSON.stringify(got.vt[0]?.h1)}（期待 ${h1}）`);
+    expectEq(got.vt[0]?.focused, true, `${what}: 撮影の直前に見出しにフォーカス`);
+    expectEq(got.mark, null, `${what}: 終わった後の印`);
+  };
+  const toDetail = (p) => p.locator('main a[href="/trades/t-last"]').first().click();
+  let landed = null;
+
+  await check('MO1', async () => {
+    const { c, p, errors } = await open({ reducedMotion: 'no-preference' }, [probeTransitions]);
+    try {
+      await p.goto(`${base}/trades`);
+      await waitReady(p, '取引');
+      await settle(p);
+      const e1 = await step(p, '取引の詳細', () => toDetail(p));
+      expectOne(e1, 'forward', '取引の詳細', '#1 一覧 → 詳細');
+      landed = await landedState(p);
+      const e2 = await step(p, '取引', () => p.locator('main .appbar__back').first().click());
+      expectOne(e2, 'back', '取引', '#2 詳細 → 「‹」');
+      const e6 = await step(p, '設定', () => p.locator('#appnav-settings').click());
+      expectOne(e6, 'fade', '設定', '#6 タブの切り替え');
+      await step(p, '取引', () => p.locator('#appnav-trades').click());
+      await step(p, '取引の詳細', () => toDetail(p));
+      const e7 = await step(p, '振り返り', () => p.locator('#appnav-review').click());
+      expectOne(e7, 'fade', '振り返り', '#7 詳細 → 振り返りのタブ（履歴を戻して積み直す）');
+      const e9 = await step(p, '記録する', () => p.locator('#appnav-record').click());
+      expectOne(e9, 'up', '記録する', '#9 ［＋ 記録］');
+      const e10 = await step(p, '振り返り', () =>
+        p.getByRole('button', { name: 'キャンセル' }).first().click(),
+      );
+      expectOne(e10, 'down', '振り返り', '#10 記録する → ✕');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return 'forward / back / fade / fade 1 回 / up / down、撮影の直前に見出しとフォーカス、印は残らない';
+  });
+
+  for (const [id, extra, init, what] of [
+    ['MO2', { reducedMotion: 'reduce' }, [probeTransitions], '動きを減らす設定'],
+    [
+      'MO3',
+      { reducedMotion: 'no-preference' },
+      [dropTransitions, probeTransitions],
+      'View Transitions なし',
+    ],
+  ]) {
+    await check(id, async () => {
+      const { c, p, errors } = await open(extra, init);
+      try {
+        await p.goto(`${base}/trades`);
+        await waitReady(p, '取引');
+        await settle(p);
+        const e1 = await step(p, '取引の詳細', () => toDetail(p));
+        expectEq(e1.vt.length, 0, '動きの開始の数');
+        expectEq(e1.mark, null, '印');
+        const got = await landedState(p);
+        if (!landed) throw new Error('MO1 の移った後の状態が無い');
+        expectEq(JSON.stringify(got), JSON.stringify(landed), '移った後（MO1 と同じ）');
+        expectEq(errors.length, 0, 'ページのエラー');
+      } finally {
+        await c.close();
+      }
+      return `${what}: 動きなしで一覧 → 詳細、URL・フォーカス・位置は動きのある文脈と同じ`;
+    });
+  }
+}
+
+/**
+ * 押した手応え（#136・ui-guidelines 9.8）: 指の端末の形（hasTouch = hover: none）の部品の見本と下のタブで、押す形の部品 7 種
+ * （ボタン 3 段・アイコンのボタン・押せる行・押す形のチップ・リンクのチップ・下のタブ・セグメント）を押している間の面か大きさが
+ * 押す前と違う（PR1）、押し込みの移りの時間が 0 で離した後の戻りが 120ms（PR2）、動きを減らす設定では戻りも 0（PR3）
+ */
+async function pressChecks({ browser, base, signedIn, check, expectEq }) {
+  const TARGETS = [
+    ['主のボタン', 'main .btn.btn--primary:not(:disabled)'],
+    ['2 番目のボタン', 'main .btn.btn--secondary:not(.btn--sm)'],
+    ['薄い面のボタン', 'main .btn.btn--tonal:not(.btn--sm)'],
+    ['アイコンのボタン', '#parts-iconbtn'],
+    ['押せる行', '#parts-rowlink'],
+    ['押す形のチップ', '#parts-chip-toggle .chip'],
+    ['リンクのチップ', '#parts-chip-link .chip'],
+    ['下のタブ', '#appnav-trades'],
+    ['セグメント', 'main .seg__item:not(:has(.seg__input:checked)):not(.seg__item--off)'],
+  ];
+  const look = (el) => {
+    const cs = getComputedStyle(el);
+    return {
+      face: `${cs.backgroundColor} ${cs.backgroundImage}`,
+      size: `${cs.transform} ${cs.scale}`,
+      dur: cs.transitionDuration,
+    };
+  };
+  /** 押す前・押している間・離した後を測る（離すのは外へずらしてから = 押した扱いにしない） */
+  const measure = async (p, targets = TARGETS) => {
+    const out = [];
+    for (const [name, sel] of targets) {
+      const el = p.locator(sel).first();
+      // 窓の中ほどへ（下に貼り付いたタブの裏で押さない）。下のタブはそのまま
+      await el.evaluate((e) => {
+        if (!e.closest('.appnav')) e.scrollIntoView({ block: 'center' });
+      });
+      await p.mouse.move(1, 1);
+      await settle(p);
+      const before = await el.evaluate(look);
+      const box = await el.boundingBox();
+      if (!box) throw new Error(`${name} が描かれていない`);
+      await p.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await p.mouse.down();
+      const pressed = await el.evaluate(look);
+      await p.mouse.move(1, 1);
+      await p.mouse.up();
+      await settle(p);
+      const after = await el.evaluate(look);
+      out.push({ name, before, pressed, after });
+    }
+    return out;
+  };
+  const open = async (reducedMotion, wide = false) => {
+    const c = await browser.newContext({
+      viewport: wide ? { width: 1440, height: 900 } : { width: 360, height: 780 },
+      hasTouch: !wide,
+      reducedMotion,
+      storageState: signedIn,
+    });
+    await installFakeApi(c);
+    const p = await c.newPage();
+    await p.goto(`${base}/dev/parts`);
+    await waitReady(p, '部品の見本');
+    await settle(p);
+    return { c, p };
+  };
+  let rows = [];
+  await check('PR1', async () => {
+    const { c, p } = await open('no-preference');
+    try {
+      rows = await measure(p);
+    } finally {
+      await c.close();
+    }
+    // 広い形（幅 1440・マウス）の ［＋ 記録］ のピル（上の帯の中の横長の主のボタン。#136 のレビュー 3）
+    const w = await open('no-preference', true);
+    try {
+      rows.push(...(await measure(w.p, [['広い形の ［＋ 記録］', '#appnav-record']])));
+    } finally {
+      await w.c.close();
+    }
+    const same = rows.filter(
+      (r) => r.before.face === r.pressed.face && r.before.size === r.pressed.size,
+    );
+    expectEq(
+      same.map((r) => `${r.name}（${r.before.face} / ${r.before.size}）`).join('・'),
+      '',
+      '押している間も押す前と同じ部品',
+    );
+    return `${rows.length} 個（7 種 + 広い形の ［＋ 記録］）で押している間の面か大きさが替わる`;
+  });
+  await check('PR2', async () => {
+    if (rows.length === 0) throw new Error('PR1 の測りが無い');
+    const bad = [];
+    for (const r of rows) {
+      if (!r.pressed.dur.split(', ').every((d) => d === '0s'))
+        bad.push(`${r.name} 押し込み ${r.pressed.dur}`);
+      if (!r.after.dur.split(', ').every((d) => d === '0.12s'))
+        bad.push(`${r.name} 戻り ${r.after.dur}`);
+    }
+    expectEq(bad.join(' / '), '', '移りの時間');
+    return `押し込み 0s・戻り 0.12s（${rows.length} 個）`;
+  });
+  await check('PR3', async () => {
+    const { c, p } = await open('reduce');
+    let got = [];
+    try {
+      got = await measure(p);
+    } finally {
+      await c.close();
+    }
+    const bad = got
+      .filter((r) => !r.after.dur.split(', ').every((d) => d === '0s'))
+      .map((r) => `${r.name} ${r.after.dur}`);
+    expectEq(bad.join(' / '), '', '動きを減らす設定の戻り');
+    return '動きを減らす設定では戻りも 0s（9 個）';
   });
 }

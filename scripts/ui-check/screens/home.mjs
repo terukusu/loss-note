@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { opts, setupContext, waitReady } from '../base.mjs';
+import { opts, settle, setupContext, waitReady } from '../base.mjs';
 import { homeMonthTrades, installFakeApi, TX_H1 } from '../fixtures.mjs';
 import {
   accountsGroup,
@@ -219,6 +219,8 @@ export async function flows(kit) {
         if (wd < 44 || ht < 44) throw new Error(`カードのリンクの当たり ${wd}×${ht}`);
       // 直近の流れ: 点の並びの上を押す（カードの全面が当たり）
       // カードの全面に広げたリンク（::before）が点の上に重なるので、点の真ん中の座標を押す
+      // 座標で押す前に、画面の移りの動き（#136）が落ち着くまで待つ（動きの間の当たりは文書の根）
+      await settle(p);
       const dots = await p.locator('.streak__dots').boundingBox();
       await p.mouse.click(dots.x + dots.width / 2, dots.y + dots.height / 2);
       await waitReady(p, '取引');
@@ -231,7 +233,8 @@ export async function flows(kit) {
       await p.goBack();
       await waitReady(p, 'ホーム');
       await p.locator('.homemonth .num--title').first().waitFor({ timeout: 15000 });
-      // 今月の規律: 数字の上を押す
+      // 今月の規律: 数字の上を押す（戻るの動きが落ち着いてから。#136）
+      await settle(p);
       const num = await p.locator('.homemonth .num--title').first().boundingBox();
       await p.mouse.click(num.x + num.width / 2, num.y + num.height / 2);
       await waitReady(p, '振り返り');

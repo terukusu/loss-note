@@ -33,6 +33,11 @@
   box-shadow: var(--shadow-card);
 }
 
+/* 押した手応え（9.8・#136）: 面を 1 段 */
+.review__more .rowlink:active {
+  background: var(--s2);
+}
+
 /* 気づきの押せる行の面（#185。面のトークンは review.css に置かない = 判定の段の色と混ぜない）。件数が少ない行は面のある押せる形 */
 .insight__fewlink {
   background: var(--s2);
@@ -101,4 +106,9 @@
   padding-inline: 0;
   background: none;
   box-shadow: none;
+}
+
+/* 押した手応え（9.8・#136）: 面を重ねない行なので、文字の色を 1 段だけ替える */
+.next__more .rowlink:active {
+  color: var(--ink-2);
 }

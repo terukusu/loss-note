@@ -327,7 +327,8 @@
   line-height: 1;
 }
 
-.homerow:active {
+.homerow:active,
+.homerecent__group > .rowlink:active {
   background: var(--s2);
 }
 

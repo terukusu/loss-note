@@ -139,8 +139,10 @@
   box-shadow: var(--shadow-1);
 }
 
-.btn--primary:hover:not(:disabled) {
-  background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
+@media (hover: hover) {
+  .btn--primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
+  }
 }
 
 .btn--secondary {
@@ -149,8 +151,10 @@
   border-color: var(--line-2);
 }
 
-.btn--secondary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+@media (hover: hover) {
+  .btn--secondary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+  }
 }
 
 .btn--tonal {
@@ -158,8 +162,10 @@
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.btn--tonal:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+@media (hover: hover) {
+  .btn--tonal:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
 }
 
 /* 3 番目の重さ: アイコンだけのボタン（当たり 44px。読み上げの名前は aria-label） */
@@ -181,8 +187,10 @@
   height: 22px;
 }
 
-.iconbtn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ink) 14%, transparent);
+@media (hover: hover) {
+  .iconbtn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--ink) 14%, transparent);
+  }
 }
 
 .iconbtn:disabled {
@@ -227,8 +235,11 @@
   color: var(--ink-3);
 }
 
-.rowlink:hover {
-  background: var(--s3);
+/* hover はポインタが重なれる端末だけ（タッチでは押した後も hover が残る。押した手応えは :active。#136） */
+@media (hover: hover) {
+  .rowlink:hover {
+    background: var(--s3);
+  }
 }
 
 /* チップ（9.12）: 角の丸い面。選ぶと面 + アクセントの輪 */
@@ -276,11 +287,9 @@
   border: 0;
   font-family: inherit;
   cursor: pointer;
-  transition: scale var(--dur-fast) var(--ease);
-}
-
-.chip--toggle:active {
-  scale: 0.97;
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    scale var(--dur-fast) var(--ease);
 }
 
 /* 選んでも外寸を変えない（✓ 12px + 間 2px の分だけ左右の余白を詰める: 12 + 12 = 4 + 12 + 2 + 6。押すたびに後ろの
@@ -336,21 +345,105 @@
   border-color: var(--line-2);
 }
 
-.btn--secondary.btn--sm:hover:not(:disabled)::before {
-  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+@media (hover: hover) {
+  .btn--secondary.btn--sm:hover:not(:disabled)::before {
+    background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+  }
 }
 
 .btn--tonal.btn--sm::before {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 
-.btn--tonal.btn--sm:hover:not(:disabled)::before {
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
+@media (hover: hover) {
+  .btn--tonal.btn--sm:hover:not(:disabled)::before {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
 }
 
 .btn--sm .icon {
   width: 18px;
   height: 18px;
+}
+
+/* ── 押した手応え（9.8・#136・設計書 C64）──────────
+   押せる部品は、押している間だけ面を 1 段替え（hover と同じ段。タッチでは hover が無いのでこれが唯一の手応え）、ボタン・
+   チップ・セグメントは 0.97 倍にする。押し込みは即時（transition 0s）、離すと各部品の transition（--dur-fast）で戻る。
+   動きを減らす設定では戻りも 0（トークンが 0s）。iOS の Safari で :active が付くよう、文書に空の touchstart を付けてある
+   （lib/view-transition.ts の installPressFeedback） */
+:is(
+  .btn,
+  .iconbtn,
+  .rowlink,
+  .chip--toggle,
+  a.chip,
+  .seg__item,
+  .appnav__link,
+  .appbar__back,
+  .traderow,
+  .homerow,
+  .setrow,
+  .lcnone,
+  .lcstop,
+  .gsi
+):active {
+  transition-duration: 0s;
+}
+
+.btn--primary:not(.btn--sm):active:not(:disabled) {
+  background: linear-gradient(135deg, var(--primary-to), var(--primary-to));
+}
+
+.btn--secondary:not(.btn--sm):active:not(:disabled) {
+  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+}
+
+.btn--tonal:not(.btn--sm):active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.btn--secondary.btn--sm:active:not(:disabled)::before {
+  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+}
+
+.btn--tonal.btn--sm:active:not(:disabled)::before {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.btn--sm:active:not(:disabled)::before {
+  transition-duration: 0s;
+}
+
+.iconbtn {
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.iconbtn:active:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 14%, transparent);
+  transform: scale(0.97);
+}
+
+.rowlink:active {
+  background: var(--s3);
+}
+
+a.chip {
+  transition:
+    background-color var(--dur-fast) var(--ease),
+    scale var(--dur-fast) var(--ease);
+}
+
+a.chip:active,
+.chip--toggle:active {
+  background: color-mix(in srgb, var(--s3) 80%, var(--ink));
+  scale: 0.97;
+}
+
+a.chip.chip--selected:active,
+.chip--toggle.chip--selected:active {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 /* ── 入力の欄 ─────────────────────── */
@@ -618,8 +711,10 @@
   cursor: pointer;
 }
 
-.seg__item:hover {
-  color: var(--ink);
+@media (hover: hover) {
+  .seg__item:hover {
+    color: var(--ink);
+  }
 }
 
 .seg__item:has(.seg__input:checked) {
@@ -642,7 +737,12 @@
 }
 
 .seg__item:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
+}
+
+/* 押している間の面（選んでいない項目。選んだ項目は選択の面のまま。#136） */
+.seg__item:not(:has(.seg__input:checked), .seg__item--off):active {
+  background: var(--s3);
 }
 
 .seg__item:has(.seg__input:focus-visible) {
@@ -2325,8 +2425,10 @@
   transition: background-color var(--dur-fast) var(--ease);
 }
 
-.gsi:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--gsi-bg) 92%, var(--gsi-ink));
+@media (hover: hover) {
+  .gsi:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--gsi-bg) 92%, var(--gsi-ink));
+  }
 }
 
 .gsi:active:not(:disabled) {
@@ -2433,7 +2535,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .accountadd {
-    animation: accountadd-in 150ms var(--ease);
+    animation: accountadd-in var(--dur-fast) var(--ease);
   }
 }
 

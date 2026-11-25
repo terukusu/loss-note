@@ -651,6 +651,43 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(root.get('--lh-body')).toBe('1.5');
   });
 
+  it('#136 AC-8: 時間のトークンは 120 / 200 / 320ms の 3 つだけ。画面の CSS の有限の動きの時間はトークンか 0 だけ（ms の直書き 0 件。繰り返す読み込み中の印は除く）', () => {
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(Object.fromEntries([...root].filter(([k]) => k.startsWith('--dur-')))).toEqual({
+      '--dur-fast': '120ms',
+      '--dur-base': '200ms',
+      '--dur-sheet': '320ms',
+    });
+    const TIME = /(?<![\w-])\d*\.?\d+m?s(?![\w-])/g;
+    const bad: string[] = [];
+    let seen = 0;
+    for (const [path, raw] of Object.entries(files)) {
+      if (path === TOKENS) continue;
+      for (const b of blocks(stripComments(raw))) {
+        for (const [name, value] of decls(b.body)) {
+          if (!/^(transition|animation)(-duration|-delay)?$/.test(name)) continue;
+          seen++;
+          if (name.startsWith('animation') && /\binfinite\b/.test(value)) continue;
+          for (const m of value.match(TIME) ?? []) {
+            if (!/^0m?s$/.test(m))
+              bad.push(`${path.split('/').pop()} ${b.selector} { ${name}: ${value} }`);
+          }
+        }
+      }
+    }
+    expect(seen).toBeGreaterThan(20);
+    expect(bad).toEqual([]);
+  });
+
+  it('#136 AC-8 の自己テスト: 時間の直書きを見つけ、var() と 0s は見逃す', () => {
+    const TIME = /(?<![\w-])\d*\.?\d+m?s(?![\w-])/g;
+    expect('accountadd-in 150ms var(--ease)'.match(TIME)).toEqual(['150ms']);
+    expect('opacity var(--dur-fast) var(--ease), display 0.3s allow-discrete'.match(TIME)).toEqual([
+      '0.3s',
+    ]);
+    expect('translate var(--dur-sheet) var(--ease-sheet)'.match(TIME)).toBeNull();
+  });
+
   it('#127 9.6: 安全域は --safe-* のトークンだけが env() を受ける（部品の CSS に env() を書かない）', () => {
     const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
     for (const side of ['top', 'right', 'bottom', 'left']) {

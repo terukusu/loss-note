@@ -416,6 +416,8 @@ export async function flows(kit) {
           await deleteFromDetail(p);
           // [元に戻す] にフォーカス・ポインタがある間は取り消しの時間が止まるので、外へ出す
           await p.locator('.toast').first().waitFor();
+          // 画面の移りの動き（#136）が落ち着き、[元に戻す] へフォーカスが移った後で外す（動きの間は画面の描き直しが遅れる）
+          await settle(p);
           await p.mouse.move(1, 1);
           await p.evaluate(() => {
             if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
@@ -971,6 +973,8 @@ export async function flows(kit) {
         );
         if (opts.shots)
           await p.screenshot({ path: join(opts.shots, `${w}x${h}-dark-lm1-notplaced.png`) });
+        // 押した項目が押した手応えの 0.97 倍から戻り終えてから測る（#136。戻りは --dur-fast）
+        await settle(p);
         const m = await p.evaluate(() => {
           const row = document.querySelector('.record__lc .lcrow');
           const t = document.getElementById('record-stop-not-placed')?.getBoundingClientRect();

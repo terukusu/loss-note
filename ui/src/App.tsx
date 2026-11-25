@@ -18,6 +18,7 @@ import { hrefOf, type Route, titleOf } from './lib/routes';
 import { createSheetsHost, SheetsContext } from './lib/sheets-context';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
 import { createTradesCache, TradesCacheContext } from './lib/trades-cache';
+import type { ScreenMotion } from './lib/view-transition';
 import { Forbidden } from './pages/Forbidden';
 import { Glossary } from './pages/Glossary';
 import { Home } from './pages/Home';
@@ -38,6 +39,8 @@ export { APP_NAME } from './lib/app-name';
 
 export interface AppProps {
   readonly nav: Navigator;
+  /** 画面の移りの動き（#136。無ければ描き終わりを知らせない = テスト） */
+  readonly motion?: Pick<ScreenMotion, 'rendered'>;
   readonly session: AuthSession;
   readonly initialTheme: Theme;
   readonly storage: StorageLike | null;
@@ -157,7 +160,8 @@ export function Loading() {
 
 export function App(props: AppProps) {
   const { nav, session, initialTheme, storage, root, dev, emulator } = props;
-  const { route, search, via, mark, scroll } = useCurrent(nav);
+  const cur = useCurrent(nav);
+  const { route, search, via, mark, scroll } = cur;
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [auth, setAuth] = useState<AuthState>({ kind: 'unknown' });
   const [forbidden, setForbidden] = useState(forbiddenFlag.isSet());
@@ -351,6 +355,12 @@ export function App(props: AppProps) {
     // 積み直した段へ戻った（router が覚えていた位置を渡す。ブラウザは積み直した段の位置を正しく覚えていない。#127 N1）
     if (via === 'pop' && scroll > 0) return restoreScroll(window, scroll);
   }, [route, via, g.render, mark]);
+  // 描き終えた（見出しへのフォーカス・スクロールの位置を決めた上の効果の後）: 画面の移りの動きの新しい画面の撮影へ進める
+  // （#136。startViewTransition の callback の Promise を解く。view-transition.ts）
+  const { motion } = props;
+  useEffect(() => {
+    motion?.rendered(cur);
+  }, [cur, motion]);
 
   let body: JSX.Element;
   if (g.render === 'forbidden') {

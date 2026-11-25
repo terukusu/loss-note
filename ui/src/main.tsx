@@ -12,6 +12,7 @@ import { createInstallStore } from './lib/install-prompt';
 import { installKeyboardReveal } from './lib/keyboard-reveal';
 import { createNavigator, windowEnv } from './lib/router';
 import { applyTheme, readTheme, safeStorage } from './lib/theme';
+import { createScreenMotion, installPressFeedback, windowMotionEnv } from './lib/view-transition';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/layout.css';
@@ -40,12 +41,16 @@ const layers = createBackLayers(windowBackEnv(window));
 installBackLayers(layers);
 // キーボードで入力の欄が隠れないように寄せる（#172。ui-guidelines 9.6）
 installKeyboardReveal(window);
+// 画面の移りの動き（View Transitions）と押した手応え（#136。ui-guidelines 9.8）
+const motion = createScreenMotion(windowMotionEnv(window));
+installPressFeedback(window);
 const nav = createNavigator(
   windowEnv(window),
   { dev },
   {
     onNavigate: () => layers.reset(),
     unwind: (done) => layers.unwind(done),
+    transition: (change, update, target) => motion.run(change, update, target),
   },
 );
 const root = document.getElementById('app');
@@ -54,6 +59,7 @@ if (root) {
     <InstallContext.Provider value={install}>
       <App
         nav={nav}
+        motion={motion}
         session={session}
         initialTheme={theme}
         storage={storage}

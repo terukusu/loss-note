@@ -40,9 +40,8 @@ export const APP_INSTALL_BUTTON_LABEL = 'アプリとしてインストール';
 export const INSTALL_TEXT = {
   installed: 'インストール済み',
   done: 'インストールしました',
-  ios: '共有ボタン（□ に ↑）から「ホーム画面に追加」を選ぶと、アイコンから 1 回で開けます。',
-  other:
-    'ブラウザのメニューの「アプリをインストール」か「ホーム画面に追加」から入れると、アイコンから 1 回で開けます。',
+  ios: '共有ボタン（□ に ↑）の「ホーム画面に追加」から入れます。',
+  other: 'ブラウザのメニューの「アプリをインストール」か「ホーム画面に追加」から入れます。',
 } as const;
 
 export interface InstallView {

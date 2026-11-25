@@ -25,8 +25,16 @@ export interface AiUsageBody {
 export const NEAR_PCT = 80;
 
 export const USAGE_TITLE = 'AI の利用状況';
-export const USAGE_INTRO =
-  '決済明細の読み取りに使った回数と金額です。1 日は日本時間の 0:00 で区切ります。金額は従量課金の料金表で換算した目安で、あなたに請求されるものではありません。';
+export const USAGE_INTRO = '決済明細の読み取りの回数と金額（目安）です。';
+/** 日の区切り・金額の扱いは「i」の中（C70・#254） */
+export const USAGE_INFO = {
+  label: '金額（目安）',
+  body: [
+    '1 日は日本時間の 0:00 で区切ります。',
+    '金額は従量課金の料金表で換算した目安で、あなたに請求されるものではありません。',
+  ],
+  id: 'settings-usage-info',
+} as const;
 export const AMOUNT_LABEL = '金額（目安）';
 export const COUNT_LABEL = '回数';
 /** まとめの 1 行（「今日」の見出しのすぐ下） */

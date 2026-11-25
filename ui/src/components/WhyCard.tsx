@@ -2,8 +2,8 @@
 // - WhyCard: 見出し「何で崩れたか」（Good の切り口は「何が効いたか」）と右に「N 件のうち M 件に記入」（崩れ方は「N 件のうち崩れ M 件」）→
 //   切り替え 心理 / 崩れ方 / More / Good（Segment。URL の `&why=`）→ 順位図の表（InsightRows。心理は前の気づきの心理ごとの集計（#162）、
 //   崩れ方は判定の崩れの理由ごとの集計（#239・C68。率を出さず凡例も規律コストだけ）、More / Good は話題ごとの集計（#221）と同じ行・同じ文）
-//   → 重なりの 1 行。心理の付いた取引が無い期間は付け方の 2 行と ［取引を見る］、崩れの取引が無い期間は 1 行、Good / More の付いていない
-//   期間は前と同じ 1〜2 行
+//   → 重なりの 1 行（訳は「i」の中。#254）。心理の付いた取引が無い期間は 1 行と ［取引を見る］、崩れの取引が無い期間・Good / More の
+//   付いていない期間は 1 行
 // - NextCard: 見出し「次はこうする」→ More の自分で書いた行の最新 1 行（かぎ括弧。テキストのノード）とその取引の日 →
 //   押せる行「More の自分で書いた行を見る ›」（期間の取引 `&notes=more`）。無ければ案内の 1 行だけ
 // 色・動きは付けない（C34）
@@ -16,6 +16,9 @@ import {
   NEXT_NONE,
   NEXT_TITLE,
   type NextModel,
+  OVERLAP_INFO,
+  REASON_OVERLAP_INFO,
+  REFLECTION_OVERLAP_INFO,
   type ReasonInsight,
   type ReflectionCardModel,
   type ReflectionInsightRow,
@@ -23,6 +26,7 @@ import {
 import { WHY_KEYS, WHY_LABEL, type WhyKey } from '../lib/period';
 import type { TrailFilter } from '../lib/review-trades';
 import { Button, RowLink } from './Button';
+import { InfoTip } from './InfoTip';
 import { InsightRows } from './InsightCard';
 import { Segment } from './Segment';
 
@@ -60,6 +64,22 @@ function Notes({ lines }: { readonly lines: readonly string[] }) {
   );
 }
 
+/** 行の和が合計より多くなる注記（読み違えさせないので消さない。訳は「i」の中。C70・#254） */
+function OverlapNote({
+  text,
+  info,
+}: {
+  readonly text: string;
+  readonly info: { readonly label: string; readonly body: string; readonly id: string };
+}) {
+  return (
+    <p class="review__note">
+      {text}
+      <InfoTip label={info.label} body={info.body} id={info.id} size="sm" />
+    </p>
+  );
+}
+
 /** 心理の切り口の中身 */
 function EmotionBody({
   m,
@@ -94,7 +114,7 @@ function EmotionBody({
         attrsOf={(r) => ({ 'data-emotion': r.id })}
         hrefOf={(r) => trailHref?.({ kind: 'emotion', id: r.id })}
       />
-      {m.overlapText ? <p class="review__note">{m.overlapText}</p> : null}
+      {m.overlapText ? <OverlapNote text={m.overlapText} info={OVERLAP_INFO} /> : null}
     </>
   );
 }
@@ -120,7 +140,7 @@ function ReasonBody({
         attrsOf={(x) => ({ 'data-reason': x.kind })}
         hrefOf={(x) => trailHref?.({ kind: 'reason', id: x.kind })}
       />
-      {r.overlapText ? <p class="review__note">{r.overlapText}</p> : null}
+      {r.overlapText ? <OverlapNote text={r.overlapText} info={REASON_OVERLAP_INFO} /> : null}
     </>
   );
 }
@@ -151,7 +171,9 @@ function SideBody({
         attrsOf={(x) => ({ 'data-topic': x.key })}
         hrefOf={(x) => trailHref?.(reflectionFilterOf(card, x))}
       />
-      {card.overlapText ? <p class="review__note">{card.overlapText}</p> : null}
+      {card.overlapText ? (
+        <OverlapNote text={card.overlapText} info={REFLECTION_OVERLAP_INFO} />
+      ) : null}
     </div>
   );
 }

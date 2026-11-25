@@ -58,7 +58,6 @@ export function SettingsExportView({ back, state, onExport, onRelogin }: Setting
   return (
     <>
       <TopBar back={back ?? { label: '設定', href: '/settings' }} title={EXPORT_TEXT.title} />
-      <p class="setlead">{EXPORT_TEXT.lead}</p>
       <ul class="setlist setexport">
         {OPTIONS.map((o) => (
           <li key={o.kind} class="setlist__item setexport__option">

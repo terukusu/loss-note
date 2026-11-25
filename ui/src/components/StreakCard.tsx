@@ -6,9 +6,9 @@
 // 値は名前と値の組（dl）で読ませる。色・棒は付けない（C34）。R・% は無色の数（P3）
 import {
   COLUMN,
+  STREAK_INFO,
   STREAK_LEAD,
   STREAK_LINK,
-  STREAK_NOTE,
   STREAK_TITLE,
   type StreakModel,
 } from '../lib/insight-view';
@@ -29,6 +29,12 @@ export function StreakCard({
         <div class="review__ratehead">
           <h2 class="review__label" id="winrun-title">
             {STREAK_TITLE}
+            <InfoTip
+              label={STREAK_INFO.label}
+              body={STREAK_INFO.body}
+              id={STREAK_INFO.id}
+              size="sm"
+            />
           </h2>
           <p class="review__sub review__nowrap">{STREAK_LEAD}</p>
         </div>
@@ -91,7 +97,6 @@ export function StreakCard({
             ))}
           </dl>
         ) : null}
-        <p class="review__note">{STREAK_NOTE}</p>
       </section>
       {trailHref && s.count > 0 ? (
         <div class="review__more">

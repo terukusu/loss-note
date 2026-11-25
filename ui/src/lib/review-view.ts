@@ -26,7 +26,8 @@ export const REVIEW_EMPTY = 'この期間に決済した取引はありません
 export const REVIEW_ONLY_IMPORTS =
   'この期間の取引は取り込んだものだけです。上の切り替えで含められます';
 export const NO_CURVE = 'R が出る取引がありません';
-export const NO_GAP = '崩れなし（2 本の線は重なっています）';
+/** 見出しが「崩れなし」と言うので、ここは線が 1 本に見える理由だけ（C70・#254） */
+export const NO_GAP = '2 本の線は重なっています';
 /** 見出しの 1 行目の前の言葉（崩れで失った R が主役。#88 デザインの再レビュー 1） */
 export const HEADLINE_LEAD = {
   gap: '崩れで',

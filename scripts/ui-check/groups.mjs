@@ -865,7 +865,12 @@ export async function fxGroup(vp, unit) {
           throw new Error('なぜのカードが 1 枚でない');
         const title = ((await why.locator('.dwhy__title').textContent()) ?? '').trim();
         if (title !== 'なぜ崩れたか') throw new Error(`題 ${title}`);
-        await why.locator('.dwhy__hint', { hasText: '「何で崩れたか」に数えられます' }).waitFor();
+        // 案内は題の横の「i」の中（#254・C70）。題の下に文を置かない
+        await why
+          .locator('.dwhy__title button.info[aria-label="「なぜ崩れたか」の説明"]')
+          .waitFor();
+        if ((await why.getByText('「何で崩れたか」に数えられます').count()) !== 0)
+          throw new Error('案内の文が画面に出ている');
         const parts = await why
           .locator('h3')
           .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()));
@@ -898,7 +903,8 @@ export async function fxGroup(vp, unit) {
         await why.locator('.emotioncard a.chip', { hasText: '取り戻したい' }).waitFor();
         const title = ((await why.locator('.dwhy__title').textContent()) ?? '').trim();
         if (title !== 'なぜ崩れたか') throw new Error(`題 ${title}`);
-        if ((await why.locator('.dwhy__hint').count()) !== 0) throw new Error('案内が出ている');
+        if ((await why.locator('.dwhy__title button.info').count()) !== 0)
+          throw new Error('案内の「i」が出ている');
         const sides = await why
           .locator('.reflectioncard__sname')
           .evaluateAll((els) => els.map((e) => (e.firstChild?.textContent ?? '').trim()));
@@ -919,7 +925,8 @@ export async function fxGroup(vp, unit) {
         await why.waitFor();
         const title = ((await why.locator('.dwhy__title').textContent()) ?? '').trim();
         if (title !== 'なぜ崩れたか') throw new Error(`題 ${title}`);
-        if ((await why.locator('.dwhy__hint').count()) !== 0) throw new Error('案内が出ている');
+        if ((await why.locator('.dwhy__title button.info').count()) !== 0)
+          throw new Error('案内の「i」が出ている');
         const pv = ((await why.locator('.dwhy__preview').textContent()) ?? '').trim();
         if (pv !== '【取り込み】元の判定 C') throw new Error(`総評の添え ${pv}`);
         await why.scrollIntoViewIfNeeded();

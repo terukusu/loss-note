@@ -16,6 +16,7 @@ import {
   NEAR_TEXT,
   parseAiUsage,
   REACHED_SUMMARY,
+  USAGE_INFO,
   USAGE_INTRO,
   USAGE_LOAD_FAILED,
   usagePct,
@@ -222,8 +223,10 @@ describe('例の表 → 画面（AC-5）', () => {
 
   it('説明と注記（AC-6）: 換算の目安・請求されない・全体の 1 日の上限の値', () => {
     const v = usageView(body([3, 120_000], [5, 200_000]));
-    expect(USAGE_INTRO).toContain('従量課金の料金表で換算した目安');
-    expect(USAGE_INTRO).toContain('あなたに請求されるものではありません');
+    // 見える 1 行は「目安」まで、換算と請求の扱いは「i」の中（#254・C70）
+    expect(USAGE_INTRO).toContain('目安');
+    expect(USAGE_INFO.body.join('')).toContain('従量課金の料金表で換算した目安');
+    expect(USAGE_INFO.body.join('')).toContain('あなたに請求されるものではありません');
     expect(v.notes).toEqual([globalLimitNote('2.00 USD')]);
     expect(v.notes.join('')).not.toContain('Console');
   });

@@ -3,12 +3,14 @@
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { AiUsageCard, AiUsageView } from '../../ui/src/components/AiUsage';
+import { InfoTip } from '../../ui/src/components/InfoTip';
 import {
   type AiUsageBody,
   AMOUNT_REACHED_TEXT,
   BYPASS_TEXT,
   NEAR_SUMMARY,
   REACHED_SUMMARY,
+  USAGE_INFO,
   USAGE_INTRO,
   USAGE_LOAD_FAILED,
   usageView,
@@ -24,11 +26,19 @@ interface El {
 }
 type Node = El | string;
 
+/** 展開の途中で見た「i」の出どころ */
+const tips: Record<string, unknown>[] = [];
+
 function expand(v: unknown): Node[] {
   if (v === null || v === undefined || typeof v === 'boolean') return [];
   if (typeof v === 'string' || typeof v === 'number') return [String(v)];
   if (Array.isArray(v)) return v.flatMap(expand);
   const vn = v as VNode<Record<string, unknown>>;
+  // 「i」（#254）は出どころだけ覚えて、カードの中身（ボタン・図）の数え方に混ぜない
+  if (vn.type === (InfoTip as unknown)) {
+    tips.push(vn.props);
+    return [];
+  }
   if (typeof vn.type === 'function') {
     const fn = vn.type as (p: unknown) => unknown;
     return expand(fn(vn.props));
@@ -176,6 +186,10 @@ describe('利用状況のカード', () => {
     expect(all(tree, (e) => e.type === 'svg')).toHaveLength(0);
     expect(all(tree, (e) => cls(e) === 'usage__notes')).toHaveLength(0);
     expect(t).toContain(USAGE_INTRO);
+    // 日の区切り・換算・請求の扱いは説明の 1 行の横の「i」の中（#254・C70）
+    tips.length = 0;
+    render(readyState());
+    expect(tips.map((s) => s.id)).toEqual([USAGE_INFO.id]);
   });
 
   it('#12: 読み込めないときは決まった文言と [再読み込み]、ログインが切れたら [もう一度ログイン]（AC-7）', () => {

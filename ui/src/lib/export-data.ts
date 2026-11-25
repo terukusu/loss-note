@@ -77,16 +77,15 @@ export const EXPORT_MIME: Readonly<Record<ExportKind, string>> = {
 /** 画面の文言 */
 export const EXPORT_TEXT = {
   title: 'データの書き出し',
-  lead: '記録を手元のファイルに書き出します。書き出すのはこのアカウントの記録だけです。',
   json: {
     label: 'JSON で書き出す',
-    note: '設定・口座・銘柄・取引のすべて（心理のタグとその選択肢を含む）',
+    note: '設定・口座・銘柄・取引のすべて',
   },
   csv: {
     label: 'CSV で書き出す',
-    note: '取引を 1 行 1 件で（判定・R・損益つき。表計算ソフトで開けます）',
+    note: '取引を 1 行 1 件で（判定・R・損益つき）',
   },
-  excluded: 'チャートの画像は含まれません（形式と大きさだけを JSON に含めます）。',
+  excluded: 'チャートの画像は含みません。',
   busy: '書き出しています…',
   failed: '書き出せませんでした。通信状況を確認して、もう一度押してください。',
 } as const;

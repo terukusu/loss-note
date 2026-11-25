@@ -53,20 +53,29 @@ export const COLUMN = { rate: '計画どおり率', cost: '規律コスト' } as
 /** 平常心の行の印（比べる基準。#162 デザインレビュー 4） */
 export const BASE_MARK = '基準';
 /** 期間の取引にどの心理も付いていない（E5） */
-export const INSIGHT_NONE_LINES = [
-  'この期間の取引に心理は付いていません。',
-  '取引の詳細の「心理」から付けられます。',
-] as const;
+export const INSIGHT_NONE_LINES = ['この期間の取引に心理は付いていません'] as const;
 export const INSIGHT_NONE = INSIGHT_NONE_LINES.join('');
-/** 2 つ以上の心理が付いた取引がある期間だけ（E1・E8） */
-export const OVERLAP_NOTE =
-  '2 つ以上の心理が付いた取引は各行に数えるので、行の件数の和は合計より多くなります';
+/**
+ * 2 つ以上の心理が付いた取引がある期間だけ（E1・E8）。数字を読み違えさせないための注記なので消さず、見える文は結果だけにして
+ * 訳は「i」の中（C70・#254）
+ */
+export const OVERLAP_NOTE = '行の件数の和は合計より多くなります';
+export const OVERLAP_INFO = {
+  label: '行の件数の和',
+  body: '2 つ以上の心理が付いた取引は、当てはまる行のそれぞれに 1 件ずつ数えます。',
+  id: 'review-overlap-info',
+} as const;
 
 /** 連勝の後のカード（#185。設計書 6.1・9.4） */
 export const STREAK_TITLE = '連勝の後';
 export const STREAK_LEAD = `${WIN_STREAK_MIN} 連勝以上の直後の取引`;
 export const STREAK_NONE = `この期間に ${WIN_STREAK_MIN} 連勝の直後の取引はありません`;
-export const STREAK_NOTE = '期間の中の決済の順で数えます（期間の前の取引は見ません）';
+/** 数え方は見出しの「i」の中（C70・#254） */
+export const STREAK_INFO = {
+  label: STREAK_TITLE,
+  body: '期間の中の決済の順で数えます（期間の前の取引は見ません）。',
+  id: 'review-streak-info',
+} as const;
 export const STREAK_LINK = '連勝の後の取引を見る';
 const OVERCONFIDENT_NAME = EMOTION_TEXT.overconfident.name;
 
@@ -209,9 +218,13 @@ export interface ReasonInsight {
 }
 
 export const REASON_NONE = 'この期間に崩れの取引はありません';
-/** 2 つ以上の崩れ方がある取引がある期間だけ */
-export const REASON_OVERLAP_NOTE =
-  '2 つ以上の崩れ方がある取引は各行に数えるので、行の件数の和と失った R の和は、合計より大きくなります';
+/** 2 つ以上の崩れ方がある取引がある期間だけ（訳は「i」の中。C70・#254） */
+export const REASON_OVERLAP_NOTE = '行の件数と失った R の和は合計より大きくなります';
+export const REASON_OVERLAP_INFO = {
+  label: '行の和',
+  body: '2 つ以上の崩れ方がある取引は、当てはまる行のそれぞれに数えます。',
+  id: 'review-reason-overlap-info',
+} as const;
 
 export interface InsightModel {
   /** 集計の対象が 0 件（行も見出しも出さない） */
@@ -531,13 +544,14 @@ export const NOTES_ROW_NAME = '自分で書いた行';
 /** Good / More のカードの列の見出し（心理のカードの「心理」にあたる） */
 export const REFLECTION_COLUMN = '話題';
 /** 期間の取引のどれにも Good / More が無い（両側とも。カードは 1 枚にまとめる。#221 の E5） */
-export const REFLECTION_NONE_LINES = [
-  'この期間の取引に Good / More は付いていません。',
-  '取引の詳細の「Good / More」から付けられます。',
-] as const;
-/** 2 つ以上の行（話題 + 自分で書いた行）に入る取引がある側だけ */
-export const REFLECTION_OVERLAP_NOTE =
-  '2 つ以上の行に入る取引は各行に数えるので、行の件数の和は合計より多くなります';
+export const REFLECTION_NONE_LINES = ['この期間の取引に Good / More は付いていません'] as const;
+/** 2 つ以上の行（話題 + 自分で書いた行）に入る取引がある側だけ（訳は「i」の中。C70・#254） */
+export const REFLECTION_OVERLAP_NOTE = OVERLAP_NOTE;
+export const REFLECTION_OVERLAP_INFO = {
+  label: '行の件数の和',
+  body: '2 つ以上の行（話題・自分で書いた行）に入る取引は、それぞれの行に 1 件ずつ数えます。',
+  id: 'review-reflection-overlap-info',
+} as const;
 
 /** Good / More のカードの題（「More の話題ごとの規律」） */
 export function reflectionCardTitle(side: ReflectionSide): string {

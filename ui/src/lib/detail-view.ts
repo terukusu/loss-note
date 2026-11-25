@@ -82,8 +82,10 @@ export const WHY_TITLE: Readonly<Record<Tier, string>> = {
   neutral: '心理と振り返り',
 };
 
-/** 崩れ・極悪の取引で心理も Good / More も無いときだけ、題の下に出す 1 行（残すと何に効くか） */
+/** 崩れ・極悪の取引で心理も Good / More も無いときだけ、題の横の「i」の中に置く文（残すと何に効くか。C70・#254） */
 export const WHY_HINT = '心理と More を残すと、振り返りの「何で崩れたか」に数えられます。';
+/** その「i」の説明のシートの ID */
+export const WHY_INFO_ID = 'detail-why-info';
 
 /** 「なぜ」のカードの見出しの id */
 export const WHY_TITLE_ID = 'detail-why-title';
@@ -93,7 +95,7 @@ export interface WhyCardModel {
   readonly title: string;
   /** Good / More の段を More → Good の順にする（崩れ・極悪。C59） */
   readonly moreFirst: boolean;
-  /** 題の下の 1 行（null = 出さない） */
+  /** 題の横の「i」の中の文（null = 「i」を出さない） */
   readonly hint: string | null;
   /** 総評の行の添え（総評の先頭の 1 行。総評が無ければ null = 行を出さない） */
   readonly comment: { readonly preview: string } | null;

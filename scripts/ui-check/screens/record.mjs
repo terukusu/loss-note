@@ -1749,6 +1749,9 @@ export async function flows(kit) {
         return {
           size: cs.fontSize,
           family: cs.fontFamily,
+          numFont:
+            [...document.fonts].find((f) => f.family.replace(/"/g, '') === 'Inter Num')?.status ??
+            'none',
           text: document.querySelector('.verdict .numu--hero')?.textContent ?? '',
           unit: unit ? getComputedStyle(unit).fontSize : '',
           rows: rows.map((e) => `${e.textContent} ${getComputedStyle(e).fontSize}`),
@@ -1764,6 +1767,10 @@ export async function flows(kit) {
       // 判定の枠の R は数字の段 hero（40px）+ 単位 20px、リスク・損益は row（20px・単位も同じ塊）（#236・C62。それまでは 44px・
       // リスクと損益は 17px）
       expectEq(m.size, '40px', '大きな R の文字の大きさ');
+      // 同梱の数字の書体（#237 AC-6）: 書体の並びの先頭が数字の書体で、読み込み済み（swap の代わりの端末の書体のままでない）
+      if (!m.family.startsWith('"Inter Num"'))
+        throw new Error(`大きな R の書体の先頭が数字の書体でない ${m.family}`);
+      expectEq(m.numFont, 'loaded', '数字の書体の読み込み');
       expectEq(m.unit, '20px', '大きな R の単位の大きさ');
       if (/mono/i.test(m.family)) throw new Error(`大きな R の書体が等幅 ${m.family}`);
       expectEq(m.text, '−1.6R', 'R の文字（負の符号は U+2212）');
@@ -1799,7 +1806,7 @@ export async function flows(kit) {
       });
       expectEq(long.overflow, 0, '長い額の判定のシートの横スクロール');
       if (!long.inside) throw new Error('長い額の数の段がシートの右端からはみ出す');
-      return `下の帯の R 28/14px・1 行 ${bar.lineH}px（上限 ${bar.limit}px）、判定 B の R は 40/20px・本文の書体（${m.family.split(',')[0]}）、リスク・損益 20px、R・リスク・損益のラベルの上端の差 ${spread.toFixed(1)}px、長い額 −1,234,567円 は ${long.rows === 1 ? '1 行' : `${long.rows} 段に折り返し`}・横 0`;
+      return `下の帯の R 28/14px・1 行 ${bar.lineH}px（上限 ${bar.limit}px）、判定 B の R は 40/20px・数字の書体（${m.numFont}・${m.family.split(',')[0]}）、リスク・損益 20px、R・リスク・損益のラベルの上端の差 ${spread.toFixed(1)}px、長い額 −1,234,567円 は ${long.rows === 1 ? '1 行' : `${long.rows} 段に折り返し`}・横 0`;
     } finally {
       await c.close();
     }

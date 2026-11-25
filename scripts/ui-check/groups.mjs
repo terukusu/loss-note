@@ -8,6 +8,7 @@ import {
   opts,
   PAGES,
   pad,
+  settle,
   TAP,
   waitReady,
 } from './base.mjs';
@@ -139,6 +140,10 @@ export async function toastGroup(vp) {
       await deleteFromDetail(tp);
       await waitReady(tp, '取引');
       await tp.locator('.toast').waitFor({ timeout: 5000 });
+      // [削除] を押した位置にポインターが残ると、幅の広い形（hover のある端末）では移った一覧の行に hover の面が出て
+      // 枠に数えられる（押した位置と行の位置しだいで外れる揺れ）。ほかの状態と同じくポインターを外し、落ち着いてから測る（#237）
+      await tp.mouse.move(0, 0);
+      await settle(tp);
       const m = await measure(tp, w === 360, TAP);
       T.states++;
       T.worstH = Math.max(T.worstH, m.h);

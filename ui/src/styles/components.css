@@ -416,8 +416,8 @@
   border: 0;
   background: transparent;
   color: var(--ink);
-  /* 数字は本文の書体の桁の揃う数字（等幅の書体にしない。Issue #33 AC-7） */
-  font-family: var(--font);
+  /* 数字は数字の書体（同梱。#237）の桁の揃う数字（等幅の書体にしない。Issue #33 AC-7） */
+  font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
   font-size: var(--fs-lg);
 }
@@ -799,7 +799,8 @@
 
 /* ── 数字（色を持たない。本文の文字の色を継ぐ。AC-5） ── */
 .num {
-  /* 本文の書体の桁の揃う数字（等幅の書体にしない。Issue #33 AC-7） */
+  /* 数字の書体（同梱。#237・C63）の桁の揃う数字（等幅の書体にしない。Issue #33 AC-7） */
+  font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
   letter-spacing: -0.01em;
@@ -842,6 +843,8 @@
 
 .num-unit {
   margin-inline-start: 0.08em;
+  /* R・%・通貨の 3 文字は数字の書体、円は本文の書体（文字ごとの代替。#237） */
+  font-family: var(--font-num);
   font-weight: var(--fw-medium);
   letter-spacing: 0;
   color: var(--ink-2);

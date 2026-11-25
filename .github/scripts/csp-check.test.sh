@@ -11,13 +11,14 @@ trap 'rm -rf "$work"' EXIT
 clean='<!doctype html><html><head><script type="module" src="/assets/a.js"></script></head><body><div id="app"></div></body></html>'
 fail=0
 
-# 名前 HTML（assets/ に置く中身があれば 3 つ目）
+# 名前 HTML（assets/ に置く JS の中身があれば 3 つ目、CSS の中身があれば 4 つ目）
 expect_reject() {
-  local name="$1" html="$2" asset="${3:-}"
+  local name="$1" html="$2" asset="${3:-}" css="${4:-}"
   local d="$work/$name"
   mkdir -p "$d/assets"
   printf '%s\n' "$html" > "$d/index.html"
   if [ -n "$asset" ]; then printf '%s\n' "$asset" > "$d/assets/a.js"; fi
+  if [ -n "$css" ]; then printf '%s\n' "$css" > "$d/assets/a.css"; fi
   if "$check" "$d/index.html" >/dev/null 2>&1; then
     echo "NG: $name を拒否しなかった"
     fail=1
@@ -43,11 +44,17 @@ expect_reject event-handler-upper '<!doctype html><html><body><body ONLOAD="aler
 # 鍵の形は架空の本体を組み立てて作る（このファイルに鍵の形の文字列を直接書かない）
 fake_key="s""k-ant-api03-$(printf 'x%.0s' $(seq 1 24))"
 expect_reject key-in-assets "$clean" "const k = '$fake_key';"
+# assets の CSS の url() は同じオリジンのファイルだけ（#237。書体が data: に埋め込まれると本番の CSP で読めない）
+expect_reject css-data-font "$clean" "" '@font-face{font-family:"X";src:url(data:font/woff2;base64,d09GMg==) format("woff2")}'
+expect_reject css-data-font-quoted "$clean" "" "@font-face{src:url( 'DATA:font/woff2;base64,AA==')}"
+expect_reject css-external-font "$clean" "" '@font-face{src:url("https://fonts.example/x.woff2")}'
+expect_reject css-protocol-relative "$clean" "" '@font-face{src:url(//fonts.example/x.woff2)}'
 
 d="$work/clean"
 mkdir -p "$d/assets"
 printf '%s\n' "$clean" > "$d/index.html"
 printf '%s\n' "console.log(1);" > "$d/assets/a.js"
+printf '%s\n' '@font-face{font-family:"Inter Num";src:url(/assets/inter-num-0000.woff2) format("woff2")}' > "$d/assets/a.css"
 if "$check" "$d/index.html" >/dev/null 2>&1; then
   echo "ok: clean を受け入れた"
 else

@@ -104,8 +104,8 @@ check() {  # パス 期待の状態 名前（ヘッダは $work/<名前>.h、本
   local csp
   csp=$(grep -i '^content-security-policy:' "$work/$3.h" | sed 's/^[^:]*:[[:space:]]*//' | tr -d '\r' | tr ';' '\n' | sed 's/^ *//; s/ *$//')
   local n
-  n=$(printf '%s\n' "$csp" | grep -cxE "default-src 'none'|script-src 'self'|style-src 'self'|img-src 'self'|connect-src 'self'|manifest-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'" || true)
-  [ "$n" = 9 ] || fail "$1 の CSP に R3 の 8 つと manifest-src（#77）の指示が揃っていない（${n} 個）"
+  n=$(printf '%s\n' "$csp" | grep -cxE "default-src 'none'|script-src 'self'|style-src 'self'|img-src 'self'|font-src 'self'|connect-src 'self'|manifest-src 'self'|base-uri 'none'|form-action 'none'|frame-ancestors 'none'" || true)
+  [ "$n" = 10 ] || fail "$1 の CSP に R3 の 8 つと manifest-src（#77）・font-src（#237）の指示が揃っていない（${n} 個）"
   # サービスワーカーは置かない（#77・ADR-0018）: worker-src を足さない
   if printf '%s\n' "$csp" | grep -qiE '^worker-src'; then fail "$1 の CSP に worker-src がある"; fi
   grep -qixE 'x-content-type-options: nosniff' <(tr -d '\r' < "$work/$3.h") || fail "$1 に nosniff が無い"
@@ -137,6 +137,17 @@ case "$(header asset content-type)" in
   text/javascript* | application/javascript*) ;;
   *) fail "${asset} の Content-Type が JS でない" ;;
 esac
+# 同梱の数字の書体（#237・ADR-0026）: CSS が指す名前にハッシュの付いた woff2 が 200・font/woff2・immutable で返る
+font=$(grep -ohE '/assets/inter-num-[A-Za-z0-9_-]+\.woff2' "$work"/static/assets/*.css | head -n 1 || true)
+[ -n "$font" ] || fail "assets の CSS が同梱の数字の書体（/assets/inter-num-*.woff2）を指していない"
+check "$font" 200 font
+case "$(header font cache-control)" in
+  *immutable*) ;;
+  *) fail "${font} の Cache-Control に immutable が無い" ;;
+esac
+[ "$(header font content-type)" = "font/woff2" ] || fail "${font} の Content-Type が font/woff2 でない"
+cmp -s "$work/font.body" "$work/static${font}" || fail "${font} が同梱のファイルと違う"
+echo "ok: 数字の書体 ${font}（font/woff2・immutable）"
 check /assets/missing-0000.js 404 missing
 # 直下のアイコン（#52）: /favicon.ico は index.html でなく同梱のアイコン
 check /favicon.ico 200 favicon

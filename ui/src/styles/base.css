@@ -1,4 +1,19 @@
 /* 要素の既定・フォーカスの輪・動きを減らす設定（色は tokens.css のトークンだけ） */
+
+/* 数字の書体（#237・設計書 C63・ADR-0026）: Inter 4.1（SIL OFL 1.1。全文は同じ置き場の LICENSE-OFL.txt）を数字・符号・
+   英大文字だけに切り出した可変の書体（太さ 400〜700・opsz 14〜32）。使うのは数字の部品（--font-num）だけで、入っていない
+   文字（円・日本語）は文字ごとに続きの端末の書体で出る。読み込みの間と読み込めないときは今の書体（swap）。
+   CSS で外のものを読む指定はこの 1 か所だけ（同じオリジンの同梱のファイル。本番の CSP の font-src 'self'） */
+@font-face {
+  font-family: "Inter Num";
+  src: url("../assets/fonts/inter-num.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range:
+    U+0020, U+0025, U+002B-002F, U+0030-003A, U+0041-005A, U+00B1, U+00B7, U+00D7, U+2013-2014,
+    U+2026, U+2192, U+2212;
+}
 *,
 *::before,
 *::after {

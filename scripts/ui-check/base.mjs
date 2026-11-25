@@ -282,6 +282,7 @@ export function freePort() {
 /** 横スクロール（px）と、幅 360 のときは 44×44 未満の押せるもの */
 /** slack = 部品の中の文字のはみ出しの許し（px。小数の丸めの分。文字の拡大では倍率の分だけ広げる） */
 export async function measure(page, withTargets, tap, slack = 1) {
+  await fontsReady(page);
   return page
     .evaluate(
       ({ withTargets, tap, slack }) => {
@@ -593,6 +594,7 @@ export const RECORD_DUP = new Set();
  * 文字が切る祖先の左右の外に出る（「…」で省く作りを除く）のも、文字の切れとして重なりに数える
  */
 export async function measureZoom(page, minFont) {
+  await fontsReady(page);
   return page.evaluate((minFont) => {
     const unscaled = [];
     const overlap = [];
@@ -849,6 +851,21 @@ export async function expectPoll(cond, what) {
 /** 例の表の V1〜V6・S1・T2〜T4・L1〜L7 を実ブラウザで流す。[ID, ok, 詳細] の列を返す */
 
 /**
+ * 書体の読み込みが終わるまで待つ（同梱の数字の書体は swap なので、読み込みの前後で数字の幅・行の高さが変わりうる。
+ * 測る前に待って、検査を読み込みの揺れで不安定にしない。#237）。上限 limit ms を過ぎたらそのまま返す
+ */
+export async function fontsReady(page, limit = 5000) {
+  await page.evaluate(
+    (max) =>
+      Promise.race([
+        document.fonts.ready.then(() => undefined),
+        new Promise((ok) => setTimeout(ok, max)),
+      ]),
+    limit,
+  );
+}
+
+/**
  * 動きとスクロールが落ち着くまで待つ（決まった時間の待ちの代わり。#226）。走っている有限の動き（CSS の transition・
  * animation・Web Animations。繰り返し続ける読み込み中の印は除く）が無く、スクロールの位置・窓と見える範囲の大きさが
  * 3 フレーム続けて同じになったら返す。上限 limit ms を過ぎたらそのまま返す（ここでは外れにしない。続く確かめが外れを出す）。
@@ -856,6 +873,7 @@ export async function expectPoll(cond, what) {
  * 何かが起きないことを見る待ち（要求が増えない・取り消しの時間）や、アプリが時計で動く所（キーボードの寄せ直し）には使わない
  */
 export async function settle(page, limit = 2000) {
+  await fontsReady(page);
   await page.evaluate(async (max) => {
     const t0 = performance.now();
     let last = '';

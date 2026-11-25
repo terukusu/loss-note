@@ -3,6 +3,7 @@
 // core に種類が増えたら型検査で落ちる（網羅の強制）。LC を不利な側へ動かしたことは L / S で同じ「広げた」と言う
 // （価格の向きは広げた後の LC の入力の誤りの知らせだけ。#56）
 import type { Reason, ReasonKind } from '../../../core/judge';
+import type { BreachKind } from '../../../core/review';
 import type { Side, Timeframe } from '../../../core/trade';
 import { formatPct, formatPrice, formatR } from './format';
 
@@ -70,3 +71,18 @@ export function reasonText(
   const fn = TEXT[reason.kind] as (r: Reason, s: Side) => string;
   return fn(reason, side);
 }
+
+/**
+ * 崩れ方の名前（振り返りの「何で崩れたか」の崩れ方の行・期間の取引の題。#239・C68）。値（LC の前後・R・%）を付けない短い形で、
+ * 1 件ずつの理由の文言（reasonText）の頭と同じ言葉
+ */
+export const BREACH_NAME: Readonly<Record<BreachKind, string>> = {
+  noLc: 'LC を決めずに入った',
+  lcCancelled: '持っている間に逆指値を取消',
+  lcWidened: 'LC を広げた',
+  timeframeLonger: '時間足を変えた',
+  heldPastLc: 'LC で切らずに持ち続けた',
+  overRisk: '過剰リスク',
+  amountBasedLc: '金額ありきの LC',
+  averagingDown: 'ナンピン',
+};

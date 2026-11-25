@@ -5,6 +5,8 @@
 // 成績は R だけ・色は付けない（C34。行に棒も置かない）
 // 連勝の後のカード（#185）も同じ対象・同じ文の規則で、連勝の後の取引の部分集合を数える（core の reviewAfterWinStreak）
 // Good / More のカード（#221）も同じ対象・同じ行の文の規則で、話題ごとの部分集合を数える（core の reviewByReflection）
+// 崩れ方（#239・C68）も同じ対象・同じ行の文の規則で、判定の崩れの理由ごとの部分集合を数える（core の reviewByReason）。
+// 行の取引はすべて崩れで計画どおり率がいつも 0% なので、率と分数は出さない（件数と規律コストだけ）
 import { CALM, type EmotionTagId, normalizeEmotions } from '../../../core/emotion-tags';
 import type { StoredTrade } from '../../../core/record';
 import {
@@ -13,6 +15,7 @@ import {
   type ReflectionSide,
 } from '../../../core/reflection';
 import {
+  type BreachKind,
   MIN_JUDGED_FOR_RATE,
   type PeriodReview,
   REFLECTION_NOTES,
@@ -20,15 +23,18 @@ import {
   type ReviewItem,
   reviewAfterWinStreak,
   reviewByEmotion,
+  reviewByReason,
   reviewByReflection,
   WIN_STREAK_MIN,
 } from '../../../core/review';
 import { EMOTION_TEXT } from './emotion-tags';
 import { formatDay, formatR, formatRate } from './format';
 import { inRange, type PeriodRange } from './period';
+import { BREACH_NAME } from './reasons';
 import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
 import {
+  breachItemOf,
   HEADLINE_LEAD,
   NO_CURVE,
   REVIEW_EMPTY,
@@ -182,6 +188,31 @@ export interface ReflectionInsight {
   readonly cards: readonly ReflectionCardModel[];
 }
 
+/** 崩れ方の 1 行（#239。kind = 崩れの理由の種類） */
+export interface ReasonInsightRow extends InsightRowText {
+  readonly kind: BreachKind;
+}
+
+/** 崩れ方の切り口（#239・C68） */
+export interface ReasonInsight {
+  /** 「11 件のうち崩れ 7 件」 */
+  readonly headText: string;
+  /** 崩れの取引が無い期間の 1 行（行があれば null） */
+  readonly noneText: string | null;
+  readonly overlapText: string | null;
+  /** すべての行（件数の多い順 → 5.3 の表の順） */
+  readonly rows: readonly ReasonInsightRow[];
+  /** 値を出す行（判定の出た取引 = 行の件数が 5 件以上） */
+  readonly main: readonly ReasonInsightRow[];
+  /** 件数が少ない行 */
+  readonly few: readonly ReasonInsightRow[];
+}
+
+export const REASON_NONE = 'この期間に崩れの取引はありません';
+/** 2 つ以上の崩れ方がある取引がある期間だけ */
+export const REASON_OVERLAP_NOTE =
+  '2 つ以上の崩れ方がある取引は各行に数えるので、行の件数の和と失った R の和は、合計より大きくなります';
+
 export interface InsightModel {
   /** 集計の対象が 0 件（行も見出しも出さない） */
   readonly empty: boolean;
@@ -202,6 +233,8 @@ export interface InsightModel {
   readonly reflection?: ReflectionInsight | null;
   /** 次はこうする（#228。More の自分で書いた行の最新 1 行。対象が 0 件なら null。省いた組み立ては段を出さない） */
   readonly next?: NextModel | null;
+  /** 崩れ方（#239。対象が 0 件なら null。省いた組み立ては切り口の中身を出さない） */
+  readonly reason?: ReasonInsight | null;
 }
 
 /** 「次はこうする」の段（#228。設計書 9.2・C60） */
@@ -303,6 +336,26 @@ export function summaryOf(v: PeriodReview): string {
   const cost = costOf(v);
   const costText = cost ? [cost.lead, cost.value].filter(Boolean).join(' ') : '';
   return `${countText} · ${formatRate(v.rate)}（${v.planned} / ${v.judged}）· ${costText}`;
+}
+
+/** 崩れ方の絞り方の要約（#239。崩れ方の行と同じ: 率を出さない。「5 件 · 崩れで −3.8R」「1 件 · 件数が少ない」） */
+export function reasonSummaryOf(v: PeriodReview): string {
+  const countText = `${v.total} 件`;
+  return v.rate === null ? `${countText} · ${FEW}` : `${countText} · ${costTextOf(v)}`;
+}
+
+/** 崩れ方の絞り方の名前つきの要約（#239）: ["5 件", "規律コスト 崩れで −3.8R"] / ["1 件", "規律コスト あと 4 件で表示"] */
+export function reasonLabeledSummaryOf(v: PeriodReview): string[] {
+  const countText = `${v.total} 件`;
+  return v.rate === null
+    ? [countText, `${COLUMN.cost} ${restOf(v.judged)}で表示`]
+    : [countText, `${COLUMN.cost} ${costTextOf(v)}`];
+}
+
+/** 規律コストの文（「崩れで −1.8R」「崩れなし ±0.0R」「R で測れる崩れ ±0.0R」「R が出る取引がありません」） */
+function costTextOf(v: PeriodReview): string {
+  const cost = costOf(v);
+  return cost ? [cost.lead, cost.value].filter(Boolean).join(' ') : '';
 }
 
 /**
@@ -436,6 +489,39 @@ function rowTextOf(name: string, v: PeriodReview, base: boolean): InsightRowText
   };
 }
 
+/**
+ * 崩れ方の行の文（#239）: 心理の行（rowTextOf）と同じ件数が少ない行の規則・規律コストの言い方で、計画どおり率と分数を出さない
+ * （行の取引はすべて崩れで、率はいつも 0%）
+ */
+export function reasonRowTextOf(name: string, v: PeriodReview): InsightRowText {
+  const row = rowTextOf(name, v, false);
+  if (row.few) return row;
+  const costText = costTextOf(v);
+  return {
+    ...row,
+    rateText: null,
+    fractionText: null,
+    text: `${name} ${row.countText} · ${costText}`,
+    srText: `${name} ${row.countText}、${COLUMN.cost} ${costText}`,
+  };
+}
+
+function reasonOf(items: readonly ReviewItem[], includeImports: boolean): ReasonInsight {
+  const v = reviewByReason(items, { includeImports });
+  const rows = v.rows.map((r) => ({
+    kind: r.kind,
+    ...reasonRowTextOf(BREACH_NAME[r.kind], r.review),
+  }));
+  return {
+    headText: `${v.total} 件のうち崩れ ${v.breached} 件`,
+    noneText: rows.length === 0 ? REASON_NONE : null,
+    overlapText: v.overlap ? REASON_OVERLAP_NOTE : null,
+    rows,
+    main: rows.filter((r) => !r.few),
+    few: rows.filter((r) => r.few),
+  };
+}
+
 function rowOf(id: EmotionTagId, v: PeriodReview): InsightRow {
   return { id, ...rowTextOf(EMOTION_TEXT[id].name, v, id === CALM) };
 }
@@ -505,11 +591,14 @@ export function emotionItemOf(t: StoredTrade): ReviewItem {
 }
 
 /**
- * 保存した取引 → 気づきの集計の 1 件（心理のタグ + Good / More。#221）。Good / More は normalizeReflection を通し、両側とも空なら
+ * 保存した取引 → 気づきの集計の 1 件（判定の崩れの理由の種類（#239）+ 心理のタグ + Good / More。#221）。Good / More は normalizeReflection を通し、両側とも空なら
  * 足さない（規律の集計の 1 件は変えない）
  */
 export function insightItemOf(t: StoredTrade): ReviewItem {
-  const item = emotionItemOf(t);
+  // 判定の崩れの理由の種類（#239）+ 心理のタグ（emotionItemOf と同じ）
+  const emotions = normalizeEmotions(t.emotionTags);
+  const breach = breachItemOf(t);
+  const item = emotions.length > 0 ? { ...breach, emotions } : breach;
   if (t.reflection === undefined) return item;
   const reflection = normalizeReflection(t.reflection);
   return isEmptyReflection(reflection) ? item : { ...item, reflection };
@@ -557,6 +646,7 @@ export function insightModel(
       streak: null,
       reflection: null,
       next: null,
+      reason: null,
     };
   }
   const rows = v.rows.map((r) => rowOf(r.id, r.review));
@@ -571,6 +661,7 @@ export function insightModel(
     streak: streakOf(items, opts.includeImports),
     reflection: reflectionOf(items, opts.includeImports),
     next: nextOf(items, { includeImports: opts.includeImports, now: opts.now }),
+    reason: reasonOf(items, opts.includeImports),
   };
 }
 

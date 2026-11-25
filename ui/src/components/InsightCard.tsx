@@ -103,6 +103,8 @@ export function InsightRows<R extends InsightRowText>(p: {
   readonly keyOf: (r: R) => string;
   readonly attrsOf: (r: R) => RowAttrs;
   readonly hrefOf: (r: R) => string | undefined;
+  /** 凡例に計画どおり率を出すか（既定 true。崩れ方の行は率を出さないので false。#239） */
+  readonly rate?: boolean;
 }) {
   const fewId = `${p.idPrefix}-few`;
   const ranked = rankRows(p.main);
@@ -115,10 +117,12 @@ export function InsightRows<R extends InsightRowText>(p: {
               棒の長さは{COLUMN.cost}
               <InfoTip term="disciplineCost" size="sm" />
             </span>
-            <span class="insight__keyitem">
-              率は{COLUMN.rate}
-              <InfoTip term="planRate" size="sm" />
-            </span>
+            {p.rate === false ? null : (
+              <span class="insight__keyitem">
+                率は{COLUMN.rate}
+                <InfoTip term="planRate" size="sm" />
+              </span>
+            )}
           </p>
           <ul class="insight__rows">
             {ranked.map(({ row, ratio }) => (

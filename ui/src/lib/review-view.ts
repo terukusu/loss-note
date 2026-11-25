@@ -5,6 +5,7 @@
 // 落とす。成績は R だけ（円を出さない。6.3）。R・% は無色（P3）
 import type { InstrumentRecord, StoredTrade } from '../../../core/record';
 import {
+  breachKindsOf,
   type CurvePoint,
   GRADE_KEYS,
   type GradeKey,
@@ -38,7 +39,21 @@ export const ROWS_CAPTION = '取引ごとの R と累積（決済の古い順）
 
 /** 保存した取引 → 集計の 1 件（一覧と同じ判定の計算） */
 export function reviewItemOf(t: StoredTrade): ReviewItem {
+  return itemOf(t, summarize(t));
+}
+
+/**
+ * 保存した取引 → 集計の 1 件 + 判定の崩れの理由の種類（振り返りの「何で崩れたか」の崩れ方。#239・C68）。規律の 1 件
+ * reviewItemOf の値は変えない（理由で規律が変わらない）。崩れの理由が無ければ足さない
+ */
+export function breachItemOf(t: StoredTrade): ReviewItem {
   const s = summarize(t);
+  const item = itemOf(t, s);
+  const reasons = breachKindsOf(s.judgment?.reasons ?? []);
+  return reasons.length > 0 ? { ...item, reasons } : item;
+}
+
+function itemOf(t: StoredTrade, s: ReturnType<typeof summarize>): ReviewItem {
   return {
     id: t.id,
     exitTime: t.record.exit.time,

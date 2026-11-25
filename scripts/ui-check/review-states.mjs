@@ -8,6 +8,7 @@ import {
   REVIEW_MANY,
   REVIEW_NOGAP,
   REVIEW_OLD,
+  REVIEW_REASON,
   REVIEW_REFLECT,
   REVIEW_S1,
   REVIEW_S2,
@@ -162,6 +163,8 @@ export function reviewStates(recApi) {
     ['/review?period=7d', REVIEW_REFLECT, '.why .insight__row', 'review-insight-reflection'],
     ['/review?period=7d&why=more', REVIEW_REFLECT, '.why .insight__row', 'review-insight-more'],
     ['/review?period=7d&why=good', REVIEW_REFLECT, '.why .insight__row', 'review-insight-good'],
+    // 崩れ方の切り口（#239・C68）: 判定の崩れの理由ごとの順位図（値の出る行・件数が少ない行・重なり）。終了条件 3 の長さも測る
+    ['/review?period=7d&why=reason', REVIEW_REASON, '.why .insight__row', 'review-insight-reason'],
     [
       '/review?period=7d&view=insight',
       REVIEW_REFLECT,
@@ -173,6 +176,13 @@ export function reviewStates(recApi) {
     ['/review/trades?period=7d&notes=more', REVIEW_REFLECT, '.traderow', 'review-trades-notes'],
     // 期間の取引（#228）: 振り返りの「崩れの取引を見る ›」から
     ['/review/trades?period=7d&tier=off', REVIEW_INSIGHT, '.traderow', 'review-trades-off'],
+    // 期間の取引（#239）: 崩れ方の行から
+    [
+      '/review/trades?period=7d&reason=lcWidened',
+      REVIEW_REASON,
+      '.traderow',
+      'review-trades-reason',
+    ],
     // 期間の取引（#185）: 心理の行から・連勝の後から・知らない心理
     ['/review/trades?period=7d&emotion=recoup', REVIEW_INSIGHT, '.traderow', 'review-trades'],
     [

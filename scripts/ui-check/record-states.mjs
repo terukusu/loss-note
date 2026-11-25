@@ -91,6 +91,7 @@ export const RECORD_STATES = [
     },
   },
   {
+    // 候補は既定の巡り（偽の取引に心理が無い。#230 の例 #2 = 平常心・怖い・儲けたい・取り戻したい）
     slug: 'record-6b-saved-emotion',
     name: '保存の後・心理 3 つ',
     noBar: true,
@@ -100,7 +101,7 @@ export const RECORD_STATES = [
       await p.locator('button[type="submit"]').click();
       const sheet = p.locator('#record-emotion-sheet[open]');
       await sheet.waitFor();
-      for (const name of ['ポジりたい', '調子に乗った', '取り戻したい']) {
+      for (const name of ['怖い', '儲けたい', '取り戻したい']) {
         // 選ぶ前後でチップの外寸が同じ（✓ の分だけ幅が増えて後ろのチップが動かない。#156 のデザインレビュー 2）
         const chip = sheet.getByRole('button', { name, exact: true });
         const before = await chip.boundingBox();
@@ -113,6 +114,22 @@ export const RECORD_STATES = [
           throw new Error(`${name}: 選ぶと幅が ${before.width}px → ${after.width}px`);
       }
       await sheet.locator('.emotions__actions button', { hasText: '完了' }).waitFor();
+    },
+  },
+  {
+    // ［ほかの心理（17）］ を押して残りを候補の下に出した（#230 R5。シートの中がスクロールし、下の帯が貼り付く）
+    slug: 'record-6d-saved-more',
+    name: '保存の後・ほかの心理',
+    noBar: true,
+    anchor: '#record-emotion-sheet',
+    fn: async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      const sheet = p.locator('#record-emotion-sheet[open]');
+      await sheet.waitFor();
+      await sheet.getByRole('button', { name: 'ほかの心理（17）' }).click();
+      await sheet.getByRole('button', { name: '値ごろ感', exact: true }).waitFor();
+      await settle(p);
     },
   },
   {

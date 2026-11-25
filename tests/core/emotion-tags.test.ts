@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CALM,
+  countEmotions,
   EMOTION_GROUP_OF,
   EMOTION_GROUPS,
   EMOTION_TAG_IDS,
@@ -147,6 +148,46 @@ describe('normalizeHidden・toggleHidden（#163 の R2・R7）', () => {
         expect(once).not.toContain(CALM);
         expect(sorted(order(once))).toBe(true);
         expect(toggleHidden(once, id)).toEqual(hidden);
+      },
+    );
+  });
+});
+
+describe('countEmotions（#230 R2）', () => {
+  it('取引ごとに付いた数を数える。同じ取引の重複は 1・知らない値と形の違う値は捨てる・0 件のタグは入らない', () => {
+    const counts = countEmotions([
+      { emotionTags: ['recoup', 'fear'] },
+      { emotionTags: ['recoup', 'recoup', 'zzz'] },
+      { emotionTags: 'recoup' },
+      {},
+      { emotionTags: ['calm'] },
+    ]);
+    expect([...counts.entries()].sort()).toEqual(
+      [
+        ['calm', 1],
+        ['fear', 1],
+        ['recoup', 2],
+      ].sort(),
+    );
+    expect(countEmotions([]).size).toBe(0);
+  });
+
+  it('性質: 数の合計 = 取引ごとの集合の大きさの合計、どの数も取引の数以下', () => {
+    forAll(
+      230,
+      300,
+      (r: Rng) =>
+        Array.from({ length: r.int(0, 30) }, () => ({
+          emotionTags: Array.from({ length: r.int(0, 5) }, () => r.pick([...EMOTION_TAG_IDS])),
+        })),
+      (trades) => {
+        const counts = countEmotions(trades);
+        const total = [...counts.values()].reduce((a, b) => a + b, 0);
+        expect(total).toBe(trades.reduce((a, t) => a + normalizeEmotions(t.emotionTags).length, 0));
+        for (const v of counts.values()) {
+          expect(v).toBeGreaterThan(0);
+          expect(v).toBeLessThanOrEqual(trades.length);
+        }
       },
     );
   });

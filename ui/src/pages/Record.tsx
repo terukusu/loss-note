@@ -31,7 +31,7 @@ import { SheetBar } from '../components/AppBar';
 import { Button, RowLink } from '../components/Button';
 import { addExtraId, chartBoxId as boxId, ChartPanel } from '../components/ChartPanel';
 import { useEmotionChoices } from '../components/EmotionChoices';
-import { EmotionSheetBody } from '../components/Emotions';
+import { EmotionSheetBody, type EmotionShort, emotionMoreStartId } from '../components/Emotions';
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
 import { LegEditor } from '../components/LegEditor';
@@ -91,7 +91,8 @@ import {
   type EmotionController,
   type EmotionState,
 } from '../lib/emotion-controller';
-import { emotionSheetTitle, type SavedVerdict } from '../lib/emotion-tags';
+import { loadEmotionCounts } from '../lib/emotion-history';
+import { emotionSheetTitle, type SavedVerdict, savedCandidates } from '../lib/emotion-tags';
 import { formatPrice, formatQuantity } from '../lib/format';
 import { editLeg, type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
 import { reasonText, TIMEFRAME_NAME } from '../lib/reasons';
@@ -345,6 +346,30 @@ export function RecordScreen() {
   // 心理の選択肢の設定（#163）。画面を開くたびに読む（読めない・読み込み中はすべて出す）
   const choices = useEmotionChoices();
   useEffect(() => () => emotion.current?.dispose(), []);
+  // 保存の後のシートの候補（#230・C65）: 直近の取引に付いた心理の数。画面を開いたときと ［次の取引を記録］ で読み直す
+  // （記録の読み込みを待たせない。読めなければ前の数のまま = 初めは null で既定の巡り。R4）。候補はシートを開く時点で決めて
+  // 固定する（開いた後に数が届いても入れ替えない。R4・AC-5）
+  const emotionCounts = useRef<ReadonlyMap<EmotionTagId, number> | null>(null);
+  const countsSeq = useRef(0);
+  const reloadEmotionCounts = () => {
+    const seq = ++countsSeq.current;
+    void loadEmotionCounts(createRequest(api)).then((c) => {
+      if (c && seq === countsSeq.current) emotionCounts.current = c;
+    });
+  };
+  const [emotionPicks, setEmotionPicks] = useState<{
+    readonly candidates: readonly EmotionTagId[];
+    readonly expanded: boolean;
+  } | null>(null);
+  // 開いたときに 1 回だけ読む
+  useEffect(() => reloadEmotionCounts(), []);
+  // ［ほかの心理］ を押すとボタンが消えるので、出した最初のまとまりの見出しへフォーカスを移す（R5）
+  useEffect(() => {
+    if (!emotionPicks?.expanded) return;
+    document
+      .querySelector<HTMLElement>(`[data-focus-id="${emotionMoreStartId('record')}"]`)
+      ?.focus();
+  }, [emotionPicks?.expanded]);
 
   useEffect(() => {
     const off = controller.subscribe((s) => {
@@ -412,12 +437,18 @@ export function RecordScreen() {
         });
         emotion.current = c;
         c.subscribe(setEmotionState);
+        setEmotionPicks({
+          candidates: savedCandidates(emotionCounts.current, hiddenOf(choices.state)),
+          expanded: false,
+        });
         setSheet({ kind: 'emotion' });
       } else {
         setSheet(null);
         document.getElementById(VERDICT_TITLE_ID)?.focus();
       }
     } else if (before === 'saved' && state.phase === 'editing') {
+      // 次の取引: 付けた心理を数に入れて読み直す（#230）
+      reloadEmotionCounts();
       window.scrollTo({ top: 0 });
       document.getElementById(STAGE1_TITLE_ID)?.focus({ preventScroll: true });
     } else if (before === 'saving' && state.phase === 'editing' && state.error) {
@@ -585,6 +616,14 @@ export function RecordScreen() {
       {...(emotionState ? { emotion: emotionState } : {})}
       onEmotionToggle={(id) => emotion.current?.toggle(id)}
       emotionHidden={hiddenOf(choices.state)}
+      {...(emotionPicks
+        ? {
+            emotionShort: {
+              ...emotionPicks,
+              onMore: () => setEmotionPicks((cur) => (cur ? { ...cur, expanded: true } : cur)),
+            },
+          }
+        : {})}
       legUndo={legUndo}
       legNotice={legNotice}
       readFlash={readFlash}
@@ -716,6 +755,8 @@ export interface RecordViewProps {
   readonly onEmotionToggle?: (id: EmotionTagId) => void;
   /** 心理の選択肢に出さないタグ（#163 の設定。省く・読めない・読み込み中 = すべて出す） */
   readonly emotionHidden?: readonly EmotionTagId[];
+  /** 保存の後のシートの短い形（#230。平常心 + 候補 + ［ほかの心理］。省けば全部の選択肢） */
+  readonly emotionShort?: EmotionShort;
   /** 開いているシート（#130。省けばどれも閉じている） */
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
@@ -970,6 +1011,7 @@ function SavedPanel(p: RecordViewProps) {
             state={p.emotion}
             verdicts={savedVerdicts(saved)}
             {...(p.emotionHidden ? { hidden: p.emotionHidden } : {})}
+            {...(p.emotionShort ? { short: p.emotionShort } : {})}
             onToggle={(id) => p.onEmotionToggle?.(id)}
             onClose={() => p.onSheet?.(null)}
           />

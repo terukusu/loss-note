@@ -95,3 +95,17 @@ export function toggleHidden(hidden: readonly EmotionTagId[], id: EmotionTagId):
   if (id === CALM) return now;
   return now.includes(id) ? now.filter((t) => t !== id) : normalizeHidden([...now, id]);
 }
+
+/**
+ * タグごとに付いた取引の数（#230 R2。保存の後のシートの候補を選ぶ）。取引ごとに normalizeEmotions で知らない値を捨てて重複を
+ * 1 つにしてから数える（同じ取引に同じタグが 2 度あっても 1）。0 件のタグは入れない
+ */
+export function countEmotions(
+  trades: readonly { readonly emotionTags?: unknown }[],
+): Map<EmotionTagId, number> {
+  const counts = new Map<EmotionTagId, number>();
+  for (const t of trades) {
+    for (const id of normalizeEmotions(t.emotionTags)) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}

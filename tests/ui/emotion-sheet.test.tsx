@@ -3,10 +3,15 @@
 // hook を持たない木に置き換える）。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
-import { EMOTION_TAG_IDS, type EmotionTagId, toggleEmotion } from '../../core/emotion-tags';
+import {
+  EMOTION_GROUP_OF,
+  EMOTION_TAG_IDS,
+  type EmotionTagId,
+  toggleEmotion,
+} from '../../core/emotion-tags';
 import type { StoredTrade } from '../../core/record';
 import { EmotionChoicesView } from '../../ui/src/components/EmotionChoices';
-import { EmotionSheetBody } from '../../ui/src/components/Emotions';
+import { EmotionSheetBody, type EmotionShort } from '../../ui/src/components/Emotions';
 import { DETAIL_SHEET_ID } from '../../ui/src/lib/detail-view';
 import type { EmotionState } from '../../ui/src/lib/emotion-controller';
 import {
@@ -14,10 +19,14 @@ import {
   EMOTION_CALM_NOTE,
   EMOTION_EMPTY,
   EMOTION_SAVE_FAILED,
+  EMOTION_SHORT_HINT,
   EMOTION_TEXT,
   EMOTION_TRAIL_HINT,
   emotionGroups,
+  emotionMoreLabel,
   emotionSheetTitle,
+  SAVED_CANDIDATE_COUNT,
+  savedCandidates,
 } from '../../ui/src/lib/emotion-tags';
 import { summarize } from '../../ui/src/lib/record-form';
 import { reviewItemOf } from '../../ui/src/lib/review-view';
@@ -398,11 +407,22 @@ describe('保存の後の画面（AC-4 の表示の側）', () => {
     expect(all(recordTree([L1]), (e) => e.props['data-sheet'] === 'record-emotion-sheet')).toEqual(
       [],
     );
-    const tree = recordTree([L1], { emotion: state(), sheet: { kind: 'emotion' } });
+    const tree = recordTree([L1], {
+      emotion: state(),
+      sheet: { kind: 'emotion' },
+      emotionShort: { candidates: savedCandidates(null), expanded: false, onMore: noop },
+    });
     const wrap = all(tree, (e) => e.props['data-sheet'] === 'record-emotion-sheet')[0] as El;
     expect(wrap.props['data-open']).toBe('true');
     expect(text(all([wrap], hasClass('sheet__title')))).toBe('記録しました');
-    expect(chipsOf([wrap])).toHaveLength(21);
+    // 保存の後は短い形（#230）: 平常心 + 候補 3 個 + ［ほかの心理（17）］
+    expect(chipsOf([wrap]).map((c) => c.name)).toEqual([
+      '平常心',
+      '怖い',
+      '儲けたい',
+      '取り戻したい',
+    ]);
+    expect(all([wrap], hasClass('emotions__more')).map(text)).toEqual(['ほかの心理（17）']);
     expect(all([wrap], (e) => e.type === 'button' && text(e) === 'あとで')).toHaveLength(1);
     // 次の取引を記録 は今までどおり
     expect(
@@ -531,5 +551,221 @@ describe('設定の画面「心理のタグ」（#163 の AC-7・AC-9 の状態�
     const failed = view({ phase: 'failed', error: '読めない', errorKind: 'network' });
     expect(chipsOf(failed)).toEqual([]);
     expect(all(failed, (e) => e.type === 'button').map(text)).toEqual(['再読み込み']);
+  });
+});
+
+describe('保存の後の短い形（#230 の AC-1〜AC-3・KEEP-4）', () => {
+  const counts = (o: Partial<Record<EmotionTagId, number>>) =>
+    new Map(Object.entries(o) as [EmotionTagId, number][]);
+  const short = (candidates: readonly EmotionTagId[], expanded = false): EmotionShort => ({
+    candidates,
+    expanded,
+    onMore: noop,
+  });
+  const shortSheet = (
+    c: ReadonlyMap<EmotionTagId, number> | null,
+    hidden: EmotionTagId[] = [],
+    over: Partial<Parameters<typeof EmotionSheetBody>[0]> = {},
+  ) => sheet({ hidden, short: short(savedCandidates(c, hidden)), ...over });
+  const moreOf = (tree: Node[]) => all(tree, hasClass('emotions__more')).map(text);
+
+  // Issue #230 の例の表 #1〜#6（履歴 = 直近の取引で付いた取引の数・出さない設定 → 最初のチップ・ほか）
+  const TABLE: readonly {
+    readonly n: number;
+    readonly counts: ReadonlyMap<EmotionTagId, number> | null;
+    readonly hidden: EmotionTagId[];
+    readonly chips: string[];
+    readonly more: number;
+  }[] = [
+    {
+      n: 1,
+      counts: counts({ calm: 9, recoup: 5, fear: 3, cantCut: 3, hope: 1 }),
+      hidden: [],
+      chips: ['平常心', '取り戻したい', '怖い', '切れない'],
+      more: 17,
+    },
+    {
+      n: 2,
+      counts: counts({}),
+      hidden: [],
+      chips: ['平常心', '怖い', '儲けたい', '取り戻したい'],
+      more: 17,
+    },
+    {
+      n: 3,
+      counts: counts({ hope: 2 }),
+      hidden: [],
+      chips: ['平常心', '祈り', '怖い', '儲けたい'],
+      more: 17,
+    },
+    {
+      n: 4,
+      counts: counts({}),
+      hidden: ['fear'],
+      chips: ['平常心', 'ドキドキ', '儲けたい', '取り戻したい'],
+      more: 16,
+    },
+    {
+      n: 5,
+      counts: counts({ recoup: 5, regret: 1 }),
+      hidden: ['recoup'],
+      chips: ['平常心', '後悔', '怖い', '儲けたい'],
+      more: 16,
+    },
+    // 履歴を読めない（null）は #2 と同じ
+    {
+      n: 6,
+      counts: null,
+      hidden: [],
+      chips: ['平常心', '怖い', '儲けたい', '取り戻したい'],
+      more: 17,
+    },
+  ];
+
+  for (const row of TABLE) {
+    it(`例 #${row.n}: 最初のチップと ［ほかの心理（N）］`, () => {
+      const tree = shortSheet(row.counts, row.hidden);
+      expect(chipsOf(tree).map((c) => c.name)).toEqual(row.chips);
+      expect(moreOf(tree)).toEqual([emotionMoreLabel(row.more)]);
+    });
+  }
+
+  it('候補は平常心を先頭に平常心のほか 3 個（性質: 出さない設定・平常心を候補に入れない・重複なし・数の多い順）', () => {
+    for (let seed = 1; seed <= 200; seed++) {
+      let x = seed;
+      const rnd = () => {
+        x = (x * 1103515245 + 12345) % 2147483648;
+        return x / 2147483648;
+      };
+      const hidden = EMOTION_TAG_IDS.filter((id) => id !== 'calm' && rnd() < 0.3);
+      const c = new Map(
+        EMOTION_TAG_IDS.filter(() => rnd() < 0.4).map((id) => [id, 1 + Math.floor(rnd() * 5)]),
+      );
+      const got = savedCandidates(c, hidden);
+      expect(got[0]).toBe('calm');
+      const rest = got.slice(1);
+      expect(rest.length).toBe(Math.min(SAVED_CANDIDATE_COUNT, 20 - hidden.length));
+      expect(new Set(rest).size).toBe(rest.length);
+      for (const id of rest) {
+        expect(id).not.toBe('calm');
+        expect(hidden).not.toContain(id);
+      }
+      // 数のある候補は、候補に入らなかった数のあるタグより少なくない
+      const counted = rest.filter((id) => (c.get(id) ?? 0) > 0).map((id) => c.get(id) ?? 0);
+      const outside = [...c.entries()]
+        .filter(([id]) => id !== 'calm' && !hidden.includes(id) && !rest.includes(id))
+        .map(([, v]) => v);
+      if (outside.length > 0 && counted.length > 0)
+        expect(Math.min(...counted)).toBeGreaterThanOrEqual(Math.max(...outside));
+      // 数の無い候補 k 番目は、数のある候補を除いて まとまり 恐れ → 欲 → 取り戻し → 思い込み を巡った k 番目（R3）
+      const fill = rest.filter((id) => (c.get(id) ?? 0) === 0);
+      const queues = (['fear', 'greed', 'recoup', 'belief'] as const).map((g) =>
+        EMOTION_TAG_IDS.filter(
+          (id) =>
+            EMOTION_GROUP_OF[id] === g &&
+            !hidden.includes(id) &&
+            !rest.slice(0, rest.length - fill.length).includes(id),
+        ),
+      );
+      const round: EmotionTagId[] = [];
+      while (queues.some((q) => q.length > 0)) {
+        for (const q of queues) {
+          const next = q.shift();
+          if (next !== undefined) round.push(next);
+        }
+      }
+      expect(fill).toEqual(round.slice(0, fill.length));
+    }
+  });
+
+  it('例 #7: ［ほかの心理］ を押すと、最初の 4 つは同じ並びのまま、その下に残りがまとまりの見出しつきで並び、ボタンが消える', () => {
+    const c = TABLE[0]?.counts ?? null;
+    const before = shortSheet(c);
+    const after = sheet({ hidden: [], short: short(savedCandidates(c), true) });
+    const names = chipsOf(after).map((x) => x.name);
+    expect(names).toHaveLength(21);
+    expect(names.slice(0, 4)).toEqual(chipsOf(before).map((x) => x.name));
+    expect(new Set(names).size).toBe(21);
+    expect(moreOf(after)).toEqual([]);
+    // 平常心は上の組にあるので、出したまとまりに良い状態は無い
+    expect(all(after, hasClass('emotions__gname')).map(text)).toEqual([
+      '恐れ',
+      '欲',
+      '取り戻し',
+      '思い込み',
+    ]);
+    // 出した最初のまとまりの見出しがフォーカスの行き先（ボタンが消えるため。R5）
+    const start = all(after, (e) => e.props['data-focus-id'] === 't-emotion-more-start');
+    expect(start.map(text)).toEqual(['恐れ']);
+    expect(start[0]?.props.tabIndex).toBe(-1);
+    // 残りは一覧の順（恐れから 怖い を除いた順）
+    expect(names.slice(4, 7)).toEqual(['ドキドキ', '辛い', '減るのが嫌']);
+  });
+
+  it('押すと ［ほかの心理］ の onMore を呼ぶ', () => {
+    const calls: string[] = [];
+    const tree = sheet({
+      short: { candidates: savedCandidates(null), expanded: false, onMore: () => calls.push('x') },
+    });
+    const btn = all(tree, hasClass('emotions__more'))[0] as El;
+    expect(btn.type).toBe('button');
+    (btn.props.onClick as () => void)();
+    expect(calls).toEqual(['x']);
+  });
+
+  it('1 つの組: 見出し「このときの心理」に結び、案内「…平常心はほかと同時には付きません」を説明に結ぶ。平常心の後に区切りの縦線', () => {
+    const tree = shortSheet(null);
+    const set = all(tree, hasClass('emotions__short'))[0] as El;
+    expect(set.type).toBe('fieldset');
+    expect(set.props['aria-labelledby']).toBe('t-emotion-heading');
+    expect(set.props['aria-describedby']).toBe('t-emotion-hint');
+    const hint = all(tree, (e) => e.props.id === 't-emotion-hint')[0] as El;
+    expect(text(hint)).toBe(EMOTION_SHORT_HINT);
+    expect(EMOTION_SHORT_HINT).toContain(`平常心は${EMOTION_CALM_NOTE}`);
+    const kids = set.children.filter((c): c is El => typeof c !== 'string');
+    expect(text(kids[0] as El)).toBe('平常心');
+    expect(cls(kids[1] as El)).toBe('emotions__sep');
+    expect((kids[1] as El).props['aria-hidden']).toBe('true');
+    // 短い形では平常心の見出しの塊・まとまりの見出しを出さない（窓の半分に収める）
+    expect(all(tree, hasClass('emotions__group'))).toEqual([]);
+  });
+
+  it('選び方は今と同じ: 押したチップの ID を渡し、付いている候補は aria-pressed', () => {
+    const pressed: EmotionTagId[] = [];
+    const tree = shortSheet(null, [], {
+      state: state(['recoup']),
+      onToggle: (id) => pressed.push(id),
+    });
+    expect(
+      chipsOf(tree)
+        .filter((c) => c.pressed === 'true')
+        .map((c) => c.name),
+    ).toEqual(['取り戻したい']);
+    const btn = all(tree, hasClass('chip--toggle'))[1] as El;
+    (btn.props.onClick as () => void)();
+    expect(pressed).toEqual(['fear']);
+  });
+
+  it('畳んだまま候補の外のタグが付いていれば、外せるように候補の後に並べる', () => {
+    const tree = shortSheet(null, [], { state: state(['bargain']) });
+    expect(chipsOf(tree).map((c) => c.name)).toEqual([
+      '平常心',
+      '怖い',
+      '儲けたい',
+      '取り戻したい',
+      '値ごろ感',
+    ]);
+    expect(moreOf(tree)).toEqual([emotionMoreLabel(16)]);
+  });
+
+  it('詳細のシートは short を渡さないので全部のまま（KEEP-1）', () => {
+    expect(chipsOf(sheet({ context: 'detail' }))).toHaveLength(21);
+    expect(moreOf(sheet({ context: 'detail' }))).toEqual([]);
+  });
+
+  it('KEEP-4: 保存の後のシートに Good / More の段が無い', () => {
+    const tree = shortSheet(null);
+    expect(all(tree, (e) => /reflection/.test(cls(e)))).toEqual([]);
+    expect(text(tree)).not.toMatch(/Good|More/);
   });
 });

@@ -60,6 +60,30 @@
   color: var(--ink-2);
 }
 
+/* 保存の後の短い形（#230）: 段の間を詰めて、360 × 780 で 1 件・3 行とも窓の半分に収める（C65） */
+.emotions--short {
+  gap: var(--sp-2);
+}
+
+.emotions--short .emotions__verdicts {
+  gap: var(--sp-1);
+}
+
+/* 判定の理由（折れると 2 行）と案内の 1 行は行の高さを詰める（6 字の候補 3 個 + 2 行の理由でも窓の半分に収める。当たり 44px は保つ） */
+.emotions--short .emotions__reason,
+.emotions--short .emotions__hint {
+  line-height: var(--lh-tight);
+}
+
+.emotions--short .emotions__badges {
+  row-gap: var(--sp-1);
+}
+
+/* 見出しと案内の間は全部の形と同じ 4px（段の間を詰めた分だけ負の余白を減らす） */
+.emotions--short .emotions__heading {
+  margin-bottom: calc(-1 * var(--sp-1));
+}
+
 .emotions__group {
   display: flex;
   flex-direction: column;
@@ -91,6 +115,32 @@
 .emotions__gnote {
   font-size: var(--fs-xs);
   color: var(--ink-2);
+}
+
+/* 保存の後の短い形（#230）: 平常心と候補の間の区切りの縦線（色は使わない。チップの高さの半分） */
+.emotions__sep {
+  align-self: center;
+  width: 1px;
+  height: calc(var(--tap) / 2);
+  margin-inline: var(--sp-1);
+  background: var(--line-2);
+}
+
+/* 保存の後の短い形（#230）: 候補の組の末尾の ［ほかの心理（N）］。選ぶチップではない（押すと残りを出す）ことを、面を敷かない
+   点線の輪と 2 番目の文字の色で分ける（色はトークンだけ・判定の段の色は使わない） */
+.emotions__more {
+  border: 1px dashed var(--field-line);
+  color: var(--ink-2);
+  background: transparent;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .emotions__more:hover {
+    color: var(--ink);
+    background: var(--s3);
+  }
 }
 
 /* ［あとで］ / ［完了］ の帯: シートの中身の下に貼り付ける（21 個のチップでシートの中がスクロールしても残る。

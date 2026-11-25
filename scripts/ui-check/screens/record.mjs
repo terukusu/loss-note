@@ -8,6 +8,7 @@ import {
   RECORD_OVER_360,
   ROOT,
   settle,
+  settleLayers,
   setupContext,
   TAP,
   THEMES,
@@ -56,9 +57,19 @@ import {
 } from '../helpers.mjs';
 import { waitSettingsSheet } from '../settings-states.mjs';
 
+/** 判定の理由が 360 の保存の後のシートで 2 行に折れる取引（桁の多い架空の価格で LC を広げた。#230 の SV1） */
+const EX_LONG_REASON = {
+  side: 'L',
+  entry: '9876543210.1234',
+  exit: '9876543100.4321',
+  lc: '9876543200.5678',
+  move: '広げた',
+  after: '9876543100.4321',
+};
+
 /**
  * 画面の検査の単位「記録する（入力と判定）」: 記録する画面の開いた直後・入力・判定・保存の後と、FOC1・R1〜R5・W1・
- * LN1・LN2・R11〜R14・LM1・LD1・KB1・RS1・LV2
+ * LN1・LN2・R11〜R14・LM1・LD1・KB1・RS1・SV1・LV2
  */
 export const id = 'record';
 export const title = '記録する（入力と判定）';
@@ -75,7 +86,7 @@ export async function zoom(vp) {
   await zoomRecordGroup(vp, id);
 }
 
-/** 手順（FOC1・R1・R2・R3・R4・R5・W1・LN1・LN2・R11・R12・LM1・LD1・KB1・R14・RS1・R13・LV2） */
+/** 手順（FOC1・R1・R2・R3・R4・R5・W1・LN1・LN2・R11・R12・LM1・LD1・KB1・R14・RS1・SV1・R13・LV2） */
 export async function flows(kit) {
   const {
     browser,
@@ -1624,9 +1635,13 @@ export async function flows(kit) {
       await openRecord(p, base);
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
-      // 取引の欄: 段 1 → 段 2 → 戻る → 戻る
+      // 取引の欄: 段 1 → 段 2 → 戻る → 戻る。段の pushState は描画の後の effect で走るので、積み終わる（history.state.back が
+      // 段の数になる）のを待ってから戻る（負荷の高い並列の実行で、積む前の戻るが画面ごと戻していた。waitLayerPushed と同じ考え）
+      const waitBack = (n) =>
+        p.waitForFunction((n) => history.state?.back === n, n, { timeout: 5000 });
       await p.locator('#record-edit-fields').click();
       await expectSheet('record-fields-sheet', '取引の欄', '取引の欄');
+      await waitBack(1);
       await p.locator('#record-more').click();
       await expectPollAsync(
         async () =>
@@ -1634,6 +1649,7 @@ export async function flows(kit) {
           'ほかの欄（任意）',
         '段 2 へ',
       );
+      await waitBack(2);
       await p.goBack();
       await expectPollAsync(
         async () =>
@@ -1642,6 +1658,7 @@ export async function flows(kit) {
         '戻るで段 1',
       );
       expectEq(new URL(p.url()).pathname, '/record', '段 1 へ戻った後の URL');
+      await waitBack(1);
       await p.goBack();
       await expectPollAsync(async () => (await openId()).length === 0, '戻るで閉じる');
       expectEq(new URL(p.url()).pathname, '/record', '閉じた後の URL');
@@ -1687,6 +1704,297 @@ export async function flows(kit) {
       await c.close();
     }
     return `記録する画面の 4 つのシートが下から窓の中・86% 以下・見出しへフォーカス・閉じたら開いたボタンへ。取引の欄は 段 2 → 戻るで段 1 → 戻るで閉じる・Esc も 1 段ずつ（${out.join(' / ')}）`;
+  });
+
+  // SV1（#230 の AC-1〜AC-8・KEEP-3。設計書 9.4・C65）: 保存の後のシート「記録しました」は短い形。幅 360 × 高さ 780 で、
+  // 1 件・3 行の保存の後のシートの高さが窓の 50% 以下。最初のチップは 平常心 + 候補 3 個（心理の付いた取引が無ければ既定の巡り =
+  // 怖い・儲けたい・取り戻したい）+ ［ほかの心理（17）］。候補を付けて閉じるのはタップ 2 回、［あとで］ は 1 回。次の取引では
+  // 付けた心理を数えた候補（取り戻したい が先頭）。［ほかの心理］ で候補の位置を動かさずに残りを出し、出した最初の見出しへ
+  // フォーカス。一覧の読み込みに失敗しても・開いた後に届いても、候補は既定の巡りのまま（入れ替わらない）
+  await check('SV1', async () => {
+    const out = [];
+    const SHEET = '#record-emotion-sheet';
+    const DEFAULT = ['平常心', '怖い', '儲けたい', '取り戻したい'];
+    const chipNames = (p) => p.locator(`${SHEET}[open] .chip--toggle`).allInnerTexts();
+    const moreNames = (p) => p.locator(`${SHEET}[open] .emotions__more`).allInnerTexts();
+    const ratio = (p) =>
+      p.evaluate(
+        (sel) => document.querySelector(sel).getBoundingClientRect().height / window.innerHeight,
+        SHEET,
+      );
+    const openSaved = async (p) => {
+      await p.locator(`${SHEET}[open]`).waitFor({ timeout: 10000 });
+      await settleSheet(p);
+    };
+    const isHistory = (r) =>
+      r.url().includes('/api/trades?') &&
+      new URL(r.url()).searchParams.get('order') === 'created' &&
+      new URL(r.url()).searchParams.get('limit') === '100';
+    const saveE1 = async (p) => {
+      await fillRecord(p, EX_E1);
+      await p.locator('button[type="submit"]').click();
+      await openSaved(p);
+    };
+    // 1 件: 高さ・既定の巡り・タップ 2 回で付けて閉じる
+    {
+      const { c, p, fake, errors } = await recordContext();
+      try {
+        await p.setViewportSize({ width: 360, height: 780 });
+        const first = p.waitForResponse(isHistory);
+        await openRecord(p, base);
+        await first;
+        await saveE1(p);
+        const r1 = await ratio(p);
+        if (r1 > 0.5)
+          throw new Error(`1 件: シートの高さ ${Math.round(r1 * 100)}% が 50% を超える`);
+        out.push(`1 件 ${Math.round(r1 * 100)}%`);
+        expectEq((await chipNames(p)).join('・'), DEFAULT.join('・'), '1 件: 最初のチップ');
+        expectEq((await moreNames(p)).join(), 'ほかの心理（17）', '1 件: ほかの心理');
+        expectEq(
+          await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth),
+          false,
+          '1 件: 横スクロール',
+        );
+        // タップ 1: 候補のチップ（押した時点で保存）・タップ 2: ［完了］
+        const put = p.waitForResponse((r) => r.url().endsWith('/api/trade-emotions'));
+        await p
+          .locator(`${SHEET}[open]`)
+          .getByRole('button', { name: '取り戻したい', exact: true })
+          .click();
+        await put;
+        await p.locator(`${SHEET} .emotions__actions button`, { hasText: '完了' }).click();
+        await p.locator(`${SHEET}[open]`).waitFor({ state: 'detached', timeout: 10000 });
+        const tagged = fake.trades.filter((t) => (t.emotionTags ?? []).includes('recoup'));
+        expectEq(tagged.length, 1, '1 件: 取り戻したい が付いた取引');
+        out.push('付けて閉じる 2 タップ');
+        // 次の取引: 付けた心理を数え直した候補（取り戻したい 1 件 → 先頭）。［あとで］ = 1 タップ
+        await settleLayers(p);
+        const again = p.waitForResponse(isHistory);
+        await p.getByRole('button', { name: '次の取引を記録' }).click();
+        await again;
+        await p.locator('#record-manual').waitFor();
+        await saveE1(p);
+        expectEq(
+          (await chipNames(p)).join('・'),
+          '平常心・取り戻したい・怖い・儲けたい',
+          '2 件目: 数えた候補',
+        );
+        const puts = fake.trades.filter((t) => (t.emotionTags ?? []).length > 0).length;
+        await p.locator(`${SHEET} .emotions__actions button`, { hasText: 'あとで' }).click();
+        await p.locator(`${SHEET}[open]`).waitFor({ state: 'detached', timeout: 10000 });
+        expectEq(
+          fake.trades.filter((t) => (t.emotionTags ?? []).length > 0).length,
+          puts,
+          '［あとで］ で心理が増えない',
+        );
+        out.push('［あとで］ 1 タップ');
+        // 3 件目: ［ほかの心理（17）］ で残りを出す（候補の位置は動かない・最初の見出しへフォーカス・合計 21）
+        await settleLayers(p);
+        await p.getByRole('button', { name: '次の取引を記録' }).click();
+        await p.locator('#record-manual').waitFor();
+        await saveE1(p);
+        const boxes = async () =>
+          p.evaluate((sel) => {
+            // シートの中身の上端からの位置（下から出るシートは中身が伸びると窓の中で上へ動くので、中身の中の位置を比べる）
+            const top = document.querySelector(`${sel} .emotions`).getBoundingClientRect();
+            const all = [...document.querySelectorAll(`${sel} .chip--toggle`)].slice(0, 4);
+            return all.map((b) => {
+              const r = b.getBoundingClientRect();
+              return `${b.textContent}@${Math.round(r.left - top.left)},${Math.round(r.top - top.top)}`;
+            });
+          }, SHEET);
+        const before = await boxes();
+        await p.locator(`${SHEET}[open] .emotions__more`).click();
+        await p
+          .locator(`${SHEET}[open]`)
+          .getByRole('button', { name: '値ごろ感', exact: true })
+          .waitFor();
+        await settle(p);
+        expectEq((await boxes()).join(' '), before.join(' '), 'ほかの心理: 候補の位置');
+        expectEq((await chipNames(p)).length, 21, 'ほかの心理: チップの数');
+        expectEq((await moreNames(p)).length, 0, 'ほかの心理: ボタンが消える');
+        await expectPollAsync(
+          async () =>
+            (await p.evaluate(() => document.activeElement?.textContent?.trim() ?? '')) === '恐れ',
+          'ほかの心理: 最初の見出しへフォーカス',
+        );
+        expectEq(
+          await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth),
+          false,
+          'ほかの心理: 横スクロール',
+        );
+        out.push('ほかの心理 21 個・位置そのまま');
+        await closeSheets(p);
+        expectEq(errors.length, 0, 'ページのエラー');
+      } finally {
+        await c.close();
+      }
+    }
+    // 一覧の読み込みに失敗（500）: 心理の付いた取引があっても既定の巡り（AC-4）
+    {
+      const { c, p, fake, errors } = await recordContext();
+      try {
+        await p.setViewportSize({ width: 360, height: 780 });
+        fake.trades.push({ ...fake.trades[0], id: 't-hope', emotionTags: ['hope'] });
+        fake.historyStatus = 500;
+        const first = p.waitForResponse(isHistory);
+        await openRecord(p, base);
+        await first;
+        await saveE1(p);
+        expectEq((await chipNames(p)).join('・'), DEFAULT.join('・'), '読めない: 既定の巡り');
+        await closeSheets(p);
+        expectEq(errors.length, 0, 'ページのエラー（読めない）');
+        out.push('読めない → 既定');
+      } finally {
+        await c.close();
+      }
+    }
+    // 開いた後に届いても入れ替わらない（AC-5）。届いた後の次の取引では数えた候補（祈り）
+    {
+      const { c, p, fake, errors } = await recordContext();
+      let release = () => {};
+      try {
+        await p.setViewportSize({ width: 360, height: 780 });
+        fake.trades.push({ ...fake.trades[0], id: 't-hope', emotionTags: ['hope'] });
+        fake.historyGate = new Promise((ok) => {
+          release = ok;
+        });
+        await openRecord(p, base);
+        await saveE1(p);
+        const before = (await chipNames(p)).join('・');
+        expectEq(before, DEFAULT.join('・'), '届く前: 既定の巡り');
+        const done = p.waitForResponse(isHistory);
+        fake.historyGate = null;
+        release();
+        await done;
+        await settle(p);
+        expectEq((await chipNames(p)).join('・'), before, '届いた後も同じ');
+        await closeSheets(p);
+        expectEq(errors.length, 0, 'ページのエラー（遅れて届く）');
+        out.push('遅れて届いても入れ替えない');
+      } finally {
+        release();
+        await c.close();
+      }
+    }
+    // 前に読めた数がある状態で読み直しが失敗しても、前の数で決める（C65・AC-9）
+    {
+      const { c, p, fake, errors } = await recordContext();
+      try {
+        await p.setViewportSize({ width: 360, height: 780 });
+        fake.trades.push({ ...fake.trades[0], id: 't-hope', emotionTags: ['hope'] });
+        const first = p.waitForResponse(isHistory);
+        await openRecord(p, base);
+        await first;
+        await saveE1(p);
+        const counted = '平常心・祈り・怖い・儲けたい';
+        expectEq((await chipNames(p)).join('・'), counted, '読めた数: 祈り');
+        await p.locator(`${SHEET} .emotions__actions button`, { hasText: 'あとで' }).click();
+        await p.locator(`${SHEET}[open]`).waitFor({ state: 'detached', timeout: 10000 });
+        await settleLayers(p);
+        fake.historyStatus = 500;
+        const again = p.waitForResponse(isHistory);
+        await p.getByRole('button', { name: '次の取引を記録' }).click();
+        expectEq((await again).status(), 500, '読み直しの状態');
+        await p.locator('#record-manual').waitFor();
+        await saveE1(p);
+        expectEq((await chipNames(p)).join('・'), counted, '読み直しの失敗: 前の数のまま');
+        await closeSheets(p);
+        expectEq(errors.length, 0, 'ページのエラー（読み直しの失敗）');
+        out.push('読み直しの失敗 → 前の数');
+      } finally {
+        await c.close();
+      }
+    }
+    // 最長の候補 3 個（6 字: 大儲けしたい・乗り遅れ怖い・調子に乗った）+ 2 行に折れる判定の理由でも、窓の 50% 以下（C65）
+    {
+      const { c, p, fake, errors } = await recordContext();
+      try {
+        await p.setViewportSize({ width: 360, height: 780 });
+        const tag = (id, tags) => ({ ...fake.trades[0], id, emotionTags: tags });
+        fake.trades.push(
+          tag('t-l1', ['bigWin', 'fomo', 'overconfident']),
+          tag('t-l2', ['bigWin', 'fomo', 'overconfident']),
+          tag('t-l3', ['bigWin', 'fomo']),
+          tag('t-l4', ['bigWin']),
+        );
+        const first = p.waitForResponse(isHistory);
+        await openRecord(p, base);
+        await first;
+        await fillRecord(p, EX_LONG_REASON);
+        await p.locator('button[type="submit"]').click();
+        await openSaved(p);
+        expectEq(
+          (await chipNames(p)).join('・'),
+          '平常心・大儲けしたい・乗り遅れ怖い・調子に乗った',
+          '最長の候補',
+        );
+        const m = await p.evaluate((sel) => {
+          const r = document.querySelector(`${sel} .emotions__reason`);
+          const lh = Number.parseFloat(getComputedStyle(r).lineHeight);
+          // 区切りの縦線は段の中で上下の中央に置くので、上端を数えない（チップとボタンだけ）
+          const kids = [
+            ...document.querySelectorAll(`${sel} .emotions__short > :not(.emotions__sep)`),
+          ];
+          const tops = kids.map((e) => Math.round(e.getBoundingClientRect().top));
+          return {
+            text: r.textContent,
+            lines: Math.round(r.getBoundingClientRect().height / lh),
+            rows: new Set(tops).size,
+            widths: kids.map((e) => Math.round(e.getBoundingClientRect().width)).join(' '),
+          };
+        }, SHEET);
+        if (m.lines < 2) throw new Error(`理由が 2 行に折れていない（${m.text}）`);
+        expectEq(m.rows, 2, `最長の候補: チップの段の数（幅 ${m.widths}）`);
+        const rl = await ratio(p);
+        if (rl > 0.5)
+          throw new Error(
+            `最長の候補 + 2 行の理由: シートの高さ ${Math.round(rl * 100)}% が 50% を超える`,
+          );
+        out.push(`最長の候補 + 2 行の理由 ${Math.round(rl * 100)}%`);
+        await closeSheets(p);
+        expectEq(errors.length, 0, 'ページのエラー（最長）');
+      } finally {
+        await c.close();
+      }
+    }
+    // 3 行の明細: 題「3 件を記録しました」・高さ ≤ 50%（AC-7・KEEP-3）
+    {
+      const { c, p, fake, errors } = await recordContext();
+      try {
+        await p.setViewportSize({ width: 360, height: 780 });
+        fake.read = { status: 200, rows: READ_E10, holdMs: 0 };
+        await openRecord(p, base);
+        await makeImage(p, STATEMENT_SPEC, 'paste');
+        await p.locator('.appbar__meta', { hasText: '1 / 3 行目' }).waitFor({ timeout: 10000 });
+        await p.locator('#record-tz-open').click();
+        await p.getByRole('radio', { name: /日本時間（そのまま）/ }).check();
+        await p.locator('#record-tz-sheet[open]').waitFor({ state: 'detached' });
+        await fillStatementTaps(p, '99.0');
+        await p.locator('button[type="submit"]').click();
+        await p.locator('.appbar__meta', { hasText: '2 / 3 行目' }).waitFor({ timeout: 10000 });
+        await fillStatementTaps(p, '202');
+        await p.locator('button[type="submit"]').click();
+        await p.locator('.appbar__meta', { hasText: '3 / 3 行目' }).waitFor({ timeout: 10000 });
+        await fillStatementTaps(p, '49');
+        await p.locator('button[type="submit"]').click();
+        await openSaved(p);
+        expectEq(
+          (await p.locator(`${SHEET} .sheet__title`).textContent())?.trim(),
+          '3 件を記録しました',
+          '3 行: 題',
+        );
+        const r3 = await ratio(p);
+        if (r3 > 0.5)
+          throw new Error(`3 行: シートの高さ ${Math.round(r3 * 100)}% が 50% を超える`);
+        out.push(`3 行 ${Math.round(r3 * 100)}%`);
+        await closeSheets(p);
+        expectEq(errors.length, 0, 'ページのエラー（3 行）');
+      } finally {
+        await c.close();
+      }
+    }
+    return `保存の後のシートの短い形（${out.join(' / ')}）`;
   });
 
   await check('R13', async () => {

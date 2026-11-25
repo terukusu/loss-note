@@ -60,6 +60,7 @@ const RECORD_UNIT = {
     'record-5-no-lc-c',
     'record-6-saved',
     'record-6b-saved-emotion',
+    'record-6d-saved-more',
     'record-6c-saved-closed',
     'record-13-error',
     'record-14-safe-win',

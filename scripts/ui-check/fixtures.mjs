@@ -809,6 +809,12 @@ export async function installFakeApi(context, opts = {}) {
     tradeGets: [],
     /** 取引の一覧のページの応答を待たせる（ミリ秒。Issue #87 の読み込み中の確かめ） */
     tradesPageDelayMs: 0,
+    /**
+     * 保存の後のシートの候補の読み（#230。order=created・limit=100 の 1 ページだけ）の状態と、応答を止める Promise
+     * （放すまで答えない。開いた後に届いても候補が入れ替わらないことを見る）
+     */
+    historyStatus: 200,
+    historyGate: null,
     /** 決済の時刻の範囲の読み（Issue #88）の状態（200 以外 = 振り返りだけ失敗させる） */
     rangeStatus: 200,
     /** 決済の時刻の範囲の応答を待たせる（ミリ秒。読み込み中の状態を撮る） */
@@ -1018,6 +1024,16 @@ export async function installFakeApi(context, opts = {}) {
       const order = q.get('order') ?? 'exit';
       if (!(limit >= 1 && limit <= 100) || (order !== 'exit' && order !== 'created')) {
         return json(route, 400, { error: 'invalid' });
+      }
+      if (order === 'created' && limit === 100) {
+        if (api.historyGate) await api.historyGate;
+        if (api.historyStatus !== 200) {
+          try {
+            return await json(route, api.historyStatus, { error: 'unavailable' });
+          } catch {
+            return undefined; // 待たせている間に画面を離れた
+          }
+        }
       }
       const cmp = order === 'exit' ? tradeSort : createdSort;
       const sorted = [...api.trades].sort(cmp);

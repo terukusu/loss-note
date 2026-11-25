@@ -2,6 +2,7 @@
 // 出す名前・一言・まとまりの見出しと、シートの文字の純関数（DOM なし）。名前は ID から引くので、名前を直しても記録の
 // 意味は変わらない（#163 の出す・出さないの設定も選択肢を絞るだけ）。色はどのタグにも付けない（C34）
 import {
+  CALM,
   EMOTION_GROUPS,
   EMOTION_TAGS,
   type EmotionGroup,
@@ -65,13 +66,16 @@ export interface EmotionChoiceFilter {
   readonly hidden?: readonly EmotionTagId[];
   /** 出さない設定でも並べるタグ（シートを開いたときに付いていたタグ・今選んでいるタグ。外せるように。R3） */
   readonly keep?: readonly EmotionTagId[];
+  /** 並べないタグ（#230。保存の後のシートで「ほかの心理」を出したとき、上に出している平常心と候補を除く） */
+  readonly exclude?: readonly EmotionTagId[];
 }
 
 /** シートに並べるまとまりとチップ（一覧の順）。出さないタグを除き、チップが 1 つも無いまとまりは見出しごと出さない（R4） */
 export function emotionGroups(filter: EmotionChoiceFilter = {}): readonly EmotionGroupView[] {
   const hidden = new Set(filter.hidden ?? []);
   const keep = new Set(filter.keep ?? []);
-  const shown = (id: EmotionTagId) => !hidden.has(id) || keep.has(id);
+  const exclude = new Set(filter.exclude ?? []);
+  const shown = (id: EmotionTagId) => !exclude.has(id) && (!hidden.has(id) || keep.has(id));
   return EMOTION_GROUPS.flatMap((group) => {
     const tags = EMOTION_TAGS.filter((t) => t.group === group && shown(t.id)).map((t) => ({
       id: t.id,
@@ -125,6 +129,8 @@ export function emotionSheetTitle(count: number): string {
 export const EMOTION_HEADING = 'このときの心理';
 /** シートの中の案内（押した時点で保存されることを言う） */
 export const EMOTION_HINT = '当てはまるものを押してください（押すと保存）';
+/** 保存の後の短い形の案内（#230。平常心の見出しの塊を出さないので、押すとほかが外れることもここで先に言う） */
+export const EMOTION_SHORT_HINT = '押すと保存・平常心はほかと同時には付きません';
 /** 良い状態（平常心）の見出しの添え書き（R3。押すとほかが外れることを先に言う） */
 export const EMOTION_CALM_NOTE = 'ほかと同時には付きません';
 /** 詳細のカードの見出しと操作 */
@@ -155,3 +161,45 @@ export const EMOTION_SAVE_FAILED =
 /** 押し直しても通らない失敗（取引が消えた 404・この版の知らない形の取引 409） */
 export const EMOTION_SAVE_GONE =
   '心理を保存できませんでした。この取引は変更できない状態です。取引を開き直してください。';
+
+/** 保存の後のシートの候補の数（平常心のほか。#230 R1） */
+export const SAVED_CANDIDATE_COUNT = 3;
+
+/**
+ * 保存の後のシートに最初に出すチップ（#230 R1〜R4）: [平常心, 候補 3 個]。候補 = 平常心を除き、付いた取引の数（counts）の
+ * 多い順・同数は一覧の順・0 件と出さない設定（hidden）のタグを除く。3 個に満たなければ、まとまりを 恐れ → 欲 → 取り戻し →
+ * 思い込み の順に巡って、各まとまりの一覧の順でまだ無く出す設定のタグを 1 つずつ足す（巡り終えても足りなければある分だけ）。
+ * counts = null（読めない・読み込み中）は巡りだけで決める
+ */
+export function savedCandidates(
+  counts: ReadonlyMap<EmotionTagId, number> | null,
+  hidden: readonly EmotionTagId[] = [],
+): EmotionTagId[] {
+  const off = new Set(hidden);
+  const usable = EMOTION_TAGS.map((t) => t.id).filter((id) => id !== CALM && !off.has(id));
+  const order = new Map(usable.map((id, i) => [id, i]));
+  const picked = usable
+    .filter((id) => (counts?.get(id) ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        (counts?.get(b) ?? 0) - (counts?.get(a) ?? 0) || (order.get(a) ?? 0) - (order.get(b) ?? 0),
+    )
+    .slice(0, SAVED_CANDIDATE_COUNT);
+  const queues = EMOTION_GROUPS.filter((g) => g !== 'good').map((g) =>
+    usable.filter(
+      (id) => EMOTION_TAGS.find((t) => t.id === id)?.group === g && !picked.includes(id),
+    ),
+  );
+  while (picked.length < SAVED_CANDIDATE_COUNT && queues.some((q) => q.length > 0)) {
+    for (const q of queues) {
+      const next = q.shift();
+      if (next !== undefined && picked.length < SAVED_CANDIDATE_COUNT) picked.push(next);
+    }
+  }
+  return [CALM, ...picked];
+}
+
+/** 「ほかの心理」のボタンの文字（n = 押すと下に出るタグの数。#230 R1） */
+export function emotionMoreLabel(n: number): string {
+  return `ほかの心理（${n}）`;
+}

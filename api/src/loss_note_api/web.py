@@ -13,6 +13,8 @@
 - ホーム画面に追加（#77・ADR-0018）: manifest と manifest のアイコンを直下の決まった名前（``ROOT_FILES``）で配り、
   CSP に ``manifest-src 'self'`` を持つ。サービスワーカーは置かないので ``worker-src`` は足さない
   （``default-src 'none'`` のまま止める）
+- 数字の書体（#237・ADR-0026）: 同梱の woff2（``/assets/`` の名前にハッシュの付いたファイル）を読むため、CSP に
+  ``font-src 'self'`` を持つ（data: と外部は許さない）
 - ログインの許可（#43・ADR-0003「縦切り 2 で決めたこと」）: Google ログインのポップアップが使う 4 つだけを
   ``login_csp_extra`` で足す（gapi の script・authDomain の iframe・Identity Toolkit と Secure Token の API）。
   authDomain は環境変数 ``FIREBASE_AUTH_DOMAIN`` から受け、ホスト名の形だけを通す（``valid_auth_domain``）
@@ -29,13 +31,14 @@ from loss_note_api.runtime import StartupRefused
 STATIC_DIR_VAR = "STATIC_DIR"
 AUTH_DOMAIN_VAR = "FIREBASE_AUTH_DOMAIN"
 
-# R3 の 8 つの指示と manifest-src（#77）。順は固定（default-src を先頭に）。
-# 画面は同じオリジンの同梱ファイルと /api だけを使う
+# R3 の 8 つの指示と manifest-src（#77）・font-src（同梱の数字の書体。#237・ADR-0026）。順は固定（default-src を
+# 先頭に）。画面は同じオリジンの同梱ファイルと /api だけを使う
 BASE_CSP: Mapping[str, tuple[str, ...]] = {
     "default-src": ("'none'",),
     "script-src": ("'self'",),
     "style-src": ("'self'",),
     "img-src": ("'self'",),
+    "font-src": ("'self'",),
     "connect-src": ("'self'",),
     "manifest-src": ("'self'",),
     "base-uri": ("'none'",),
@@ -71,6 +74,9 @@ ROOT_FILES = (
 ROOT_FILE_CACHE = "public, max-age=86400"
 # 拡張子から決まらない（Python の mimetypes が知らない）ものだけ Content-Type を決める
 ROOT_FILE_TYPES: Mapping[str, str] = {"manifest.webmanifest": "application/manifest+json"}
+# /assets/ の拡張子のうち、Python 3.13 の mimetypes が知らない（端末の /etc/mime.types しだいの）もの。イメージの
+# python には mime.types が無く、同梱の数字の書体（#237）が application/octet-stream になるので決めておく
+ASSET_TYPES: Mapping[str, str] = {".woff2": "font/woff2"}
 
 # ヘッダの区切り（; ,）・改行・空白を値に入れない（指示を足す・壊すことを防ぐ）
 _FORBIDDEN_IN_VALUE = (";", ",", "\n", "\r", " ", "\t")
@@ -149,7 +155,7 @@ def register_static(app: Flask, static_dir: str) -> StaticSite:
     @app.get("/assets/<path:name>")
     def assets_file(name: str):
         # send_from_directory はディレクトリの外（..・絶対パス）と無いファイルを NotFound にする（→ 404 の JSON）
-        res = send_from_directory(assets, name)
+        res = send_from_directory(assets, name, mimetype=ASSET_TYPES.get(Path(name).suffix.lower()))
         res.headers["Cache-Control"] = ASSET_CACHE
         return res
 

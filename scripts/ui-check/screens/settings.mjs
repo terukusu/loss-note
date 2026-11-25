@@ -51,6 +51,7 @@ export async function flows(kit) {
         "script-src 'self'",
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self'",
+        "font-src 'self'", // 同梱の数字の書体（#237。本番の BASE_CSP と同じ）
         `connect-src 'self' ws://127.0.0.1:${port} ${AUTH_EMULATOR}`,
         "manifest-src 'self'",
         "base-uri 'none'",

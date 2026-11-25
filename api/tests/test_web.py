@@ -6,6 +6,7 @@
 - #77: manifest とそのアイコンの配信（例 E1〜E5）・CSP の manifest-src（例 E7。worker-src は無い）
 """
 
+import mimetypes
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,8 @@ ASSET = b"console.log('ASSET-MARK-2b9');\n"
 ASSET_PATH = "/assets/app-0000aaaa.js"
 # 直下のアイコン（#52）。中身は架空の印（ICO の頭の 4 バイト + 印）
 ICON = b"\x00\x00\x01\x00ICON-MARK-4e2"
+# 同梱の数字の書体（#237）。中身は架空の印
+FONT = b"wOF2FONT-MARK-7c1"
 # manifest と manifest のアイコン（#77）。中身は架空の印
 MANIFEST = b'{"name":"MANIFEST-MARK-8a3"}\n'
 PNG = b"\x89PNG\r\n\x1a\nPNG-MARK-1f6"
@@ -33,6 +36,7 @@ R3 = {
     "script-src 'self'",
     "style-src 'self'",
     "img-src 'self'",
+    "font-src 'self'",  # #237
     "connect-src 'self'",
     "manifest-src 'self'",
     "base-uri 'none'",
@@ -47,6 +51,7 @@ def static_dir(tmp_path: Path) -> Path:
     (root / "assets").mkdir(parents=True)
     (root / "index.html").write_bytes(INDEX)
     (root / "assets" / "app-0000aaaa.js").write_bytes(ASSET)
+    (root / "assets" / "inter-num-0000bbbb.woff2").write_bytes(FONT)
     (root / "favicon.ico").write_bytes(ICON)
     (root / "manifest.webmanifest").write_bytes(MANIFEST)
     for name in MANIFEST_ICONS:
@@ -137,6 +142,18 @@ def test_root_icon_missing_is_404_json(client, path):
     assert res.status_code == 404
     assert not is_index(res)
     assert res.get_json() == {"error": "not_found"}
+
+
+# ── 同梱の数字の書体（#237 AC-4・AC-5）
+def test_number_font_is_served_as_immutable_woff2(client, monkeypatch):
+    # 端末の mime.types に頼らない（イメージの python は .woff2 を知らない）
+    monkeypatch.setattr(mimetypes, "guess_type", lambda *a, **k: (None, None))
+    res = client.get("/assets/inter-num-0000bbbb.woff2")
+    assert res.status_code == 200
+    assert res.data == FONT
+    assert res.mimetype == "font/woff2"
+    assert res.headers["Cache-Control"] == web.ASSET_CACHE
+    assert "font-src 'self'" in csp_directives(res)
 
 
 # ── manifest とアイコン（#77。例 E1〜E5）

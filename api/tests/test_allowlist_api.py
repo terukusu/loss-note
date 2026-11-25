@@ -258,17 +258,17 @@ def test_h1_h2_csp_header(prod, static_dir):
     }
     for bad in ("'unsafe-inline'", "'unsafe-eval'", "*"):
         assert not any(bad in v for v in d["script-src"]), bad
-    # ほかは自分のオリジンだけ（font は default-src 'none' で許さない）・ほかのサイトの frame に入れられない
+    # ほかは自分のオリジンだけ（font は同梱の数字の書体だけ。#237）・ほかのサイトの frame に入れられない
     assert d["default-src"] == ["'none'"]
     assert d["style-src"] == ["'self'"]
     assert d["img-src"] == ["'self'"]
-    assert "font-src" not in d
+    assert d["font-src"] == ["'self'"]  # #237
     assert d["frame-ancestors"] == ["'none'"]
     assert d["base-uri"] == ["'none'"]
     assert d["form-action"] == ["'none'"]
     assert d["manifest-src"] == ["'self'"]  # #77
-    assert set(d) == {"default-src", "script-src", "style-src", "img-src", "connect-src", "manifest-src", "base-uri",
-                      "form-action", "frame-ancestors", "frame-src"}  # fmt: skip
+    assert set(d) == {"default-src", "script-src", "style-src", "img-src", "font-src", "connect-src", "manifest-src",
+                      "base-uri", "form-action", "frame-ancestors", "frame-src"}  # fmt: skip
 
 
 def test_csp_without_auth_domain_keeps_base(prod, static_dir):

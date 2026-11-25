@@ -11,7 +11,10 @@
   --font:
     system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN",
     "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
-  /* 等幅は ID・コードだけ。R・円・割合の数字は本文の書体の桁の揃う数字（.num の tabular-nums。Issue #33） */
+  /* 数字の部品（.num・単位の塊・数値の入力欄）の書体: 同梱の数字の書体（base.css の @font-face。数字・符号・英大文字だけ）→
+     本文の書体。円・日本語は文字ごとに本文の書体で出る（#237・設計書 C63） */
+  --font-num: "Inter Num", var(--font);
+  /* 等幅は ID・コードだけ。R・円・割合の数字は数字の書体の桁の揃う数字（.num の tabular-nums。Issue #33・#237） */
   --mono: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 
   /* 文字は 6 段（ui-guidelines 9.9・A7。#127）: 1 大きな題（タブの根）/ 2 主役の文・シートの題 / 3 帯の題 /

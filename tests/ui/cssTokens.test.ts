@@ -547,14 +547,36 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(found).toBeGreaterThan(0);
   });
 
-  it('AC-7: 数字の部品（.num）と数値の入力欄は本文の書体の桁揃え（tabular-nums）。等幅（--mono）を宣言しない', () => {
+  it('AC-7・#237 AC-1: 数字の部品（.num・単位の塊・数値の入力欄）は数字の書体 → 本文の書体の並びで桁揃え（tabular-nums）。等幅（--mono）を宣言しない', () => {
     const css = blocks(stripComments(files[COMPONENTS] ?? ''));
     for (const sel of ['.num', '.numfield__input']) {
       const d = decls(css.find((x) => x.selector === sel)?.body ?? '');
       expect(d.get('font-variant-numeric'), sel).toContain('tabular-nums');
-      const family = d.get('font-family');
-      expect(family === undefined || family === 'var(--font)', `${sel}: ${family}`).toBe(true);
+      expect(d.get('font-family'), sel).toBe('var(--font-num)');
     }
+    // 単位の塊（R・%・通貨の 3 文字は数字の書体、円は本文の書体に代わる。#237）
+    expect(decls(css.find((x) => x.selector === '.num-unit')?.body ?? '').get('font-family')).toBe(
+      'var(--font-num)',
+    );
+    // 数字の書体のトークンは同梱の書体を先頭に、今の本文の書体を続ける。本文の書体の値は #237 の前と同じ（日本語・本文は端末の書体）
+    const root = decls(tokenBlocks.find((b) => b.selector === ':root')?.body ?? '');
+    expect(root.get('--font-num')).toBe('"Inter Num", var(--font)');
+    expect(root.get('--font')?.replace(/\s+/g, ' ')).toBe(
+      'system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif',
+    );
+    // 文字・日時の欄（.numfield__input も付く TextField）は本文の書体のまま（並び順に頼らず値で固定する。#237 のレビュー 4）
+    expect(
+      decls(css.find((x) => x.selector === '.textfield__input')?.body ?? '').get('font-family'),
+    ).toBe('var(--font)');
+    // --font-num を使うのは数字の部品の 3 つの規則だけ（題・本文・バッジに広げない）
+    const users = Object.entries(files).flatMap(([path, raw]) =>
+      blocks(stripComments(raw))
+        .filter((b) => /var\(--font-num\)/.test(b.body))
+        .map((b) => `${path.split('/').pop()} ${b.selector}`),
+    );
+    expect(users.sort()).toEqual(
+      ['components.css .num', 'components.css .num-unit', 'components.css .numfield__input'].sort(),
+    );
     // どの CSS でも .num・.num--<大きさ>・.numfield の規則に --mono を書かない
     for (const [path, raw] of Object.entries(files)) {
       for (const b of blocks(stripComments(raw))) {
@@ -815,12 +837,24 @@ describe('画面の CSS のトークン（AC-1・2・3・4・5）', () => {
     expect(bad).toEqual([]);
   });
 
-  it('CSS は外のものを読まない（url() も @import も書かない）', () => {
+  it('CSS は外のものを読まない（url() は数字の書体の @font-face の 1 か所だけ・@import は書かない。#237 AC-3）', () => {
+    const urls: string[] = [];
+    const faces: { path: string; body: string }[] = [];
     for (const [path, raw] of Object.entries(files)) {
       const css = stripComments(raw);
-      expect(/\burl\(/.test(css), `${path} に url(`).toBe(false);
       expect(/@import\b/.test(css), `${path} に @import`).toBe(false);
+      for (const m of css.matchAll(/\burl\(([^)]*)\)/g))
+        urls.push(`${path.split('/').pop()} ${m[1]}`);
+      for (const b of blocks(css))
+        if (b.selector === '@font-face') faces.push({ path, body: b.body });
     }
+    expect(urls).toEqual(['base.css "../assets/fonts/inter-num.woff2"']);
+    expect(faces).toHaveLength(1);
+    const d = decls(faces[0]?.body ?? '');
+    expect(d.get('font-family')).toBe('"Inter Num"');
+    expect(d.get('font-display')).toBe('swap');
+    expect(d.get('font-weight')).toBe('400 700');
+    expect(d.get('src')).toBe('url("../assets/fonts/inter-num.woff2") format("woff2")');
   });
 });
 

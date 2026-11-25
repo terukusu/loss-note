@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ビルド成果物の index.html の CSP 検査（インライン script・style 要素・style 属性・イベントハンドラの属性・外部 URL を拒否。
-# 大文字小文字を区別しない。docs/design.md 10.1）と、
+# 大文字小文字を区別しない。docs/design.md 10.1）と、隣の assets/ の CSS の url() が同じオリジンのファイルだけか（#237）と、
 # 鍵の形（Anthropic の [s]k-ant-<種別>-<本体>）が index.html と隣の assets/ に無いことの検査。
 # 確認コマンドと ci.yml の check で dist/index.html に使う。自己テストは csp-check.test.sh
 #
@@ -21,6 +21,12 @@ if printf '%s' "$flat" | grep -qiE '[[:space:]]style[[:space:]]*='; then echo "s
 if printf '%s' "$flat" | grep -qiE '[[:space:]]on[a-z]+[[:space:]]*='; then echo "イベントハンドラの属性がある: $f"; exit 1; fi
 # 外部 URL（http(s):// と、属性の値・url() がプロトコル相対の //...）
 if printf '%s' "$flat" | grep -qiE 'https?://|=[[:space:]]*["'"'"']?//|url\([[:space:]]*["'"'"']?//'; then echo "外部 URL がある: $f"; exit 1; fi
+# 隣の assets/ の CSS の url() は同じオリジンのファイルだけ（data: と外部を拒否。同梱の数字の書体は font-src 'self' で読む。
+# data: に埋め込まれると本番の CSP で読めず黙って端末の書体に戻るので、ビルドの段で止める。#237）
+css_dir="$(dirname "$f")/assets"
+if [ -d "$css_dir" ] && grep -rlsiE --include='*.css' 'url\([[:space:]]*["'"'"']?([a-z][a-z0-9+.-]*:|//)' -- "$css_dir"; then
+  echo "assets の CSS に data: や外部の url() がある: $css_dir"; exit 1
+fi
 # [s] はこのファイル自身に一致させないための書き方
 key='[s]k-ant-[a-z]+[0-9]*-[A-Za-z0-9_-]{20,}'
 targets=("$f")

@@ -531,6 +531,43 @@ export const TX_REFL = {
     },
   },
 };
+/**
+ * #248: 「なぜ」のカード（C69）。x-d1 と同じ B（LC を広げた）で、心理も Good / More も無く、総評は空の行で始まる長い 2 行
+ * （題「なぜ崩れたか」・案内の 1 行・総評の添えは先頭の 1 行を 2 行で切る。架空の文）
+ */
+export const TX_WHY = exampleTrade('x-why', 1700000000023, {
+  ...D1_RECORD,
+  exit: {
+    ...D1_RECORD.exit,
+    review:
+      '\n架空の総評: 押し目の安値を割ったのに、戻ると思って LC を広げた。根拠が崩れたら切る、を入る前に決めておく。次の取引から逆指値を先に置いてから入る\n架空の 2 行目',
+  },
+});
+/** #248（AC-7 の W1）: x-d1 と同じ B に心理と Good / More の両側（More → Good で並ぶ。架空の文） */
+export const TX_WHY_W1 = exampleTrade(
+  'x-why-w1',
+  1700000000024,
+  { ...D1_RECORD },
+  {
+    emotionTags: ['recoup'],
+    reflection: {
+      good: { topics: ['readRight'], notes: [] },
+      more: {
+        topics: ['enteredEarly', 'againstHigherTf'],
+        notes: ['架空の一言: 根拠が崩れたら広げずに切る'],
+      },
+    },
+  },
+);
+/** #248（AC-7 の W5）: 取り込んだ C（LC なしの負け）と総評（案内の 1 行は出さない。架空の値） */
+export const TX_WHY_W5 = exampleTrade('x-why-w5', 1700000000025, {
+  source: 'import',
+  lc: undefined,
+  lcBasis: undefined,
+  lcDecidedBeforeEntry: false,
+  exit: { ...D1_RECORD.exit, price: 98.75, review: '【取り込み】元の判定 C' },
+  statementPnlYen: -12500,
+});
 /** #47 PR-2: USD の口座・USD 建ての取引（明細の損益 −51.50 USD・手数料 1.50 USD。詳細の測りで一時だけ足す。架空の値） */
 export const TX_FXU = exampleTrade(
   'x-fxu',
@@ -631,7 +668,7 @@ export const TX_LV = [
   ),
 ];
 /**
- * 省略してよい所（ui-guidelines 10.3 の表。tests/ui/truncation-rules.test.ts の ALLOWED のうち、名前と上の帯）。
+ * 省略してよい所（ui-guidelines 10.3 の表。tests/ui/truncation-rules.test.ts の ALLOWED のうち、名前・上の帯・詳細の総評の添え）。
  * LV1 はこれ以外の要素で実際に「…」が出たら外れにする（保険の 2 つ = 下の帯の状態の文・Google のボタンも外れ）
  */
 export const CUT_ALLOWED = [
@@ -643,6 +680,7 @@ export const CUT_ALLOWED = [
   '.seg__text',
   '.appbar__title',
   '.appbar__backlabel',
+  '.dwhy__preview',
 ];
 
 /** 架空のチャートの画像（無圧縮の画素を deflate した小さな PNG。縞の色で枠を見分ける） */

@@ -2,7 +2,8 @@
 // - 取引のタブの次の画面。上の帯に「‹ 前の画面」・題（銘柄 · L / S）・［編集］・「…」（操作のシート: 今の値と比べる・削除）
 // - 1 画面目に判定のカード（バッジ・LC の物差し〔主役。崩れの文の後・数の前。#231・C66〕・R・リスク・損益・理由・3 つのタップの答えの札）とチャート 2 枚を横に並べる
 //   （押すと全画面で見る層）。追加のチャート（#89）は 2 枚の下に同じ形で並べる
-// - 「すべての欄」「総評」は次の画面（押せる行。その場で開かない）
+// - チャートの下に「なぜ」のカード 1 枚（題は判定の段・心理 → Good / More → 総評。#248・C69）
+// - 「すべての欄」「総評」は次の画面（押せる行。その場で開かない。総評の行は「なぜ」のカードの最後）
 // - 比較のシートは見るだけ。［編集で今の値にする］ で編集を「今の値」を選んだ状態で開く（写し直すのは編集の保存のとき。#31 の P4）
 // - 消すは確認を挟まない（[元に戻す] はアプリの殻のトースト。ADR-0007）。無い ID・ほかの利用者の取引・消した印の取引は
 //   「この取引は見つかりません」と一覧へのリンク
@@ -42,13 +43,14 @@ import {
   chartCaption,
   chartCaptionParts,
   commentHref,
-  commentOf,
   DELETE_LABEL,
   DELETE_NOTE,
   DETAIL_SHEET_ID,
   type DetailSheet,
   detailActions,
   fieldsHref,
+  WHY_TITLE_ID,
+  whyCardModel,
 } from '../lib/detail-view';
 import { DRAFT_DOT_TEXT, editKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
@@ -395,7 +397,6 @@ function DetailBody(p: TradeDetailViewProps) {
         currency: accountCurrencyOf(t.snapshot),
       })
     : undefined;
-  const comment = commentOf(t);
   return (
     <div class="detail">
       <Verdict
@@ -410,26 +411,63 @@ function DetailBody(p: TradeDetailViewProps) {
       {/* オプションのポジションのレッグ（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
       {t.record.legs !== undefined ? <LegTable rows={legRows(t)} /> : null}
       <ChartsView {...p} />
-      {/* 心理のタグ（#156。設計書 9.4: 付いているチップ〔押すと同じ心理の期間の取引。#188〕と ［変更］、無ければ「＋ 心理を付ける」。押すと同じシート）。
-          判定のカードとチャート 2 枚を最初の画面に収める（#131 の D131）ため、チャートの下に置く */}
+      {/* なぜの段（#248・C69）: 心理 → Good / More → 総評を 1 枚のカードに。判定のカードとチャート 2 枚を最初の画面に収める
+          （#131 の D131）ため、チャートの下に置く */}
+      <DetailWhy {...p} />
+      {/* 「すべての欄」は次の画面（その場で開かない。設計書 9.2・9.3） */}
+      <nav class="dlist detail__links" aria-label="この取引の記録">
+        <RowLink href={fieldsHref(t.id)}>すべての欄</RowLink>
+      </nav>
+    </div>
+  );
+}
+
+/**
+ * 「なぜ」のカード（#248・C69。設計書 9.2・9.4）: 題は判定の段（なぜ守れたか / なぜ崩れたか / 心理と振り返り）、崩れ・極悪で何も
+ * 残していなければ題の下に 1 行の案内。中は 心理（#156。付いているチップは押すと同じ心理の期間の取引。#188）→ Good / More
+ * （#123。崩れ・極悪は More → Good）→ 総評（総評がある取引だけ。先頭の 1 行を添えた押せる行 → 次の画面）。hook を持たない
+ */
+function DetailWhy(p: TradeDetailViewProps) {
+  const { state } = p;
+  if (state.phase !== 'ready') return null;
+  const t = state.trade;
+  const tags = normalizeEmotions(t.emotionTags);
+  const reflection = normalizeReflection(t.reflection);
+  const filled = reflectionCardSides(reflection);
+  const m = whyCardModel(t, state.summary.judgment?.grade ?? null, {
+    emotions: tags.length,
+    reflection: filled.length > 0,
+  });
+  return (
+    <section class="card dwhy" aria-labelledby={WHY_TITLE_ID}>
+      <h2 class="dwhy__title" id={WHY_TITLE_ID}>
+        {m.title}
+      </h2>
+      {m.hint !== null ? <p class="dwhy__hint">{m.hint}</p> : null}
+      {/* 心理のタグ（#156。設計書 9.4: 付いているチップ〔押すと同じ心理の期間の取引。#188〕と ［変更］、無ければ「＋ 心理を付ける」。押すと同じシート） */}
       <EmotionCard
-        tags={normalizeEmotions(t.emotionTags)}
+        tags={tags}
         error={p.sheet?.kind === 'emotion' ? null : (p.emotion?.error ?? null)}
         onOpen={() => p.onSheet?.({ kind: 'emotion' })}
         {...(p.emotionHref ? { hrefOf: p.emotionHref } : {})}
       />
       {/* Good / More（#123。設計書 9.4: 付いている話題の札と自分で書いた行と ［変更］、無ければ「＋ Good / More を書く」） */}
       <ReflectionCard
-        sides={reflectionCardSides(normalizeReflection(t.reflection))}
+        sides={reflectionCardSides(reflection, { moreFirst: m.moreFirst })}
         error={p.sheet?.kind === 'reflection' ? null : (p.reflection?.error ?? null)}
         onOpen={() => p.onSheet?.({ kind: 'reflection' })}
       />
-      {/* 「すべての欄」「総評」は次の画面（その場で開かない。設計書 9.2・9.3） */}
-      <nav class="dlist detail__links" aria-label="この取引の記録">
-        <RowLink href={fieldsHref(t.id)}>すべての欄</RowLink>
-        {comment !== null ? <RowLink href={commentHref(t.id)}>総評</RowLink> : null}
-      </nav>
-    </div>
+      {m.comment !== null ? (
+        <div class="dwhy__part dwhy__comment">
+          <div class="dlist">
+            <RowLink href={commentHref(t.id)}>
+              <span class="dwhy__name">総評</span>
+              <span class="dwhy__preview">{m.comment.preview}</span>
+            </RowLink>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 

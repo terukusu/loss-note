@@ -326,3 +326,67 @@
 .compare__body .resnap__caption {
   margin-top: var(--sp-2);
 }
+
+/* 「なぜ」のカード（#248・C69）: チャートの下の 1 枚。題（判定の段で変わる）・案内の 1 行・心理 → Good / More → 総評の段。
+   段は区切りの線で分け、色は足さない（段の色は判定のカードとバッジだけ。P2） */
+.dwhy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+}
+
+.dwhy__title {
+  margin: 0;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+}
+
+.dwhy__hint {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.dwhy__part + .dwhy__part {
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+/* カードの中の押せる行（「＋ 心理を付ける」・総評）: カードの面の上に 1 段明るい面（入れ子の影は付けない） */
+.dwhy .dlist {
+  background: var(--s2);
+  box-shadow: none;
+}
+
+.dwhy .dlist > .rowlink:active {
+  background: var(--s3);
+}
+
+@media (hover: hover) {
+  .dwhy .dlist > .rowlink:hover {
+    background: var(--s3);
+  }
+}
+
+/* 総評の行: 名前の下に先頭の 1 行（利用者が書いた文。2 行を超える分は省く。全文は次の画面「総評」。ui-guidelines 10.3） */
+.dwhy__comment .rowlink {
+  padding-block: var(--sp-2);
+}
+
+.dwhy__name {
+  display: block;
+}
+
+.dwhy__preview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}

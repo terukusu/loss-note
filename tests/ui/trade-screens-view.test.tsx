@@ -518,9 +518,10 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
       record: { ...D1.record, exit: { ...D1.record.exit, review: '【取り込み】元の判定 B' } },
     };
     const t2 = detailTree(withComment);
+    // 総評の行は「なぜ」のカードの最後（#248・C69）、「すべての欄」はカードの外の下
     expect(
       all(t2, (e) => e.type === 'a' && hasClass('rowlink')(e)).map((a) => a.props.href),
-    ).toEqual(['/trades/d1/fields', '/trades/d1/comment']);
+    ).toEqual(['/trades/d1/comment', '/trades/d1/fields']);
     const comment = expand(
       <TradeNotesView
         id="d1"
@@ -539,6 +540,172 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     // 上の帯の戻るは詳細（殻の無い描画では詳細へのリンク）
     expect(all(fields, (e) => e.type === 'a').map((a) => a.props.href)).toEqual(['/trades/d1']);
     expect(all(fields, hasClass('fields__row')).length).toBeGreaterThan(10);
+  });
+
+  describe('#248: 「なぜ」のカード（C69。例は Issue の W1〜W8・値は架空）', () => {
+    const whyOf = (tree: Node[]) => {
+      const cards = all(tree, hasClass('dwhy'));
+      expect(cards).toHaveLength(1);
+      return cards[0] as El;
+    };
+    const W1: StoredTrade = {
+      ...D1,
+      emotionTags: ['recoup'],
+      reflection: {
+        good: { topics: ['readRight'], notes: [] },
+        more: { topics: ['enteredEarly'], notes: [] },
+      },
+    };
+
+    it('AC-1（W1）: チャートの後・「すべての欄」の前に 1 枚。中は 心理 → Good / More で、別のカードは無い', () => {
+      const tree = detailTree(W1);
+      const why = whyOf(tree);
+      // 小見出しの並び
+      expect(all([why], (e) => e.type === 'h3').map(text)).toEqual(['心理', 'Good / More']);
+      // 心理・Good / More は面を持たない段（別のカードにしない）
+      for (const c of ['emotioncard', 'reflectioncard']) {
+        const part = all(tree, hasClass(c));
+        expect(part).toHaveLength(1);
+        expect(hasClass('card')(part[0] as El)).toBe(false);
+      }
+      // 木の順: 判定のカード → チャート → なぜ → すべての欄
+      const seq = all(
+        tree,
+        (e) =>
+          hasClass('verdict')(e) ||
+          hasClass('dcharts')(e) ||
+          hasClass('dwhy')(e) ||
+          hasClass('detail__links')(e),
+      ).map((e) =>
+        hasClass('verdict')(e)
+          ? 'verdict'
+          : hasClass('dcharts')(e)
+            ? 'charts'
+            : hasClass('dwhy')(e)
+              ? 'why'
+              : 'links',
+      );
+      expect(seq).toEqual(['verdict', 'charts', 'why', 'links']);
+      // 見出しの階層: カードの題は h2、段の名前は h4
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ崩れたか');
+      expect(all([why], (e) => e.type === 'h4').map((h) => text(h).split(' — ')[0])).toEqual([
+        'More',
+        'Good',
+      ]);
+    });
+
+    it('AC-2・AC-3（W2）: A は題「なぜ守れたか」・Good → More・心理が無ければ「＋ 心理を付ける」', () => {
+      const W2: StoredTrade = {
+        ...L1,
+        reflection: {
+          good: { topics: ['cutEarly'], notes: [] },
+          more: { topics: ['lcTooTight'], notes: [] },
+        },
+      };
+      const why = whyOf(detailTree(W2));
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ守れたか');
+      expect(all([why], (e) => e.type === 'h4').map((h) => text(h).split(' — ')[0])).toEqual([
+        'Good',
+        'More',
+      ]);
+      expect(all([why], hasClass('rowlink')).map(text)).toEqual(['＋ 心理を付ける']);
+      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+    });
+
+    it('AC-4（W4）: 何も残していない C だけ題の下に案内の 1 行と「＋」の行 2 つ。W1・W7 には出ない', () => {
+      const W4 = stored('w4', {
+        lc: undefined,
+        lcDecidedBeforeEntry: false,
+        exit: { ...D1.record.exit, price: 98.75 },
+        statementPnlYen: -12_500,
+      });
+      const tree = detailTree(W4);
+      const why = whyOf(tree);
+      expect(all(tree, hasClass('badge--worst')).length).toBeGreaterThan(0);
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ崩れたか');
+      expect(all([why], hasClass('dwhy__hint')).map(text)).toEqual([
+        '心理と More を残すと、振り返りの「何で崩れたか」に数えられます。',
+      ]);
+      expect(all([why], hasClass('rowlink')).map(text)).toEqual([
+        '＋ 心理を付ける',
+        '＋ Good / More を書く',
+      ]);
+      expect(all([whyOf(detailTree(W1))], hasClass('dwhy__hint'))).toEqual([]);
+      // W7: 計画どおりの勝ち（L2）・何も無い → 出ない
+      const w7 = whyOf(detailTree(L2));
+      expect(text(all([w7], (e) => e.type === 'h2')[0] as El)).toBe('なぜ守れたか');
+      expect(all([w7], hasClass('dwhy__hint'))).toEqual([]);
+    });
+
+    it('AC-4・AC-5（W5）: 取り込んだ C は案内を出さず、総評の行に先頭の 1 行を添える。押すと総評の画面', () => {
+      const W5 = stored('w5', {
+        source: 'import',
+        lc: undefined,
+        lcDecidedBeforeEntry: false,
+        exit: { ...D1.record.exit, price: 98.75, review: '【取り込み】元の判定 C' },
+        statementPnlYen: -12_500,
+      });
+      const tree = detailTree(W5);
+      const why = whyOf(tree);
+      // AC-2: 取り込みで LC なしの負けは C（極悪）で、題は「なぜ崩れたか」
+      expect(all(tree, hasClass('badge--worst')).length).toBeGreaterThan(0);
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ崩れたか');
+      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+      const row = all([why], (e) => e.type === 'a' && hasClass('rowlink')(e));
+      expect(row.map((a) => a.props.href)).toEqual(['/trades/w5/comment']);
+      expect(text(all(row, hasClass('dwhy__name'))[0] as El)).toBe('総評');
+      expect(text(all(row, hasClass('dwhy__preview'))[0] as El)).toBe('【取り込み】元の判定 C');
+      // 総評の行はカードの最後
+      const last = why.children.filter((c): c is El => typeof c !== 'string').at(-1) as El;
+      expect(hasClass('dwhy__comment')(last)).toBe(true);
+    });
+
+    it('AC-2・AC-3（W3）: 危ない勝ちは題「なぜ崩れたか」で、More が無ければ Good だけ', () => {
+      const W3: StoredTrade = {
+        ...L3,
+        emotionTags: ['overconfident'],
+        reflection: {
+          good: { topics: ['letProfitRun'], notes: [] },
+          more: { topics: [], notes: [] },
+        },
+      };
+      const tree = detailTree(W3);
+      expect(all(tree, hasClass('badge--break')).length).toBeGreaterThan(0);
+      const why = whyOf(tree);
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ崩れたか');
+      expect(all([why], (e) => e.type === 'h4').map((h) => text(h).split(' — ')[0])).toEqual([
+        'Good',
+      ]);
+      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+    });
+
+    it('AC-2（W6）: 判定なしは題「心理と振り返り」で Good、案内なし', () => {
+      const W6: StoredTrade = {
+        ...L1,
+        reflection: {
+          good: { topics: [], notes: ['架空の一言 A'] },
+          more: { topics: [], notes: [] },
+        },
+      };
+      const { judgment: _none, ...summary } = summarize(W6);
+      const base = detailState(W6);
+      if (base.phase !== 'ready') throw new Error('読めた状態でない');
+      const why = whyOf(detailTree(W6, { state: { ...base, summary } }));
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('心理と振り返り');
+      expect(all([why], (e) => e.type === 'h4').map((h) => text(h).split(' — ')[0])).toEqual([
+        'Good',
+      ]);
+      expect(all([why], hasClass('dwhy__hint'))).toEqual([]);
+    });
+
+    it('AC-5（W8・W1）: 添えは空の行を飛ばした最初の行。総評が無ければ総評の行を出さない', () => {
+      const W8 = stored('w8', {
+        exit: { ...D1.record.exit, price: 99.5, review: '\n架空の 1 行目\n架空の 2 行目' },
+      });
+      const why = whyOf(detailTree(W8));
+      expect(all([why], hasClass('dwhy__preview')).map(text)).toEqual(['架空の 1 行目']);
+      expect(all([whyOf(detailTree(W1))], hasClass('dwhy__comment'))).toEqual([]);
+    });
   });
 
   it('建てが複数の取引は [直す] を出さず、直せない旨', () => {

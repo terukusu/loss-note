@@ -111,12 +111,11 @@
   margin: 0;
 }
 
-/* 詳細の「Good / More」のカード */
+/* 詳細の「なぜ」のカードの中の「Good / More」の段（面と余白は .dwhy。#248・C69） */
 .reflectioncard {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-4);
 }
 
 .reflectioncard__side {

@@ -4,17 +4,21 @@ import {
   chartCaption,
   commentHref,
   commentOf,
+  commentPreview,
   detailActions,
   fieldsHref,
+  WHY_HINT,
+  whyCardModel,
 } from '../../ui/src/lib/detail-view';
 import { editValuesNote, editVerdictLine } from '../../ui/src/lib/edit-screen';
 import { readDraft } from '../../ui/src/lib/record-form';
 import { chartSlotLine, miniChartId } from '../../ui/src/lib/record-screen';
+import { reflectionCardSides } from '../../ui/src/lib/reflection';
 import { createTradeDetailController } from '../../ui/src/lib/trade-detail-controller';
 import { createFakeApi } from './helpers/fake-api';
 import { CAPITAL_1M, E1 as E1_DRAFT } from './helpers/record-drafts';
 import { fakePreview } from './helpers/statement-rows';
-import { D1 } from './helpers/trade-examples';
+import { D1, L1 } from './helpers/trade-examples';
 
 describe('詳細の操作のシート・チャートの名前・次の画面（#131）', () => {
   it('操作のシートの行: 違う値があれば「今の値と比べる」→「削除」、無ければ「削除」だけ', () => {
@@ -99,5 +103,78 @@ describe('編集の 1 画面（#131）', () => {
       '資金・許容リスクと銘柄の値は、記録したときの値で計算します。',
     );
     expect(editValuesNote(true)).toContain('今の値で計算しています');
+  });
+});
+
+describe('#248: 詳細の「なぜ」のカードの形（C69。例は Issue の W1〜W8・値は架空）', () => {
+  const none = { emotions: 0, reflection: false };
+  const some = { emotions: 1, reflection: true };
+
+  it('AC-2: 題は判定の段（計画どおり = なぜ守れたか / 崩れ・極悪 = なぜ崩れたか / 判定なし = 心理と振り返り）', () => {
+    const title = (g: Parameters<typeof whyCardModel>[1]) => whyCardModel(L1, g, some).title;
+    // W1 = B・W3 = 危ない勝ち・W4 = C
+    expect([title('B'), title('riskyWin'), title('C')]).toEqual([
+      'なぜ崩れたか',
+      'なぜ崩れたか',
+      'なぜ崩れたか',
+    ]);
+    // W2 = A・W7 = 計画どおりの勝ち
+    expect([title('A'), title('safeWin')]).toEqual(['なぜ守れたか', 'なぜ守れたか']);
+    // W6 = 判定なし
+    expect(title(null)).toBe('心理と振り返り');
+  });
+
+  it('AC-3: Good / More を More → Good にするのは崩れ・極悪だけ', () => {
+    const order = (g: Parameters<typeof whyCardModel>[1]) => whyCardModel(L1, g, some).moreFirst;
+    expect([order('B'), order('riskyWin'), order('C')]).toEqual([true, true, true]);
+    expect([order('A'), order('safeWin'), order(null)]).toEqual([false, false, false]);
+    const r = {
+      good: { topics: ['readRight' as const], notes: [] },
+      more: { topics: ['enteredEarly' as const], notes: [] },
+    };
+    expect(reflectionCardSides(r, { moreFirst: true }).map((x) => x.name)).toEqual([
+      'More',
+      'Good',
+    ]);
+    expect(reflectionCardSides(r).map((x) => x.name)).toEqual(['Good', 'More']);
+    // 中身の無い側は今のとおり出さない（W3: Good だけ）
+    const goodOnly = { ...r, more: { topics: [], notes: [] } };
+    expect(reflectionCardSides(goodOnly, { moreFirst: true }).map((x) => x.name)).toEqual(['Good']);
+  });
+
+  it('AC-4: 案内の 1 行は崩れ・極悪で、心理も Good / More も無く、取り込みでないときだけ', () => {
+    // W4: C・何も無い・手で記録 → 出る
+    expect(whyCardModel(L1, 'C', none).hint).toBe(WHY_HINT);
+    expect(whyCardModel(L1, 'B', none).hint).toBe(WHY_HINT);
+    // W1: B・心理と Good / More あり → 出ない。心理だけ・Good / More だけでも出ない
+    expect(whyCardModel(L1, 'B', some).hint).toBeNull();
+    expect(whyCardModel(L1, 'B', { emotions: 2, reflection: false }).hint).toBeNull();
+    expect(whyCardModel(L1, 'riskyWin', { emotions: 0, reflection: true }).hint).toBeNull();
+    // W7: 計画どおりの勝ち・何も無い → 出ない（計画どおりの取引に入力を促さない）。判定なしも出ない
+    expect(whyCardModel(L1, 'safeWin', none).hint).toBeNull();
+    expect(whyCardModel(L1, null, none).hint).toBeNull();
+    // W5: C・取り込み → 出ない（振り返りは既定で取り込みを数えない）
+    const imported = { ...L1, record: { ...L1.record, source: 'import' as const } };
+    expect(whyCardModel(imported, 'C', none).hint).toBeNull();
+  });
+
+  it('AC-5: 総評の添えは空の行を飛ばした最初の行。総評が無ければ行を出さない', () => {
+    const withReview = (review: string) => ({
+      ...L1,
+      record: { ...L1.record, exit: { ...L1.record.exit, review } },
+    });
+    // W5
+    expect(whyCardModel(withReview('【取り込み】元の判定 C'), 'C', none).comment).toEqual({
+      preview: '【取り込み】元の判定 C',
+    });
+    // W8
+    expect(
+      whyCardModel(withReview('\n  \n架空の 1 行目\r\n架空の 2 行目'), 'A', none).comment,
+    ).toEqual({ preview: '架空の 1 行目' });
+    // W1: 総評なし・空白だけ
+    expect(whyCardModel(L1, 'B', some).comment).toBeNull();
+    expect(whyCardModel(withReview(' \n '), 'B', some).comment).toBeNull();
+    expect(commentPreview('  前後の空白  \n次')).toBe('前後の空白');
+    expect(commentPreview('\n\n')).toBeNull();
   });
 });

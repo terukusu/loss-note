@@ -4,7 +4,8 @@
 //   ［あとで］ / ［完了］。チップは設定で選択肢に出すタグと、開いたときに付いていたタグだけ（#163）。良い状態（平常心）は
 //   ほかと区切りの線で分け、「ほかと同時には付きません」を添える（色は使わない）。保存の後のシートは短い形（short。#230）:
 //   最初は平常心 + 候補 3 個 + ［ほかの心理（N）］ で、押すと候補の下に残りのまとまりを出す
-// - EmotionCard: 詳細の「心理」のカード（付いているタグ + ［変更］。無ければ押せる行「＋ 心理を付ける」）。タグは行き先
+// - EmotionCard: 詳細の「なぜ」のカードの中の「心理」の段（#248・C69。面は「なぜ」のカードが持つ。付いているタグ + ［変更］。
+//   無ければ押せる行「＋ 心理を付ける」）。タグは行き先
 //   （hrefOf）があれば押せるチップ（同じ心理の「期間の取引」へ。#188）、無ければ押せない輪郭の札
 // 色はどのタグにも付けない（C34）。名前・一言は固定の文字（ID から引く）をテキストのノードで入れる
 import { CALM, type EmotionTagId } from '../../../core/emotion-tags';
@@ -277,11 +278,11 @@ export function EmotionCard(p: EmotionCardProps) {
   const names = emotionNames(p.tags);
   const hrefOf = p.hrefOf;
   return (
-    <section class="card emotioncard" aria-labelledby={EMOTION_CARD_TITLE_ID}>
+    <section class="dwhy__part emotioncard" aria-labelledby={EMOTION_CARD_TITLE_ID}>
       <div class="emotioncard__head">
-        <h2 class="emotioncard__title" id={EMOTION_CARD_TITLE_ID}>
+        <h3 class="emotioncard__title" id={EMOTION_CARD_TITLE_ID}>
           {EMOTION_CARD_TITLE}
-        </h2>
+        </h3>
         {names.length > 0 ? (
           <Button variant="secondary" size="sm" onClick={p.onOpen} label={EMOTION_CHANGE_LABEL}>
             {EMOTION_CHANGE}

@@ -577,9 +577,11 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
         1,
       );
     }
-    const summary = GLOSSARY.find((g) => g.id === 'lcMove')?.summary ?? '';
-    expect(summary).toContain('インに近づけた（狭めた）');
-    expect(summary).toContain('インから遠ざけた（広げた）');
+    // 説明の先頭（短い説明とすぐ後の続きの 1 文目。#251 で短い説明を 1 文に縮めた）
+    const g = GLOSSARY.find((x) => x.id === 'lcMove');
+    const head = [g?.summary ?? '', g?.body[0] ?? ''].join('');
+    expect(head).toContain('インに近づけた（狭めた）');
+    expect(head).toContain('インから遠ざけた（広げた）');
   });
 
   it('デザインレビュー 3: 「（任意）」は薄く小さい文字に分け、空の日時の欄は薄い文字（値が入ると外れる）', () => {
@@ -603,7 +605,7 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
     expect(cls(input(filled, 'record-entry-time'))).not.toContain('textfield__input--empty');
   });
 
-  it('KEEP-4: 「LC なし」なら LC を動かしたかの段が出ず、注記は今のまま', () => {
+  it('KEEP-4: 「LC なし」なら LC を動かしたかの段が出ず、注記も出さない（#251 で注記を消した）', () => {
     const tree = view(
       stateFor(
         draft({ side: 'L', entryPrice: '100.00', lcNone: true, exitPrice: '100.75' }),
@@ -616,7 +618,8 @@ describe('#56 LC を動かしたかの言葉（L / S で同じ「そのまま / 
         (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
       ),
     ).toEqual([]);
-    expect(text(tree)).toContain('LC が無いため、LC を動かしたかは「そのまま」として記録します。');
+    expect(text(tree)).not.toContain('LC が無いため');
+    expect(text(tree)).not.toContain('「そのまま」として記録します');
   });
 
   it('KEEP-5: 時間足を変えたかの選択肢は今のまま（そのまま / 長い足へ / 短い足へ。#74 で「変えず」→「そのまま」）', () => {
@@ -1765,6 +1768,14 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
       const notices = all(tree, hasClass('charts__notice'));
       expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
       expect(cls(notices[0] as El)).toContain('rin__notice');
+      // 1 段目の枠とチャートのシートの注意の横に「i」（何のためか・保存することは中。#251・AC-5）
+      for (const n of notices)
+        expect(
+          all([n as El], (e) => e.props['aria-label'] === '「チャートの送り方」の説明'),
+        ).toHaveLength(1);
+      // ファイルの欄の読み上げの説明は注意の文だけ（「i」の名前を混ぜない）
+      const chartNote = all(tree, (e) => e.props.id === 'record-chart-notice');
+      if (chartNote.length > 0) expect(text(chartNote)).toBe(CHART_READ_NOTICE);
       const body = text(all(tree, (e) => e.props.id === 'record-statement-notice'));
       expect(body).toContain('明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません');
     }
@@ -1773,6 +1784,10 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
     const notices = all(empty, hasClass('charts__notice'));
     expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
     expect(cls(notices[0] as El)).toContain('rchartrow__notice');
+    // 2 段目の行は押すとファイルを選ぶ枠なので、中に「i」を置かない（文だけ。「i」は 1 段目とチャートのシート）
+    expect(
+      all([notices[0] as El], (e) => e.props['aria-label'] === '「チャートの送り方」の説明'),
+    ).toEqual([]);
     expect(all(empty, (e) => e.props.id === 'record-statement-notice')).toEqual([]);
     // チャートが入った行は押すとシート（シートの見出しの下に注意）
     const full = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
@@ -2451,26 +2466,29 @@ describe('言葉の説明の「i」（#57）', () => {
     for (const g of groups) expect(infoButtons([g])).toEqual([]);
   });
 
-  it('#202 AC-1: 価格・LC なしのどちらでも「LC を入る前に決めていたか」の問いは無く、LC の行の下に添えが 1 つ（価格 = 後付けを入れさせない言い方・LC なし = 押した結果）', () => {
-    for (const [d, note] of [
-      [E1, 'エントリー後に決めた価格は入れず「LC なし」へ'],
-      [E16, 'LC を決めずに入った取引として記録します'],
-    ] as const) {
+  it('#202 AC-1: 価格・LC なしのどちらでも「LC を入る前に決めていたか」の問いは無い。LC の行の下の添えは価格を入れる間だけ（LC なしの後は出さない = 判定の帯と同じことを言わない。#251）', () => {
+    for (const d of [E1, E16]) {
       const t = view(stateFor(d, CAPITAL_1M));
       expect(all(t, (e) => e.props['aria-label'] === 'LC を入る前に決めていたか')).toEqual([]);
       expect(text(t)).not.toContain('LC を入る前に決めていたか');
-      const late = all(t, (e) => e.props.id === 'record-lc-late');
-      expect(late).toHaveLength(1);
-      expect(text(late[0] as El)).toBe(note);
-      // 押す先のボタンの名前は太字（色だけに頼らない）
-      if (d === E1)
-        expect(all([late[0] as El], (e) => e.type === 'strong').map((e) => text(e))).toEqual([
-          '「LC なし」',
-        ]);
-      // 読み上げ: LC の価格の欄の説明に結ぶ
-      const lc = all(t, (e) => e.props.id === 'record-lc')[0] as El;
-      expect(String(lc.props['aria-describedby'])).toContain('record-lc-late');
     }
+    const t = view(stateFor(E1, CAPITAL_1M));
+    const late = all(t, (e) => e.props.id === 'record-lc-late');
+    expect(late).toHaveLength(1);
+    expect(text(late[0] as El)).toBe('エントリー後に決めた価格は入れず「LC なし」へ');
+    // 押す先のボタンの名前は太字（色だけに頼らない）
+    expect(all([late[0] as El], (e) => e.type === 'strong').map((e) => text(e))).toEqual([
+      '「LC なし」',
+    ]);
+    // 読み上げ: LC の価格の欄の説明に結ぶ
+    const lc = all(t, (e) => e.props.id === 'record-lc')[0] as El;
+    expect(String(lc.props['aria-describedby'])).toContain('record-lc-late');
+    // LC なし: 添えも、押した結果の 1 行も出さず、欄の説明は添えを指さない
+    const none = view(stateFor(E16, CAPITAL_1M));
+    expect(all(none, (e) => e.props.id === 'record-lc-late')).toEqual([]);
+    expect(text(none)).not.toContain('LC を決めずに入った取引として記録します');
+    const lcNone = all(none, (e) => e.props.id === 'record-lc')[0] as El;
+    expect(String(lcNone.props['aria-describedby'] ?? '')).not.toContain('record-lc-late');
   });
 
   it('AC-2: 判定が出ている状態で「判定」「R」「LC の物差し」の「i」が判定の枠にある', () => {
@@ -3314,5 +3332,28 @@ describe('#165 逆指値の未設定の切り替え（AC-9・AC-12 の描画）'
         (e) => e.props.role === 'radiogroup' && e.props['aria-label'] === 'LC を動かしたか',
       ),
     ).toHaveLength(0);
+  });
+});
+
+describe('#251 AC-7: 欄の読み上げの説明は画面にある要素だけを指す', () => {
+  const dangling = (t: Node[]) => {
+    const ids = new Set(all(t, (e) => typeof e.props.id === 'string').map((e) => e.props.id));
+    return all(t, (e) => typeof e.props['aria-describedby'] === 'string').flatMap((e) =>
+      String(e.props['aria-describedby'])
+        .split(/\s+/)
+        .filter((id) => id !== '' && !ids.has(id))
+        .map((id) => `${String(e.props.id ?? e.type)} → ${id}`),
+    );
+  };
+  it('価格あり・LC なし・逆指値 未設定・LC を広げた・1 段目で、aria-describedby の ID がすべて木の中にある', () => {
+    for (const st of [
+      stateFor(E1, CAPITAL_1M),
+      stateFor(E16, CAPITAL_1M),
+      stateFor(draft({ ...E1, stopNotPlaced: true }), CAPITAL_1M),
+      stateFor(draft({ ...E1, lcMove: 'widened' }), CAPITAL_1M),
+      stateFor(E1, NO_CAPITAL, { stage: 'input' }),
+    ]) {
+      expect(dangling(view(st))).toEqual([]);
+    }
   });
 });

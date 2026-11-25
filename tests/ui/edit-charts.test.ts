@@ -526,9 +526,14 @@ describe('再レビュー後の修正（Issue #89 R1〜R5・デザインの再�
       judgment: { grade: 'B', reasons: [{ kind: 'lcWidened' }] },
     };
     expect(changeText(before as never, after as never)).toMatch(/のまま・理由が変わります$/);
-    expect(changeText(before as never, before as never)).toMatch(/^判定は変わりません: /);
-    expect(bandText('判定は変わりません: B 悪い損失 −1.6R', 1)).toBe(
-      '判定は同じ（B 悪い損失 −1.6R）・チャート 1 か所を変更',
+    // 段・R・理由が変わらなければ判定の文を出さない（#251・AC-3 の例 #7・#9）
+    expect(changeText(before as never, before as never)).toBeNull();
+    expect(bandText(null, 1)).toBe('チャート 1 か所を変更');
+    expect(bandText(null, 0)).toBe('');
+    expect(bandText(null, 0, true)).toBe('今の値で再計算');
+    expect(bandText(null, 2, true)).toBe('今の値で再計算 · チャート 2 か所を変更');
+    expect(bandText('判定: A いい損失 −1.0R → B 悪い損失 −1.0R', 1, true)).toBe(
+      '今の値で再計算 · 判定: A いい損失 −1.0R → B 悪い損失 −1.0R・チャート 1 か所を変更',
     );
     expect(bandText('判定: A いい損失 −1.0R → B 悪い損失 −1.0R', 0)).toBe(
       '判定: A いい損失 −1.0R → B 悪い損失 −1.0R',

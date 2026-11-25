@@ -64,7 +64,7 @@ import {
 } from '../lib/accounts';
 import { backLayers } from '../lib/back-layers';
 import { BULK_SWAP_TEXT, bulkDroppedText, bulkSwapLabel, swapTargetOf } from '../lib/bulk-pick';
-import { CHART_READ_NOTICE, timeframeConflict } from '../lib/chart-read';
+import { CHART_READ_NOTICE, CHART_SEND_INFO, timeframeConflict } from '../lib/chart-read';
 import type { ChartState } from '../lib/chart-slots';
 import {
   type AnySlot,
@@ -1996,8 +1996,14 @@ function StageInput(p: RecordViewProps) {
             </div>
           </div>
         )}
-        <p class="charts__notice rin__notice" id={CHART_NOTICE_ID}>
-          {CHART_READ_NOTICE}
+        {/* 送る前の注意（畳まない 1 行。C38）。何のために送るか・保存することは末尾の「i」（#251） */}
+        <p class="charts__notice rin__notice">
+          <span id={CHART_NOTICE_ID}>{CHART_READ_NOTICE}</span>
+          <InfoTip
+            label={CHART_SEND_INFO.label}
+            body={CHART_SEND_INFO.body}
+            id={CHART_SEND_INFO.id}
+          />
         </p>
         {state.chartBlocked ? (
           <p class="statement__text" role="status">

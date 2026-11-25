@@ -61,7 +61,6 @@ import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import { FIELD_INPUT_ID, tradeSummary } from '../lib/record-screen';
 import {
-  BAR_PREFIX,
   CHOICE_NAME,
   COMPARE_ROW_LABEL,
   COMPARE_SHEET_TITLE,
@@ -733,8 +732,7 @@ function TradeEditBody(p: TradeEditViewProps) {
           onOpen={() => openSheet({ kind: 'verdict' })}
         />
         <p class="edit__change" id="edit-change" aria-live="polite">
-          {refresh ? BAR_PREFIX : ''}
-          {bandText(changeText(state.before, state.preview), chartChanges)}
+          {bandText(changeText(state.before, state.preview), chartChanges, refresh)}
         </p>
         {keptReading.length > 0 ? (
           <p class="field__hint edit__kept" role="status">

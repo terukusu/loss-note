@@ -456,7 +456,7 @@ describe('判定の枠のほかの数・編集と比較の 1 行（#227 の独�
     const risky = readDraft(DRAFT_WIDENED_WIN, NO_CAPITAL).preview as never;
     const b = readDraft(DRAFT_B, NO_CAPITAL).preview as never;
     expect(changeText(b, risky)).toBe('判定: B 悪い損失 −1.6R → 危ない勝ち');
-    expect(changeText(risky, risky)).toBe('判定は変わりません: 危ない勝ち');
+    expect(changeText(risky, risky)).toBeNull();
     const risky2 = readDraft(
       draft({
         side: 'L',

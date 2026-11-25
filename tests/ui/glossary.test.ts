@@ -75,6 +75,19 @@ describe('用語のデータの形', () => {
     }
   });
 
+  it('#251: 短い説明は短い 1 文（見える文字で 32 字以内。詳しい定義・式は続きの文）。規律コストは「LC を守っていれば失わずに済んだ R」', () => {
+    const long = GLOSSARY.filter((g) => [...plainText(g.summary)].length > 32).map((g) => g.id);
+    expect(long).toEqual([]);
+    expect(plainText(glossaryTerm('disciplineCost').summary)).toBe(
+      'LC を守っていれば失わずに済んだ R です。',
+    );
+    // 縮めた定義は続きに残す（規律コストの式・計画どおり率の割合）
+    expect(allText('disciplineCost')).toContain(
+      '計画どおりに LC で切れていたらの R と、実際の R の差',
+    );
+    expect(allText('planRate')).toContain('A いい損失と計画どおりの勝ちの割合');
+  });
+
   it('JSON にそのまま直せる（関数・undefined を持たない）', () => {
     expect(JSON.parse(JSON.stringify(GLOSSARY))).toEqual(GLOSSARY);
   });

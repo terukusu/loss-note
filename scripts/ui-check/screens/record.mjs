@@ -1055,28 +1055,16 @@ export async function flows(kit) {
           `${w}: LC なしで「i」なし`,
         );
         expectEq(await toggle.count(), 0, `${w}: LC なしで切り替えなし`);
-        // LC なしの間は、同じ行で押した結果を言う（#202 のデザインレビュー 3）。1 行のまま
-        const noneNote = await p.evaluate(() => {
-          const el = document.getElementById('record-lc-late');
-          if (!el) return null;
-          const r = document.createRange();
-          r.selectNodeContents(el);
-          const lines = new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size;
-          return {
-            text: (el.textContent ?? '').trim(),
-            lines,
-            clip: el.scrollWidth - el.clientWidth,
-          };
-        });
-        expectEq(
-          noneNote?.text,
-          'LC を決めずに入った取引として記録します',
+        // LC なしの間は添えを出さない（押した結果は下の帯の判定が示す。同じことを 2 回言わない。#251）
+        await expectPollAsync(
+          async () => (await p.locator('#record-lc-late').count()) === 0,
           `${w}: LC なしの間の添え`,
         );
-        if (noneNote?.lines !== 1 || noneNote.clip > 0)
-          throw new Error(
-            `${w}: LC なしの間の添えが ${noneNote?.lines} 行・はみ出し ${noneNote?.clip}px`,
-          );
+        expectEq(
+          await p.getByText('LC を決めずに入った取引として記録します').count(),
+          0,
+          `${w}: LC なしの間の押した結果の 1 行`,
+        );
         await lcNone.click();
         await expectPollAsync(
           async () => (await stopInfo.count()) === 1,
@@ -1156,11 +1144,12 @@ export async function flows(kit) {
             '99.5',
             `${w} ${theme}: 編集の LC の欄`,
           );
-          // 添えの代わりに問いと理由の 1 行（食い違わない。#202 のデザインレビュー 2）。問いは LC の行のすぐ下（一言の欄より上）
+          // 添えの代わりに問い（食い違わない。#202 のデザインレビュー 2）。理由の 1 行は置かない（#251）。問いは LC の行の
+          // すぐ下（一言の欄より上）
           expectEq(await p.locator('#record-lc-late').count(), 0, `${w} ${theme}: 編集の添え`);
           expectEq(
-            (await p.locator('#record-lc-decided-hint').textContent())?.trim(),
-            '後から書いた LC として保存した記録です',
+            await p.locator('#record-lc-decided-hint').count(),
+            0,
             `${w} ${theme}: 問いの理由の 1 行`,
           );
           const order = await p.evaluate(() => {

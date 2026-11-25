@@ -5,6 +5,7 @@ import {
   applyChartRead,
   CHART_READ_MSG,
   CHART_READ_NOTICE,
+  CHART_SEND_INFO,
   chartReadFailureMessage,
   parseChartReadResponse,
   suggestButton,
@@ -140,8 +141,13 @@ describe('timeframeConflict（画面の例 U10）', () => {
 });
 
 describe('CHART_READ_NOTICE（U0）', () => {
-  it('チャートは AI の提供元に送り、記録と一緒に保存することを言う（明細の「保存しません」と主語を分ける）', () => {
-    expect(CHART_READ_NOTICE).toContain('AI（Anthropic）に送ります');
-    expect(CHART_READ_NOTICE).toContain('記録と一緒に保存します');
+  it('常に見える 1 行はチャートを AI の提供元に送ることだけ。何のためか・記録と一緒に保存することは「i」の中（明細の「保存しません」と主語を分ける。#251・C70）', () => {
+    expect(CHART_READ_NOTICE).toBe('チャートは AI（Anthropic）に送ります。');
+    const more = CHART_SEND_INFO.body.join('');
+    expect(more).toContain('時間足を読むため');
+    expect(more).toContain('AI の提供元（Anthropic）に送ります');
+    expect(more).toContain('記録と一緒に保存します');
+    expect(CHART_SEND_INFO.label).toBe('チャートの送り方');
+    expect(CHART_SEND_INFO.id.startsWith('record-')).toBe(false);
   });
 });

@@ -86,8 +86,8 @@ export function readMark(state: unknown, href: string, opts: RouteOptions): NavM
  * `/trades/a/fields`・`/trades/a/comment` も。#131）→ `[/, /trades, /trades/a, /trades/a/edit]`、`/record` → `[/, /record]`、
  * `/glossary`・`/settings/accounts` → `[/, /settings, …]`、
  * `/review/table?q` → `[/, /review?q, /review/table?q]`、
- * `/review/trades?q` → `[/, /review?<q の期間>[&why=more|good], /review/trades?q]`（#185。戻ると同じ期間の振り返り。切り替えは
- * 来た行の側 = More / Good の行なら その側。#228）。
+ * `/review/trades?q` → `[/, /review?<q の期間>[&why=reason|more|good], /review/trades?q]`（#185。戻ると同じ期間の振り返り。切り替えは
+ * 来た行の側 = 崩れ方・More / Good の行なら その切り口。#228・#239）。
  * ホーム・ログイン・知らない URL は組み直さない（`[href]`）
  */
 export function bootStack(href: string, opts: RouteOptions): string[] {

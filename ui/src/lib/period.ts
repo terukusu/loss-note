@@ -4,7 +4,7 @@
 // - 日の境目は端末の時間帯の暦日（new Date(年, 月, 日) のローカルの 0 時）。決済の時刻で数える
 // - 1 日 = 今日。7 日 = 今日を含む 7 暦日。1 か月 / 3 か月 = 1 / 3 か月前の同じ日の翌日から（その日が無ければ末日の翌日から）。
 //   任意 = 開始日の 0 時から終了日の翌日の 0 時まで（開始日 ≦ 終了日、長さ 366 日まで）。終了は含まない
-// - 選んだ期間は URL の検索部分（?period=1d|7d|1m|3m、任意は &from=YYYY-MM-DD&to=YYYY-MM-DD、取り込みを含めるは &imports=1、振り返りの「何で崩れたか」の切り替えは &why=more|good。#228）。
+// - 選んだ期間は URL の検索部分（?period=1d|7d|1m|3m、任意は &from=YYYY-MM-DD&to=YYYY-MM-DD、取り込みを含めるは &imports=1、振り返りの「何で崩れたか」の切り替えは &why=reason|more|good。#228・#239）。
 //   無い・読めないときは 7 日。端末には保存しない（P6）
 
 import { formatDayRange } from './format';
@@ -234,21 +234,23 @@ export function periodActions(
 }
 
 /**
- * 振り返りの「何で崩れたか」の切り替え（#228。設計書 9.2・C60）: 心理（既定。鍵なし）/ More / Good。URL の検索部分 `&why=more|good`。
+ * 振り返りの「何で崩れたか」の切り替え（#228・#239。設計書 9.2・C60・C68）: 心理（既定。鍵なし）/ 崩れ方 / More / Good。URL の検索部分 `&why=reason|more|good`。
  * 前の「規律 / 気づき」のセグメント（#162 の `&view=insight`）はやめ、1 本の流れにした
  */
-export type WhyKey = 'emotion' | 'more' | 'good';
-export const WHY_KEYS: readonly WhyKey[] = ['emotion', 'more', 'good'];
+export type WhyKey = 'emotion' | 'reason' | 'more' | 'good';
+/** 並び: 心理 → 崩れ方（判定の崩れの理由。#239・C68）→ More → Good */
+export const WHY_KEYS: readonly WhyKey[] = ['emotion', 'reason', 'more', 'good'];
 export const WHY_LABEL: Readonly<Record<WhyKey, string>> = {
   emotion: '心理',
+  reason: '崩れ方',
   more: 'More',
   good: 'Good',
 };
 
-/** URL の検索部分 → 切り替え（`&why=more` / `&why=good`。ほか・知らない値は心理） */
+/** URL の検索部分 → 切り替え（`&why=reason` / `&why=more` / `&why=good`。ほか・知らない値は心理） */
 export function parseWhy(search: string): WhyKey {
   const raw = new URLSearchParams(search).get('why');
-  return raw === 'more' || raw === 'good' ? raw : 'emotion';
+  return raw === 'reason' || raw === 'more' || raw === 'good' ? raw : 'emotion';
 }
 
 /** 前の気づきのセグメントの URL（`&view=insight`。#162）か。振り返りのタブは view を外した URL に置き換えて受ける（#228） */
@@ -264,7 +266,7 @@ export function canonicalReviewHref(search: string): string | null {
   return isLegacyInsight(search) ? reviewHref(parsePeriod(search), parseWhy(search)) : null;
 }
 
-/** 選択 → 振り返りのタブの URL（パス + 検索部分）。切り替えが心理なら鍵なし（今までの URL）、More / Good は末尾に `&why=` */
+/** 選択 → 振り返りのタブの URL（パス + 検索部分）。切り替えが心理なら鍵なし（今までの URL）、崩れ方 / More / Good は末尾に `&why=` */
 export function reviewHref(sel: PeriodSelection, why: WhyKey = 'emotion'): string {
   return `/review${periodSearch(sel)}${why === 'emotion' ? '' : `&why=${why}`}`;
 }

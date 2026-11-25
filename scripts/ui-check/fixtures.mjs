@@ -401,6 +401,22 @@ export const REVIEW_REFLECT = REVIEW_INSIGHT.map((t) => {
   const plan = REFLECT_PLAN[t.id];
   return plan ? withReflection(t, plan[0], plan[1], plan[2]) : t;
 });
+/**
+ * 振り返りの「何で崩れたか」の崩れ方（#239・C68）の取引（架空の値）: REVIEW_REFLECT に崩れの取引を 4 件足す。LC を広げた 5 件（値の出る
+ * 行。rvi-6・rvi-7・rvi-11 と rvr-1・rvr-2）、件数が少ない行に 時間足を変えた・LC を決めずに入った・持ち続けた・過剰リスク（数量 50,000 →
+ * 2.5%）・逆指値を取消・金額ありき。2 つ以上の崩れ方の取引があるので重なりの 1 行も出る
+ */
+export const REVIEW_REASON = [
+  ...REVIEW_REFLECT,
+  reviewTrade(1, 'rvr-1', 99, { lcMove: { kind: 'widened', after: 99.2 } }),
+  reviewTrade(2, 'rvr-2', 99.3, {
+    lcMove: { kind: 'widened', after: 99.3 },
+    entries: [{ price: 100, quantity: 50000 }],
+    statementPnlYen: -35000,
+  }),
+  reviewTrade(4, 'rvr-3', 99.5, { lcMove: { kind: 'cancelled' } }),
+  reviewTrade(5, 'rvr-4', 99.75, { lcBasis: 'amount' }),
+];
 /** 期間の取引（#185）の状態ごとの題 */
 export const REVIEW_TRADES_TITLE = {
   'review-trades': '取り戻したい',
@@ -409,6 +425,7 @@ export const REVIEW_TRADES_TITLE = {
   'review-trades-topic': '数量が多すぎた',
   'review-trades-notes': 'More の自分で書いた行',
   'review-trades-off': '崩れの取引',
+  'review-trades-reason': 'LC を広げた',
 };
 /**
  * 連勝の後（#185）の取引（架空の値。Issue の例 B3 の形）: 決済の古い順に W W B W W A W W B W W A W W A の 15 件（W = 計画どおりの

@@ -211,11 +211,11 @@ describe('AC-1（#162 の値を保つ）: E1 の心理の順位図', () => {
   const r = render(slot(SEVEN, ready(E1), 'emotion', E1_HIDDEN));
   const card = all([r], hasClass('why'))[0] as El;
 
-  it('見出し「何で崩れたか」と「11 件のうち 10 件に記入」・切り替え 3 つ（心理が選ばれている）', () => {
+  it('見出し「何で崩れたか」と「11 件のうち 10 件に記入」・切り替え 4 つ（崩れ方は #239。心理が選ばれている）', () => {
     expect(text(all([card], (e) => e.type === 'h2'))).toBe('何で崩れたか');
     expect(text(card)).toContain('11 件のうち 10 件に記入');
     const why = radios(card, 'review-why');
-    expect(why.map((e) => e.props.value)).toEqual(['emotion', 'more', 'good']);
+    expect(why.map((e) => e.props.value)).toEqual(['emotion', 'reason', 'more', 'good']);
     expect(why.find((e) => e.props.checked)?.props.value).toBe('emotion');
   });
 

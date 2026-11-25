@@ -10,8 +10,9 @@
 // 心理のタグごとの行（reviewByEmotion。#162）は、タグごとの部分集合に reviewPeriod を当てる（定義を二重に持たない）
 // 連勝の後（afterWinStreak・reviewAfterWinStreak。#185）も、連勝の後の取引の部分集合に reviewPeriod を当てる
 // Good / More の話題ごとの行（reviewByReflection。#221）も、話題ごとの部分集合に reviewPeriod を当てる
+// 崩れ方ごとの行（reviewByReason。#239・C68）も、判定の崩れの理由ごとの部分集合に reviewPeriod を当てる
 import { CALM, EMOTION_TAG_IDS, type EmotionTagId, OVERCONFIDENT } from './emotion-tags';
-import type { Grade } from './judge';
+import { type Grade, REASON_ORDER, REASON_WEIGHT, type ReasonKind } from './judge';
 import { TOL } from './numeric';
 import {
   REFLECTION_TOPICS,
@@ -34,6 +35,29 @@ export interface ReviewItem {
   readonly emotions?: readonly EmotionTagId[];
   /** Good / More（付いている取引だけ。normalizeReflection の後。#221） */
   readonly reflection?: Reflection;
+  /** 判定の崩れの理由の種類（当たった取引だけ。breachKindsOf の後 = 重複なし・5.3 の表の順。#239） */
+  readonly reasons?: readonly BreachKind[];
+}
+
+/** 崩れの理由の種類（判定の重さに数える B・C の理由。注記は入れない。設計書 5.3・C68） */
+export type BreachKind = Exclude<
+  ReasonKind,
+  'asPlannedLc' | 'stopFilled' | 'gapSlip' | 'earlyExit' | 'riskNotChecked'
+>;
+
+/** 崩れの理由の種類（5.3 の表の順） */
+export const BREACH_KINDS: readonly BreachKind[] = REASON_ORDER.filter(
+  (k): k is BreachKind => REASON_WEIGHT[k] !== 'note',
+);
+
+export function isBreachKind(k: string): k is BreachKind {
+  return (BREACH_KINDS as readonly string[]).includes(k);
+}
+
+/** 判定の理由 → 崩れの理由の種類（注記を除き、同じ種類の 2 回目（2 回のナンピン）を落として 5.3 の表の順に） */
+export function breachKindsOf(reasons: readonly { readonly kind: ReasonKind }[]): BreachKind[] {
+  const got = new Set<string>(reasons.map((r) => r.kind));
+  return BREACH_KINDS.filter((k) => got.has(k));
 }
 
 /** 判定の内訳の鍵（判定 + 判定なし） */
@@ -284,6 +308,69 @@ export function reviewByReflection(
     side,
     total: target.length,
     written,
+    excludedImports: opts.includeImports ? 0 : items.length - target.length,
+    overlap,
+    rows,
+  };
+}
+
+/** 崩れ方の 1 行（#239） */
+export interface ReasonRow {
+  readonly kind: BreachKind;
+  /** その崩れ方が当たった取引だけの期間の集計（total = 行の件数） */
+  readonly review: PeriodReview;
+}
+
+export interface ReasonReview {
+  /** 集計の対象の件数（取り込みを外した後。reviewPeriod の total と同じ） */
+  readonly total: number;
+  /** 対象のうち崩れの理由が 1 つ以上ある件数（= 判定が B・危ない勝ち・C。見出しの「崩れ」） */
+  readonly breached: number;
+  /** 外した取り込みの件数（含めるなら 0） */
+  readonly excludedImports: number;
+  /** 2 つ以上の崩れ方がある取引がある（行の件数・規律コストの和が breached・期間の規律コストより大きくなる） */
+  readonly overlap: boolean;
+  /** 件数の多い順 → 5.3 の表の順。0 件の崩れ方は無い */
+  readonly rows: readonly ReasonRow[];
+}
+
+/**
+ * 崩れ方ごとの規律の集計（Issue #239・設計書 6.1・C68）。対象は reviewPeriod と同じ（取り込みは includeImports のときだけ）。
+ * 崩れの理由（B・C の理由。注記は数えない）ごとに、その理由が当たった取引を 1 件ずつ数える（2 つ以上の崩れ方の取引は当たった
+ * 行すべてに入る。重みで割らない・主な理由だけにしない。同じ種類の 2 回目は数えない）。行の値はその部分集合への reviewPeriod
+ * （心理の行 reviewByEmotion と同じ定義）
+ */
+export function reviewByReason(
+  items: readonly ReviewItem[],
+  opts: { readonly includeImports: boolean },
+): ReasonReview {
+  const target = opts.includeImports ? items : items.filter((i) => !i.imported);
+  const byKind = new Map<BreachKind, ReviewItem[]>();
+  let breached = 0;
+  let overlap = false;
+  for (const i of target) {
+    const kinds = breachKindsOf((i.reasons ?? []).map((kind) => ({ kind })));
+    if (kinds.length === 0) continue;
+    breached += 1;
+    if (kinds.length > 1) overlap = true;
+    for (const k of kinds) {
+      const list = byKind.get(k);
+      if (list) list.push(i);
+      else byKind.set(k, [i]);
+    }
+  }
+  const order = new Map(BREACH_KINDS.map((k, n) => [k, n]));
+  const rows: ReasonRow[] = [...byKind].map(([kind, list]) => ({
+    kind,
+    review: reviewPeriod(list, { includeImports: true }),
+  }));
+  rows.sort(
+    (a, b) =>
+      b.review.total - a.review.total || (order.get(a.kind) ?? 0) - (order.get(b.kind) ?? 0),
+  );
+  return {
+    total: target.length,
+    breached,
     excludedImports: opts.includeImports ? 0 : items.length - target.length,
     overlap,
     rows,

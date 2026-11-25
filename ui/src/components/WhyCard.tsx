@@ -1,7 +1,9 @@
 // 振り返りの 1 本の流れ（#228。設計書 9.2・9.4・C60）の「なぜ」と「次は」の段。hook を持たない。
-// - WhyCard: 見出し「何で崩れたか」（Good の切り口は「何が効いたか」）と右に「N 件のうち M 件に記入」→ 切り替え 心理 / More / Good（Segment。URL の `&why=`）→
-//   順位図の表（InsightRows。心理は前の気づきの心理ごとの集計（#162）、More / Good は話題ごとの集計（#221）と同じ行・同じ文）→ 重なりの 1 行。
-//   心理の付いた取引が無い期間は付け方の 2 行と ［取引を見る］、Good / More の付いていない期間は前と同じ 1〜2 行
+// - WhyCard: 見出し「何で崩れたか」（Good の切り口は「何が効いたか」）と右に「N 件のうち M 件に記入」（崩れ方は「N 件のうち崩れ M 件」）→
+//   切り替え 心理 / 崩れ方 / More / Good（Segment。URL の `&why=`）→ 順位図の表（InsightRows。心理は前の気づきの心理ごとの集計（#162）、
+//   崩れ方は判定の崩れの理由ごとの集計（#239・C68。率を出さず凡例も規律コストだけ）、More / Good は話題ごとの集計（#221）と同じ行・同じ文）
+//   → 重なりの 1 行。心理の付いた取引が無い期間は付け方の 2 行と ［取引を見る］、崩れの取引が無い期間は 1 行、Good / More の付いていない
+//   期間は前と同じ 1〜2 行
 // - NextCard: 見出し「次はこうする」→ More の自分で書いた行の最新 1 行（かぎ括弧。テキストのノード）とその取引の日 →
 //   押せる行「More の自分で書いた行を見る ›」（期間の取引 `&notes=more`）。無ければ案内の 1 行だけ
 // 色・動きは付けない（C34）
@@ -14,6 +16,7 @@ import {
   NEXT_NONE,
   NEXT_TITLE,
   type NextModel,
+  type ReasonInsight,
   type ReflectionCardModel,
   type ReflectionInsightRow,
 } from '../lib/insight-view';
@@ -96,6 +99,32 @@ function EmotionBody({
   );
 }
 
+/** 崩れ方の切り口の中身（#239） */
+function ReasonBody({
+  r,
+  trailHref,
+}: {
+  readonly r: ReasonInsight | null | undefined;
+  readonly trailHref: TrailHref;
+}) {
+  if (!r) return null;
+  if (r.noneText) return <p class="review__note">{r.noneText}</p>;
+  return (
+    <>
+      <InsightRows
+        idPrefix="reason"
+        main={r.main}
+        few={r.few}
+        rate={false}
+        keyOf={(x) => x.kind}
+        attrsOf={(x) => ({ 'data-reason': x.kind })}
+        hrefOf={(x) => trailHref?.({ kind: 'reason', id: x.kind })}
+      />
+      {r.overlapText ? <p class="review__note">{r.overlapText}</p> : null}
+    </>
+  );
+}
+
 /** Good / More の切り口の中身 */
 function SideBody({
   m,
@@ -130,6 +159,7 @@ function SideBody({
 /** 見出しの右の「N 件のうち M 件に記入」（切り口ごと） */
 function headTextOf(m: InsightModel, why: WhyKey): string | null {
   if (why === 'emotion') return m.headText;
+  if (why === 'reason') return m.reason?.headText ?? null;
   return m.reflection?.cards.find((c) => c.side === why)?.headText ?? null;
 }
 
@@ -173,6 +203,8 @@ export function WhyCard({
       ) : null}
       {shown === 'emotion' ? (
         <EmotionBody m={m} trailHref={trailHref} />
+      ) : shown === 'reason' ? (
+        <ReasonBody r={m.reason} trailHref={trailHref} />
       ) : (
         <SideBody m={m} side={shown} trailHref={trailHref} />
       )}

@@ -182,13 +182,13 @@ describe('AC-1: E1 の More のカード', () => {
     expect(more?.noneText).toBeNull();
   });
 
-  it('画面: 切り替えは 心理 → More → Good・More の切り口の行は押せる行（その話題の期間の取引へ）', () => {
+  it('画面: 切り替えは 心理 → 崩れ方（#239）→ More → Good・More の切り口の行は押せる行（その話題の期間の取引へ）', () => {
     const tree = renderInsight(SEVEN, R1);
     expect(
       all(tree, (e) => e.type === 'input' && e.props.name === 'review-why').map(
         (e) => e.props.value,
       ),
-    ).toEqual(['emotion', 'more', 'good']);
+    ).toEqual(['emotion', 'reason', 'more', 'good']);
     const card = cardOf(tree, 'more');
     expect(text(all([card], (e) => e.type === 'h2'))).toBe('何で崩れたか');
     expect(text(card)).toContain('11 件のうち 5 件に記入');

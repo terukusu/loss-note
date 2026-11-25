@@ -63,6 +63,7 @@ import {
   verdictAsideText,
 } from '../lib/accounts';
 import { backLayers } from '../lib/back-layers';
+import { BULK_SWAP_TEXT, bulkDroppedText, bulkSwapLabel, swapTargetOf } from '../lib/bulk-pick';
 import { CHART_READ_NOTICE, timeframeConflict } from '../lib/chart-read';
 import type { ChartState } from '../lib/chart-slots';
 import {
@@ -664,6 +665,17 @@ export function RecordScreen() {
       onPickFile={(file) => {
         void controller.readImage(file);
       }}
+      onPickFiles={(files) => {
+        // まとめて選んだ（#232）: 1 枚目 = 明細、2 枚目から = 空いているチャートの枠（選んだ順）
+        setReplaced(null);
+        void controller.pickMany(files);
+      }}
+      onSwapBulk={() => {
+        setReplaced(null);
+        void controller.swapBulk();
+        // 押したボタンは消えるので、読み直している明細の行の見出しへ（読めたら今の規則どおり LC へ移る = focusLcAfterRead）
+        focusSoon(STATEMENT_TITLE_ID);
+      }}
       onRemoveStatement={() => {
         controller.removeStatement();
         // 押したボタンは消えるので、同じ枠の ［元に戻す］ へ
@@ -789,6 +801,10 @@ export interface RecordViewProps {
   readonly onRelogin: () => void;
   /** 明細の画像を選んだ（#15） */
   readonly onPickFile?: (file: File) => void;
+  /** 1 段目の明細の枠で画像をまとめて選んだ（選んだ順。2 枚以上。#232） */
+  readonly onPickFiles?: (files: File[]) => void;
+  /** 2 段目の ［入れ替える］（まとめて選んだ明細とチャートが逆かもしれないとき。#232） */
+  readonly onSwapBulk?: () => void;
   /** [やめて手で入れる] */
   readonly onCancelRead?: () => void;
   /** 1 段目の明細の枠の ［削除］（#184） */
@@ -894,6 +910,8 @@ export const STATEMENT_REMOVED = '明細の値を削除しました。LC・一�
 const TO_INPUT_ID = 'record-to-input';
 const PROCEED_ID = 'record-proceed';
 const REPICK_ID = 'record-repick';
+/** 2 段目の ［入れ替える］（#232） */
+export const BULK_SWAP_ID = 'record-bulk-swap';
 const CHART_NOTICE_ID = 'record-chart-notice';
 const STATEMENT_ROW_ID = 'record-statement-row';
 const TZ_NAME = 'record-tz';
@@ -1186,6 +1204,7 @@ function RecordForm(p: RecordViewProps) {
                 }
                 accountChip={choice === 'select' && account ? account.name : null}
               />
+              <BulkNotes {...p} />
               <ChartRowView {...p} />
             </div>
 
@@ -1676,7 +1695,12 @@ function StatementPick(p: {
   /** 小さい形（読めた後の ［スクショを変更］。［削除］ と 1 行に並べる。#184 のデザインレビュー 4） */
   readonly small?: boolean;
   readonly text: string;
+  /**
+   * まとめて選べる（明細が入る前の ［スクショを選ぶ］ だけ。#232・C67）。2 枚以上なら onPickFiles（選んだ順）、1 枚なら onPickFile
+   */
+  readonly multiple?: boolean;
   readonly onPickFile?: ((file: File) => void) | undefined;
+  readonly onPickFiles?: ((files: File[]) => void) | undefined;
 }) {
   return (
     <label
@@ -1690,13 +1714,15 @@ function StatementPick(p: {
         class="statement__input"
         type="file"
         accept="image/png,image/jpeg,image/*"
+        multiple={p.multiple === true}
         aria-describedby={STATEMENT_NOTICE_ID}
         onChange={(ev) => {
           const input = ev.currentTarget;
-          const file = input.files?.[0];
-          // 同じファイルを選び直しても届くように空に戻す
+          // 選んだ順（端末の選択の画面が返す並び）のまま。空に戻す前に写す（同じファイルを選び直しても届くように空に戻す）
+          const files = Array.from(input.files ?? []);
           input.value = '';
-          if (file) p.onPickFile?.(file);
+          if (files.length >= 2 && p.multiple && p.onPickFiles) p.onPickFiles(files);
+          else if (files[0]) p.onPickFile?.(files[0]);
         }}
       />
     </label>
@@ -1751,12 +1777,50 @@ function chartLike(c: ChartState | undefined, timeframe: Timeframe | null): Char
   };
 }
 
+/**
+ * まとめて選んだときの 2 段目の 1 行（明細の行とチャートの行の間。#232・C67）: 明細が「明細として読めない」で相手の枠があれば
+ * 「明細とチャートが逆かもしれません」と ［入れ替える］、枠が足りずに入れなかった枚数があればその 1 行。読み上げの領域は
+ * 2 段目の入れたもののカードに常に描き、中身だけを替える（役割と中身を同時に出すと読み上げられないことがある。空なら高さ 0）
+ */
+function BulkNotes(p: RecordViewProps) {
+  const { state } = p;
+  const target = swapTargetOf({
+    statement: state.statement,
+    charts: state.charts,
+    slots: state.bulkSlots ?? [],
+  });
+  const dropped = state.bulkDropped ?? 0;
+  const name = target ? (isMainSlot(target) ? CHART_SLOT_TEXT[target].name : '追加') : '';
+  return (
+    <div class="rbulk" role="status">
+      {target ? (
+        <div class="rbulk__swap">
+          <span class="rbulk__text">{BULK_SWAP_TEXT}</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            id={BULK_SWAP_ID}
+            label={bulkSwapLabel(name)}
+            onClick={() => p.onSwapBulk?.()}
+          >
+            入れ替える
+          </Button>
+        </div>
+      ) : null}
+      {dropped > 0 ? <p class="rbulk__text rbulk__dropped">{bulkDroppedText(dropped)}</p> : null}
+    </div>
+  );
+}
+
 /** チャートを差し替えた知らせの文 */
 export const replacedText = (slot: AnySlot) =>
   `${isMainSlot(slot) ? CHART_SLOT_TEXT[slot].name : '追加'}のチャートを差し替えました。`;
 
-/** 1 段目の見出しの下の案内（明細が入る前 / 入った後。デザインレビュー a1） */
-export const STAGE1_LEAD = '決済明細を選ぶと、読み取りを待たずに振り返りへ進みます。';
+/**
+ * 1 段目の見出しの下の案内（明細が入る前 / 入った後。デザインレビュー a1）。入る前は、まとめて選べることと選んだ順の決まり
+ * （#232・C67。明細を選ぶとすぐ振り返りへ進むのは今のまま）
+ */
+export const STAGE1_LEAD = 'まとめて選べます。選んだ 1 枚目が明細、2 枚目からがチャートです。';
 export const STAGE1_LEAD_FILLED = '明細は入っています。チャートは振り返りの画面でも追加できます。';
 
 /**
@@ -1820,7 +1884,9 @@ function StageInput(p: RecordViewProps) {
                 primary={!filled}
                 small={filled}
                 text={filled ? 'スクショを変更' : 'スクショを選ぶ'}
+                multiple={!filled}
                 onPickFile={p.onPickFile}
+                onPickFiles={p.onPickFiles}
               />
               {/* 読めた明細だけを削除できる（読み取り中は ［読み取りをキャンセル］。#184 例 #11） */}
               {ready ? (

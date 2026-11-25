@@ -106,6 +106,7 @@ const RECORD_UNIT = {
     'record-32-extra-note-err',
     'record-33-extra-fifth',
     'record-44-stage1-chart',
+    'record-49-bulk-swap',
   ],
   'record-account': [
     'record-15-accounts-2',
@@ -304,6 +305,8 @@ export const CHANGE_RULES = [
     () => ['record-fx', 'record-account', 'settings-accounts', 'detail', 'edit'],
   ],
   [/ChartPanel|chart-|charts\.ts/, () => ['record-chart', 'detail', 'edit']],
+  // スクショをまとめて選ぶ（#232）: 1 段目の明細の枠と 2 段目の入れ替えの案内
+  [/bulk-pick/, () => ['record-chart', 'record-read']],
   [
     /Leg(List|Editor|Table)|legs-form|option-view|legs\.css|^core\/(option|expiry)\.ts$/,
     () => ['option', 'record', 'detail', 'edit'],

@@ -319,6 +319,17 @@ export function createChartSlots(deps: ChartSlotsDeps): ChartSlots {
       : { phase: 'ready', preview: null, message: null, stored: true };
   };
 
+  /**
+   * 待ち行列に足す（枠の順 = エントリー時 → 決済時 → 追加 1〜5 に並べる。7.5「チャートはその後に枠の順」。描き直しが終わった順に
+   * よらない = まとめて選んだ 2 枚の描き直しが前後しても、送る順は変わらない。#232）
+   */
+  const enqueue = (slot: AnySlot) => {
+    const rank = (s: AnySlot) => ALL_SLOTS.indexOf(s);
+    const at = queue.findIndex((s) => rank(s) > rank(slot));
+    if (at < 0) queue.push(slot);
+    else queue.splice(at, 0, slot);
+  };
+
   const pump = () => {
     if (running !== null || deps.othersBusy?.()) return;
     const slot = queue.shift();
@@ -562,7 +573,7 @@ export function createChartSlots(deps: ChartSlotsDeps): ChartSlots {
       const wait = new Promise<void>((ok) => {
         done[slot] = { gen: readGen[slot], ok };
       });
-      queue.push(slot);
+      enqueue(slot);
       pump();
       await wait;
     },
@@ -660,7 +671,7 @@ export function createChartSlots(deps: ChartSlotsDeps): ChartSlots {
         const c = charts[slot];
         if (c?.phase !== 'ready' || !bytes[slot]) continue;
         patch(slot, { ...c, read: 'reading', readNote: null });
-        queue.push(slot);
+        enqueue(slot);
         any = true;
       }
       if (!any) return;

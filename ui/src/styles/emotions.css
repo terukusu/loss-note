@@ -155,12 +155,11 @@
   background: var(--s2);
 }
 
-/* 詳細の「心理」のカード */
+/* 詳細の「なぜ」のカードの中の「心理」の段（面と余白は .dwhy。#248・C69） */
 .emotioncard {
   display: flex;
   flex-direction: column;
   gap: var(--sp-3);
-  padding: var(--sp-4);
 }
 
 .emotioncard__head {

@@ -30,6 +30,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
   '.seg__note': '口座の Segment の見出しの右の「選択中: 〈名前〉」（全文は設定の口座）',
   '.seg__text':
     '口座の Segment の選択肢の名前（truncate のときだけ付く。全文は「選択中」の 1 行と設定の口座）',
+  '.dwhy__preview':
+    '詳細の「なぜ」のカードの総評の添え（利用者が書いた文の先頭の 1 行。2 行を超える分。全文は次の画面「総評」。#248）',
   '.appbar__title': '上の帯の題（全文は画面の中の題）',
   '.appbar__backlabel': '上の帯の「‹ 前の画面の名前」（全文は前の画面）',
   '.record__status': '保険: 下の帯の状態の文（実際の省略は ui:check が外れとして測る）',

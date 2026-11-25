@@ -105,8 +105,18 @@ export interface ReflectionCardSide {
   readonly notes: readonly string[];
 }
 
-export function reflectionCardSides(r: Reflection): readonly ReflectionCardSide[] {
-  return REFLECTION_SIDES.flatMap((side) => {
+/**
+ * 詳細の「なぜ」のカードの段の並び（#248・C69）: 既定は Good → More（シートと同じ）。崩れ・極悪の取引は moreFirst で
+ * More → Good（危ない勝ちで Good が先に褒めない。C59）
+ */
+export function reflectionCardSides(
+  r: Reflection,
+  opts: { readonly moreFirst?: boolean } = {},
+): readonly ReflectionCardSide[] {
+  const order: readonly ReflectionSide[] = opts.moreFirst
+    ? [...REFLECTION_SIDES].reverse()
+    : REFLECTION_SIDES;
+  return order.flatMap((side) => {
     const part = r[side];
     if (part.topics.length === 0 && part.notes.length === 0) return [];
     return [

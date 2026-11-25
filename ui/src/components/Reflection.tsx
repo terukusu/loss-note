@@ -2,7 +2,8 @@
 // - ReflectionSheetBody: 詳細のシート「Good / More」の中身。Good と More の段ごとに、押す形のチップ（aria-pressed）、
 //   自分で書いた行（行ごとに削除のアイコンのボタン）、「自分で書く」の欄と ［追加］（決定キー = 追加。変換中は除く）。
 //   失敗の文言、下に貼り付く ［完了］（書きかけがあれば行として足してから閉じる。押した・足した時点で保存済み）
-// - ReflectionCard: 詳細の「Good / More」のカード（付いている話題の札と行 + ［変更］。無ければ押せる行「＋ Good / More を書く」）
+// - ReflectionCard: 詳細の「なぜ」のカードの中の「Good / More」の段（#248・C69。面は「なぜ」のカードが持つ。付いている話題の札と
+//   行 + ［変更］。無ければ押せる行「＋ Good / More を書く」。段の並びは渡された sides の順 = 崩れ・極悪は More → Good）
 // 色は付けない（Good を緑・More を赤にしない。C34）。行（自分で書いた文）はテキストのノードで入れる（HTML にしない）
 import type { ReflectionSide, ReflectionTopicId } from '../../../core/reflection';
 import { REFLECTION_SIDES } from '../../../core/reflection';
@@ -136,11 +137,11 @@ export const REFLECTION_CARD_TITLE_ID = 'detail-reflection-title';
 
 export function ReflectionCard(p: ReflectionCardProps) {
   return (
-    <section class="card reflectioncard" aria-labelledby={REFLECTION_CARD_TITLE_ID}>
+    <section class="dwhy__part reflectioncard" aria-labelledby={REFLECTION_CARD_TITLE_ID}>
       <div class="emotioncard__head">
-        <h2 class="emotioncard__title" id={REFLECTION_CARD_TITLE_ID}>
+        <h3 class="emotioncard__title" id={REFLECTION_CARD_TITLE_ID}>
           {REFLECTION_TITLE}
-        </h2>
+        </h3>
         {p.sides.length > 0 ? (
           <Button variant="secondary" size="sm" onClick={p.onOpen} label={REFLECTION_CHANGE_LABEL}>
             {REFLECTION_CHANGE}
@@ -150,10 +151,10 @@ export function ReflectionCard(p: ReflectionCardProps) {
       {p.sides.length > 0 ? (
         p.sides.map((side) => (
           <div key={side.side} class="reflectioncard__side">
-            <h3 class="reflectioncard__sname">
+            <h4 class="reflectioncard__sname">
               {side.name}
               <span class="reflection__snote"> — {side.note}</span>
-            </h3>
+            </h4>
             {side.topics.length > 0 ? (
               // 押せない札（シートの押せるチップと見分ける輪郭の形。心理のカードの札と同じ）
               <ul class="emotioncard__tags">

@@ -2,7 +2,10 @@
 // - 上の帯の「…」から操作のシート（今の値と比べる・削除）。比較のシートは見るだけ（#31 の P4）
 // - チャートは 2 枠を横に並べ、押すと全画面で見る層。追加のチャート（#89）は 2 枠の下に同じ形で並べる
 // - 「すべての欄」「総評」は次の画面（その場で開かない）
+// - チャートの下に「なぜ」のカード 1 枚（心理 → Good / More → 総評。題と Good / More の並びは判定の段。#248・C69）
+import type { Grade } from '../../../core/judge';
 import type { StoredTrade } from '../../../core/record';
+import { badgeModel, type Tier } from './badge';
 import type { AnySlot } from './charts';
 import type { ChartSlotView } from './trade-view';
 
@@ -70,3 +73,59 @@ export function commentOf(t: StoredTrade): string | null {
 /** 詳細の次の画面の URL（#131。「すべての欄」「総評」） */
 export const fieldsHref = (id: string) => `/trades/${id}/fields`;
 export const commentHref = (id: string) => `/trades/${id}/comment`;
+
+/** 「なぜ」のカードの題（判定の段ごと。#248・C69）。振り返りの「何で崩れたか」と同じ問いの形 */
+export const WHY_TITLE: Readonly<Record<Tier, string>> = {
+  plan: 'なぜ守れたか',
+  break: 'なぜ崩れたか',
+  worst: 'なぜ崩れたか',
+  neutral: '心理と振り返り',
+};
+
+/** 崩れ・極悪の取引で心理も Good / More も無いときだけ、題の下に出す 1 行（残すと何に効くか） */
+export const WHY_HINT = '心理と More を残すと、振り返りの「何で崩れたか」に数えられます。';
+
+/** 「なぜ」のカードの見出しの id */
+export const WHY_TITLE_ID = 'detail-why-title';
+
+/** 「なぜ」のカードの形（DOM なし） */
+export interface WhyCardModel {
+  readonly title: string;
+  /** Good / More の段を More → Good の順にする（崩れ・極悪。C59） */
+  readonly moreFirst: boolean;
+  /** 題の下の 1 行（null = 出さない） */
+  readonly hint: string | null;
+  /** 総評の行の添え（総評の先頭の 1 行。総評が無ければ null = 行を出さない） */
+  readonly comment: { readonly preview: string } | null;
+}
+
+/** 総評の添え: 空の行を飛ばした最初の行（前後の空白を除く。空なら null） */
+export function commentPreview(text: string): string | null {
+  for (const line of text.split(/\r?\n/)) {
+    const v = line.trim();
+    if (v) return v;
+  }
+  return null;
+}
+
+/**
+ * 「なぜ」のカードの形（#248・C69）: 題と Good / More の並びは判定の段で決める。案内の 1 行は崩れ・極悪で、心理のタグも
+ * Good / More も無く、取り込んだ取引でない（振り返りは既定で取り込みを数えない）ときだけ。判定・R には触れない
+ */
+export function whyCardModel(
+  t: StoredTrade,
+  grade: Grade | null,
+  have: { readonly emotions: number; readonly reflection: boolean },
+): WhyCardModel {
+  const tier = badgeModel(grade).tier;
+  const off = tier === 'break' || tier === 'worst';
+  const empty = have.emotions === 0 && !have.reflection;
+  const comment = commentOf(t);
+  const preview = comment === null ? null : commentPreview(comment);
+  return {
+    title: WHY_TITLE[tier],
+    moreFirst: off,
+    hint: off && empty && t.record.source !== 'import' ? WHY_HINT : null,
+    comment: preview === null ? null : { preview },
+  };
+}

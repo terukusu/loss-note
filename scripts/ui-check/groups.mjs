@@ -30,6 +30,9 @@ import {
   TX_H1,
   TX_REAL,
   TX_REFL,
+  TX_WHY,
+  TX_WHY_W1,
+  TX_WHY_W5,
   withUsdInstrument,
 } from './fixtures.mjs';
 import {
@@ -836,7 +839,90 @@ export async function fxGroup(vp, unit) {
         await card.waitFor();
         const tags = await card.locator('.emotioncard__tag').count();
         if (tags !== 5) throw new Error(`Good / More の札 ${tags}（期待 5）`);
+        // #248（C69）: 計画どおり（A）の取引は「なぜ守れたか」で Good → More
+        const title = (await pg.locator('.dwhy__title').textContent()) ?? '';
+        if (title.trim() !== 'なぜ守れたか') throw new Error(`なぜのカードの題 ${title}`);
+        const sides = await card
+          .locator('.reflectioncard__sname')
+          .evaluateAll((els) => els.map((e) => (e.firstChild?.textContent ?? '').trim()));
+        if (sides.join(',') !== 'Good,More')
+          throw new Error(`Good / More の並び ${sides.join(',')}`);
         await card.scrollIntoViewIfNeeded();
+      },
+    },
+    // #248（C69）: 崩れ（B）で何も残していない取引の「なぜ」のカード: 題・案内の 1 行・総評の添え・判定 → チャート → なぜ →
+    // すべての欄 の順（横スクロールは全幅で測る）
+    {
+      path: '/trades/x-why',
+      h1: 'US30 · L',
+      slug: 'trade-x-why',
+      name: 'なぜのカード（崩れ）',
+      trade: TX_WHY,
+      after: async (pg) => {
+        const why = pg.locator('section.dwhy');
+        await why.waitFor();
+        if ((await pg.locator('section.dwhy').count()) !== 1)
+          throw new Error('なぜのカードが 1 枚でない');
+        const title = ((await why.locator('.dwhy__title').textContent()) ?? '').trim();
+        if (title !== 'なぜ崩れたか') throw new Error(`題 ${title}`);
+        await why.locator('.dwhy__hint', { hasText: '「何で崩れたか」に数えられます' }).waitFor();
+        const parts = await why
+          .locator('h3')
+          .evaluateAll((els) => els.map((e) => (e.textContent ?? '').trim()));
+        if (parts.join(',') !== '心理,Good / More') throw new Error(`段の並び ${parts.join(',')}`);
+        const preview = why.locator('.dwhy__comment a.rowlink .dwhy__preview');
+        const pv = ((await preview.textContent()) ?? '').trim();
+        if (!pv.startsWith('架空の総評:') || pv.includes('2 行目'))
+          throw new Error(`総評の添え ${pv}`);
+        // 判定のカード → チャート → なぜ → すべての欄 の順（文書の順）
+        const seq = await pg.evaluate(() =>
+          ['.verdict', '.dcharts', 'section.dwhy', '.detail__links'].map((sel) => {
+            const all = [...document.querySelectorAll('main *')];
+            return all.indexOf(document.querySelector(`main ${sel}`));
+          }),
+        );
+        if (seq.some((i) => i < 0) || seq.some((v, i) => i > 0 && v <= seq[i - 1]))
+          throw new Error(`並び ${seq.join(',')}`);
+        await why.scrollIntoViewIfNeeded();
+      },
+    },
+    // #248 AC-7 の W1: 崩れ（B）で心理と Good / More の両側 → More → Good・案内なし
+    {
+      path: '/trades/x-why-w1',
+      h1: 'US30 · L',
+      slug: 'trade-x-why-w1',
+      name: 'なぜのカード（W1）',
+      trade: TX_WHY_W1,
+      after: async (pg) => {
+        const why = pg.locator('section.dwhy');
+        await why.locator('.emotioncard a.chip', { hasText: '取り戻したい' }).waitFor();
+        const title = ((await why.locator('.dwhy__title').textContent()) ?? '').trim();
+        if (title !== 'なぜ崩れたか') throw new Error(`題 ${title}`);
+        if ((await why.locator('.dwhy__hint').count()) !== 0) throw new Error('案内が出ている');
+        const sides = await why
+          .locator('.reflectioncard__sname')
+          .evaluateAll((els) => els.map((e) => (e.firstChild?.textContent ?? '').trim()));
+        if (sides.join(',') !== 'More,Good')
+          throw new Error(`Good / More の並び ${sides.join(',')}`);
+        await why.scrollIntoViewIfNeeded();
+      },
+    },
+    // #248 AC-7 の W5: 取り込んだ C と総評 → 題「なぜ崩れたか」・案内なし・総評の添え
+    {
+      path: '/trades/x-why-w5',
+      h1: 'US30 · L',
+      slug: 'trade-x-why-w5',
+      name: 'なぜのカード（W5）',
+      trade: TX_WHY_W5,
+      after: async (pg) => {
+        const why = pg.locator('section.dwhy');
+        await why.waitFor();
+        const title = ((await why.locator('.dwhy__title').textContent()) ?? '').trim();
+        if (title !== 'なぜ崩れたか') throw new Error(`題 ${title}`);
+        if ((await why.locator('.dwhy__hint').count()) !== 0) throw new Error('案内が出ている');
+        const pv = ((await why.locator('.dwhy__preview').textContent()) ?? '').trim();
+        if (pv !== '【取り込み】元の判定 C') throw new Error(`総評の添え ${pv}`);
+        await why.scrollIntoViewIfNeeded();
       },
     },
     // #123: Good / More のシート（チップを押す・行を足す。足した行は欄の上に並び、欄は空に戻る）

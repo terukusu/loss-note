@@ -1005,6 +1005,37 @@
   padding: 0 var(--sp-3) var(--sp-2);
 }
 
+/* まとめて選んだときの 1 行（明細の行とチャートの行の間。#232・C67）。読み上げの領域は 2 段目の入れたもののカードに常に描き、
+   空なら高さ 0（中身が入ったときだけ区切りの線と余白） */
+.rbulk:not(:empty) {
+  display: grid;
+  gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-3);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.rbulk__swap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+.rbulk__text {
+  min-width: 0;
+  margin: 0;
+}
+
+.rbulk__swap > .btn {
+  flex: none;
+}
+
+.rbulk__dropped {
+  color: var(--ink-2);
+}
+
 /* チャートの行: 空は押すとエントリー時のチャートを選ぶ（1 タップ）、入ったら押すとチャートのシート */
 .rchartrow {
   position: relative;

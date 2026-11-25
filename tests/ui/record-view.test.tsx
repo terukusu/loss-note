@@ -1875,7 +1875,9 @@ describe('密度と階層（Issue #33）', () => {
       const kids = kidsOf(tree);
       expect(kids.map((k) => cls(k))).toEqual(['rinput', 'record__lc', 'record__taps']);
       const card = (kids[0] as El).children.filter((n): n is El => typeof n !== 'string');
-      expect(card.map((k) => cls(k).split(' ')[0])).toEqual(['rstmt', 'rchartrow']);
+      // まとめて選んだときの読み上げの領域（#232）は明細の行とチャートの行の間に常に描く（空なら中身なし）
+      expect(card.map((k) => cls(k).split(' ')[0])).toEqual(['rstmt', 'rbulk', 'rchartrow']);
+      expect((card[1] as El).children).toEqual([]);
       expect(all([sheetOf(tree, 'record-verdict-sheet')], hasClass('verdict'))).toHaveLength(1);
       expect(all(tree, (e) => e.props.id === 'record-submit')).toHaveLength(1);
       // 1 段目: 入れる段だけ（LC・タップ・判定の帯・［記録する］ は無い。シートは同じ）
@@ -2551,7 +2553,7 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     }
     expect(text(all([cards[0] as El], hasClass('rin__name')))).toBe('決済明細のスクショ');
     expect(text(all(tree, hasClass('rin__lead')))).toBe(
-      '決済明細を選ぶと、読み取りを待たずに振り返りへ進みます。',
+      'まとめて選べます。選んだ 1 枚目が明細、2 枚目からがチャートです。',
     );
     // チャートの題は「エントリーした足の / チャート」の語の切れ目でだけ折る（デザインレビュー a2）
     expect(all([cards[1] as El], hasClass('rin__chunk')).map(text)).toEqual([
@@ -2572,6 +2574,100 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(all(tree, (e) => e.props.id === 'record-proceed')).toEqual([]);
     (btn.props.onClick as () => void)();
     expect(manual).toBe(1);
+  });
+
+  it('まとめて選ぶ（#232）: 明細が入る前の ［スクショを選ぶ］ だけが複数を受け、2 枚以上は onPickFiles（選んだ順）・1 枚は onPickFile', () => {
+    const many: unknown[] = [];
+    const one: unknown[] = [];
+    const tree = view(stateFor(draft({}), NO_CAPITAL, { stage: 'input' }), {
+      onPickFiles: (fs) => many.push(fs.map((f) => f.name)),
+      onPickFile: (f) => one.push(f.name),
+    });
+    const input = all(tree, (e) => e.props.id === 'record-statement-file')[0] as El;
+    expect(input.props.multiple).toBe(true);
+    const fire = (names: string[]) => {
+      const files = names.map((n) => new File([new Uint8Array(1)], n, { type: 'image/png' }));
+      const target = { files, value: 'x' };
+      (input.props.onChange as (ev: unknown) => void)({ currentTarget: target });
+      expect(target.value).toBe('');
+    };
+    fire(['a.png', 'p.png', 'r.png']);
+    fire(['a.png']);
+    expect(many).toEqual([['a.png', 'p.png', 'r.png']]);
+    expect(one).toEqual(['a.png']);
+    // KEEP-2: チャートの枠のファイルの欄は 1 枚ずつのまま
+    for (const f of all(
+      tree,
+      (e) => e.type === 'input' && e.props['data-chart-slot'] !== undefined,
+    )) {
+      expect(f.props.multiple ?? false).toBe(false);
+    }
+  });
+
+  it('KEEP-2（#232）: 明細が入った後の ［スクショを変更］ は 1 枚ずつ（複数の印なし）', () => {
+    const f = filledE1();
+    const tree = view({
+      ...withStatement(f.draft, { marks: f.marks, preview: fakePreview(1200, 800) }),
+      stage: 'input',
+    });
+    const input = all(tree, (e) => e.props.id === 'record-statement-file')[0] as El;
+    expect(input.props.multiple).toBe(false);
+  });
+
+  it('入れ替えの案内（#232 例 #6）: 明細が読めない・相手の枠がチャートでない → 明細の行とチャートの行の間に 1 行と ［入れ替える］', () => {
+    let swapped = 0;
+    const base = stateFor(draft({}), NO_CAPITAL, { stage: 'review' });
+    const state: RecordState = {
+      ...base,
+      statement: {
+        phase: 'failed',
+        rows: [],
+        index: 0,
+        marks: {},
+        message: READ_MSG.notStatement,
+        notice: null,
+        preview: null,
+      },
+      charts: {
+        entry: {
+          phase: 'ready',
+          preview: fakePreview(),
+          message: null,
+          read: 'done',
+          readNote: CHART_READ_MSG.notChart,
+        },
+      },
+      bulkSlots: ['entry'],
+    };
+    const tree = view(state, { onSwapBulk: () => swapped++ });
+    const card = all(tree, hasClass('rinput'))[0] as El;
+    const kids = card.children.filter((n): n is El => typeof n !== 'string');
+    const at = kids.findIndex(hasClass('rbulk'));
+    expect(cls(kids[at - 1] as El)).toContain('rstmt');
+    const box = kids[at] as El;
+    expect(box.props.role).toBe('status');
+    expect(text(all([box], hasClass('rbulk__text')))).toBe('明細とチャートが逆かもしれません');
+    const btn = all([box], (e) => e.props.id === 'record-bulk-swap')[0] as El;
+    expect(text(btn)).toBe('入れ替える');
+    expect(btn.props['aria-label']).toBe('明細とエントリー時のチャートを入れ替える');
+    (btn.props.onClick as () => void)();
+    expect(swapped).toBe(1);
+    // 読み取りの結果を待っている間は空の読み上げの領域だけ（結果で中身が入る）
+    const waiting = view({
+      ...state,
+      charts: { entry: { phase: 'ready', preview: fakePreview(), message: null, read: 'reading' } },
+    });
+    expect((all(waiting, hasClass('rbulk'))[0] as El).children).toEqual([]);
+    // 組が解けていれば（本人が差し替えた）中身は空。読み上げの領域は残す（中身だけを替える）
+    const off = all(view({ ...state, bulkSlots: [] }), hasClass('rbulk'));
+    expect(off).toHaveLength(1);
+    expect((off[0] as El).children).toEqual([]);
+    expect((off[0] as El).props.role).toBe('status');
+    // 入らなかった枚数の 1 行
+    const dropped = view({ ...state, bulkSlots: [], bulkDropped: 2 });
+    expect(text(all(dropped, hasClass('rbulk__dropped')))).toBe(
+      '選んだ画像のうち 2 枚は入れていません（チャートは 7 枚までです）。',
+    );
   });
 
   it('1 段目（明細あり・戻ってきた）: 枠は実物の写しと ✓・状態の文・［スクショを変更］、下は主の ［振り返りへ進む］（onStage）', () => {

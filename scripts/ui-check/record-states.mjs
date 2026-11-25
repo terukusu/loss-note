@@ -34,6 +34,7 @@ import {
   fillRecord,
   fillStatementTaps,
   followLink,
+  makeChart,
   makeImage,
   openChartSheet,
   openFields,
@@ -637,6 +638,23 @@ export const RECORD_STATES = [
       await seg(p, 'LC を動かしたか', 'そのまま').click();
       await seg(p, '時間足を変えたか', 'そのまま').click();
       await p.locator('.vline .badge').waitFor();
+    },
+  },
+  {
+    // #232: まとめて選んだ明細とチャートが逆（チャート → 明細）。明細の行とチャートの行の間に案内と ［入れ替える］
+    slug: 'record-49-bulk-swap',
+    name: '2 段目（まとめて選んで逆だった）',
+    anchor: '.rinput',
+    fn: async (p, api) => {
+      api.read = { status: 200, rows: [], holdMs: 0 };
+      api.chartRead = { status: 200, kind: 'not_chart', holdMs: 0 };
+      const chart = Buffer.from(await makeChart(p, 'bytes'));
+      const statement = Buffer.from(await makeImage(p, STATEMENT_SPEC, 'bytes'));
+      await p.locator('#record-statement-file').setInputFiles([
+        { name: 'chart.png', mimeType: 'image/png', buffer: chart },
+        { name: 'statement.png', mimeType: 'image/png', buffer: statement },
+      ]);
+      await p.locator('#record-bulk-swap').waitFor({ timeout: 10000 });
     },
   },
   {

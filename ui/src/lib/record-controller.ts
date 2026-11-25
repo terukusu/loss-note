@@ -55,6 +55,7 @@ import {
   readNewAccountDraft,
   sortAccounts,
 } from './accounts';
+import { planPicks, swapTargetOf } from './bulk-pick';
 import { CHART_READ_MSG } from './chart-read';
 import {
   CHART_MSG,
@@ -71,6 +72,7 @@ import {
   type ChartSlot,
   chartSaveTimeoutMs,
   EXTRA_FULL,
+  EXTRA_SLOTS,
   type ExtraEntry,
   type ExtraSlot,
   extraNoteErrors,
@@ -404,6 +406,13 @@ export interface RecordState {
    * 次の明細を選ぶ・記録する・✕・画面を離れると false
    */
   readonly statementRemoved?: boolean;
+  /**
+   * まとめて選んだチャートがまだ入っている枠（選んだ順。#232・C67）。まとめて選んだ明細と組になっていて、明細が「明細として
+   * 読めない」ときに入れ替えの相手を選ぶ（bulk-pick.ts の swapTargetOf）。本人の選び直し・削除・手入力・入れ替えで空に戻す
+   */
+  readonly bulkSlots?: readonly AnySlot[];
+  /** まとめて選んだ画像のうち、枠が足りずに入れなかった枚数（2 段目の 1 行。#232。0 = 出さない） */
+  readonly bulkDropped?: number;
 }
 
 export interface RecordController {
@@ -417,6 +426,16 @@ export interface RecordController {
   next(): void;
   /** 明細の画像を 1 枚受けて、描き直して読み取りに送る（追加の操作なし。前の読み取りは捨てる） */
   readImage(file: Blob): Promise<void>;
+  /**
+   * まとめて選んだ画像（選んだ順。#232・C67）: 1 枚目を明細の読み取りへ、2 枚目からを空いているチャートの枠へ（エントリー時 →
+   * 決済時 → 追加）。振り分けは順だけで決める（AI を使わない）。1 枚なら readImage と同じ
+   */
+  pickMany(files: readonly Blob[]): Promise<void>;
+  /**
+   * ［入れ替える］（#232）: まとめて選んだ明細が「明細として読めない」とき、明細と相手の枠（swapTargetOf）の画像を入れ替えて
+   * 読み直す（ファイルの選択を開かない）。1 回だけ（押した後は組を解く）
+   */
+  swapBulk(): Promise<void>;
   /**
    * 読み取りをやめる（後で届いた応答は捨てる）。別の明細の読み直しなら、選ぶ前の明細の状態（値・印・画像・行）に戻す（#184 R6）
    */
@@ -608,6 +627,11 @@ export function createRecordController(deps: {
   let undoSnap: StatementSnap | null = null;
   /** 別の明細の読み直しの戻り先（#184 R6。読み直しが失敗・キャンセルで終わったら戻す。読めたら捨てる） */
   let rollback: StatementSnap | null = null;
+  /**
+   * まとめて選んだ組（#232）: 明細へ送った画像と、チャートの枠へ入れた画像（記憶の中だけ。入れ替えに使う）。状態の bulkSlots と
+   * 同じ枠を持つ
+   */
+  let bulk: { readonly statement: Blob; readonly slots: Map<AnySlot, Blob> } | null = null;
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -680,6 +704,10 @@ export function createRecordController(deps: {
   const statementBusy = () =>
     state.statement?.phase === 'preparing' || state.statement?.phase === 'reading';
 
+  /** まとめて選んだチャートの枠に描き直し中のものがある（#232） */
+  const bulkPreparing = () =>
+    (state.bulkSlots ?? []).some((slot) => state.charts?.[slot]?.phase === 'preparing');
+
   /** 時間の上限つきの要求。時間切れ・通信の失敗は network、ログインしていなければ auth（request.ts） */
   const request = createRequest(deps.api, timeoutMs);
 
@@ -689,7 +717,8 @@ export function createRecordController(deps: {
     readTimeoutMs,
     ...(deps.prepare ? { prepare: deps.prepare } : {}),
     timeframeOf: (slot) => state.draft[CHART_TIMEFRAME_FIELD[slot]],
-    othersBusy: statementBusy,
+    // まとめて選んだチャートの描き直しが残っている間も待つ（全部そろってから枠の順に送る。#232）
+    othersBusy: () => statementBusy() || bulkPreparing(),
     commit: (c: ChartSlotsChange) => {
       let draft = state.draft;
       for (const [slot, tf] of Object.entries(c.timeframes ?? {})) {
@@ -709,9 +738,26 @@ export function createRecordController(deps: {
   /** すべての枠を空に戻す（知らせは次の set で出す） */
   const clearCharts = () => {
     slots.clear();
+    dropBulk();
     if (state.charts || state.extras) {
       const { charts: _gone, extras: _x, ...rest } = state;
       state = rest;
+    }
+  };
+
+  /** まとめて選んだ組を解く（入れ替えを出さない。入らなかった枚数の 1 行も消す。知らせは次の set で出す） */
+  const dropBulk = () => {
+    bulk = null;
+    if ((state.bulkSlots?.length ?? 0) > 0 || (state.bulkDropped ?? 0) > 0) {
+      state = { ...state, bulkSlots: [], bulkDropped: 0 };
+    }
+  };
+
+  /** 本人がその枠を差し替えた・削除した: その枠を組から外す */
+  const unbulkSlot = (slot: AnySlot) => {
+    bulk?.slots.delete(slot);
+    if (state.bulkSlots?.includes(slot)) {
+      state = { ...state, bulkSlots: state.bulkSlots.filter((s) => s !== slot) };
     }
   };
 
@@ -1135,12 +1181,96 @@ export function createRecordController(deps: {
     set({ statement: { ...st, phase: 'failed', message, rows: [], index: 0, marks: {} } });
   };
 
-  const readImage = async (file: Blob) => {
+  /** 明細を読む（まとめて選んだ組はそのまま。pickMany・swapBulk の中から使う） */
+  const readStatement = async (file: Blob) => {
     try {
       await readImageInner(file);
     } finally {
       pump();
     }
+  };
+
+  /** 本人が明細を選んだ・貼った（まとめて選んだ組は解く） */
+  const readImage = (file: Blob) => {
+    dropBulk();
+    return readStatement(file);
+  };
+
+  const pickMany = async (files: readonly Blob[]) => {
+    if (files.length <= 1) {
+      if (files[0]) await readImage(files[0]);
+      return;
+    }
+    // 前にまとめて選んだ組の枠（本人が触っていない枠）は、まとめて選び直したら外して空きにする（取り違えた組を 1 段目で
+    // 選び直して直せる。本人が 1 枚ずつ入れた枠は今のまま飛ばす = 例 #3。C67）
+    const prevSlots = bulk ? [...bulk.slots.keys()] : [];
+    dropBulk();
+    if (state.phase === 'saved') next();
+    if (!deps.prepare) return;
+    if (state.phase !== 'editing') {
+      set({ readBlocked: state.phase === 'saving' ? READ_BLOCKED.saving : READ_BLOCKED.notReady });
+      return;
+    }
+    if (uncertain === null) {
+      for (const slot of prevSlots) slots.remove(slot);
+    }
+    const charts = state.charts ?? {};
+    const taken = (slot: ChartSlot) => {
+      const c = charts[slot];
+      return c !== undefined && c.phase !== 'failed';
+    };
+    const plan = planPicks(files, {
+      taken: { entry: taken('entry'), exit: taken('exit') },
+      extrasFree: EXTRA_SLOTS.length - (state.extras?.length ?? 0),
+    });
+    const statement = plan.statement;
+    if (!statement) return;
+    // 明細が先（描き直しに入った時点で明細の読み取り中になり、チャートの読み取りはその後に送る = 1 つずつ・明細が先。7.5）
+    const jobs: Promise<void>[] = [readStatement(statement)];
+    const placed = new Map<AnySlot, Blob>();
+    let dropped = plan.dropped;
+    if (uncertain !== null && plan.charts.length > 0) {
+      // 前の保存が届いたか分からない間はチャートを変えない（今の setChart と同じ知らせ。入らなかった枚数にも数える）
+      dropped += plan.charts.length;
+      set({ chartBlocked: CHART_LOCKED });
+    } else {
+      state = { ...state, chartBlocked: null };
+      for (const { target, file } of plan.charts) {
+        const slot = target.kind === 'main' ? target.slot : slots.addExtra();
+        if (!slot) {
+          dropped++;
+          continue;
+        }
+        placed.set(slot, file);
+        // 描き直しに失敗した枠は読み取りへ進まない: 待っているほかの枠を送り出す（bulkPreparing の待ちを解く）
+        jobs.push(slots.setChart(slot, file).finally(pump));
+      }
+    }
+    bulk = { statement, slots: placed };
+    set({ bulkSlots: [...placed.keys()], bulkDropped: dropped });
+    await Promise.all(jobs);
+  };
+
+  const swapBulk = async () => {
+    const b = bulk;
+    if (!b || state.phase !== 'editing') return;
+    const target = swapTargetOf({
+      statement: state.statement,
+      charts: state.charts,
+      slots: state.bulkSlots ?? [],
+    });
+    const chart = target ? b.slots.get(target) : undefined;
+    if (!target || !chart) return;
+    if (uncertain !== null) {
+      set({ chartBlocked: CHART_LOCKED });
+      return;
+    }
+    // 1 回だけ（押した後は組を解く。入れ替えても読めなければ、選び直し・手入力で直す）
+    bulk = null;
+    state = { ...state, bulkSlots: [], chartBlocked: null };
+    const jobs = [readStatement(chart)];
+    jobs.push(slots.setChart(target, b.statement));
+    await Promise.all(jobs);
   };
 
   const readImageInner = async (file: Blob) => {
@@ -1332,6 +1462,7 @@ export function createRecordController(deps: {
       return;
     }
     // 差し替えたらその枠の時間足は選び直し（前のチャートの足が残って、誤って「時間足を変えた」にしない）
+    unbulkSlot(slot);
     state = { ...state, error: null, readBlocked: null, chartBlocked: null };
     await slots.setChart(slot, file);
   };
@@ -1344,6 +1475,7 @@ export function createRecordController(deps: {
       set({ chartBlocked: CHART_LOCKED });
       return;
     }
+    unbulkSlot(slot);
     state = { ...state, error: null };
     slots.remove(slot);
   };
@@ -1351,6 +1483,7 @@ export function createRecordController(deps: {
   const next = () => {
     const saved = state.saved;
     if (state.phase !== 'saved' || !saved) return;
+    dropBulk();
     set(
       {
         phase: 'editing',
@@ -1703,6 +1836,8 @@ export function createRecordController(deps: {
     },
     next,
     readImage,
+    pickMany,
+    swapBulk,
     setChart,
     removeChart,
     addExtraChart() {
@@ -1744,6 +1879,7 @@ export function createRecordController(deps: {
       const st = state.statement;
       if (state.phase !== 'editing' || st?.phase !== 'ready') return;
       dropUndo();
+      dropBulk();
       const snap = takeSnap(st);
       undoSnap = snap;
       detachStatement();
@@ -1865,6 +2001,7 @@ export function createRecordController(deps: {
     startManual() {
       if (state.phase !== 'editing') return;
       if (state.manual === true && state.stage === 'review') return;
+      dropBulk();
       // キャンセルの文は手入力の要約に持ち込まない（#166）
       set({ manual: true, stage: 'review', readCancelled: false });
     },

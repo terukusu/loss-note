@@ -572,7 +572,7 @@ export async function followLink(page, linkText, title) {
   await page
     .locator(`${OPEN_SHEET}`)
     .last()
-    .locator('button.glink', { hasText: linkText })
+    .locator('a.glink', { hasText: linkText })
     .first()
     .click();
   await expectPollAsync(async () => (await sheetTitle(page)) === title, `「${title}」の説明へ`);

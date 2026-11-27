@@ -3,7 +3,8 @@
 // 用語集のリンクで積む・戻る / Esc / [‹ 前の言葉] で 1 つずつ外す）、中身 = infoContent。シートは同時に 1 つ。
 // 開閉・閉じ方・フォーカスの規則は下のシートの部品と同じ lib/sheet.ts。広い形の吹き出しの置き方（優先の向き・入らなければ
 // 反対・窓の端に揃える）は CSS の anchor positioning（components.css の .sheet--info）
-import { type GlossaryId, type GlossaryItem, glossaryTerm } from './glossary';
+import { type GlossaryId, type GlossaryItem, type GlossaryTerm, glossaryTerm } from './glossary';
+import { linkSegments, relatedIds } from './glossary-text';
 
 /** たどった言葉の並び（説明のシートの中で用語集のリンクを押すたびに 1 つ積む）の次の状態 */
 export type TrailEvent =
@@ -44,8 +45,23 @@ export interface InfoContent {
   readonly example: string | null;
   /** 用語集の画面のその項目（末尾の「用語集で見る」。明細の補足は null） */
   readonly glossary: GlossaryId | null;
+  /**
+   * 関係する言葉の札（用語集の画面と同じ relatedIds = 文の中のリンク先。押すとたどる。#144）。短い説明と続きの文の中で既に
+   * リンクになっている言葉は除く（同じ言葉を 2 回出さない）。用語集に無い説明（欄の説明だけの「i」）は空
+   */
+  readonly related: readonly GlossaryId[];
   /** 今の段数（0 = 「i」の言葉そのもの） */
   readonly depth: number;
+}
+
+/** 説明のシートの札: 関係する言葉から、短い説明と続きの文の中のリンク先を除く（#144） */
+export function sheetRelated(t: GlossaryTerm): readonly GlossaryId[] {
+  const inText = new Set(
+    [t.summary, ...t.body].flatMap((s) =>
+      linkSegments(s).flatMap((x) => (x.kind === 'link' ? [x.id] : [])),
+    ),
+  );
+  return relatedIds(t).filter((id) => !inText.has(id));
 }
 
 export function infoName(label: string): string {
@@ -73,6 +89,7 @@ export function infoContent(src: InfoSource, trail: readonly GlossaryId[] = []):
       items: t.items ?? [],
       example: t.example ?? null,
       glossary: t.id,
+      related: sheetRelated(t),
       depth: trail.length,
     };
   }
@@ -86,6 +103,7 @@ export function infoContent(src: InfoSource, trail: readonly GlossaryId[] = []):
     items: [],
     example: null,
     glossary: null,
+    related: [],
     depth: 0,
   };
 }

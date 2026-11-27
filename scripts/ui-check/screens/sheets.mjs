@@ -360,7 +360,7 @@ export async function flows(kit) {
               (sel) => document.querySelector(`${sel} .sheet__body`)?.scrollTop ?? -1,
               OPEN_SHEET,
             );
-          const link = p.locator(`${OPEN_SHEET} .sheet__body button.glink`).last();
+          const link = p.locator(`${OPEN_SHEET} .sheet__body a.glink`).last();
           await link.scrollIntoViewIfNeeded();
           if ((await bodyTop()) <= 0)
             throw new Error(`${label}: 下の方のリンクで中身がスクロールしていない`);
@@ -398,9 +398,9 @@ export async function flows(kit) {
           }, OPEN_SHEET);
           if (bad.length > 0) throw new Error(`${label}: 安全域に掛かる ${bad.join(' / ')}`);
         }
-        // フォーカスを閉じ込める: Tab を 12 回押しても外の要素へ移らない
+        // フォーカスを閉じ込める: Tab を 20 回押しても外の要素へ移らない（関係する言葉の札の分も回る。#144）
         const seen = new Set();
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 20; i++) {
           await p.keyboard.press('Tab');
           const f = await p.evaluate((sel) => {
             const d = document.querySelector(sel);
@@ -617,6 +617,20 @@ export async function flows(kit) {
       );
       await p.keyboard.press('Escape');
       await expectPollAsync(async () => (await popCount(p)) === 0, 'Esc の 3 回目で閉じる');
+      // 関係する言葉の札（#144）: 押すとその言葉へたどる（画面は移らない）。Esc で 1 つ前へ
+      await openInfo(p, J);
+      await p.locator(`${OPEN_SHEET} .info__related a.chip`, { hasText: /^LC$/ }).click();
+      await expectPollAsync(async () => (await title()) === 'LC', '札で「LC」へ');
+      expectEq(new URL(p.url()).pathname, '/record', '札でたどった後の URL');
+      if (opts.shots)
+        await p.screenshot({ path: join(opts.shots, '360x780-dark-gl1-related.png') });
+      await p.keyboard.press('Escape');
+      await expectPollAsync(
+        async () => (await popCount(p)) === 1 && (await title()) === '判定',
+        '札の後の Esc で「判定」',
+      );
+      await p.keyboard.press('Escape');
+      await expectPollAsync(async () => (await popCount(p)) === 0, '札の後の Esc で閉じる');
       await closeSheets(p);
       await p.waitForTimeout(250);
       await p.goBack();

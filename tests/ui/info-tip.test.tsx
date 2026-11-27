@@ -3,8 +3,8 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { InfoSheetBody, InfoUp } from '../../ui/src/components/InfoSheet';
 import { InfoTipView } from '../../ui/src/components/InfoTip';
-import { glossaryTerm } from '../../ui/src/lib/glossary';
-import { plainText } from '../../ui/src/lib/glossary-text';
+import { GLOSSARY, glossaryTerm } from '../../ui/src/lib/glossary';
+import { plainText, relatedIds } from '../../ui/src/lib/glossary-text';
 import { infoContent, infoName, infoTrail } from '../../ui/src/lib/info-tip';
 import { Link } from '../../ui/src/lib/router';
 import { STATEMENT_NOTICE_MORE } from '../../ui/src/pages/Record';
@@ -183,7 +183,7 @@ describe('InfoSheetBody（説明のシートの中身。#129）', () => {
     const t = body();
     expect(text(t)).toContain(plainText(glossaryTerm('judgment').summary));
     expect(text(t)).not.toContain('[[');
-    expect(all(t, (e) => e.type === 'li')).toHaveLength(5);
+    expect(all(all(t, hasClass('info__items')), (e) => e.type === 'li')).toHaveLength(5);
     const root = t[0] as El;
     expect(text(root.children.at(-1) as El)).toBe('用語集で見る');
     expect(all(t, (e) => 'dangerouslySetInnerHTML' in e.props || 'style' in e.props)).toEqual([]);
@@ -207,18 +207,100 @@ describe('InfoSheetBody（説明のシートの中身。#129）', () => {
     }
   });
 
-  it('文の中の用語集の言葉はボタン（type="button"・見える文字が名前）。押すと onLink にその ID', () => {
+  const click = (over: Partial<Record<'button' | 'ctrl' | 'meta', unknown>> = {}) => {
+    const e = {
+      button: (over.button as number) ?? 0,
+      metaKey: over.meta === true,
+      ctrlKey: over.ctrl === true,
+      shiftKey: false,
+      altKey: false,
+      defaultPrevented: false,
+      prevented: false,
+      preventDefault() {
+        this.prevented = true;
+      },
+    };
+    return e;
+  };
+
+  it('#143: 文の中の用語集の言葉は文と一緒に流れて折れるリンク（a・見える文字が名前・href は用語集のその項目）。素の押下は onLink にその ID', () => {
     const got: string[] = [];
-    const t = body([], { onLink: (id: string) => got.push(id) });
-    const links = all(t, (e) => e.type === 'button' && hasClass('glink')(e));
+    const t = body([], { onLink: (id: string) => got.push(id), from: '/record' });
+    expect(all(t, (e) => e.type === 'button' && hasClass('glink')(e))).toEqual([]);
+    const links = all(t, (e) => e.type === 'a' && hasClass('glink')(e));
     expect(links.length).toBeGreaterThanOrEqual(5);
     for (const l of links) {
-      expect(l.props.type).toBe('button');
       expect(text(l).length).toBeGreaterThan(0);
-      (l.props.onClick as () => void)();
+      expect(String(l.props.href)).toBe(
+        `/glossary?from=%2Frecord#glossary-${String(l.props['data-term'])}`,
+      );
+      const e = click();
+      (l.props.onClick as (e: unknown) => void)(e);
+      expect(e.prevented).toBe(true);
     }
     expect(got).toContain('lc');
     expect(got).toContain('lcMove');
+    // 修飾キー・中クリックはブラウザに任せる（新しいタブで用語集）
+    const before = got.length;
+    for (const over of [{ ctrl: true }, { meta: true }, { button: 1 }]) {
+      const e = click(over);
+      ((links[0] as El).props.onClick as (e: unknown) => void)(e);
+      expect(e.prevented).toBe(false);
+    }
+    expect(got).toHaveLength(before);
+  });
+
+  it('#144: 用語のデータの説明は「関係する言葉」の札（用語集の画面と同じ relatedIds・チップのリンク）。押すとその言葉へたどる', () => {
+    const got: string[] = [];
+    const c = infoContent({ term: 'judgment' });
+    expect(c.related.length).toBeGreaterThan(0);
+    expect(relatedIds(glossaryTerm('judgment'))).toEqual(expect.arrayContaining([...c.related]));
+    const t = body([], { onLink: (id: string) => got.push(id), from: '/record' });
+    const rel = all(t, hasClass('info__related'));
+    expect(rel).toHaveLength(1);
+    const chips = all(rel, (e) => e.type === 'a' && hasClass('chip')(e));
+    expect(chips.map((e) => text(e))).toEqual(c.related.map((id) => glossaryTerm(id).term));
+    for (const ch of chips) {
+      const e = click();
+      (ch.props.onClick as (e: unknown) => void)(e);
+      expect(e.prevented).toBe(true);
+    }
+    expect(got).toEqual([...c.related]);
+    // 札は ［用語集で見る］ の前
+    const root = t[0] as El;
+    expect(text(root.children.at(-1) as El)).toBe('用語集で見る');
+  });
+
+  it('#144: 本文（短い説明と続きの文）のリンクと重なる言葉は札に出ない（同じ言葉を 2 回出さない）', () => {
+    for (const g of GLOSSARY) {
+      const c = infoContent({ term: g.id });
+      const t = expand(<InfoSheetBody content={c} onLink={noop} />);
+      const inText = all(
+        all(t, (e) => e.type === 'p' && !hasClass('info__example')(e)),
+        (e) => hasClass('glink')(e),
+      ).map((e) => String(e.props['data-term']));
+      const chips = all(all(t, hasClass('info__related')), hasClass('chip')).map((e) =>
+        String(e.props['data-term']),
+      );
+      for (const id of chips) expect(inText).not.toContain(id);
+      expect(chips).toEqual([...c.related]);
+    }
+  });
+
+  it('#144: 札の言葉がすべて本文のリンクと重なれば、見出しごと出さない', () => {
+    const c = infoContent({ term: 'lc' });
+    expect(relatedIds(glossaryTerm('lc')).length).toBeGreaterThan(0);
+    expect(c.related).toEqual([]);
+    const t = expand(<InfoSheetBody content={c} onLink={noop} />);
+    expect(all(t, hasClass('info__related'))).toEqual([]);
+    expect(text(t)).not.toContain('関係する言葉');
+  });
+
+  it('#144: 用語集に無い「i」（欄の説明だけ）には札を出さない', () => {
+    const c = infoContent({ label: '明細', body: '説明の文。', id: 'x' });
+    expect(c.related).toEqual([]);
+    const t = expand(<InfoSheetBody content={c} onLink={noop} />);
+    expect(all(t, hasClass('info__related'))).toEqual([]);
   });
 
   it('たどった先は末尾の言葉の中身。［‹ 〈1 つ前の言葉〉］ は読み上げ「〈言葉〉の説明へ戻る」で、押すと onUp', () => {

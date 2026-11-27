@@ -3275,6 +3275,24 @@ a.chip.chip--selected:active,
   color: var(--ink-2);
 }
 
+/* 関係する言葉の札（#144。用語集の画面の .glossary__related と同じ形: 小さな見出し + チップ） */
+.info__related {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.info__related-label {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.info__related .chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* ［用語集で見る］（2 番目の重さのボタン・全幅。9.12）。説明との間を少し空ける */
 .info__glossary {
   margin-block-start: var(--sp-2);

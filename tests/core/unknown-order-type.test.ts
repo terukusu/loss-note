@@ -27,11 +27,11 @@ describe('知らない注文の種類 expiry は「不明」と同じ', () => {
     expect(evaluateTrade(expiry)).toEqual(evaluateTrade(unknown));
   });
 
-  it('逆指値とは読まない（−1.1R・理由 LC: 逆指値なら救う A、expiry は不明と同じ B）', () => {
-    // 1R を超えた負け（−1.1R）で、逆指値の約定なら「LC を越えて持ち続けた」にしない（5.3）
-    const stop = evaluateTrade(closedAtR(-1.1, {}, { orderType: 'stop', reason: 'lc' }));
-    const expiry = evaluateTrade(closedAtR(-1.1, {}, { orderType: EXPIRY, reason: 'lc' }));
-    const unknown = evaluateTrade(closedAtR(-1.1, {}, { orderType: 'unknown', reason: 'lc' }));
+  it('逆指値とは読まない（−1.2R・理由 LC: 逆指値なら救う A、expiry は不明と同じ B）', () => {
+    // 1R を超えた負け（−1.2R）で、逆指値の約定なら「LC を越えて持ち続けた」にしない（5.3）
+    const stop = evaluateTrade(closedAtR(-1.2, {}, { orderType: 'stop', reason: 'lc' }));
+    const expiry = evaluateTrade(closedAtR(-1.2, {}, { orderType: EXPIRY, reason: 'lc' }));
+    const unknown = evaluateTrade(closedAtR(-1.2, {}, { orderType: 'unknown', reason: 'lc' }));
     if (!stop.ok || !expiry.ok || !unknown.ok) throw new Error('受け付けられなかった');
     expect(expiry.judgment?.grade).toBe(unknown.judgment?.grade);
     expect(expiry.judgment?.grade).not.toBe(stop.judgment?.grade);

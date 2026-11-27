@@ -151,7 +151,8 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
   ],
   '18b': [
     {
-      input: closedAtR(-1.1, { gapSlipAnswer: true }, { reason: 'lc' }),
+      // 99.40（LC を 0.10 越えた = 幅 0.50 の 20%。0.1R までの滑りの外。C71）
+      input: closedAtR(-1.2, { gapSlipAnswer: true }, { reason: 'lc' }),
       grade: 'A',
       reasons: ['asPlannedLc'],
       absent: ['heldPastLc', 'stopFilled'],
@@ -159,7 +160,7 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
   ],
   '18c': [
     {
-      input: closedAtR(-1.1, { gapSlipAnswer: false }, { reason: 'lc' }),
+      input: closedAtR(-1.2, { gapSlipAnswer: false }, { reason: 'lc' }),
       grade: 'B',
       reasons: ['heldPastLc'],
     },
@@ -216,15 +217,16 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
   ],
   '27': [
     {
-      label: '成行で −1.05R・窓・滑り = はい',
-      input: closedAtR(-1.05, { gapSlipAnswer: true }, { orderType: 'market', reason: 'lc' }),
+      // 99.425（LC を 0.075 越えた = 幅 0.50 の 15%。0.1R までの滑りの外。C71）
+      label: '成行で −1.15R・窓・滑り = はい',
+      input: closedAtR(-1.15, { gapSlipAnswer: true }, { orderType: 'market', reason: 'lc' }),
       grade: 'A',
       reasons: [],
       absent: ['heldPastLc'],
     },
     {
-      label: '注文の種類が不明で −1.05R・窓・滑り = いいえ',
-      input: closedAtR(-1.05, { gapSlipAnswer: false }, { reason: 'lc' }),
+      label: '注文の種類が不明で −1.15R・窓・滑り = いいえ',
+      input: closedAtR(-1.15, { gapSlipAnswer: false }, { reason: 'lc' }),
       grade: 'B',
       reasons: ['heldPastLc'],
     },
@@ -305,6 +307,32 @@ export const DESIGN_TABLE_CASES: Readonly<Record<string, readonly Scene[]>> = {
       grade: 'safeWin',
       reasons: [],
       absent: ['earlyExit'],
+    },
+  ],
+  '38': [
+    {
+      // 99.46（LC を 0.04 越えた = 幅 0.50 の 8%）。0.1R までの滑りなので問いを待たずに A・注記「窓・滑り」（C71）
+      label: '成行で −1.08R',
+      input: closedAtR(-1.08, {}, { orderType: 'market', reason: 'lc' }),
+      grade: 'A',
+      reasons: ['asPlannedLc', 'gapSlip'],
+      absent: ['heldPastLc'],
+    },
+    {
+      label: '注文の種類が不明で −1.08R・窓・滑り = いいえ',
+      input: closedAtR(-1.08, { gapSlipAnswer: false }, { reason: 'lc' }),
+      grade: 'A',
+      reasons: ['asPlannedLc', 'gapSlip'],
+      absent: ['heldPastLc'],
+    },
+  ],
+  '39': [
+    {
+      // 広げた後の LC 99.20 を 0.04 越えた 99.16（入る前の幅 0.50 の 8%）: (99.16 − 100.00) ÷ 0.50 = −1.68R
+      input: closedAt(trade({ lcMove: { kind: 'widened', after: 99.2 } }), 99.16),
+      grade: 'B',
+      reasons: ['lcWidened'],
+      absent: ['heldPastLc'],
     },
   ],
 };

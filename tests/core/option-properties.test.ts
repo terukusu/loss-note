@@ -1,6 +1,7 @@
 // オプションのポジションの性質テスト（種つきの乱数で各 1,000 回。失敗したら種と回数を出す）。値はすべて架空
 import { describe, it } from 'vitest';
 import { evaluateTrade } from '../../core/evaluate';
+import { slipAllowance } from '../../core/judge';
 import { optionOneR, positionExitOrderType, positionNetYen } from '../../core/option';
 import type { ExitOrderType, ExitReason, Leg, LegSide, TradeInput } from '../../core/trade';
 import { forAll, type Rng } from './helpers/prng';
@@ -242,7 +243,7 @@ describe('オプションのポジションの性質', () => {
     });
   });
 
-  it('負けで原資産が LC を越え、逆指値でも窓・滑りでもなく、広げていなければ持ち続けた', () => {
+  it('原資産が LC を 0.1R までの滑りを越えて越え、逆指値でも窓・滑りでもなく、広げていなければ持ち続けた（C71）', () => {
     forAll(11306, N, genLongPosition, (t) => {
       const ev = evaluateTrade(t);
       if (!ev.ok || t.exit === undefined || t.lc === undefined) return;
@@ -251,7 +252,7 @@ describe('オプションのポジションの性質', () => {
         positionExitOrderType(t.option?.legs ?? [], t.exit.orderType) === 'stop' ||
         t.exit.reason === 'gapSlip' ||
         t.gapSlipAnswer === true;
-      const beyond = t.exit.price < t.lc;
+      const beyond = t.lc - t.exit.price > slipAllowance(t) + 1e-9;
       const held = (ev.judgment?.reasons ?? []).some((x) => x.kind === 'heldPastLc');
       assert(
         held === (beyond && !rescued),

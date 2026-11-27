@@ -1,8 +1,9 @@
 // 判定の補いの例 J1〜J12（Issue #2。設計書 5.3・5.4・C29〜C33。値はすべて架空）
 import { describe, expect, it } from 'vitest';
 import { type Evaluation, evaluateTrade } from '../../core/evaluate';
-import { gradeOf, type ReasonKind } from '../../core/judge';
+import { gradeOf, type ReasonKind, slipAllowance } from '../../core/judge';
 import type { TradeInput } from '../../core/trade';
+import { forAll } from './helpers/prng';
 import { closedAt, closedAtR, trade, without } from './helpers/trade-builder';
 
 type Ok = Extract<Evaluation, { ok: true }>;
@@ -300,5 +301,129 @@ describe('#203 決済の理由「TP の前に満足して」は判定の重さ�
       const sat = evaluated(closedAtR(r, {}, { reason: 'satisfied' }));
       expect(sat.judgment, String(r)).toEqual(other.judgment);
     }
+  });
+});
+
+describe('0.1R までの滑りは持ち続けたにしない（#258・C71）', () => {
+  // 既定: L・イン 100.00・LC 99.50（幅 0.50 → 許す滑り 0.05）・数量 10,000・1R 5,000 円
+  it('L・成行で 99.46（−1.08R）は A で、注記「窓・滑り」', () => {
+    const ev = evaluated(closedAt(trade(), 99.46, { orderType: 'market', reason: 'lc' }));
+    expect(ev.r).toBeCloseTo(-1.08, 9);
+    expect(ev.judgment?.grade).toBe('A');
+    expect(kinds(ev)).toEqual(expect.arrayContaining(['asPlannedLc', 'gapSlip']));
+    expect(kinds(ev)).not.toContain('heldPastLc');
+  });
+
+  it('ちょうど 10%（99.45・−1.1R）は許す側、わずかに超える 99.449（−1.102R）は B（持ち続けた）', () => {
+    expect(evaluated(closedAt(trade(), 99.45)).judgment?.grade).toBe('A');
+    const over = evaluated(closedAt(trade(), 99.449));
+    expect(over.judgment?.grade).toBe('B');
+    expect(kinds(over)).toContain('heldPastLc');
+    expect(kinds(over)).not.toContain('gapSlip');
+  });
+
+  it('S・イン 100.00・LC 100.50: 100.54 と 100.55 は A、100.551 は B', () => {
+    const s = (price: number) => evaluated(closedAt(trade({ side: 'S', lc: 100.5 }), price));
+    expect(s(100.54).judgment?.grade).toBe('A');
+    expect(s(100.55).judgment?.grade).toBe('A');
+    expect(kinds(s(100.551))).toContain('heldPastLc');
+  });
+
+  it('為替あり（USD・150）・明細の損益あり: R も滑りも価格で測るので、99.46（−1.08R）は A・99.40（−1.2R）は B', () => {
+    // 1R = 0.50 × 100 × 150 = 7,500 円。明細の損益 −8,400 円（手数料 300 円込み）。R は価格だけ（5.1）
+    const usd = trade({
+      instrument: { multiplier: 1, quantityStep: 1, priceInAccountCurrency: false },
+      entries: [{ price: 100, quantity: 100 }],
+    });
+    const inside = evaluated({
+      ...closedAt(usd, 99.46, { orderType: 'market', fxRate: 150 }),
+      statementPnlYen: -8_400,
+      feesTotalYen: 300,
+    });
+    expect(inside.r).toBeCloseTo(-1.08, 9);
+    expect(inside.judgment?.grade).toBe('A');
+    expect(kinds(inside)).toContain('gapSlip');
+    const outside = evaluated({
+      ...closedAt(usd, 99.4, { orderType: 'market', fxRate: 150 }),
+      statementPnlYen: -9_000,
+    });
+    expect(outside.judgment?.grade).toBe('B');
+    expect(kinds(outside)).toContain('heldPastLc');
+  });
+
+  it('広げた（99.50 → 99.20）は広げた後の LC から入る前の幅の 10%: 99.15（−1.7R）は「LC を広げた」だけ、99.149 は持ち続けたも並ぶ', () => {
+    const widened = trade({ lcMove: { kind: 'widened', after: 99.2 } });
+    const inside = evaluated(closedAt(widened, 99.15));
+    expect(inside.judgment?.grade).toBe('B');
+    expect(kinds(inside)).toContain('lcWidened');
+    expect(kinds(inside)).not.toContain('heldPastLc');
+    expect(kinds(evaluated(closedAt(widened, 99.149)))).toContain('heldPastLc');
+  });
+
+  it('取り消した は入る前の LC から: 99.46 は「取り消した」だけ、99.44 は持ち続けたも並ぶ', () => {
+    const cancelled = trade({ lcMove: { kind: 'cancelled' } });
+    expect(kinds(evaluated(closedAt(cancelled, 99.46)))).not.toContain('heldPastLc');
+    expect(kinds(evaluated(closedAt(cancelled, 99.44)))).toContain('heldPastLc');
+  });
+
+  it('買い増しは最後のエントリーのイン〜その LC の幅で測る（平均のインではない）', () => {
+    // 100.00（LC 99.50）と 99.80（LC 99.30）。比較先 99.30、幅 |99.80 − 99.30| = 0.50 → 許す滑り 0.05
+    // （平均のイン 99.90 なら幅 0.60・許す滑り 0.06 で 99.245 も許してしまう）
+    const t = trade({
+      entries: [
+        { price: 100, quantity: 10_000, lc: 99.5 },
+        { price: 99.8, quantity: 10_000, lc: 99.3 },
+      ],
+    });
+    expect(slipAllowance(t)).toBeCloseTo(0.05, 12);
+    const inside = evaluated(closedAt(t, 99.26)); // (−0.74 − 0.54) ÷ 1.00 = −1.28R
+    expect(inside.r).toBeCloseTo(-1.28, 9);
+    expect(kinds(inside)).toContain('averagingDown');
+    expect(kinds(inside)).not.toContain('heldPastLc');
+    expect(kinds(evaluated(closedAt(t, 99.245)))).toContain('heldPastLc');
+  });
+
+  it('逆指値の約定は今までどおり「逆指値で切れた」で、注記「窓・滑り」は付けない', () => {
+    const ev = evaluated(closedAt(trade(), 99.46, { orderType: 'stop', reason: 'lc' }));
+    expect(kinds(ev)).toContain('stopFilled');
+    expect(kinds(ev)).not.toContain('gapSlip');
+  });
+
+  // 性質: 越えた割合 f（幅に対する）だけで決まり、L / S で対称・数量に依らない
+  const genSlip = (r: { int: (a: number, b: number) => number }) => ({
+    entry: r.int(1_000, 50_000) / 10,
+    width: r.int(1, 2_000) / 10,
+    f: r.int(1, 3_000) / 10_000, // 0.0001〜0.3
+    quantity: r.int(1, 100) * 100,
+  });
+  const heldOf = (side: 'L' | 'S', g: ReturnType<typeof genSlip>, quantity = g.quantity) => {
+    const s = side === 'L' ? 1 : -1;
+    const lc = g.entry - s * g.width;
+    const exit = lc - s * g.f * g.width;
+    const ev = evaluated(
+      closedAt(trade({ side, lc, entries: [{ price: g.entry, quantity }] }), exit, {
+        orderType: 'market',
+      }),
+    );
+    return kinds(ev).includes('heldPastLc');
+  };
+
+  it('性質: 10% 以内なら持ち続けたが付かず、超えれば付く（境目の近くは除く）', () => {
+    forAll(25801, 300, genSlip, (g) => {
+      if (Math.abs(g.f - 0.1) < 1e-6) return;
+      expect(heldOf('L', g)).toBe(g.f > 0.1);
+    });
+  });
+
+  it('性質: 許す幅は L / S で対称', () => {
+    forAll(25802, 300, genSlip, (g) => {
+      expect(heldOf('S', g)).toBe(heldOf('L', g));
+    });
+  });
+
+  it('性質: 数量に依らない', () => {
+    forAll(25803, 300, genSlip, (g) => {
+      expect(heldOf('L', g, 1)).toBe(heldOf('L', g, g.quantity * 7));
+    });
   });
 });

@@ -52,7 +52,7 @@ describe('reviewItemOf: 一覧と同じ判定の計算', () => {
     expect(reviewItemOf(S5)).toMatchObject({ grade: 'B' });
     expect(reviewItemOf(S5).r).toBeCloseTo(-0.5, 12);
     expect(reviewItemOf(S6)).toMatchObject({ grade: 'B' });
-    expect(reviewItemOf(S6).r).toBeCloseTo(-1.05, 12);
+    expect(reviewItemOf(S6).r).toBeCloseTo(-1.25, 12);
   });
 });
 
@@ -159,11 +159,11 @@ describe('reviewModel: 例の表', () => {
     expect(m.headline).toEqual({ kind: 'none', lead: '崩れなし', value: '±0.0R' });
   });
 
-  it('S6: B −1.05R → 規律コスト −0.1R（0 から遠い側に丸める）', () => {
+  it('S6: B −1.25R → 規律コスト −0.3R（0 から遠い側に丸める）', () => {
     const m = model([S6]);
-    expect(m.costText).toBe('−0.1R');
-    expect(m.subline).toBe('守っていれば −1.0R · 実際 −1.1R');
-    expect(m.headline).toEqual({ kind: 'gap', lead: '崩れで', value: '−0.1R' });
+    expect(m.costText).toBe('−0.3R');
+    expect(m.subline).toBe('守っていれば −1.0R · 実際 −1.3R');
+    expect(m.headline).toEqual({ kind: 'gap', lead: '崩れで', value: '−0.3R' });
   });
 
   it('S7: S1 の 3 番を消して [元に戻す] を待つ間 → 6 件・67%（4 / 6 件）・規律コスト ±0.0R', () => {

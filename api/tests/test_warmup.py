@@ -119,6 +119,15 @@ def warm_lines(capfd) -> list[dict]:
     return [ln for ln in lines if ln.get("event") == "warmup"]
 
 
+def started(app):
+    """裏のスレッドの起動の準備（#60）が終わるまで待つ"""
+    thread = app.extensions.get("warmup")
+    if thread is not None:
+        thread.join(10)
+        assert not thread.is_alive()
+    return app
+
+
 def owner_token() -> str:
     return signed_token(UID, PROD, email=EMAIL, email_verified=True)
 
@@ -126,7 +135,7 @@ def owner_token() -> str:
 # ── AC-2・AC-3: 起動で 1 回ずつ・先取りした公開鍵を検証が使う ──
 def test_start_warms_each_once_before_requests(prod_env, certs, sdk_calls, cli_starts, capfd):
     records = MemoryStore()
-    app = create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=records, warm=True)
+    app = started(create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=records, warm=True))
     # 要求の前
     assert records.warm_calls == 1
     assert certs.hits == 1
@@ -156,7 +165,7 @@ def test_without_warm_the_first_verify_fetches(prod_env, certs):
 def test_store_warm_failure_does_not_stop_start(prod_env, certs, capfd):
     records = MemoryStore()
     records.fail_warm = RuntimeError("fictional users/x/trades/y unreachable")
-    app = create_app(prod_env, store=records, warm=True)
+    app = started(create_app(prod_env, store=records, warm=True))
     lines = warm_lines(capfd)
     assert [ln["reason"] for ln in lines] == ["store"]
     assert "users/x" not in json.dumps(lines)  # 例外の文言を出さない
@@ -167,7 +176,7 @@ def test_store_warm_failure_does_not_stop_start(prod_env, certs, capfd):
 
 def test_cert_fetch_failure_does_not_stop_start(prod_env, certs, capfd):
     certs.status = 503
-    app = create_app(prod_env, store=MemoryStore(), warm=True)
+    app = started(create_app(prod_env, store=MemoryStore(), warm=True))
     assert [ln["reason"] for ln in warm_lines(capfd)] == ["auth"]
     client = app.test_client()
     assert client.get("/api/health").status_code == 200
@@ -204,7 +213,7 @@ def test_all_steps_fail_and_start_still_returns(prod_env, certs, sdk_calls, cli_
     certs.status = 500
     records = MemoryStore()
     records.fail_warm = RuntimeError("fictional")
-    app = create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=records, warm=True)
+    app = started(create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=records, warm=True))
     assert [ln["reason"] for ln in warm_lines(capfd)] == ["store+auth+sdk+cli"]
     assert cli_starts == []
     assert app.test_client().get("/api/health").status_code == 200
@@ -279,7 +288,7 @@ def test_emulator_start_does_not_fetch_certs_and_no_sdk_without_credential(prod_
     patch_certs(monkeypatch, forbid=True)
     env = {"GOOGLE_CLOUD_PROJECT": DEMO, AUTH_EMULATOR: "127.0.0.1:9099", FIRESTORE_EMULATOR: "127.0.0.1:8080"}
     records = MemoryStore()
-    create_app(env, store=records, warm=True)
+    started(create_app(env, store=records, warm=True))
     lines = warm_lines(capfd)
     assert [ln["reason"] for ln in lines] == ["ok"]
     assert set(lines[0]) == WARM_KEYS  # sdk_ms が無い = SDK の段が無い
@@ -295,6 +304,31 @@ def test_emulator_verifier_warm_makes_client_only(monkeypatch):
     assert v._client is not None
 
 
+# ── 起動の準備を待たずに返る（眠っていたインスタンスの最初の HTML を遅らせない）──
+def test_start_returns_before_warmup_finishes(prod_env, certs, capfd):
+    import threading
+
+    gate = threading.Event()
+
+    class Slow(MemoryStore):
+        def warm(self):
+            gate.wait(5)
+            super().warm()
+
+    records = Slow()
+    app = create_app(prod_env, store=records, warm=True)
+    try:
+        # 準備が終わる前に返り、要求を受けられる
+        assert records.warm_calls == 0
+        assert app.test_client().get("/api/health").status_code == 200
+        assert app.test_client().get("/api/trades", headers=bearer(owner_token())).status_code == 200
+    finally:
+        gate.set()
+    started(app)
+    assert records.warm_calls == 1
+    assert [ln["reason"] for ln in warm_lines(capfd)] == ["ok"]
+
+
 # ── KEEP-2: 環境を渡す起動は既定で準備をしない ──
 def test_env_start_does_not_warm_by_default(prod_env, certs, sdk_calls, capfd):
     records = MemoryStore()
@@ -307,7 +341,7 @@ def test_unconfigured_start_does_not_warm(monkeypatch, capfd):
     for name in EMULATOR_VARS:
         monkeypatch.delenv(name, raising=False)
     records = MemoryStore()
-    create_app({}, store=records, warm=True)
+    started(create_app({}, store=records, warm=True))
     assert records.warm_calls == 0
     assert warm_lines(capfd) == []
 
@@ -329,7 +363,7 @@ def test_process_start_warms_after_scrub(prod_env, certs, cli_starts, monkeypatc
 
     monkeypatch.setattr(statement_read, "sdk_available", lambda: seen.append(credential_names_in()) or True)
     records = Watching()
-    create_app(store=records)  # env を渡さない = 本番の gunicorn と同じ経路（既定で準備する）
+    started(create_app(store=records))  # env を渡さない = 本番の gunicorn と同じ経路（既定で裏で準備する）
     assert records.warm_calls == 1
     assert certs.hits == 1  # 既定の経路でも公開鍵を要求の前に 1 回取る（AC-2）
     assert seen == [[], [], []]  # 保存先・段 sdk・段 cli（#65）
@@ -364,7 +398,7 @@ def test_cli_step_does_not_wait(prod_env, certs, monkeypatch, capfd):
     fake = fake_agent_sdk.install(monkeypatch)
     fake.startup_delay = 2.0
     t = time.monotonic()
-    app = create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=MemoryStore(), warm=True)
+    app = started(create_app({**prod_env, "ANTHROPIC_API_KEY": "sk-fictional"}, store=MemoryStore(), warm=True))
     took = time.monotonic() - t
     pool = app.extensions["statement_read_warm"]
     try:

@@ -408,7 +408,7 @@ describe('持ち続けた（C48）', () => {
         leg('P', 35_000, 'sell', 1, 100, 60, {}, '2027-01'),
         leg('C', 41_000, 'sell', 1, 50, 10, {}, '2027-02'),
       ],
-      37_499,
+      37_399,
     );
     const ev = ok(evaluateTrade(t));
     expect(ev.r).toBeUndefined();
@@ -417,7 +417,7 @@ describe('持ち続けた（C48）', () => {
   });
 
   it('S のポジションでは LC より上が不利な側', () => {
-    const t = position([leg('C', 40_000, 'sell', 1, 150, 300)], 39_600, { side: 'S', lc: 39_500 });
+    const t = position([leg('C', 40_000, 'sell', 1, 150, 300)], 39_601, { side: 'S', lc: 39_500 });
     const ev = ok(evaluateTrade(t));
     expect(ev.judgment?.reasons.map((r) => r.kind)).toContain('heldPastLc');
     const inside = position([leg('C', 40_000, 'sell', 1, 150, 300)], 39_400, {
@@ -427,6 +427,30 @@ describe('持ち続けた（C48）', () => {
     expect(ok(evaluateTrade(inside)).judgment?.reasons.map((r) => r.kind)).not.toContain(
       'heldPastLc',
     );
+  });
+
+  it('原資産で 0.1R までの滑り（イン〜LC の幅 1,000 の 10% = 100）は持ち続けたにしない（C71）', () => {
+    const kinds = (exitUnderlying: number, over: Parameters<typeof position>[2] = {}) =>
+      ok(
+        evaluateTrade(position([leg('P', 37_000, 'sell', 1, 150, 380)], exitUnderlying, over)),
+      ).judgment?.reasons.map((r) => r.kind) ?? [];
+    // ちょうど 10%（37,400）は許す側（A のときの注記「窓・滑り」は 5.7 の O22）
+    expect(kinds(37_400)).not.toContain('heldPastLc');
+    // 10% をわずかに超える（37,399）は持ち続けた
+    expect(kinds(37_399)).toContain('heldPastLc');
+    // S: イン 38,500・LC 39,500 → 39,600 まで許す
+    const s = (x: number) =>
+      ok(
+        evaluateTrade(
+          position([leg('C', 40_000, 'sell', 1, 150, 300)], x, { side: 'S', lc: 39_500 }),
+        ),
+      ).judgment?.reasons.map((r) => r.kind) ?? [];
+    expect(s(39_600)).not.toContain('heldPastLc');
+    expect(s(39_601)).toContain('heldPastLc');
+    // 広げた（37,500 → 37,200）は広げた後の LC から、入る前の幅（1,000）の 10% = 100 まで
+    const widened = { lcMove: { kind: 'widened', after: 37_200 } } as const;
+    expect(kinds(37_100, widened)).not.toContain('heldPastLc');
+    expect(kinds(37_099, widened)).toContain('heldPastLc');
   });
 
   it('広げて値が無ければ持ち続けたを出さない（C30）', () => {

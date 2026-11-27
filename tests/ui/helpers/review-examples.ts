@@ -65,5 +65,5 @@ export const S2: readonly StoredTrade[] = [
 
 /** S5: B（金額ありきの LC）−0.5R */
 export const S5 = trade(0, 's5', 99.75, { lcBasis: 'amount' });
-/** S6: B（持ち続けた）−1.05R（決済 99.475 が LC 99.5 より不利・逆指値でない） */
-export const S6 = trade(0, 's6', 99.475);
+/** S6: B（持ち続けた）−1.25R（決済 99.375 が LC 99.5 を 0.125 越えた = 幅 0.50 の 25%・逆指値でない。0.1R までの滑りの外。C71） */
+export const S6 = trade(0, 's6', 99.375);

@@ -116,28 +116,68 @@ function heldReference(t: TradeInput): number | undefined {
   return t.lc;
 }
 
-/** 決済が比較先より不利で、逆指値の約定でなく、損失が 1R を超えたか（ignoreGap なら窓・滑りの救済を見ない） */
-function heldPast(t: TradeInput, r: number | undefined, ignoreGap: boolean): boolean {
+/** 滑りとして許す割合（C71）: 比較先を越えた幅が、イン〜入る前の LC の幅のこの割合まで */
+export const SLIP_ALLOWANCE_RATIO = 0.1;
+
+/**
+ * 滑りとして許す幅（価格。C71）: 最後のエントリーのイン〜そのエントリーの入る前の LC（無ければ取引の LC）の幅の 10%。
+ * 広げた・取り消したでも入る前の LC で測る（R の分母と同じ幅 = 0.1R）。レッグを持つ取引は原資産の価格（イン = 建てたときの原資産）。
+ * 幅が出なければ 0（許さない）
+ */
+export function slipAllowance(t: TradeInput): number {
+  const last = t.entries[t.entries.length - 1];
+  const lc = last?.lc ?? t.lc;
+  if (last === undefined || lc === undefined) return 0;
+  return SLIP_ALLOWANCE_RATIO * Math.abs(last.price - lc);
+}
+
+/** 決済が比較先（C30）を不利な側に越えた幅（価格。越えていなければ 0 以下） */
+function beyondReference(t: TradeInput): number | undefined {
   const ref = heldReference(t);
-  if (t.exit === undefined || ref === undefined || r === undefined) return false;
-  const worse = signOf(t.side) * (t.exit.price - ref) < 0;
-  if (!worse || t.exit.orderType === 'stop') return false;
-  if (!ignoreGap && (t.exit.reason === 'gapSlip' || t.gapSlipAnswer === true)) return false;
+  if (t.exit === undefined || ref === undefined) return undefined;
+  return signOf(t.side) * (ref - t.exit.price);
+}
+
+/** 持ち続けたの救いを見るか（判定は両方 false。注記「窓・滑り」は両方 true と比べる） */
+interface HeldOptions {
+  /** 決済の理由・答えの「窓・滑り」を見ない */
+  readonly ignoreGap: boolean;
+  /** 0.1R までの滑り（C71）を許さない */
+  readonly ignoreSlip: boolean;
+}
+
+const JUDGE: HeldOptions = { ignoreGap: false, ignoreSlip: false };
+const RAW: HeldOptions = { ignoreGap: true, ignoreSlip: true };
+
+/** 比較先を越えた幅が、許す滑りの外か（境目のちょうど 10% は許す側。誤差 1e-9） */
+function pastSlip(t: TradeInput, beyond: number, o: HeldOptions): boolean {
+  return o.ignoreSlip || beyond > slipAllowance(t) + TOL;
+}
+
+function gapRescued(t: TradeInput, o: HeldOptions): boolean {
+  return !o.ignoreGap && (t.exit?.reason === 'gapSlip' || t.gapSlipAnswer === true);
+}
+
+/** 決済が比較先より不利で、0.1R までの滑りを越え、逆指値の約定でなく、窓・滑りでもなく、損失が 1R を超えたか */
+function heldPast(t: TradeInput, r: number | undefined, o: HeldOptions): boolean {
+  const beyond = beyondReference(t);
+  if (t.exit === undefined || beyond === undefined || r === undefined) return false;
+  if (!(beyond > 0) || !pastSlip(t, beyond, o) || t.exit.orderType === 'stop') return false;
+  if (gapRescued(t, o)) return false;
   return r < -1 - TOL;
 }
 
 /**
- * レッグを持つ取引の「持ち続けた」（C48）: 決済したときの原資産が比較先（C30）を不利な側に越えた（誤差 1e-9）、かつ
- * 逆指値でない（満期（SQ）は逆指値とみなさない。C54）・窓・滑りでもない（ignoreGap なら見ない）。1R・損益の符号は見ない。
- * 「最大損失まで」は見ない（C50）
+ * レッグを持つ取引の「持ち続けた」（C48）: 決済したときの原資産が比較先（C30）を不利な側に越えた（誤差 1e-9）幅が
+ * 0.1R までの滑り（C71。原資産の価格で同じ割合）を越え、かつ逆指値でない（満期（SQ）は逆指値とみなさない。C54）・
+ * 窓・滑りでもない。1R・損益の符号は見ない。「最大損失まで」は見ない（C50）
  */
-function heldPastOption(t: TradeInput, ignoreGap: boolean): boolean {
+function heldPastOption(t: TradeInput, o: HeldOptions): boolean {
   if (isMaxLossPlan(t)) return false; // 「最大損失まで」は持ち続けたを見ない（C50）
-  const ref = heldReference(t);
-  if (t.exit === undefined || ref === undefined) return false;
-  const beyond = signOf(t.side) * (t.exit.price - ref) < -TOL;
-  if (!beyond || t.exit.orderType === 'stop') return false;
-  return ignoreGap || !(t.exit.reason === 'gapSlip' || t.gapSlipAnswer === true);
+  const beyond = beyondReference(t);
+  if (t.exit === undefined || beyond === undefined) return false;
+  if (!(beyond > TOL) || !pastSlip(t, beyond, o) || t.exit.orderType === 'stop') return false;
+  return !gapRescued(t, o);
 }
 
 /** 2 つ目以降のエントリーで、それまでの数量の重み付き平均のインより不利に足したもの（ナンピン） */
@@ -195,14 +235,14 @@ function weightedReasons(t: TradeInput, nums: JudgeNumbers, outcome: Outcome): R
   if (tf) reasons.push(tf);
   if (t.option !== undefined) {
     // 勝ちでも理由に入る（勝ちなら危ない勝ち「持ち続けた」。C48）
-    if (t.exit !== undefined && heldPastOption(t, false)) {
+    if (t.exit !== undefined && heldPastOption(t, JUDGE)) {
       reasons.push({
         kind: 'heldPastLc',
         underlying: t.exit.price,
         ...(nums.r === undefined ? {} : { r: nums.r }),
       });
     }
-  } else if (outcome === 'loss' && nums.r !== undefined && heldPast(t, nums.r, false)) {
+  } else if (outcome === 'loss' && nums.r !== undefined && heldPast(t, nums.r, JUDGE)) {
     reasons.push({ kind: 'heldPastLc', r: nums.r });
   }
   if (nums.riskPct !== undefined && nums.overRisk === true) {
@@ -232,11 +272,11 @@ export function collectReasons(t: TradeInput, nums: JudgeNumbers): Reason[] {
 
   if (grade === 'A') {
     reasons.push(t.exit.orderType === 'stop' ? { kind: 'stopFilled' } : { kind: 'asPlannedLc' });
-    // 決済が比較先より不利で、窓・滑り（理由または答え）で救った
+    // 決済が比較先より不利で、窓・滑り（理由または答え）か 0.1R までの滑り（C71）で救った
     const rescued =
       t.option !== undefined
-        ? heldPastOption(t, true) && !heldPastOption(t, false)
-        : heldPast(t, nums.r, true) && !heldPast(t, nums.r, false);
+        ? heldPastOption(t, RAW) && !heldPastOption(t, JUDGE)
+        : heldPast(t, nums.r, RAW) && !heldPast(t, nums.r, JUDGE);
     if (rescued) reasons.push({ kind: 'gapSlip' });
   }
   if (t.exit.reason === 'fearEarly') reasons.push({ kind: 'earlyExit' });

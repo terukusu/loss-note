@@ -34,6 +34,10 @@ const at = (time: number): Partial<Leg['exit']> => ({ time });
 // → 1R = 210,000 × 1,000 ÷ 1,400 = 150,000 円（実際の動きから）、−1.4R、リスク 1.5%
 const heldPastLegs = [leg('P', 37_000, 'sell', 1, 150, 360)];
 
+// O22: 売りのプット 150 → 255（−105,000 円）、決済したときの原資産 37,450（LC を 50 越えた = 幅 1,000 の 5%・成行）
+// → 1R = 105,000 × 1,000 ÷ 1,050 = 100,000 円（実際の動きから）、−1.05R。0.1R までの滑りなので持ち続けたにしない（C71）
+const slipLegs = [leg('P', 37_000, 'sell', 1, 150, 255)];
+
 // O19・O20: 買いのコールを先に決済（80 → 150。+70,000 円）、売りのプットは SQ まで残して満期で消滅（+120,000 円）
 const sellToSqLegs = [
   leg('C', 40_000, 'buy', 1, 80, 150, at(T1)),
@@ -376,6 +380,17 @@ export const OPTION_TABLE_CASES: Readonly<Record<string, readonly OptionScene[]>
       grade: 'B',
       reasons: ['heldPastLc'],
       absent: ['stopFilled'],
+      outcome: 'loss',
+    },
+  ],
+  O22: [
+    {
+      input: position(slipLegs, 37_450, {}, { orderType: 'market' }),
+      grade: 'A',
+      r: -1.05,
+      oneRSource: 'actualMove',
+      reasons: ['gapSlip'],
+      absent: ['heldPastLc'],
       outcome: 'loss',
     },
   ],

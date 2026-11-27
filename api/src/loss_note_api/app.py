@@ -16,12 +16,14 @@ CSP の土台と ``nosniff``・``no-referrer`` を付ける。
 
 起動の準備（Issue #60・``warmup.py``）: 環境変数から起動したとき（本番の gunicorn・手元の起動）は、資格情報の名前を
 環境から外し、保存先と ID トークンの検証器を作った後に、保存先の接続・公開鍵の取得・読み取りの SDK の読み込みを
-済ませてから返す（gunicorn は返るまで要求を受けない）。失敗しても起動は止めない。
+裏のスレッドで始め、終わりを待たずに返す（最初の HTML を準備で遅らせない。スレッドは ``app.extensions["warmup"]``）。
+失敗しても起動は止めない。
 明細の読み取りの CLI は先立てを立て始めるだけで、立ち上がりを待たない（#65。``statement_read.warm``）。
 """
 
 import io
 import os
+import threading
 import time
 from collections.abc import Callable, Mapping
 
@@ -130,9 +132,14 @@ def create_app(
                            allowed=allowlist.policy_for(runtime.mode, env),
                            read_limits=read_limits or limits_from_env(env))
         )
-        # 起動の準備（#60）: 資格情報の名前を外した後（背後のスレッドを起こすのはここから）
+        # 起動の準備（#60）: 資格情報の名前を外した後（背後のスレッドを起こすのはここから）。準備は裏のスレッドで進め、
+        # 返るのを待たない（待つと眠っていたインスタンスの最初の HTML が準備の約 3.4 秒ぶん遅れ、スマホのホーム画面から
+        # 起動したときのロゴが長く出る。保存先・検証器の遅延の初期化は鍵つきなので、準備の途中に来た要求とも重ならない）
         if from_process if warm is None else warm:
-            warmup.run(_warm_steps(records, verifier, read_config))
+            steps = _warm_steps(records, verifier, read_config)
+            thread = threading.Thread(target=warmup.run, args=(steps,), name="warmup", daemon=True)
+            app.extensions["warmup"] = thread
+            thread.start()
 
     # 画面の静的ファイル（STATIC_DIR があるときだけ。無ければ今のまま = /api 以外は 404 の JSON）
     static_dir = env.get(web.STATIC_DIR_VAR) or ""

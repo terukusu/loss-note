@@ -18,6 +18,7 @@
 //   意味を失うので保たない（keepOriginalFx = false）。損益・手数料・為替の空への戻しは edit-controller
 import type {
   AccountRecord,
+  Fee,
   InstrumentRecord,
   StoredTrade,
   TradeRecord,
@@ -194,7 +195,12 @@ export function mergeEdit(
   draft: Draft,
   body: TradeBody,
   instrumentId: string,
-  opts: { readonly fxShown?: boolean; readonly keepOriginalFx?: boolean } = {},
+  opts: {
+    readonly fxShown?: boolean;
+    readonly keepOriginalFx?: boolean;
+    /** 明細から追加した足の手数料（#263・C82。readDraft の option.addedFees） */
+    readonly addedFees?: number;
+  } = {},
 ): TradeRecord {
   const fxRate = opts.fxShown
     ? body.exit.fxRate
@@ -250,7 +256,8 @@ export function mergeEdit(
       gapSlip: keepGapSlip ? original.exit.gapSlip : body.exit.gapSlip,
     },
     ...(body.statementPnlYen === undefined ? {} : { statementPnlYen: body.statementPnlYen }),
-    fees: keepFees ? original.fees : body.fees,
+    // 手数料の欄が開いたときのままなら保存済みの内訳（ラベル）を保ち、明細から追加した足の手数料を足す（#263・C82）
+    fees: keepFees ? withAddedFees(original.fees, opts.addedFees) : body.fees,
     ...(body.entryChartTimeframe === undefined
       ? {}
       : { entryChartTimeframe: body.entryChartTimeframe }),
@@ -262,6 +269,22 @@ export function mergeEdit(
     ...(body.riskPlan === undefined ? {} : { riskPlan: body.riskPlan }),
     ...(body.lcLossPlanYen === undefined ? {} : { lcLossPlanYen: body.lcLossPlanYen }),
   };
+}
+
+/**
+ * 保存済みの手数料の内訳 + 明細から追加した足の手数料（#263・C82）。ラベルの無い内訳があればその最後の 1 件に足し、無ければ
+ * ラベルの無い 1 件を後ろに足す（保存のたびに内訳が増えて API の上限 20 件に当たらないように。レビュー 3）。足す額が無ければ元のまま
+ */
+export function withAddedFees(fees: readonly Fee[], added: number | undefined): readonly Fee[] {
+  if (added === undefined || added <= 0) return fees;
+  let at = -1;
+  fees.forEach((f, i) => {
+    if (f.label === undefined) at = i;
+  });
+  if (at < 0) return [...fees, { amountYen: added }];
+  return fees.map((f, i) =>
+    i === at ? { ...f, amountYen: Number.parseFloat((f.amountYen + added).toPrecision(15)) } : f,
+  );
 }
 
 /**
@@ -342,11 +365,15 @@ export function bandText(change: string | null, chartChanges: number, refresh = 
     .join(' · ');
 }
 
-/** 為替の保ち方: 欄が出ていれば下書き、出ていなければ為替が意味を失っていないとき（fxStale でない）だけ元の為替を保つ */
+/**
+ * 保存の本文の組み立ての選択（mergeEdit の opts）。為替の保ち方: 欄が出ていれば下書き、出ていなければ為替が意味を失っていない
+ * とき（fxStale でない）だけ元の為替を保つ。明細から追加した足の手数料（#263）も渡す
+ */
 export function editFxOpts(read: DraftReading, ctx: DraftContext, initial: Draft, draft: Draft) {
   return {
     fxShown: fxVisibleOf(editSnapshot(read, ctx, draft)),
     keepOriginalFx: !fxStale(fxPairOf(initial, ctx), fxPairOf(draft, ctx)),
+    ...(read.option?.addedFees === undefined ? {} : { addedFees: read.option.addedFees }),
   };
 }
 

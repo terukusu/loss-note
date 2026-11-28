@@ -566,8 +566,44 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
       expect(c.getState().read.canSave).toBe(false);
       // ［＋ 足］ の読み上げの名前（レビュー 3）
       expect((byId([main], `${LEG_LIST_ID}-add`) as El).props['aria-label']).toBe('足を追加');
-      // #260 の KEEP-4: 編集の画面には ［明細から追加］ を出さない
+      // 画面の hook の層が onAddLegsFromStatement を渡さなければ ［明細から追加］ は出ない（#263 で渡すようにした）
       expect(byId([main], LEG_ADD_FROM_ID)).toBeUndefined();
+    });
+
+    it('#263 AC-1: 編集の画面の足の一覧に ［明細から追加］。選ぶと渡した関数へ、読み取り中・10 本は押せない', async () => {
+      const { t, fake, c } = await open();
+      const picked: File[] = [];
+      const view = () =>
+        fieldsSheet(
+          expand(
+            <TradeEditView
+              id={t.id}
+              state={c.getState()}
+              hidden={new Set()}
+              notFound={notFoundState()}
+              onUpdate={c.update}
+              onSave={noop}
+              onReload={noop}
+              onRelogin={noop}
+              sheet={{ kind: 'fields', step: 'main' }}
+              onAddLegsFromStatement={(f) => picked.push(f)}
+            />,
+          ),
+        );
+      const btn = byId([view()], LEG_ADD_FROM_ID) as El;
+      expect(btn.props.disabled).toBe(false);
+      expect(text(btn)).toContain('明細から追加');
+      const input = byId([view()], `${LEG_ADD_FROM_ID}-file`) as El;
+      const f = new File([new Uint8Array([1])], 'statement.png', { type: 'image/png' });
+      (input.props.onChange as (ev: unknown) => void)({
+        currentTarget: { files: [f], value: 'x' },
+      });
+      expect(picked).toEqual([f]);
+      const tenLegs = Array.from({ length: 10 }, () => c.getState().draft.legs[0] as LegDraft);
+      c.update({ type: 'set', field: 'legs', value: tenLegs });
+      expect((byId([view()], LEG_ADD_FROM_ID) as El).props.disabled).toBe(true);
+      expect(text(byId([view()], `${LEG_ADD_FROM_ID}-why`) as El)).toBe('足は 10 本までです');
+      expect(fake.calls.some((x) => x.path === '/api/statement-reads')).toBe(false);
     });
 
     it('段 leg: 題「足 N」・戻るの印・1 本の欄。直した値は下書きの足へ', async () => {

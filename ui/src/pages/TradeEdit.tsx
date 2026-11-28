@@ -24,7 +24,12 @@ import { Button, RowLink } from '../components/Button';
 import { addExtraId, ChartPanel, chartBoxId, restoreId } from '../components/ChartPanel';
 import { Icon } from '../components/Icon';
 import { LegEditor } from '../components/LegEditor';
-import { LEG_LIST_ID } from '../components/LegList';
+import {
+  LEG_ADD_CANCEL_ID,
+  LEG_ADD_FROM_ID,
+  LEG_ADD_UNDO_ID,
+  LEG_LIST_ID,
+} from '../components/LegList';
 import { MiniCharts, partIds, SummaryCard, VerdictLineButton } from '../components/RecordParts';
 import { ResnapshotBody } from '../components/Resnapshot';
 import { Segment } from '../components/Segment';
@@ -56,7 +61,13 @@ import { DraftsContext } from '../lib/drafts-context';
 import { createEditController, type EditController, type EditState } from '../lib/edit-controller';
 import { asksLcDecided, bandText, changeText } from '../lib/edit-form';
 import { EDIT_SHEET_ID, type EditSheet, editValuesNote, editVerdictLine } from '../lib/edit-screen';
-import { type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
+import {
+  fromAddedStatement,
+  type LegUndo,
+  legRemovedText,
+  nextLeg,
+  undoLegRemove,
+} from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import { FIELD_INPUT_ID, tradeSummary } from '../lib/record-screen';
@@ -70,9 +81,11 @@ import {
 } from '../lib/resnapshot';
 import { NavigatorContext } from '../lib/router';
 import { sheetDismiss } from '../lib/sheet';
+import { addLegsBlock, legNoticeWithPnl } from '../lib/statement-add-legs';
 import { imageFileFromClipboard, type PasteTarget } from '../lib/statement-fill';
 import { browserCodec, prepareImage } from '../lib/statement-image';
 import { submitStatus } from '../lib/verdict-notes';
+import { deviceZoneMemory } from '../lib/zone-memory';
 import { notFoundState } from './TradeDetail';
 import { LoadState } from './Trades';
 
@@ -105,6 +118,8 @@ function TradeEditScreen({
         id,
         prepare: (file) => prepareImage(file, browserCodec),
         preview: (bytes, type) => browserCodec.preview(bytes, type),
+        // ［明細から追加］ の時刻を直す時間帯（読むだけ。#263）
+        zoneMemory: deviceZoneMemory(),
       });
     if (!store) return { controller: create(), restored: false, resumedAt: null };
     return store.acquire<EditController>(editKey(id), () => {
@@ -204,7 +219,11 @@ function TradeEditScreen({
   /** シートを開く・替える・閉じる。名指した欄から開いたら、開いた後にその欄へフォーカスを移す */
   const onSheet = (next: EditSheet | null) => {
     setSheet(next);
-    if (next === null) setLegUndo(null);
+    if (next === null) {
+      setLegUndo(null);
+      // ［明細から追加］ の知らせと ［元に戻す］ もシートを閉じたら消す（読み取り中は続ける。#263）
+      controller.dismissLegAdd();
+    }
     if (next?.kind === 'fields' && next.focus) {
       const f = next.focus;
       setTimeout(() => {
@@ -237,6 +256,24 @@ function TradeEditScreen({
         setLegUndo(null);
         // ボタンは消えるので、戻した足の行へ
         focusLater(`${LEG_LIST_ID}-${legUndo.index}`);
+      }}
+      onAddLegsFromStatement={(f) => {
+        setLegUndo(null);
+        // 押したボタンは読み取り中は押せないので ［キャンセル］ へ、終わったら ［元に戻す］ か ［明細から追加］ へ（記録する画面と同じ）
+        focusLater(LEG_ADD_CANCEL_ID);
+        void controller.addLegsFromStatement(f).then(() => {
+          const a = document.activeElement;
+          if (a !== null && a !== document.body && a.id !== LEG_ADD_CANCEL_ID) return;
+          focusLater(controller.getState().legAdd?.undo ? LEG_ADD_UNDO_ID : LEG_ADD_FROM_ID);
+        });
+      }}
+      onCancelLegRead={() => {
+        controller.cancelLegRead();
+        focusLater(LEG_ADD_FROM_ID);
+      }}
+      onUndoAddLegs={() => {
+        controller.undoAddLegs();
+        focusLater(LEG_ADD_FROM_ID);
       }}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
@@ -336,6 +373,10 @@ export interface TradeEditViewProps {
   readonly onExtraTimeframe?: (slot: ExtraSlot, value: Timeframe | null) => void;
   readonly onExtraNote?: (slot: ExtraSlot, note: string) => void;
   readonly onAcceptChartTimeframe?: (slot: AnySlot) => void;
+  /** ［明細から追加］（#263・C82）: 明細の画像を 1 枚選んだ。省けばボタンを出さない */
+  readonly onAddLegsFromStatement?: (file: File) => void;
+  readonly onCancelLegRead?: () => void;
+  readonly onUndoAddLegs?: () => void;
 }
 
 /** 描き直しの後にフォーカスを移す（消えたボタンの代わり） */
@@ -463,6 +504,30 @@ function TradeEditBody(p: TradeEditViewProps) {
             },
             removed: p.legUndo ? legRemovedText(p.legUndo) : null,
             ...(p.onLegUndo ? { onUndoRemove: p.onLegUndo } : {}),
+            ...(p.onAddLegsFromStatement
+              ? {
+                  fromStatement: {
+                    blocked: addLegsBlock({
+                      statementReading: false,
+                      legReading: state.legAdd?.phase === 'reading',
+                      legs: d.legs.length,
+                    }),
+                    reading: state.legAdd?.phase === 'reading',
+                    // 損益の欄を直していれば、追加の前でも後でも「損益は打った値のままです」を添える（レビュー 5）
+                    notice:
+                      state.legAdd?.phase === 'reading'
+                        ? null
+                        : legNoticeWithPnl(state.legAdd?.notice ?? null, {
+                            hasAdded: d.legs.some(fromAddedStatement),
+                            pnlTyped: d.pnlYen !== state.initial.pnlYen,
+                          }),
+                    undo: state.legAdd?.undo === true,
+                    onPick: p.onAddLegsFromStatement,
+                    onCancel: () => p.onCancelLegRead?.(),
+                    onUndo: () => p.onUndoAddLegs?.(),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -685,6 +750,7 @@ function TradeEditBody(p: TradeEditViewProps) {
             hasErrors={errorFields.length > 0}
             before={state.before}
             legsEdited={read.option?.legsEdited === true}
+            addedNotSummed={read.option?.addedNotSummed === true}
             note={editValuesNote(refresh)}
             {...(offer?.nearVerdict && !refresh
               ? {

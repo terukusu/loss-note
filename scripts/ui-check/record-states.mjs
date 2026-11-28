@@ -339,8 +339,8 @@ export const RECORD_STATES = [
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
       await p.locator('#record-chart-exit-tf-mark').waitFor({ state: 'attached' });
-      // 2 段目のチャートの行の 2 行目に読めた決済時の時間足（2026-11-21）
-      await p.locator('#record-mini-entry', { hasText: '決済時 · 日足' }).waitFor();
+      // 2 段目の決済時の枠に読めた時間足（#261）
+      await p.locator('#record-mini-exit', { hasText: '日足' }).waitFor();
       await openVerdict(p);
       await p
         .locator('.reasons__item', { hasText: '時間足を変えた（4 時間足 → 日足・チャートから）' })
@@ -358,7 +358,7 @@ export const RECORD_STATES = [
       api.chartRead = { status: 200, kind: 'chart', holdMs: 20000 };
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
-      // 2 段目のチャートの行（チャートのシートの中は「時間足を読み取っています…」。#130・2026-11-21）
+      // 2 段目のエントリー時の枠（チャートのシートの中は「時間足を読み取っています…」。#130・2026-11-21）
       await p.locator('#record-mini-entry', { hasText: '時間足を読み取り中' }).waitFor();
       // 読み取り中も [記録する] は押せる（帯は「待たずに記録できます」）
       if (await p.locator('#record-submit').isDisabled())
@@ -412,7 +412,7 @@ export const RECORD_STATES = [
       await fillRecord(p, EX_E1);
       await pasteChart(p, 'entry');
       await pasteChart(p, 'exit');
-      await p.locator('#record-mini-entry', { hasText: '決済時 · 日足' }).waitFor();
+      await p.locator('#record-mini-exit', { hasText: '日足' }).waitFor();
       // タップの下の 1 行（2 段目）と、判定のシートの理由の 2 行目
       await p.locator('.record__taps .field__hint', { hasText: 'チャートでは' }).waitFor();
       await openVerdict(p);
@@ -641,7 +641,7 @@ export const RECORD_STATES = [
     },
   },
   {
-    // #232: まとめて選んだ明細とチャートが逆（チャート → 明細）。明細の行とチャートの行の間に案内と ［入れ替える］
+    // #232: まとめて選んだ明細とチャートが逆（チャート → 明細）。明細の行の下に案内と ［入れ替える］
     slug: 'record-49-bulk-swap',
     name: '2 段目（まとめて選んで逆だった）',
     anchor: '.rinput',

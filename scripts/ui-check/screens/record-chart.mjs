@@ -272,7 +272,7 @@ export async function flows(kit) {
   });
 
   // ── スクショをまとめて選ぶ（BP1・BP2。#232・C67）。写真（ファイル）の選択の画面を開いた回数を数える（EPIC #233 の終了条件 5:
-  // 1 段目から明細 1 枚 + チャート 2 枚を入れるまで。前は 3 回 = 明細の枠 → 2 段目のチャートの行 → チャートのシートの決済時）
+  // 1 段目から明細 1 枚 + チャート 2 枚を入れるまで。前は 3 回 = 明細の枠 → 2 段目のチャートの行 → チャートのシートの決済時。今の 2 段目はチャートの 2 枠。#261）
   const countChoosers = (p) => {
     const seen = { n: 0, last: null };
     p.on('filechooser', (fc) => {
@@ -299,11 +299,9 @@ export async function flows(kit) {
         { name: `${CHART_MARKER}-1.png`, mimeType: 'image/png', buffer: chart },
         { name: `${CHART_MARKER}-2.png`, mimeType: 'image/png', buffer: chart },
       ]);
-      // 2 段目へ: 明細の要約・チャートの行（エントリー時 · 4 時間足 / 決済時 · 日足）
+      // 2 段目へ: 明細の要約・チャートの 2 枠（エントリー時 = 4 時間足 / 決済時 = 日足。#261）
       await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
-      await p
-        .locator('#record-mini-entry', { hasText: '決済時 · 日足' })
-        .waitFor({ timeout: 10000 });
+      await p.locator('#record-mini-exit', { hasText: '日足' }).waitFor({ timeout: 10000 });
       await p.locator('#record-mini-entry', { hasText: '4 時間足' }).waitFor();
       expectEq(fake.reads.length, 1, '明細の読み取りの要求');
       expectEq(fake.chartReads, 2, '時間足の読み取りの要求');
@@ -347,7 +345,7 @@ export async function flows(kit) {
         '明細とエントリー時のチャートを入れ替える',
         '読み上げの名前',
       );
-      // 案内の行は明細の行とチャートの行の間（2 段目の入れたもののカードの中）
+      // 案内の行は明細の行の下（2 段目の入れたもののカードの中。チャートの 2 枠はカードの外。#261）
       const order = await p.evaluate(() =>
         [...document.querySelector('.rinput').children].map((e) => e.className.split(' ')[0]),
       );
@@ -412,9 +410,7 @@ export async function flows(kit) {
         { name: `${CHART_MARKER}-2.png`, mimeType: 'image/png', buffer: chart },
       ]);
       await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
-      await p
-        .locator('#record-mini-entry', { hasText: '決済時 · 日足' })
-        .waitFor({ timeout: 10000 });
+      await p.locator('#record-mini-exit', { hasText: '日足' }).waitFor({ timeout: 10000 });
       await p.locator('#record-mini-entry', { hasText: '4 時間足' }).waitFor();
       expectEq(await p.locator('#record-bulk-swap').count(), 0, '選び直した後の入れ替えの案内');
       // 前の組のエントリー時（中身は明細の画像）は残らず、追加のチャートも増えない

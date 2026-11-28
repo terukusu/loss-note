@@ -1,7 +1,8 @@
 // 記録する（#130）と編集（#131）の全画面のシートが共有する部品（設計書 9.2「形は記録すると同じ」・docs/ui-guidelines.md 9.4）。
 // hook を持たない。id は接頭辞（record / edit）で作り、同じ画面に 2 つ置かない。
 // - SummaryCard: 取引の欄の 3 行の要約・［編集］（取引の欄のシート）・名指しのチップ・口座の札 / Segment・状態の文
-// - MiniCharts: チャートの小さな 2 枠（横に並べる）と、その下のチャートの注意（常に出す。C38）
+// - MiniCharts: チャートの小さな 2 枠（横に並べる）と、その下のチャートの注意（常に出す。C38）。記録する画面は 2 段目のチャートの
+//   入れ口もこれ（明細のカードの外。#261・設計書 C74）
 // - VerdictLineButton: 下の帯の判定の 1 行（押すと判定のシート）。危ない勝ちは R の代わりに帯の文（#227）
 import { type ComponentChildren, Fragment } from 'preact';
 import type { Timeframe } from '../../../core/trade';
@@ -36,6 +37,7 @@ export const partIds = (prefix: string) => ({
   editFields: `${prefix}-edit-fields`,
   verdictLine: `${prefix}-verdict-line`,
   chartsTitle: `${prefix}-mini-charts-title`,
+  chartsNotice: `${prefix}-mini-charts-notice`,
 });
 
 export interface SummaryCardProps {
@@ -209,6 +211,10 @@ export interface MiniChartsProps {
   readonly markChanges?: boolean;
   /** 読み取りの上限などで送れない知らせ（記録する画面） */
   readonly blocked?: string | null | undefined;
+  /** 付属のチャート（x1〜x5）の枚数（記録する画面。1 以上なら 2 枠の下に押せる 1 行「追加のチャート N 枚」= チャートのシート） */
+  readonly extras?: number;
+  /** 注意の下の知らせ（記録する画面: チャートを差し替えた知らせ） */
+  readonly children?: ComponentChildren;
   readonly onPick: (slot: ChartSlot, file: File) => void;
   /** チャートのある枠（・削除した保存済みの枠・読み戻せなかった枠）を押した: チャートのシート */
   readonly onOpen: () => void;
@@ -236,12 +242,29 @@ export function MiniCharts(p: MiniChartsProps) {
           />
         ))}
       </div>
-      <p class="charts__notice rcharts__notice">{CHART_READ_NOTICE}</p>
+      {p.extras !== undefined && p.extras > 0 ? (
+        <button
+          type="button"
+          class="rcharts__extras"
+          aria-haspopup="dialog"
+          aria-label={`追加のチャート ${p.extras} 枚（チャートを開く）`}
+          onClick={p.onOpen}
+        >
+          <span>
+            追加のチャート <span class="num">{p.extras}</span> 枚
+          </span>
+          <Icon name="chevron" class="rcharts__chev" />
+        </button>
+      ) : null}
+      <p class="charts__notice rcharts__notice">
+        <span id={ids.chartsNotice}>{CHART_READ_NOTICE}</span>
+      </p>
       {p.blocked ? (
         <p class="statement__text" role="status">
           {p.blocked}
         </p>
       ) : null}
+      {p.children}
     </section>
   );
 }
@@ -328,6 +351,7 @@ export function MiniChart(p: {
         type="file"
         data-chart-slot={p.slot}
         aria-label={`${name}のチャートを選ぶ`}
+        aria-describedby={partIds(p.prefix).chartsNotice}
         accept="image/png,image/jpeg,image/*"
         onChange={(ev) => {
           const input = ev.currentTarget;

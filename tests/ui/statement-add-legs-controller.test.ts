@@ -19,6 +19,7 @@ import {
   ADD_C,
   blobOf,
   fakePreview,
+  jst,
   type OptionRowSpec,
   optionRowJson,
   pngBytes,
@@ -508,5 +509,21 @@ describe('手入力・外貨の口座・時間帯（例 #8・#9・#10・AC-6）'
     await c.readImage(file());
     expect(strikes(c)).toEqual(['36000', '35000', '40000']);
     expect(c.getState().draft.legs.every((l) => l.read?.sheet === undefined)).toBe(true);
+  });
+
+  it('レビュー N2 の続き: 2 回追加した後に追加の足をすべて消すと、最初に追加する前の注文の種類へ戻る', async () => {
+    const { c } = await setup([
+      read([ADD_A, ADD_B]),
+      read([ADD_C]),
+      read([{ ...ADD_C, strike: 41_000, closed: jst(2026, 12, 11, 9, 0) }]),
+    ]);
+    await c.addLegsFromStatement(file());
+    await c.addLegsFromStatement(file());
+    expect(strikes(c)).toEqual(['36000', '35000', '40000', '41000']);
+    // 決済の時点 = 4 本目 → 消すと 3 本目（追加の足）の値、さらに消すと 1 枚目の値
+    c.update({ type: 'set', field: 'legs', value: c.getState().draft.legs.slice(0, 3) });
+    expect(c.getState().draft.exitTime).toBe(toLocalInput(ADD_C.closed.epochMs as number));
+    c.update({ type: 'set', field: 'legs', value: c.getState().draft.legs.slice(0, 2) });
+    expect(c.getState().draft).toMatchObject({ exitOrderType: 'stop', exitReason: 'lc' });
   });
 });

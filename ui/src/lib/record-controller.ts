@@ -989,13 +989,14 @@ export function createRecordController(deps: {
    * ［明細から足す］ を終える（#260）: 読み取りを止め、知らせと ［元に戻す］ を消す（知らせは次の set で出す）。1 枚目の明細を
    * 選ぶ・削除する・次の行・空の下書き・記録する・離れるで呼ぶ
    */
-  const endLegAdd = () => {
+  const endLegAdd = (keepPoint = false) => {
     const wasReading = state.legAdd?.phase === 'reading';
     legGen++;
     legAbort?.abort();
     legAbort = null;
     legUndo = null;
-    pointBase = null;
+    // 2 回目の ［明細から追加］ では最初に追加する前の値を保つ（レビュー N2 の続き）
+    if (!keepPoint) pointBase = null;
     if (state.legAdd) {
       const { legAdd: _gone, ...rest } = state;
       state = rest;
@@ -1594,7 +1595,7 @@ export function createRecordController(deps: {
     if (!deps.prepare || state.phase !== 'editing' || !state.read.option) return;
     if (statementBusy() || state.legAdd?.phase === 'reading') return;
     if (state.draft.legs.length >= MAX_LEGS) return;
-    endLegAdd();
+    endLegAdd(true);
     const gen = legGen;
     const ctl = new AbortController();
     legAbort = ctl;

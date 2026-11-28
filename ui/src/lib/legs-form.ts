@@ -6,7 +6,7 @@
 // - 手で入れる足は時刻を持たない（7.6 の手で入れる欄に時刻は無い）。直す画面は保存済みの時刻を保つ
 // - ID はポジションの中の並び順で l1〜l10 に振る（API の LEG_ID と同じ形）
 import { MAX_LEGS } from '../../../core/option';
-import type { Leg, LegSide } from '../../../core/trade';
+import type { ExitOrderType, Leg, LegSide } from '../../../core/trade';
 import { formatPlain, formatPrice } from './format';
 
 export { MAX_LEGS };
@@ -49,6 +49,48 @@ export interface LegRead {
   readonly yearInferred: boolean;
   /** 読んだ後に本人が欄を直した（印「修正済み」） */
   readonly edited?: true;
+  /**
+   * 足した明細の通し番号（1 から。#260・C73）。無い = 1 枚目の明細（1 段目で読んだ明細）の足。足した明細の足では raw・unit は
+   * その明細の行の番号で、unit は実際に足した行だけ（重複で足さなかった行は入らない）
+   */
+  readonly sheet?: number;
+  /** 足した明細の行の損益・手数料の合計（明細の通貨のまま。読めなければ null）と、その通貨（#260。足した明細の足だけ） */
+  readonly pnl?: number | null;
+  readonly fee?: number | null;
+  readonly currency?: string;
+  /** 足した明細の行の注文の種類（#260。決済の時点を決める足になったら、ポジションの注文の種類にする = C54・C26） */
+  readonly orderType?: ExitOrderType;
+}
+
+/** 1 枚目の明細から読んだ足か（手で追加した足・足した明細の足ではない。#118・#260） */
+export const fromMainStatement = (l: LegDraft): boolean =>
+  l.read !== undefined && l.read.sheet === undefined;
+
+/** 足した明細（2 枚目から）の足か（#260） */
+export const fromAddedStatement = (l: LegDraft): boolean => l.read?.sheet !== undefined;
+
+/** 数の欄を比べる形（カンマ・空白を外して数。数でなければ打ったまま） */
+function numKey(s: string): string {
+  const t = s.replace(/[,\s]/g, '');
+  const n = Number(t);
+  return t !== '' && Number.isFinite(n) ? String(n) : s.trim();
+}
+
+const minute = (ms: number) => Math.floor(ms / 60_000);
+
+/** 同じ足か（#260 の R3。7 欄 + 両方にある時刻を分まで。追加と 1 枚目の明細の入れ替えの両方で使う） */
+export function isSameLeg(a: LegDraft, b: LegDraft): boolean {
+  if (a.optionType !== b.optionType || a.side !== b.side) return false;
+  if (a.contractMonth.trim() !== b.contractMonth.trim()) return false;
+  for (const f of ['strike', 'quantity', 'entryPrice', 'exitPrice'] as const) {
+    if (numKey(a[f]) !== numKey(b[f])) return false;
+  }
+  for (const f of ['entryTime', 'exitTime'] as const) {
+    const x = a[f];
+    const y = b[f];
+    if (x !== undefined && y !== undefined && minute(x) !== minute(y)) return false;
+  }
+  return true;
 }
 
 /** 明細から読んだ足の印（一覧の行の右の添え。「読み取り」/「修正済み」。年を補った印は別の札 = YEAR_INFERRED_CHIP） */

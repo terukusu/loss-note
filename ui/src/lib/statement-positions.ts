@@ -14,8 +14,16 @@ import type { Leg } from '../../../core/trade';
 import { toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import { nameKey } from './instrument-name';
-import { type LegDraft, legCardText, readLegs } from './legs-form';
+import {
+  fromAddedStatement,
+  fromMainStatement,
+  isSameLeg,
+  type LegDraft,
+  legCardText,
+  readLegs,
+} from './legs-form';
 import type { Draft, DraftField, DraftReading } from './record-form';
+import { pnlFillOf } from './statement-account';
 import type { FieldMark, Marks, ReadRow, ReadTime } from './statement-fill';
 import { type TzId, wallToEpoch } from './statement-tz';
 
@@ -176,7 +184,7 @@ export function mergeNext(
 const num = (n: number | null): string => (n === null ? '' : formatPlain(n));
 
 /** 明細の時刻 → epoch（時間帯が読めていればそれ、読めなければ選んだ時間帯で。どちらも無ければ無し） */
-function timeMs(t: ReadTime | null, zone: TzId | null): number | undefined {
+export function timeMs(t: ReadTime | null, zone: TzId | null): number | undefined {
   if (t === null) return undefined;
   if (t.epochMs !== null) return t.epochMs;
   if (zone === null) return undefined;
@@ -205,8 +213,8 @@ export function legDraftOf(row: ReadRow, raw: number, unit: Unit, zone: TzId | n
 }
 
 /**
- * ポジションの足の並び: 明細の行の順の足（前の下書きに同じ行の足があれば、本人の直しごと保つ）+ 手で追加した足。
- * 10 本を超えても黙って落とさない（readLegs が保存を止める）
+ * ポジションの足の並び: 明細の行の順の足（前の下書きに同じ行の足があれば、本人の直しごと保つ）+ 手で追加した足・足した明細の
+ * 足（#260。今の並びのまま）。10 本を超えても黙って落とさない（readLegs が保存を止める）
  */
 export function unitLegs(
   current: readonly LegDraft[],
@@ -216,7 +224,7 @@ export function unitLegs(
   const legs = row.legs ?? [];
   const at = row.legRaw ?? [];
   const byRaw = new Map<number, LegDraft>();
-  for (const l of current) if (l.read !== undefined) byRaw.set(l.read.raw, l);
+  for (const l of current) if (fromMainStatement(l) && l.read) byRaw.set(l.read.raw, l);
   const read = legs.map((r, i) => {
     const raw = at[i] as number;
     const kept = byRaw.get(raw);
@@ -224,17 +232,24 @@ export function unitLegs(
       ? { ...kept, read: { ...kept.read, unit: at } }
       : legDraftOf(r, raw, at, zone);
   });
-  return [...read, ...current.filter((l) => l.read === undefined)];
+  // 追加した明細の足と同じ足（同じ明細を 1 段目にも入れた）は二重に持たない（#260 のレビュー N7）
+  const rest = current.filter(
+    (l) => !fromMainStatement(l) && !(fromAddedStatement(l) && read.some((r) => isSameLeg(r, l))),
+  );
+  return [...read, ...rest];
 }
 
-/** 時間帯を選んだ・外したとき: 明細から読んだ足の時刻を、明細の行から当て直す（時間帯が無ければ時刻なし） */
+/**
+ * 時間帯を選んだ・外したとき: 1 枚目の明細から読んだ足の時刻を、明細の行から当て直す（時間帯が無ければ時刻なし）。
+ * 足した明細の足は足したときの時間帯のまま（raw は別の明細の行の番号。#260）
+ */
 export function legsWithZone(
   legs: readonly LegDraft[],
   raw: readonly ReadRow[],
   zone: TzId | null,
 ): LegDraft[] {
   return legs.map((l) => {
-    const r = l.read === undefined ? undefined : raw[l.read.raw];
+    const r = l.read === undefined || !fromMainStatement(l) ? undefined : raw[l.read.raw];
     if (r === undefined) return l;
     const { entryTime: _e, exitTime: _x, ...rest } = l;
     const entryTime = timeMs(r.entryTime, zone);
@@ -292,7 +307,13 @@ export function syncExpiry(
       patch.exitTime = toLocalInput(sqTime);
       m.exitTime = 'sq';
     } else if (m.exitTime === 'sq') {
-      const t = statementTime(row.exitTime, zone);
+      // 決済の時点が足した明細の足なら、その足の決済の時刻へ戻す（#260。1 枚目の明細の時刻は時点ではない）
+      const at = point?.kind === 'closed' ? legs.findIndex((l) => l.id === point.legId) : -1;
+      const added = at >= 0 ? draft.legs[at] : undefined;
+      const t =
+        added && fromAddedStatement(added) && point?.time !== undefined
+          ? { value: toLocalInput(point.time), mark: 'read' as const }
+          : statementTime(row.exitTime, zone);
       patch.exitTime = t.value;
       m.exitTime = t.mark;
     }
@@ -306,12 +327,40 @@ export function syncExpiry(
   };
 }
 
+/** 足した明細の足の損益・手数料を口座の通貨で使えるか（#66 の流し込みの規則 = 1 枚目の明細と同じ。#260） */
+export interface LegMoney {
+  readonly accountCurrency: string;
+  readonly priceCurrency: string | null;
+}
+
+const fills = (d: LegDraft, money: LegMoney | undefined): boolean =>
+  pnlFillOf(
+    d.read?.currency ?? 'unknown',
+    money?.accountCurrency ?? 'JPY',
+    '',
+    money === undefined ? undefined : money.priceCurrency,
+  ).fills;
+
+/** まとまり（unit）の足がすべて残り、満期で消滅にしていないか */
+function wholeUnit(group: readonly LegDraft[]): boolean {
+  const unit = group[0]?.read?.unit ?? [];
+  const present = new Set(group.map((d) => d.read?.raw));
+  return (
+    present.size === unit.length &&
+    group.length === unit.length &&
+    unit.every((r) => present.has(r)) &&
+    group.every((d) => !d.expired)
+  );
+}
+
 /**
- * 明細の損益（ポジションの明細の行の合計）+ 手で追加した決済した足の導出の損益（4.7）。
- * - 明細から読んだ足が欠けた（消した・別のポジションにした後に直した）・満期で消滅にしたときは、明細の損益がどの足の分か
- *   分からないので無し（足の合計に切り替える。直す画面と同じ）
+ * 明細の損益（4.7・C73）= 1 枚目の明細のポジションの行の合計（損益の欄の値）+ 足した明細ごとの実際に足した行の損益の合計
+ * + 手で追加した決済した足の導出の損益。
+ * - 明細から読んだ足（どのまとまりでも）が欠けた（消した・別のポジションにした）・満期で消滅にした、足した明細の行の損益が
+ *   読めない・口座の通貨に合わないときは、明細の損益がどの足の分か分からないので無し（足の合計に切り替える。直す画面と同じ）
+ * - 1 枚目の明細が無い（手入力）なら 1 枚目の分は 0（足した明細の足があるときだけ。無ければ今どおり pnl のまま）
  * - 為替が要るのに無ければ無し（足の合計を使う）
- * 返す changed = 明細の損益をそのまま使わない（足した・空にした）
+ * 返す dropped = 明細の損益を空にした（足の合計に切り替えた）
  */
 export function statementPnlWithLegs(
   pnl: number | undefined,
@@ -319,25 +368,63 @@ export function statementPnlWithLegs(
   legs: readonly Leg[],
   multiplier: number,
   fx: number | undefined,
+  money?: LegMoney,
 ): { readonly pnl: number | undefined; readonly dropped: boolean } {
-  if (pnl === undefined) return { pnl, dropped: false };
-  const fromStatement = drafts.filter((d) => d.read !== undefined);
-  if (fromStatement.length === 0) return { pnl, dropped: false };
-  const unit = fromStatement[0]?.read?.unit ?? [];
-  const present = new Set(fromStatement.map((d) => d.read?.raw));
-  const complete =
-    present.size === unit.length &&
-    fromStatement.length === unit.length &&
-    unit.every((r) => present.has(r)) &&
-    fromStatement.every((d) => !d.expired);
-  if (!complete) return { pnl: undefined, dropped: true };
-  const added = drafts
+  const main = drafts.filter(fromMainStatement);
+  const added = drafts.filter(fromAddedStatement);
+  let base: number;
+  if (added.length === 0) {
+    // 足した明細の足が無い: 今の規則のまま（#118。KEEP-1）
+    if (pnl === undefined) return { pnl, dropped: false };
+    if (main.length === 0) return { pnl, dropped: false };
+    if (!wholeUnit(main)) return { pnl: undefined, dropped: true };
+    base = pnl;
+  } else if (main.length > 0) {
+    if (pnl === undefined) return { pnl, dropped: false };
+    if (!wholeUnit(main)) return { pnl: undefined, dropped: true };
+    base = pnl;
+  } else {
+    // 1 枚目の明細の損益があるのにその足がすべて無い = どの足の分か分からない
+    if (pnl !== undefined) return { pnl: undefined, dropped: true };
+    base = 0;
+  }
+  const sheets = new Map<number, LegDraft[]>();
+  for (const d of added) {
+    const k = d.read?.sheet as number;
+    sheets.set(k, [...(sheets.get(k) ?? []), d]);
+  }
+  let sum = base;
+  for (const group of sheets.values()) {
+    // 行の損益・手数料のどちらかが読めない行があれば、手数料を除いた損益が出せないので足の合計へ（レビュー B1）
+    const ok =
+      wholeUnit(group) &&
+      group.every((d) => d.read?.pnl != null && d.read?.fee != null && fills(d, money));
+    if (!ok) return { pnl: undefined, dropped: true };
+    for (const d of group) sum += d.read?.pnl as number;
+  }
+  const manual = drafts
     .map((d, i) => ({ d, leg: legs[i] }))
     .filter((x) => x.d.read === undefined && !x.d.expired && x.leg !== undefined);
-  if (added.length === 0) return { pnl, dropped: false };
+  if (manual.length === 0) {
+    return { pnl: added.length === 0 ? pnl : tidy(sum), dropped: false };
+  }
   if (fx === undefined) return { pnl: undefined, dropped: true };
-  const sum = added.reduce((s, x) => s + legPnlPrice(x.leg as Leg, multiplier) * fx, 0);
-  return { pnl: tidy(pnl + sum), dropped: false };
+  const derived = manual.reduce((s, x) => s + legPnlPrice(x.leg as Leg, multiplier) * fx, 0);
+  return { pnl: tidy(sum + derived), dropped: false };
+}
+
+/**
+ * 追加した明細の足の手数料の合計（口座の通貨。#260・C73）。行の手数料が読めない足は 0（そのときは statementPnlWithLegs が足の
+ * 合計に切り替えるので勝ち負けの境・R には効かない）、口座の通貨に合わない足は数えない。
+ * 足した明細の足が無ければ 0
+ */
+export function addedLegFees(drafts: readonly LegDraft[], money?: LegMoney): number {
+  return tidy(
+    drafts
+      .filter(fromAddedStatement)
+      .filter((d) => fills(d, money))
+      .reduce((s, d) => s + (d.read?.fee ?? 0), 0),
+  );
 }
 
 /**

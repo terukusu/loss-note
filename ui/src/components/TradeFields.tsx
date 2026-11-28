@@ -29,7 +29,7 @@ import { MARK_LABEL, type Marks } from '../lib/statement-fill';
 import { AccountField } from './AccountField';
 import { Icon } from './Icon';
 import { InfoTip } from './InfoTip';
-import { LegList, type NextPosition } from './LegList';
+import { type LegAddView, LegList, type NextPosition } from './LegList';
 import { NumberField } from './NumberField';
 import { Segment } from './Segment';
 import { TextField } from './TextField';
@@ -86,6 +86,8 @@ export interface OptionFields {
   readonly onMergeNext?: () => void;
   /** 一覧の直前の操作の知らせ（［別のポジションにする］ の後。#118） */
   readonly legNotice?: string | null;
+  /** ［明細から追加］（記録する画面だけ。#260） */
+  readonly fromStatement?: LegAddView;
 }
 
 /** 明細のポジションで足すオプションの銘柄の乗数の欄（#118） */
@@ -377,6 +379,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
           {...(p.option.nextPosition ? { nextPosition: p.option.nextPosition } : {})}
           {...(p.option.onMergeNext ? { onMergeNext: p.option.onMergeNext } : {})}
           {...(p.option.legNotice ? { notice: p.option.legNotice } : {})}
+          {...(p.option.fromStatement ? { fromStatement: p.option.fromStatement } : {})}
           {...(e.legs ? { error: e.legs } : {})}
         />
       ) : null}

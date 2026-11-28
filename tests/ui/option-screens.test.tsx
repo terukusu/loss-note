@@ -4,7 +4,17 @@ import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade } from '../../core/record';
 import { EXPIRED_INFO, LegEditor } from '../../ui/src/components/LegEditor';
-import { LEG_LIST_ID, LEG_MERGE_ID, LEG_UNDO_ID, LegList } from '../../ui/src/components/LegList';
+import {
+  LEG_ADD_CANCEL_ID,
+  LEG_ADD_FILE_ID,
+  LEG_ADD_FROM_ID,
+  LEG_ADD_UNDO_ID,
+  LEG_LIST_ID,
+  LEG_MERGE_ID,
+  LEG_UNDO_ID,
+  type LegAddView,
+  LegList,
+} from '../../ui/src/components/LegList';
 import { LEG_TABLE_TITLE_ID, LegTable } from '../../ui/src/components/LegTable';
 import {
   LcFields,
@@ -556,6 +566,8 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
       expect(c.getState().read.canSave).toBe(false);
       // ［＋ 足］ の読み上げの名前（レビュー 3）
       expect((byId([main], `${LEG_LIST_ID}-add`) as El).props['aria-label']).toBe('足を追加');
+      // #260 の KEEP-4: 編集の画面には ［明細から追加］ を出さない
+      expect(byId([main], LEG_ADD_FROM_ID)).toBeUndefined();
     });
 
     it('段 leg: 題「足 N」・戻るの印・1 本の欄。直した値は下書きの足へ', async () => {
@@ -759,5 +771,133 @@ describe('足の一覧の部品（#118 のデザインレビュー 3・4）', ()
       />,
     );
     expect(text(list)).toContain('足 2 を別のポジションにしました');
+  });
+});
+
+describe('［明細から追加］ の部品（#260・C73。AC-1）', () => {
+  const view = (o: Partial<LegAddView> = {}): LegAddView => ({
+    blocked: null,
+    reading: false,
+    notice: null,
+    undo: false,
+    onPick: noop,
+    onCancel: noop,
+    onUndo: noop,
+    ...o,
+  });
+  const list = (v?: LegAddView, legs: LegDraft[] = [leg({})]) =>
+    expand(<LegList legs={legs} onOpen={noop} onAdd={noop} {...(v ? { fromStatement: v } : {})} />);
+
+  it('渡さなければ出さない（直す画面）。渡すと ［＋ 足］ の隣に「明細から追加」、押すとファイルを選ぶ', () => {
+    expect(byId(list(), LEG_ADD_FROM_ID)).toBeUndefined();
+    const tree = list(view());
+    const btn = byId(tree, LEG_ADD_FROM_ID) as El;
+    expect(text(btn)).toContain('明細から追加');
+    expect(btn.props.disabled).toBe(false);
+    const row = all(tree, (e) => e.props.class === 'legs__actions')[0] as El;
+    expect(all([row], (e) => e.type === 'button').map((e) => e.props.id)).toEqual([
+      `${LEG_LIST_ID}-add`,
+      LEG_ADD_FROM_ID,
+    ]);
+    // 画像を 1 枚だけ選ぶ（multiple は無い）
+    const input = byId(tree, LEG_ADD_FILE_ID) as El;
+    expect(input.props.type).toBe('file');
+    expect(input.props.multiple).toBeUndefined();
+  });
+
+  it('押せないとき（1 枚目の明細の読み取り中・10 本）は押せず、理由の 1 行を名前に結び付ける', () => {
+    for (const reason of [
+      '明細を読み取っています。終わってから追加してください',
+      '足は 10 本までです',
+    ]) {
+      const tree = list(view({ blocked: reason }));
+      const btn = byId(tree, LEG_ADD_FROM_ID) as El;
+      expect(btn.props.disabled).toBe(true);
+      expect(btn.props['aria-describedby']).toBe(`${LEG_ADD_FROM_ID}-why`);
+      expect(text(byId(tree, `${LEG_ADD_FROM_ID}-why`) as El)).toBe(reason);
+    }
+  });
+
+  it('読み取り中は押せず、「明細の足を読み取っています…」と ［キャンセル］（読み上げは何を取りやめるか）', () => {
+    let cancelled = 0;
+    const tree = list(
+      view({ reading: true, blocked: '明細の足を読み取っています', onCancel: () => cancelled++ }),
+    );
+    expect((byId(tree, LEG_ADD_FROM_ID) as El).props.disabled).toBe(true);
+    const status = all(tree, (e) => String(e.props.class).includes('legs__fromstatus'))[0] as El;
+    expect(status.props.role).toBe('status');
+    expect(text(status)).toContain('明細の足を読み取っています…');
+    const cancel = byId(tree, LEG_ADD_CANCEL_ID) as El;
+    expect(cancel.props['aria-label']).toBe('明細の足の読み取りをキャンセル');
+    (cancel.props.onClick as () => void)();
+    expect(cancelled).toBe(1);
+  });
+
+  it('追加した後は知らせと ［元に戻す］、追加しなかった理由は知らせだけ', () => {
+    let undone = 0;
+    const done = list(
+      view({ notice: '明細から足を 1 本追加しました', undo: true, onUndo: () => undone++ }),
+    );
+    expect(text(done)).toContain('明細から足を 1 本追加しました');
+    ((byId(done, LEG_ADD_UNDO_ID) as El).props.onClick as () => void)();
+    expect(undone).toBe(1);
+    const none = list(view({ notice: 'この明細の足はすべて入っています' }));
+    expect(text(none)).toContain('この明細の足はすべて入っています');
+    expect(byId(none, LEG_ADD_UNDO_ID)).toBeUndefined();
+  });
+
+  it('記録する画面: 取引の欄のシートに出し、1 枚目の明細の読み取り中・足の読み取り中・10 本で押せない（R1）', () => {
+    const recordTree = (
+      state: Partial<Parameters<typeof RecordView>[0]['state']>,
+      d: Draft = spread,
+    ) =>
+      expand(
+        RecordView({
+          state: {
+            phase: 'editing',
+            draft: d,
+            instruments: [XYZ],
+            accounts: ctx.accounts,
+            read: readDraft(d, ctx),
+            error: null,
+            stage: 'review',
+            ...state,
+          },
+          sheet: { kind: 'fields', step: 'main' },
+          onUpdate: noop,
+          onSave: noop,
+          onNext: noop,
+          onReload: noop,
+          onRelogin: noop,
+          onAddLegsFromStatement: noop,
+        }),
+      );
+    const btn = (tree: Node[]) => byId(tree, LEG_ADD_FROM_ID) as El;
+    expect(btn(recordTree({})).props.disabled).toBe(false);
+    const reading = recordTree({
+      statement: {
+        phase: 'reading',
+        rows: [],
+        index: 0,
+        marks: {},
+        message: null,
+        notice: null,
+        preview: null,
+      },
+    });
+    expect(btn(reading).props.disabled).toBe(true);
+    expect(text(byId(reading, `${LEG_ADD_FROM_ID}-why`) as El)).toBe(
+      '明細を読み取っています。終わってから追加してください',
+    );
+    const legReading = recordTree({ legAdd: { phase: 'reading', notice: null, undo: false } });
+    expect(btn(legReading).props.disabled).toBe(true);
+    expect(text(legReading)).toContain('明細の足を読み取っています…');
+    const ten = { ...spread, legs: Array.from({ length: 10 }, () => spread.legs[0] as LegDraft) };
+    const full = recordTree({}, ten);
+    expect(btn(full).props.disabled).toBe(true);
+    expect(text(byId(full, `${LEG_ADD_FROM_ID}-why`) as El)).toBe('足は 10 本までです');
+    // 先物（足の一覧が出ない）には出さない（KEEP-5）
+    const fut = { ...EMPTY_DRAFT, instrumentName: '架空先物' };
+    expect(byId(recordTree({}, fut), LEG_ADD_FROM_ID)).toBeUndefined();
   });
 });

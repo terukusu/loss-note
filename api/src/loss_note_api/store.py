@@ -7,7 +7,8 @@
 設定の文書 ``current`` とは別の文書。Issue #163・ADR-0023）・
 ``users/{uid}/charts/{tradeId}-{slot}``（根拠の足のチャート画像。1 文書 1 枚 ``{contentType, data}``。
 Issue #12・ADR-0006）・``users/{uid}/statement_profiles/{鍵}``（明細の特徴の覚え = ``{accountId, updatedAt}`` だけ。
-Issue #66・ADR-0017）。
+Issue #66・ADR-0017）・``users/{uid}/positionGroups/{id}``（両建てのまとまり。メンバーの取引の最上位の逆参照
+``positionGroupId`` と同じトランザクションで書く。Issue #266・ADR-0027）。
 明細の読み取りの 1 日の計上（Issue #44・ADR-0010、Issue #51・ADR-0014）: 利用者ごと
 ``users/{uid}/statement_read_days/{YYYY-MM-DD}`` = ``{count, microUsd}``（``microUsd`` は #51 から。欠け・負は
 回数 × 予約額に見積もる = ``read_limits.effective_user_micro``）、
@@ -25,7 +26,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Protocol
 
-from loss_note_api import accounts, trade_pages, trade_version
+from loss_note_api import accounts, position_groups, trade_pages, trade_version
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID, BuildDefault
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.logs import log_event
@@ -92,6 +93,19 @@ MutateTrade = Callable[[Doc, Doc | None, Doc | None], Doc]
 Charts = dict[str, Doc]
 # 取引の直しのチャートの変更（#89）: 枠 → 置く文書 or None（消す）
 ChartChanges = dict[str, Doc | None]
+# 両建てのまとまり（#266）: (今のまとまり or None〔作る〕, 読んだ取引 {ID: 文書}) ->
+# (まとまりの文書, 書く取引 {ID: 文書})
+# （InvalidRecord・Conflict を投げれば何も書かない）
+BuildGroup = Callable[[Doc | None, dict[str, Doc]], tuple[Doc, dict[str, Doc]]]
+# 解く: (まとまり, 読めたメンバーの取引) -> 書く取引
+UnlinkGroup = Callable[[Doc, dict[str, Doc]], dict[str, Doc]]
+# 取引を消すときのまとまりの直し: (まとまりの ID, まとまり, 消す取引の ID, 読めたほかのメンバーの取引) ->
+# None（書かない）/ (まとまりの新しい文書 or None〔消す〕, 書く取引)
+RemoveFromGroup = Callable[[str, Doc, str, dict[str, Doc]], tuple[Doc | None, dict[str, Doc]] | None]
+# 取引を直すときのまとまりの直し: (まとまり, 消す前の取引, 直した取引) -> まとまりの新しい文書 or None（書かない）。
+# 例外（向きを変えた）を投げれば何も書かない
+RegroupTrade = Callable[[Doc, Doc, Doc], Doc | None]
+GROUPS = "positionGroups"
 # 読み取りの上限の判定: (その日の利用者の回数, 利用者の計上額 µUSD, 全体の計上額 µUSD)
 # -> "ok" / "user" / "user_spend" / "spend"（read_limits.decide）
 DecideRead = Callable[[int, int, int], str]
@@ -129,12 +143,31 @@ class Store(Protocol):
     # charts（#89）があれば、同じトランザクションで枠ごとにチャートの文書を置く（文書）・消す（None）。
     # 書けなければ取引も前のまま
     # update_trade・put_chart・delete_chart は、読んだ取引の版を知らなければ何も書かずに UnknownSchemaVersion（#115）
+    # regroup（#266）があれば、取引の逆参照の指すまとまりを同じトランザクションで読み、regroup の結果を書く
     def update_trade(
         self, uid: str, trade_id: str, instrument_id: str, account_id: str | None, mutate: MutateTrade,
         build_default: BuildDefault = ..., refresh: bool = False, charts: ChartChanges | None = None,
+        regroup: RegroupTrade | None = None,
     ) -> Doc | None: ...
-    # 取引と 2 枠のチャートを 1 トランザクションで消す
-    def delete_trade(self, uid: str, trade_id: str) -> bool: ...
+    # 取引とチャートを 1 トランザクションで消す。regroup（#266）があれば、取引の逆参照の指すまとまりとほかのメンバーを
+    # 同じトランザクションで読み、regroup の結果（まとまりの直し・消す、メンバーの逆参照）を書く
+    def delete_trade(self, uid: str, trade_id: str, regroup: RemoveFromGroup | None = None) -> bool: ...
+    # trade_ids のうちある取引だけ（並びは trade_ids の順）
+    def get_trades(self, uid: str, trade_ids: list[str]) -> list[tuple[str, Doc]]: ...
+
+    # 両建てのまとまり（#266・ADR-0027）。users/{uid}/positionGroups/{id}。どれもまとまりとメンバーの取引を
+    # 1 トランザクションで書く。取引が 1 件でも無ければ何も書かずに None。結ぶ・加える取引の版を知らなければ
+    # UnknownSchemaVersion。まとまりの版を知らなければ（PUT・DELETE）UnknownSchemaVersion
+    # 一覧は作った新しい順に最大 limit 件（None = すべて）
+    def list_position_groups(self, uid: str, limit: int | None) -> list[tuple[str, Doc]]: ...
+    def create_position_group(self, uid: str, trade_ids: list[str],
+                              build: Callable[[str, dict[str, Doc]], tuple[Doc, dict[str, Doc]]]
+                              ) -> tuple[str, Doc] | None: ...  # fmt: skip
+    # 今のメンバー（読めたものだけ）と trade_ids の取引を読んで build に渡す。まとまりが無ければ None
+    def update_position_group(self, uid: str, group_id: str, trade_ids: list[str],
+                              build: BuildGroup) -> Doc | None: ...  # fmt: skip
+    # まとまりを消し、unlink の結果を書く。まとまりが無ければ False
+    def delete_position_group(self, uid: str, group_id: str, unlink: UnlinkGroup) -> bool: ...
 
     # チャート（Issue #12）。取引が無ければ None。put は置き換え（無い枠なら作る）、delete はチャートが無ければ None
     # （有無は取引の文書の charts の要約で見る。要約とチャートの文書は常に同じトランザクションで書く）。
@@ -318,7 +351,8 @@ class FirestoreStore:
 
     @_guard
     def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
-                     build_default=accounts.build_default_now, refresh=False, charts=None):  # fmt: skip
+                     build_default=accounts.build_default_now, refresh=False, charts=None,
+                     regroup=None):  # fmt: skip
         user = self._user(uid)
         ref = user.collection("trades").document(trade_id)
 
@@ -340,27 +374,150 @@ class FirestoreStore:
                 account = self._read_account(tx, uid, target)
                 if account is None:
                     raise MissingAccount()
+            # 両建てのまとまり（#266）: 読みは書きより先
+            group_ref, group = self._read_group_of(tx, uid, doc) if regroup else (None, None)
             new = mutate(doc, instrument, account)
+            new_group = regroup(group, doc, new) if group is not None else None
             for slot, chart in (charts or {}).items():
                 if chart is None:
                     tx.delete(self._chart_ref(uid, trade_id, slot))
                 else:
                     tx.set(self._chart_ref(uid, trade_id, slot), chart)
+            if new_group is not None:
+                tx.set(group_ref, new_group)
             tx.set(ref, new)
             return new
 
         return self._with_default(uid, build_default, body)
 
     @_guard
-    def delete_trade(self, uid, trade_id):
-        ref = self._user(uid).collection("trades").document(trade_id)
+    def delete_trade(self, uid, trade_id, regroup=None):
+        trades = self._user(uid).collection("trades")
+        ref = trades.document(trade_id)
 
         def body(tx):
-            if not ref.get(transaction=tx).exists:
+            snap = ref.get(transaction=tx)
+            if not snap.exists:
                 return False
+            # 両建てのまとまり（#266）: まとまりとほかのメンバーを先に読む（読みは書きより先）
+            plan = None
+            group_ref, group = self._read_group_of(tx, uid, snap.to_dict()) if regroup else (None, None)
+            if group is not None:
+                others = [tid for tid in position_groups.member_ids(group) if tid != trade_id]
+                plan = regroup(group_ref.id, group, trade_id, self._read_trades(tx, uid, others))
+            if plan is not None:
+                new_group, writes = plan
+                if new_group is None:
+                    tx.delete(group_ref)
+                else:
+                    tx.set(group_ref, new_group)
+                for tid, doc in writes.items():
+                    tx.set(trades.document(tid), doc)
             tx.delete(ref)
             for slot in SLOTS:
                 tx.delete(self._chart_ref(uid, trade_id, slot))
+            return True
+
+        return self._transaction(body)
+
+    @_guard
+    def get_trades(self, uid, trade_ids):
+        col = self._user(uid).collection("trades")
+        got = {s.id: s.to_dict() for s in self._db().get_all([col.document(t) for t in trade_ids]) if s.exists}
+        return [(tid, got[tid]) for tid in trade_ids if tid in got]
+
+    # ── 両建てのまとまり（#266）──
+    def _group_ref(self, uid, group_id):
+        return self._user(uid).collection(GROUPS).document(group_id)
+
+    def _read_group_of(self, tx, uid, trade_doc):
+        """取引の逆参照の指すまとまり (参照, 文書 or None)。逆参照が無ければ (None, None)"""
+        gid = trade_doc.get(position_groups.KEY)
+        if not isinstance(gid, str) or not gid:
+            return None, None
+        group_ref = self._group_ref(uid, gid)
+        snap = group_ref.get(transaction=tx)
+        return group_ref, (snap.to_dict() if snap.exists else None)
+
+    def _read_trades(self, tx, uid, trade_ids):
+        """ある取引だけ {ID: 文書}"""
+        col = self._user(uid).collection("trades")
+        out = {}
+        for tid in dict.fromkeys(trade_ids):
+            snap = col.document(tid).get(transaction=tx)
+            if snap.exists:
+                out[tid] = snap.to_dict()
+        return out
+
+    @_guard
+    def list_position_groups(self, uid, limit):
+        from google.cloud import firestore
+
+        q = self._user(uid).collection(GROUPS).order_by("createdAt", direction=firestore.Query.DESCENDING)
+        if limit is not None:
+            q = q.limit(limit)
+        return [(s.id, s.to_dict()) for s in q.stream()]
+
+    @_guard
+    def create_position_group(self, uid, trade_ids, build):
+        group_ref = self._user(uid).collection(GROUPS).document()
+        col = self._user(uid).collection("trades")
+
+        def body(tx):
+            trades = self._read_trades(tx, uid, trade_ids)
+            if len(trades) != len(trade_ids):
+                return None
+            for doc in trades.values():
+                check_known_version(doc)
+            group, writes = build(group_ref.id, trades)
+            tx.create(group_ref, group)
+            for tid, doc in writes.items():
+                tx.set(col.document(tid), doc)
+            return group_ref.id, group
+
+        return self._transaction(body)
+
+    @_guard
+    def update_position_group(self, uid, group_id, trade_ids, build):
+        group_ref = self._group_ref(uid, group_id)
+        col = self._user(uid).collection("trades")
+
+        def body(tx):
+            snap = group_ref.get(transaction=tx)
+            if not snap.exists:
+                return None
+            group = snap.to_dict()
+            if not position_groups.is_known(group):
+                raise UnknownSchemaVersion()
+            trades = self._read_trades(tx, uid, [*position_groups.member_ids(group), *trade_ids])
+            if any(tid not in trades for tid in trade_ids):
+                return None
+            for tid in trade_ids:
+                check_known_version(trades[tid])
+            new_group, writes = build(group, trades)
+            tx.set(group_ref, new_group)
+            for tid, doc in writes.items():
+                tx.set(col.document(tid), doc)
+            return new_group
+
+        return self._transaction(body)
+
+    @_guard
+    def delete_position_group(self, uid, group_id, unlink):
+        group_ref = self._group_ref(uid, group_id)
+        col = self._user(uid).collection("trades")
+
+        def body(tx):
+            snap = group_ref.get(transaction=tx)
+            if not snap.exists:
+                return False
+            group = snap.to_dict()
+            if not position_groups.is_known(group):
+                raise UnknownSchemaVersion()
+            writes = unlink(group, self._read_trades(tx, uid, position_groups.member_ids(group)))
+            tx.delete(group_ref)
+            for tid, doc in writes.items():
+                tx.set(col.document(tid), doc)
             return True
 
         return self._transaction(body)

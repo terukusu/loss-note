@@ -39,6 +39,13 @@
 Good / More（Issue #123・設計書 C58・ADR-0024）: 取引の文書の最上位の ``reflection``（``record`` の外。心理のタグと同じ
 作り）。書くのは ``PUT /api/trade-reflections`` 本文 ``{tradeIds, good, more}`` だけで、取引の集合の Good / More を
 置き換える。両側とも空なら鍵ごと消す。
+
+両建てのまとまり（Issue #266・設計書 C75・4.8・ADR-0027）: ``users/{uid}/positionGroups/{id}`` と取引の文書の最上位の
+逆参照 ``positionGroupId``（``record`` の外。心理のタグと同じ作り）。入口は ``GET`` / ``POST /api/position-groups``・
+``PUT`` / ``DELETE /api/position-groups/{id}`` で、メンバーの取引の逆参照と同じトランザクションで書く。取引の PUT は
+メンバーの向きを変えると 409 ``inPositionGroup``、ほかの欄ならまとまりの時刻の写しを直す。取引の DELETE はまとまりから
+外し、役割の組が崩れたらまとまりを消して残りの逆参照も外す。決済の時刻の範囲の一覧は、時刻の写しの幅が範囲と重なる
+まとまり ``positionGroups`` と範囲の外のメンバーの取引 ``groupMembers`` も返す（6.5）。
 """
 
 from collections.abc import Callable
@@ -54,6 +61,7 @@ from loss_note_api import (
     charts,
     emotion_tags,
     export,
+    position_groups,
     reflection,
     schema,
     statement_profile,
@@ -75,6 +83,8 @@ from loss_note_api.store import (
 )
 from loss_note_api.trade_version import version_of
 
+# 両建てのまとまり（#266）
+GROUPS_PATH = "/position-groups"
 # 心理のタグの選択肢の設定（#163）
 EMOTION_SETTINGS_PATH = "/settings/emotion-tags"
 DEFAULT_SETTINGS = {"capitalYen": None, "riskTolerancePct": 1, "performanceUnit": "R"}
@@ -155,6 +165,9 @@ def trade_response(trade_id: str, doc: dict) -> dict:
     # Good / More（#123）: 付いている取引だけ。無い取引は今と同じ形（KEEP-1）
     if doc.get(REFLECTION_KEY):
         res[REFLECTION_KEY] = doc[REFLECTION_KEY]
+    # 両建てのまとまりの逆参照（#266）: メンバーの取引だけ。無い取引は今と同じ形
+    if doc.get(position_groups.KEY):
+        res[position_groups.KEY] = doc[position_groups.KEY]
     return res
 
 
@@ -330,7 +343,24 @@ def make_blueprint(
             items = sorted(got, key=trade_sort_key)
             truncated = len(items) > trade_range.MAX_RANGE_ITEMS
             items = items[: trade_range.MAX_RANGE_ITEMS]
-            return {"items": [trade_response(tid, doc) for tid, doc in items], "truncated": truncated}
+            # 両建てのまとまり（#266・6.5）: 時刻の写しの幅が範囲と重なるまとまりと、範囲の外のメンバーの取引。
+            # まとまりはまれなので本人のまとまりをすべて読んで絞る（13.2）。件数の上限はメンバーの取引も数える
+            groups = sorted(((gid, doc) for gid, doc in store.list_position_groups(g.uid, None)
+                             if position_groups.overlaps(doc, *span)), key=position_groups.sort_key)  # fmt: skip
+            in_range = {tid for tid, _ in items}
+            outside = [tid for _, doc in groups for tid in position_groups.member_ids(doc) if tid not in in_range]
+            room = trade_range.MAX_RANGE_ITEMS - len(items)
+            outside = list(dict.fromkeys(outside))
+            if len(outside) > room:
+                truncated = True
+                outside = outside[:room]
+            members = store.get_trades(g.uid, outside) if outside else []
+            return {
+                "items": [trade_response(tid, doc) for tid, doc in items],
+                "truncated": truncated,
+                "positionGroups": [position_groups.group_response(gid, doc) for gid, doc in groups],
+                "groupMembers": [trade_response(tid, doc) for tid, doc in sorted(members, key=trade_sort_key)],
+            }
         if params is None:
             items = sorted(store.list_trades(g.uid), key=trade_sort_key)
             return {"items": [trade_response(tid, doc) for tid, doc in items]}
@@ -458,10 +488,14 @@ def make_blueprint(
             }
             return with_chart_summary(new, chart_docs) if chart_docs else new
 
+        def regroup(group: dict, old: dict, new: dict) -> dict | None:
+            # 両建てのまとまり（#266）: 向きを変えたら 409。ほかの欄なら時刻の写しを直す
+            return position_groups.after_trade_updated(group, trade_id, old, new, clock())
+
         try:
             doc = store.update_trade(g.uid, trade_id, record["instrumentId"], record.get("accountId"), mutate,
                                      build_default=build_default, refresh=refresh,
-                                     charts=chart_docs or None)  # fmt: skip
+                                     charts=chart_docs or None, regroup=regroup)  # fmt: skip
         except MissingInstrument:
             return invalid([{"field": "instrumentId", "kind": "notFound"}])
         except MissingAccount:
@@ -470,6 +504,8 @@ def make_blueprint(
             return invalid(e.issues)
         except UnknownSchemaVersion:
             return unknown_version()
+        except position_groups.MemberSideChanged:
+            return error(409, "conflict", reason=position_groups.IN_POSITION_GROUP)
         except Conflict as e:
             # 足を知らない画面（切り戻し・古いタブ）の保存を止めた回数を数えられるよう、決まった語だけをログに出す
             # （取引の ID・uid・本文は出さない）
@@ -482,7 +518,16 @@ def make_blueprint(
 
     @bp.delete("/trades/<path:trade_id>")
     def delete_trade(trade_id: str):
-        if not valid_id(trade_id) or not store.delete_trade(g.uid, trade_id):
+        def regroup(gid: str, group: dict, tid: str, others: dict[str, dict]):
+            # 両建てのまとまり（#266・4.8）: メンバーから外し、役割の組が崩れたらまとまりを消して残りの逆参照も外す
+            now = clock()
+            action, new_group = position_groups.after_trade_removed(group, tid, now)
+            if action == "skip":
+                return None
+            writes = {} if action == "write" else position_groups.relink_writes(gid, others, [], others, now)
+            return new_group, writes
+
+        if not valid_id(trade_id) or not store.delete_trade(g.uid, trade_id, regroup=regroup):
             return error(404, "not_found")
         return Response(status=204)
 
@@ -604,6 +649,111 @@ def make_blueprint(
         if docs is None:
             return error(404, "not_found")
         return saved
+
+    # ── 両建てのまとまり（Issue #266・設計書 C75・4.8・ADR-0027）──
+    # 検査は形だけ（決定 3）。読む・書くのは本人の users/{uid} の下だけで、ほかの利用者のまとまり・取引は
+    # 「無い」と同じ 404
+    @bp.get(GROUPS_PATH)
+    def list_position_groups():
+        got = store.list_position_groups(g.uid, position_groups.MAX_LIST + 1)
+        items = sorted(got, key=position_groups.sort_key)
+        truncated = len(items) > position_groups.MAX_LIST
+        items = items[: position_groups.MAX_LIST]
+        return {"items": [position_groups.group_response(gid, doc) for gid, doc in items], "truncated": truncated}
+
+    def read_group_body() -> tuple[dict | None, Response | None]:
+        body, err = read_body()
+        if err:
+            return None, err
+        value, issues, bad_id = schema.validate_position_group(body)
+        if bad_id:
+            # 取引の ID の形が崩れている: 経路の ID と同じく、保存先に触れずに「無い」
+            return None, error(404, "not_found")
+        if value is None:
+            return None, invalid(issues)
+        return value, None
+
+    def check_members(members: list[dict], trades: dict[str, dict], group_id: str | None) -> None:
+        # 1 つの取引は 1 つのまとまりにだけ（409）→ 形（足・向き。400）。どちらも書く前に同じトランザクションの中で見る
+        if position_groups.in_other_group(members, trades, group_id):
+            raise Conflict(position_groups.IN_OTHER_GROUP)
+        issues = position_groups.shape_issues(members, trades)
+        if issues:
+            raise InvalidRecord(issues)
+
+    def group_write_error(e: Exception) -> Response:
+        if isinstance(e, UnknownSchemaVersion):
+            return unknown_version()
+        if isinstance(e, Conflict):
+            return error(409, "conflict", reason=e.reason)
+        assert isinstance(e, InvalidRecord)
+        return invalid(e.issues)
+
+    @bp.post(GROUPS_PATH)
+    def create_position_group():
+        value, err = read_group_body()
+        if err:
+            return err
+        members = value["members"]
+        ids = [m["tradeId"] for m in members]
+
+        def build(gid: str, trades: dict[str, dict]):
+            check_members(members, trades, None)
+            now = clock()
+            group = position_groups.build_group(members, value.get("exit"), trades, now)
+            return group, position_groups.relink_writes(gid, [], ids, trades, now)
+
+        try:
+            got = store.create_position_group(g.uid, ids, build)
+        except (UnknownSchemaVersion, Conflict, InvalidRecord) as e:
+            return group_write_error(e)
+        if got is None:
+            # 1 件でも無い（ほかの利用者の取引も「無い」と同じ）: 何も書いていない
+            return error(404, "not_found")
+        res = jsonify(position_groups.group_response(*got))
+        res.status_code = 201
+        return res
+
+    @bp.put(f"{GROUPS_PATH}/<path:group_id>")
+    def update_position_group(group_id: str):
+        if not valid_id(group_id):
+            return error(404, "not_found")
+        value, err = read_group_body()
+        if err:
+            return err
+        members = value["members"]
+        ids = [m["tradeId"] for m in members]
+
+        def build(group: dict, trades: dict[str, dict]):
+            check_members(members, trades, group_id)
+            now = clock()
+            new = position_groups.build_group(members, value.get("exit"), trades, now, prev=group)
+            return new, position_groups.relink_writes(group_id, position_groups.member_ids(group), ids, trades, now)
+
+        try:
+            doc = store.update_position_group(g.uid, group_id, ids, build)
+        except (UnknownSchemaVersion, Conflict, InvalidRecord) as e:
+            return group_write_error(e)
+        if doc is None:
+            return error(404, "not_found")
+        return position_groups.group_response(group_id, doc)
+
+    @bp.delete(f"{GROUPS_PATH}/<path:group_id>")
+    def delete_position_group(group_id: str):
+        if not valid_id(group_id):
+            return error(404, "not_found")
+
+        def unlink(group: dict, trades: dict[str, dict]) -> dict[str, dict]:
+            # 逆参照を外すだけ（記録・心理のタグ・Good / More はそのまま）
+            return position_groups.relink_writes(group_id, position_groups.member_ids(group), [], trades, clock())
+
+        try:
+            done = store.delete_position_group(g.uid, group_id, unlink)
+        except UnknownSchemaVersion:
+            return unknown_version()
+        if not done:
+            return error(404, "not_found")
+        return Response(status=204)
 
     # ── 銘柄 ──
     @bp.get("/instruments")
@@ -829,6 +979,8 @@ def make_blueprint(
             [instrument_response(iid, doc) for iid, doc in insts],
             [trade_response(tid, doc) for tid, doc in trades],
             {"hidden": emotion_tags.hidden_of(store.get_emotion_settings(g.uid))},
+            [position_groups.group_response(gid, doc)
+             for gid, doc in sorted(store.list_position_groups(g.uid, None), key=position_groups.sort_key)],
         )
         res = jsonify(body)
         res.headers["Cache-Control"] = "no-store"
@@ -864,6 +1016,8 @@ def make_unconfigured_blueprint() -> Blueprint:
     @bp.route("/accounts/<path:_id>", methods=["GET", "PUT"])
     @bp.route("/settings", methods=["GET", "PUT"])
     @bp.route(EMOTION_SETTINGS_PATH, methods=["GET", "PUT"])
+    @bp.route(GROUPS_PATH, methods=["GET", "POST"])
+    @bp.route(f"{GROUPS_PATH}/<path:_id>", methods=["PUT", "DELETE"])
     @bp.route(f"{STATEMENT_PROFILES_PATH}/<path:_id>", methods=["PUT"])
     @bp.route(statement_read.PATH, methods=["POST"])
     @bp.route(chart_read.PATH, methods=["POST"])

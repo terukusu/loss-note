@@ -25,7 +25,8 @@ B = "exportUserB"
 PATH = "/api/export"
 EMAIL = "fictional.export@example.com"
 MARKER = "MARKER-書き出し-5e2b"
-KEYS = {"format", "version", "exportedAt", "settings", "emotionTagSettings", "accounts", "instruments", "trades"}
+KEYS = {"format", "version", "exportedAt", "settings", "emotionTagSettings", "accounts", "instruments", "trades",
+        "positionGroups"}
 
 
 @pytest.fixture
@@ -130,7 +131,7 @@ def test_headers_download_and_no_store(memory_api, clock):
 
 def test_export_body_is_pure():
     trades = [{"id": "t"}]
-    body = export.export_body(1, {"capitalYen": None}, [], [], trades, {"hidden": []})
+    body = export.export_body(1, {"capitalYen": None}, [], [], trades, {"hidden": []}, [])
     assert body["trades"] == trades and body["trades"] is not trades
 
 

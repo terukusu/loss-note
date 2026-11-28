@@ -12,6 +12,8 @@ API のテストはこれとエミュレーターの Firestore の両方で同�
 明細の特徴の覚え（Issue #66）は ``users[uid]["statement_profiles"][鍵]``。読むだけでは ``users`` に何も足さない
 （読み取りの前後で記録が同じかを確かめるテストのため）。``fail_profiles`` を立てると覚えの読み書きが何も書かずに
 StoreUnavailable になる。
+両建てのまとまり（Issue #266）は ``users[uid]["positionGroups"]``。まとまりとメンバーの取引の書き込みは
+FirestoreStore と同じく、読み・検査を先に済ませてから全部を書く（途中で例外なら何も書かない）。
 """
 
 import copy
@@ -19,7 +21,7 @@ import secrets
 import string
 import threading
 
-from loss_note_api import accounts, trade_pages, trade_range
+from loss_note_api import accounts, position_groups, trade_pages, trade_range
 from loss_note_api.accounts import DEFAULT_ACCOUNT_ID
 from loss_note_api.charts import SLOTS, chart_doc_id
 from loss_note_api.logs import log_event
@@ -30,6 +32,7 @@ from loss_note_api.store import (
     MissingAccount,
     MissingInstrument,
     StoreUnavailable,
+    UnknownSchemaVersion,
     check_known_version,
 )
 
@@ -126,7 +129,8 @@ class MemoryStore:
             return tid, doc
 
     def update_trade(self, uid, trade_id, instrument_id, account_id, mutate,
-                     build_default=accounts.build_default_now, refresh=False, charts=None):  # fmt: skip
+                     build_default=accounts.build_default_now, refresh=False, charts=None,
+                     regroup=None):  # fmt: skip
         with self._lock:
             col = self._col(uid, "trades")
             if trade_id not in col:
@@ -148,9 +152,14 @@ class MemoryStore:
                 self._write_default(uid, pending)  # 取引より先（create_trade と同じ）
                 account = copy.deepcopy(account)
             new = mutate(copy.deepcopy(col[trade_id]), instrument, account)
+            gid, group = self._group_of(uid, col[trade_id]) if regroup else (None, None)
+            new_group = regroup(copy.deepcopy(group), copy.deepcopy(col[trade_id]), copy.deepcopy(new)) \
+                if group is not None else None
             if charts:
                 self._chart_write()
             # ここから下は失敗しない（取引・チャートを一緒に書く = トランザクションと同じ）
+            if new_group is not None:
+                self._col(uid, "positionGroups")[gid] = copy.deepcopy(new_group)
             for slot, chart in (charts or {}).items():
                 key = chart_doc_id(trade_id, slot)
                 if chart is None:
@@ -160,15 +169,98 @@ class MemoryStore:
             col[trade_id] = copy.deepcopy(new)
             return new
 
-    def delete_trade(self, uid, trade_id):
+    def delete_trade(self, uid, trade_id, regroup=None):
         with self._lock:
             trades = self._col(uid, "trades")
             if trade_id not in trades:
                 return False
+            plan = None
+            gid, group = self._group_of(uid, trades[trade_id]) if regroup else (None, None)
+            if group is not None:
+                others = {tid: copy.deepcopy(trades[tid]) for tid in position_groups.member_ids(group)
+                          if tid != trade_id and tid in trades}  # fmt: skip
+                plan = regroup(gid, copy.deepcopy(group), trade_id, others)
             self._chart_write()
+            if plan is not None:
+                new_group, writes = plan
+                if new_group is None:
+                    self._col(uid, "positionGroups").pop(gid, None)
+                else:
+                    self._col(uid, "positionGroups")[gid] = copy.deepcopy(new_group)
+                for tid, doc in writes.items():
+                    trades[tid] = copy.deepcopy(doc)
             del trades[trade_id]
             for slot in SLOTS:
                 self._col(uid, "charts").pop(chart_doc_id(trade_id, slot), None)
+            return True
+
+    def get_trades(self, uid, trade_ids):
+        with self._lock:
+            trades = self._col(uid, "trades")
+            return [(tid, copy.deepcopy(trades[tid])) for tid in trade_ids if tid in trades]
+
+    # ── 両建てのまとまり（#266）──
+    def _group_of(self, uid, trade_doc):
+        gid = trade_doc.get(position_groups.KEY)
+        if not isinstance(gid, str) or not gid:
+            return None, None
+        return gid, copy.deepcopy(self._col(uid, "positionGroups").get(gid))
+
+    def _existing(self, uid, trade_ids):
+        trades = self._col(uid, "trades")
+        return {tid: copy.deepcopy(trades[tid]) for tid in dict.fromkeys(trade_ids) if tid in trades}
+
+    def list_position_groups(self, uid, limit):
+        with self._lock:
+            items = [(k, copy.deepcopy(v)) for k, v in self._col(uid, "positionGroups").items()]
+        items.sort(key=lambda it: -it[1]["createdAt"])
+        return items if limit is None else items[:limit]
+
+    def create_position_group(self, uid, trade_ids, build):
+        with self._lock:
+            got = self._existing(uid, trade_ids)
+            if len(got) != len(trade_ids):
+                return None
+            for doc in got.values():
+                check_known_version(doc)
+            gid = _new_id()
+            group, writes = build(gid, got)
+            self._col(uid, "positionGroups")[gid] = copy.deepcopy(group)
+            for tid, doc in writes.items():
+                self._col(uid, "trades")[tid] = copy.deepcopy(doc)
+            return gid, group
+
+    def update_position_group(self, uid, group_id, trade_ids, build):
+        with self._lock:
+            groups = self._col(uid, "positionGroups")
+            if group_id not in groups:
+                return None
+            group = copy.deepcopy(groups[group_id])
+            if not position_groups.is_known(group):
+                raise UnknownSchemaVersion()
+            got = self._existing(uid, [*position_groups.member_ids(group), *trade_ids])
+            if any(tid not in got for tid in trade_ids):
+                return None
+            for tid in trade_ids:
+                check_known_version(got[tid])
+            new_group, writes = build(group, got)
+            groups[group_id] = copy.deepcopy(new_group)
+            for tid, doc in writes.items():
+                self._col(uid, "trades")[tid] = copy.deepcopy(doc)
+            return new_group
+
+    def delete_position_group(self, uid, group_id, unlink):
+        with self._lock:
+            groups = self._col(uid, "positionGroups")
+            if group_id not in groups:
+                return False
+            group = copy.deepcopy(groups[group_id])
+            if not position_groups.is_known(group):
+                raise UnknownSchemaVersion()
+            writes = unlink(group, self._existing(uid, position_groups.member_ids(group)))
+            del groups[group_id]
+            for tid, doc in writes.items():
+                self._col(uid, "trades")[tid] = copy.deepcopy(doc)
             return True
 
     # ── チャート ──

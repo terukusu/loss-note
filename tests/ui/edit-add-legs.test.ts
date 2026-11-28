@@ -4,11 +4,12 @@ import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord, StoredTrade, TradeRecord } from '../../core/record';
 import { toLocalInput } from '../../ui/src/lib/datetime';
 import { createEditController, type EditController } from '../../ui/src/lib/edit-controller';
+import { withAddedFees } from '../../ui/src/lib/edit-form';
 import { EMPTY_LEG, type LegDraft } from '../../ui/src/lib/legs-form';
-import { LEGS_EDITED, optionVerdictLines } from '../../ui/src/lib/option-view';
+import { ADDED_NOT_SUMMED, LEGS_EDITED, optionVerdictLines } from '../../ui/src/lib/option-view';
 import { READ_PATH } from '../../ui/src/lib/record-controller';
 import { type Draft, EMPTY_DRAFT, readDraft, summarize } from '../../ui/src/lib/record-form';
-import { ADD_LEGS_MSG } from '../../ui/src/lib/statement-add-legs';
+import { ADD_LEGS_MSG, legNoticeWithPnl } from '../../ui/src/lib/statement-add-legs';
 import { defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeApi, type ReadScript } from './helpers/fake-api';
 import {
@@ -313,6 +314,7 @@ describe('損益の切り替え（例 #5〜#8・R4）', () => {
     c.update({ type: 'set', field: 'legs', value: legs });
     const s = c.getState();
     expect(s.read.option?.legsEdited).toBe(true);
+    expect(s.read.option?.addedNotSummed).toBeUndefined();
     expect(s.read.body?.statementPnlYen).toBeUndefined();
     expect(s.preview.pnlYen).toBe(40_000);
     expect(optionVerdictLines(s.preview.option, 'JPY', { legsEdited: true }).warnings).toContain(
@@ -331,6 +333,14 @@ describe('損益の切り替え（例 #5〜#8・R4）', () => {
     const s = c.getState();
     expect(s.read.option?.legsEdited).toBe(true);
     expect(s.preview.pnlYen).toBe(30_000);
+    // レビュー 4: 足は直していないので、判定の枠の 1 行は「明細から追加した足の損益を足せない」理由
+    expect(s.read.option?.addedNotSummed).toBe(true);
+    const lines = optionVerdictLines(s.preview.option, 'JPY', {
+      legsEdited: true,
+      addedNotSummed: true,
+    }).warnings;
+    expect(lines).toContain(ADDED_NOT_SUMMED);
+    expect(lines).not.toContain(LEGS_EDITED);
     await c.save();
     expect(put(fake)[0]?.statementPnlYen).toBeUndefined();
     expect(feeTotal(put(fake)[0])).toBe(1_000);
@@ -352,6 +362,7 @@ describe('損益の切り替え（例 #5〜#8・R4）', () => {
     await c.addLegsFromStatement(file());
     const s = c.getState();
     expect(s.read.body?.statementPnlYen).toBeUndefined();
+    expect(s.read.option?.addedNotSummed).toBe(true);
     expect(s.preview.pnlYen).toBe(30_000);
     await c.save();
     expect(put(fake)[0]?.statementPnlYen).toBeUndefined();
@@ -435,5 +446,58 @@ describe('AC-1: チャートの時間足の読み取りとは 1 つずつ', () =
       .filter((x) => x === READ_PATH || x === '/api/chart-reads');
     expect(order[0]).toBe(READ_PATH);
     expect(order).toContain('/api/chart-reads');
+  });
+});
+
+describe('レビュー 3: 保存のたびに手数料の内訳が増えない', () => {
+  it('追加して保存 → 開き直して追加して保存しても、ラベルの無い内訳は 1 件のまま合計だけ増える', async () => {
+    const { fake, c } = await open([
+      read([ADD_C]),
+      read([
+        { ...ADD_C, strike: 42_000, entry: 30, exit: 10, pnl: 19_500, closed: { ...ADD_C.closed } },
+      ]),
+    ]);
+    await c.addLegsFromStatement(file());
+    await c.save();
+    const first = put(fake)[0];
+    expect(first?.fees).toEqual([{ label: '架空の手数料', amountYen: 1_000 }, { amountYen: 500 }]);
+    await c.load();
+    await c.addLegsFromStatement(file());
+    await c.save();
+    const second = put(fake)[1];
+    expect(second?.fees).toEqual([
+      { label: '架空の手数料', amountYen: 1_000 },
+      { amountYen: 1_000 },
+    ]);
+    expect(second?.legs).toHaveLength(4);
+  });
+});
+
+describe('レビュー 5: 「損益は打った値のままです」は追加の後に損益を直しても添える', () => {
+  it('legNoticeWithPnl', () => {
+    const note = '明細から足を 1 本追加しました';
+    expect(legNoticeWithPnl(note, { hasAdded: true, pnlTyped: false })).toBe(note);
+    expect(legNoticeWithPnl(note, { hasAdded: false, pnlTyped: true })).toBe(note);
+    expect(legNoticeWithPnl(note, { hasAdded: true, pnlTyped: true })).toBe(
+      `${note}。${ADD_LEGS_MSG.pnlTyped}`,
+    );
+    expect(
+      legNoticeWithPnl(`${note}。${ADD_LEGS_MSG.pnlTyped}`, { hasAdded: true, pnlTyped: true }),
+    ).toBe(`${note}。${ADD_LEGS_MSG.pnlTyped}`);
+    expect(legNoticeWithPnl(null, { hasAdded: true, pnlTyped: true })).toBe(ADD_LEGS_MSG.pnlTyped);
+  });
+});
+
+describe('withAddedFees（レビュー 3）', () => {
+  it('内訳が無ければ 1 件、ラベルの無い内訳があれば最後のそれに足す、足す額が無ければ元のまま', () => {
+    expect(withAddedFees([], 500)).toEqual([{ amountYen: 500 }]);
+    const fees = [{ amountYen: 300 }, { label: '架空', amountYen: 200 }, { amountYen: 100 }];
+    expect(withAddedFees(fees, 500)).toEqual([
+      { amountYen: 300 },
+      { label: '架空', amountYen: 200 },
+      { amountYen: 600 },
+    ]);
+    expect(withAddedFees(fees, undefined)).toBe(fees);
+    expect(withAddedFees(fees, 0)).toBe(fees);
   });
 });

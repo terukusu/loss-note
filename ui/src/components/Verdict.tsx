@@ -67,6 +67,8 @@ export interface VerdictProps {
   readonly asideAction?: ComponentChildren;
   /** 直す画面で足を編集した（明細の損益を外して足の合計にした 1 行。#117・4.7） */
   readonly legsEdited?: boolean;
+  /** そのうち、足は直していないが明細から追加した足の損益を足せなかった（文言を替える。#263） */
+  readonly addedNotSummed?: boolean;
   /**
    * LC の物差しを主役にする（取引の詳細だけ。#231・C66）: 物差しを添え書き・崩れの文の直後、数の段の前に置く。
    * 省けば今の順（数の段 → 注記 → 物差し → 理由。記録する画面・編集の画面の判定のシート）
@@ -126,6 +128,7 @@ export function Verdict(v: VerdictProps) {
   const sizing = sizingLine(v.summary, { pending });
   const option = optionVerdictLines(v.summary.option, v.summary.currency ?? 'JPY', {
     legsEdited: v.legsEdited === true,
+    addedNotSummed: v.addedNotSummed === true,
   });
   const maxLossPlan = v.summary.option?.maxLossPlan === true;
   const risky = pending ? null : breachView(j, v.summary.r, v.side);

@@ -61,7 +61,13 @@ import { DraftsContext } from '../lib/drafts-context';
 import { createEditController, type EditController, type EditState } from '../lib/edit-controller';
 import { asksLcDecided, bandText, changeText } from '../lib/edit-form';
 import { EDIT_SHEET_ID, type EditSheet, editValuesNote, editVerdictLine } from '../lib/edit-screen';
-import { type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
+import {
+  fromAddedStatement,
+  type LegUndo,
+  legRemovedText,
+  nextLeg,
+  undoLegRemove,
+} from '../lib/legs-form';
 import { TIMEFRAME_NAME } from '../lib/reasons';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS } from '../lib/record-form';
 import { FIELD_INPUT_ID, tradeSummary } from '../lib/record-screen';
@@ -75,7 +81,7 @@ import {
 } from '../lib/resnapshot';
 import { NavigatorContext } from '../lib/router';
 import { sheetDismiss } from '../lib/sheet';
-import { addLegsBlock } from '../lib/statement-add-legs';
+import { addLegsBlock, legNoticeWithPnl } from '../lib/statement-add-legs';
 import { imageFileFromClipboard, type PasteTarget } from '../lib/statement-fill';
 import { browserCodec, prepareImage } from '../lib/statement-image';
 import { submitStatus } from '../lib/verdict-notes';
@@ -507,7 +513,14 @@ function TradeEditBody(p: TradeEditViewProps) {
                       legs: d.legs.length,
                     }),
                     reading: state.legAdd?.phase === 'reading',
-                    notice: state.legAdd?.notice ?? null,
+                    // 損益の欄を直していれば、追加の前でも後でも「損益は打った値のままです」を添える（レビュー 5）
+                    notice:
+                      state.legAdd?.phase === 'reading'
+                        ? null
+                        : legNoticeWithPnl(state.legAdd?.notice ?? null, {
+                            hasAdded: d.legs.some(fromAddedStatement),
+                            pnlTyped: d.pnlYen !== state.initial.pnlYen,
+                          }),
                     undo: state.legAdd?.undo === true,
                     onPick: p.onAddLegsFromStatement,
                     onCancel: () => p.onCancelLegRead?.(),
@@ -737,6 +750,7 @@ function TradeEditBody(p: TradeEditViewProps) {
             hasErrors={errorFields.length > 0}
             before={state.before}
             legsEdited={read.option?.legsEdited === true}
+            addedNotSummed={read.option?.addedNotSummed === true}
             note={editValuesNote(refresh)}
             {...(offer?.nearVerdict && !refresh
               ? {

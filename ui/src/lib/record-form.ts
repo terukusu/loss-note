@@ -354,6 +354,11 @@ export interface ReadingOption {
    */
   readonly addedFees?: number;
   /**
+   * 直す画面で開いたときの足は変えていないが、明細から追加した足の損益を明細の損益に足せなかった（まとまりが欠けた・読めない・
+   * 通貨に合わない・保存済みの明細の損益が無い。#263 のレビュー 4）。legsEdited と一緒に立つ。判定の枠の 1 行の文言を替える
+   */
+  readonly addedNotSummed?: true;
+  /**
    * 明細から読んだポジションで、オプションの銘柄が一覧に無い: この名前で取引の形態 オプションの銘柄を足す（#118。
    * 乗数は本人が入れる）
    */
@@ -895,7 +900,8 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     // 直す画面（#263・C82）: 保存済みの明細の損益 + 明細から追加した行の損益。足せなければ足の合計に切り替える
     const r = editStatementPnl(pnlYen, draft.legs, money);
     pnlYen = r.pnl;
-    if (r.dropped) option = { ...option, legsEdited: true };
+    // 足を直していないので、判定の枠の 1 行は「明細から追加した足の損益を足せない」理由にする（#263 のレビュー 4）
+    if (r.dropped) option = { ...option, legsEdited: true, addedNotSummed: true };
   } else if (
     option !== undefined &&
     readLegsOk !== undefined &&

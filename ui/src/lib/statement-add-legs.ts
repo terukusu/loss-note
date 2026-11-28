@@ -323,3 +323,16 @@ export function repointLegs(
   const same = Object.keys(patch).every((k) => patch[k] === draft[k as keyof Draft]);
   return same ? { draft, marks } : { draft: { ...draft, ...(patch as Partial<Draft>) }, marks: m };
 }
+
+/**
+ * 足の一覧の知らせに「損益は打った値のままです」を添えるか（#263 のレビュー 5）: 明細から追加した足があり、損益の欄を本人が
+ * 打った・直した（明細の値でない）とき。追加の後に損益の欄を直したときも添える。知らせに既にあれば添えない（二重に出さない）
+ */
+export function legNoticeWithPnl(
+  notice: string | null,
+  p: { readonly hasAdded: boolean; readonly pnlTyped: boolean },
+): string | null {
+  if (!p.hasAdded || !p.pnlTyped) return notice;
+  if (notice?.includes(ADD_LEGS_MSG.pnlTyped)) return notice;
+  return notice === null ? ADD_LEGS_MSG.pnlTyped : `${notice}。${ADD_LEGS_MSG.pnlTyped}`;
+}

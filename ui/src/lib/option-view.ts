@@ -25,6 +25,9 @@ export const SIDE_MISMATCH =
   'LC の向きと足の形の向きが合いません。エントリー時の原資産を確認してください';
 /** 直す画面で足を直したとき（4.7） */
 export const LEGS_EDITED = '足を編集したので、損益は足の合計です';
+/** 直す画面で明細から追加した足の損益を明細の損益に足せなかったとき（足は直していない。#263・C82） */
+export const ADDED_NOT_SUMMED =
+  '明細から追加した足の損益を明細の損益に合算できないので、損益は足の合計です';
 /** 「最大損失まで」で負けた A の注記（#114 の 3。core の asPlannedLc の文言を替える） */
 export { MAX_LOSS_AS_PLANNED } from './reasons';
 
@@ -55,7 +58,7 @@ export function oneRSourceText(source: OneRSource | undefined): string | null {
 export function optionVerdictLines(
   o: OptionSummary | undefined,
   currency: string,
-  opts: { readonly legsEdited?: boolean } = {},
+  opts: { readonly legsEdited?: boolean; readonly addedNotSummed?: boolean } = {},
 ): {
   readonly facts: readonly string[];
   readonly maxLossTip: boolean;
@@ -69,7 +72,7 @@ export function optionVerdictLines(
     if (o.maxLoss !== undefined) parts.push(maxLossText(o.maxLoss, currency));
     if (o.sideMismatch) warnings.push(SIDE_MISMATCH);
   }
-  if (opts.legsEdited) warnings.push(LEGS_EDITED);
+  if (opts.legsEdited) warnings.push(opts.addedNotSummed ? ADDED_NOT_SUMMED : LEGS_EDITED);
   return {
     facts: parts.length === 0 ? [] : [parts.join(' · ')],
     maxLossTip: o?.maxLoss !== undefined,

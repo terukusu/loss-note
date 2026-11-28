@@ -297,7 +297,7 @@ export function App(props: AppProps) {
       drafts.reset();
       unlinks.reset();
     }
-  }, [auth.kind, tradesCache, drafts]);
+  }, [auth.kind, tradesCache, drafts, unlinks]);
   useEffect(() => forbiddenFlag.subscribe(setForbidden), []);
   // 使えないアカウント（#43）: ログイン・ログアウトで旗を下ろし、ログインしたら 1 度だけ読んで確かめる
   // （ホームは /api を読まないので、403 をすぐ受けて「このアカウントでは使えません」を出す。forbidden.ts）

@@ -276,6 +276,15 @@ export function groupTitle(
   return `${GROUP_MARK} · ${instrumentNameOf(first, instruments)} ${SIDE_SHORT[first.record.side]}`;
 }
 
+/** 解いたトーストのまとまりの名前（「XYZ 先物 L」。題の頭の「両建て · 」を重ねない = 「XYZ 先物 L の両建てを解きました」） */
+export function unlinkLabel(
+  mains: readonly StoredTrade[],
+  instruments: readonly InstrumentRecord[],
+): string {
+  const first = mains[0];
+  return first ? `${instrumentNameOf(first, instruments)} ${SIDE_SHORT[first.record.side]}` : '';
+}
+
 /** 取引の短い名前（「XYZ CFD S 100」） */
 export function tradeShortText(t: StoredTrade, instruments: readonly InstrumentRecord[]): string {
   const q = t.record.entries.reduce((s, e) => s + e.quantity, 0);

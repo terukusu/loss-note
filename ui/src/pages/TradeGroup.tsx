@@ -58,6 +58,7 @@ import {
   pnlListText,
   readExitDraft,
   UNLINK_BROKEN_NOTE,
+  unlinkLabel,
   unlinkNote,
 } from '../lib/position-group';
 import { REFLECTION_TITLE, reflectionCardSides } from '../lib/reflection';
@@ -225,11 +226,7 @@ function TradeGroupScreen({ id }: { readonly id: string }) {
         const undo =
           cur.phase === 'ready' && cur.state.kind === 'ok'
             ? {
-                // トーストは「US30 L の両建てを解きました」（題の頭の「両建て · 」を重ねない）
-                label: groupTitle(mainsOf(cur.state.members), cur.instruments).replace(
-                  /^両建て · /,
-                  '',
-                ),
+                label: unlinkLabel(mainsOf(cur.state.members), cur.instruments),
                 body: groupBody(cur.group.members, cur.group.exit),
               }
             : null;

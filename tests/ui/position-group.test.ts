@@ -27,6 +27,7 @@ import {
   previewLine,
   readExitDraft,
   rolesOf,
+  unlinkLabel,
   volumeLine,
 } from '../../ui/src/lib/position-group';
 import { summarize } from '../../ui/src/lib/record-form';
@@ -34,6 +35,7 @@ import { parseRoute } from '../../ui/src/lib/routes';
 import { bootStack } from '../../ui/src/lib/tab-nav';
 import { monthGroups } from '../../ui/src/lib/trade-list';
 import { tradeRow } from '../../ui/src/lib/trade-view';
+import { UNLINK_TOAST_TEXT } from '../../ui/src/lib/unlinks';
 import {
   ABC_CFD,
   cfd,
@@ -428,5 +430,15 @@ describe('詳細に見せる判定（#267 の B1・C78）', () => {
       shownJudgment(ownC, { phase: 'ready', state: groupStateOf(g, byId(c)), byId: byId(c) })
         ?.grade,
     ).toBe('C');
+  });
+});
+
+describe('解いたトーストの文（#267 の再レビュー 1）', () => {
+  it('「XYZ 先物 L の両建てを解きました」（「両建て」を重ねない）', () => {
+    const { f } = h1();
+    const label = unlinkLabel([f], INSTRUMENTS);
+    expect(label).toBe('XYZ 先物 L');
+    expect(UNLINK_TOAST_TEXT.done(label)).toBe('XYZ 先物 L の両建てを解きました');
+    expect(UNLINK_TOAST_TEXT.done(unlinkLabel([], INSTRUMENTS))).toBe('両建てを解きました');
   });
 });

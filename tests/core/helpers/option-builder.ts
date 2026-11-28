@@ -10,7 +10,7 @@ export const MULT = 1_000;
 
 let seq = 0;
 
-/** レッグを作る（id は呼んだ順に l1, l2, …。同じポジションの中で重ならないよう positionOf で振り直す） */
+/** 足を作る（id は呼んだ順に l1, l2, …。同じポジションの中で重ならないよう positionOf で振り直す） */
 export function leg(
   optionType: 'P' | 'C',
   strike: number,
@@ -34,7 +34,7 @@ export function leg(
   };
 }
 
-/** 満期で消えたレッグ（決済値は本源的価値。OTM なら 0） */
+/** 満期で消えた足（決済値は本源的価値。OTM なら 0） */
 export function expiredLeg(
   optionType: 'P' | 'C',
   strike: number,
@@ -62,7 +62,7 @@ export interface PositionOver extends Partial<Omit<TradeInput, 'option' | 'exit'
   readonly riskPlan?: 'maxLoss';
 }
 
-/** レッグからポジション（原資産の取引 + レッグ）を作り、決済したときの原資産で決済する */
+/** 足からポジション（原資産の取引 + 足）を作り、決済したときの原資産で決済する */
 export function position(
   legs: readonly Leg[],
   exitUnderlying: number,
@@ -70,7 +70,7 @@ export function position(
   exitOver: Partial<Exit> = {},
 ): TradeInput {
   const [first, ...rest] = legs.map((l, i) => ({ ...l, id: `l${i + 1}` }));
-  if (first === undefined) throw new Error('レッグが 1 本も無い');
+  if (first === undefined) throw new Error('足が 1 本も無い');
   const { lcLossPlanYen, riskPlan, ...tradeOver } = over;
   return {
     side: 'L',

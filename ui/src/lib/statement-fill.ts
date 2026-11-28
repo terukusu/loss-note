@@ -51,7 +51,7 @@ export interface ReadRow {
   readonly exitOrderType: ExitOrderType;
   /**
    * オプションの行（#118 の option がある行）。価格はプレミアムで、取引の欄（原資産の価格）・L / S・数量に流し込まない
-   * （#117 のレビュー 5）。レッグへは statement-positions.ts が流し込む。オプションでない行には鍵が無い
+   * （#117 のレビュー 5）。足へは statement-positions.ts が流し込む。オプションでない行には鍵が無い
    */
   readonly option?: ReadOption;
   /**
@@ -217,7 +217,7 @@ export function parseReadResponse(json: unknown): ReadResult | null {
 
 /**
  * 欄の印: 読み取り / 読み取れませんでした / 直した / 時間帯が明細にありません / 明細から（逆指値の既定）/
- * 自動で選択（前にこの明細で選んだ口座。#66）/ SQ の日（満期で消えた売りのレッグが最後に閉じた。C54・#118）
+ * 自動で選択（前にこの明細で選んだ口座。#66）/ SQ の日（満期で消えた売りの足が最後に閉じた。C54・#118）
  */
 export type FieldMark = 'read' | 'unread' | 'edited' | 'tz' | 'statement' | 'auto' | 'sq';
 export type Marks = Readonly<Partial<Record<DraftField, FieldMark>>>;

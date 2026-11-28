@@ -70,7 +70,7 @@ describe('画面の検査の単位', () => {
       'settings',
       'settings-accounts',
     ]);
-    // レッグの部品 → オプションの手順と、レッグの画面を測る記録する・詳細・編集の単位
+    // 足の部品 → オプションの手順と、足の画面を測る記録する・詳細・編集の単位
     expect(unitsForChanges(['ui/src/components/LegList.tsx']).units).toEqual([
       'detail',
       'edit',

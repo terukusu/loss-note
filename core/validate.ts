@@ -7,7 +7,7 @@ export type Issue =
   | { readonly kind: 'lcMoveDirection' }
   | { readonly kind: 'invalidNumber'; readonly field: string }
   /**
-   * レッグを持つ取引の形（4.7）: 本数が 1〜10 でない・ID が重なる・エントリーが 1 つでない・
+   * 足を持つ取引の形（4.7）: 本数が 1〜10 でない・ID が重なる・エントリーが 1 つでない・
    * 「最大損失まで」が LC か LC での損失の見込みと同時（riskPlan）
    */
   | {
@@ -27,7 +27,7 @@ function nonNegative(v: number): boolean {
   return Number.isFinite(v) && v >= 0;
 }
 
-/** レッグを持つ取引の検査（4.7。レッグの時刻がポジションの範囲に入るかは API が見る） */
+/** 足を持つ取引の検査（4.7。足の時刻がポジションの範囲に入るかは API が見る） */
 function legIssues(t: TradeInput): Issue[] {
   const o = t.option;
   if (o === undefined) return [];

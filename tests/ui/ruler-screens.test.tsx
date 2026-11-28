@@ -570,7 +570,7 @@ describe('物差しの見出しと「i」（#57）', () => {
 
 // ---- #231（設計書 C66）: 詳細の主役の物差し・図の文法・LC なしと LC の価格の無いオプションの形 ----
 
-/** オプションのポジションの共有の fixture の P3（「最大損失まで」・レッグ 2 本。値は架空） */
+/** オプションのポジションの共有の fixture の P3（「最大損失まで」・足 2 本。値は架空） */
 function optionP3(): StoredTrade {
   const raw = JSON.parse(
     readFileSync(new URL('../fixtures/records/option-legs.json', import.meta.url), 'utf8'),

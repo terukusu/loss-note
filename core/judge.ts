@@ -18,7 +18,7 @@ export type Reason =
       readonly to?: Timeframe;
     }
   /**
-   * 持ち続けた。先物などは r（決済の R）、レッグを持つ取引は underlying（決済したときの原資産。R は出れば r。C48）
+   * 持ち続けた。先物などは r（決済の R）、足を持つ取引は underlying（決済したときの原資産。R は出れば r。C48）
    */
   | { readonly kind: 'heldPastLc'; readonly r?: number; readonly underlying?: number }
   | { readonly kind: 'overRisk'; readonly riskPct: number }
@@ -86,7 +86,7 @@ export interface Judgment {
 
 /**
  * 勝ち負けの境（C29）: R があれば R ≥ 0 が勝ち、無ければ損益（円）≥ 0、それも無ければ価格の動き ≥ 0。
- * レッグを持つ取引は手数料を除いた損益（損益 + 手数料）の符号、損益が出なければレッグの価格の通貨の損益の合計の符号（C48）。
+ * 足を持つ取引は手数料を除いた損益（損益 + 手数料）の符号、損益が出なければ足の価格の通貨の損益の合計の符号（C48）。
  * どちらも 0 は勝ちの側（誤差 1e-9 を許す）
  */
 export function outcomeOf(t: TradeInput, nums: JudgeNumbers): Outcome | undefined {
@@ -121,7 +121,7 @@ export const SLIP_ALLOWANCE_RATIO = 0.1;
 
 /**
  * 滑りとして許す幅（価格。C71）: 最後のエントリーのイン〜そのエントリーの入る前の LC（無ければ取引の LC）の幅の 10%。
- * 広げた・取り消したでも入る前の LC で測る（R の分母と同じ幅 = 0.1R）。レッグを持つ取引は原資産の価格（イン = 建てたときの原資産）。
+ * 広げた・取り消したでも入る前の LC で測る（R の分母と同じ幅 = 0.1R）。足を持つ取引は原資産の価格（イン = 建てたときの原資産）。
  * 幅が出なければ 0（許さない）
  */
 export function slipAllowance(t: TradeInput): number {
@@ -168,7 +168,7 @@ function heldPast(t: TradeInput, r: number | undefined, o: HeldOptions): boolean
 }
 
 /**
- * レッグを持つ取引の「持ち続けた」（C48）: 決済したときの原資産が比較先（C30）を不利な側に越えた（誤差 1e-9）幅が
+ * 足を持つ取引の「持ち続けた」（C48）: 決済したときの原資産が比較先（C30）を不利な側に越えた（誤差 1e-9）幅が
  * 0.1R までの滑り（C71。原資産の価格で同じ割合）を越え、かつ逆指値でない（満期（SQ）は逆指値とみなさない。C54）・
  * 窓・滑りでもない。1R・損益の符号は見ない。「最大損失まで」は見ない（C50）
  */

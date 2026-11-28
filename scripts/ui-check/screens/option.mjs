@@ -16,7 +16,7 @@ import {
 } from '../helpers.mjs';
 
 /**
- * 画面の検査の単位「オプションのポジション」: レッグの記録・詳細・編集 OPT117 と、明細のオプションの行 OPT118・OPT118N
+ * 画面の検査の単位「オプションのポジション」: 足の記録・詳細・編集 OPT117 と、明細のオプションの行 OPT118・OPT118N
  */
 export const id = 'option';
 export const title = 'オプションのポジション';
@@ -24,9 +24,9 @@ export const title = 'オプションのポジション';
 /** 手順（OPT117・OPT118・OPT118N） */
 export async function flows(kit) {
   const { base, check, expectEq, recordContext } = kit;
-  // OPT117（#117）: オプションのポジションのレッグ。架空の銘柄（商品の形 = オプション）と、合成の fixture（option-legs.json の P1）の
-  // 取引で、記録する画面の 2 段目の取引の欄のシートの段 leg（［＋ レッグ］）・詳細のレッグの表・編集の段 leg を開き、シートが窓の中・
-  // 横のスクロール 0 を見る。編集は何も変えずに保存し、PUT の本文にレッグが載る（#116 の 409 legsMissing を避ける）。
+  // OPT117（#117）: オプションのポジションの足。架空の銘柄（商品の形 = オプション）と、合成の fixture（option-legs.json の P1）の
+  // 取引で、記録する画面の 2 段目の取引の欄のシートの段 leg（［＋ 足］）・詳細の足の表・編集の段 leg を開き、シートが窓の中・
+  // 横のスクロール 0 を見る。編集は何も変えずに保存し、PUT の本文に足が載る（#116 の 409 legsMissing を避ける）。
   // --shots なら 3 つ（記録の段 leg・詳細・編集の段 leg）だけ撮る（ダーク）
   await check('OPT117', async () => {
     const { c, p, fake, errors } = await recordContext();
@@ -76,7 +76,7 @@ export async function flows(kit) {
         p.evaluate(
           () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
         );
-      // 記録する画面: ［明細なしで手入力］ → 銘柄をオプションに → レッグの一覧 → ［＋ レッグ］ で段 leg
+      // 記録する画面: ［明細なしで手入力］ → 銘柄をオプションに → 足の一覧 → ［＋ 足］ で段 leg
       await openRecord(p, base);
       await openFields(p);
       await p.locator('#record-instrument').fill(inst.name);
@@ -88,7 +88,7 @@ export async function flows(kit) {
       );
       await p.locator('#record-legs-add').click();
       await expectPollAsync(
-        async () => (await titleOf('record-fields-sheet')) === 'レッグ 1',
+        async () => (await titleOf('record-fields-sheet')) === '足 1',
         '段 leg の題',
       );
       await settleSheet(p);
@@ -115,19 +115,19 @@ export async function flows(kit) {
       for (let i = 1; i < 10; i++) {
         await p.locator('#record-legs-add').click();
         await expectPollAsync(
-          async () => (await titleOf('record-fields-sheet')) === `レッグ ${i + 1}`,
-          `レッグ ${i + 1} の段`,
+          async () => (await titleOf('record-fields-sheet')) === `足 ${i + 1}`,
+          `足 ${i + 1} の段`,
         );
         await toMain();
       }
-      expectEq(await p.locator('#record-legs .legs__item').count(), 10, 'レッグの行');
-      expectEq(await p.locator('#record-legs-add').isDisabled(), true, '11 本目の ［＋ レッグ］');
+      expectEq(await p.locator('#record-legs .legs__item').count(), 10, '足の行');
+      expectEq(await p.locator('#record-legs-add').isDisabled(), true, '11 本目の ［＋ 足］');
       expectEq(await hscroll(), 0, '10 本の横のスクロール');
       // 消して ［元に戻す］（P4。デザインレビュー B1）
       await p.locator('#record-legs-9').click();
       await expectPollAsync(
-        async () => (await titleOf('record-fields-sheet')) === 'レッグ 10',
-        'レッグ 10 の段',
+        async () => (await titleOf('record-fields-sheet')) === '足 10',
+        '足 10 の段',
       );
       await p.locator('#leg-9-remove').click();
       await expectPollAsync(
@@ -141,11 +141,11 @@ export async function flows(kit) {
       await shot('opt-record-undo');
       await p.locator('#record-legs-undo').click();
       expectEq(await p.locator('#record-legs .legs__item').count(), 10, '戻した後の行');
-      // 再レビュー B2: 消してから ［＋ レッグ］ で 10 本に戻すと、［元に戻す］ は押せず理由を出す（11 本目を作らない）
+      // 再レビュー B2: 消してから ［＋ 足］ で 10 本に戻すと、［元に戻す］ は押せず理由を出す（11 本目を作らない）
       await p.locator('#record-legs-9').click();
       await expectPollAsync(
-        async () => (await titleOf('record-fields-sheet')) === 'レッグ 10',
-        'レッグ 10 の段（2 回目）',
+        async () => (await titleOf('record-fields-sheet')) === '足 10',
+        '足 10 の段（2 回目）',
       );
       await p.locator('#leg-9-remove').click();
       await p.locator('#record-legs-undo').waitFor({ state: 'visible', timeout: 5000 });
@@ -175,21 +175,21 @@ export async function flows(kit) {
         await p.screenshot({ path: join(opts.shots, '1440x900-dark-opt-detail-10.png') });
       }
       await p.setViewportSize({ width: 390, height: 844 });
-      // 詳細: 判定のカードの下にレッグの表
+      // 詳細: 判定のカードの下に足の表
       await p.goto(`${base}/trades/x-opt1`);
       await waitDetail(p);
       await p.locator('.legtable').waitFor({ state: 'visible', timeout: 10000 });
       expectEq(await hscroll(), 0, '詳細の横のスクロール');
       await p.locator('.legtable').scrollIntoViewIfNeeded();
       await shot('opt-detail');
-      // 編集: 取引の欄のシートのレッグの行 → 段 leg。閉じて何も変えずに保存 → PUT にレッグ
+      // 編集: 取引の欄のシートの足の行 → 段 leg。閉じて何も変えずに保存 → PUT に足
       await p.goto(`${base}/trades/x-opt1/edit`);
       await waitReady(p, '取引を編集');
       await p.locator('#edit-submit').waitFor();
       await openEditFields(p);
       await p.locator('#record-legs-1').click();
       await expectPollAsync(
-        async () => (await titleOf('edit-fields-sheet')) === 'レッグ 2',
+        async () => (await titleOf('edit-fields-sheet')) === '足 2',
         '編集の段 leg の題',
       );
       await settleSheet(p);
@@ -200,16 +200,16 @@ export async function flows(kit) {
       await p.locator('#edit-submit').click();
       await expectPollAsync(async () => fake.puts.length === 1, 'PUT が届く');
       const legs = fake.puts[0].body?.legs;
-      expectEq(Array.isArray(legs) ? legs.length : -1, fx.record.legs.length, 'PUT のレッグの数');
+      expectEq(Array.isArray(legs) ? legs.length : -1, fx.record.legs.length, 'PUT の足の数');
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return '記録の段 leg（2 列で決済・満期で消滅まで窓の中）・10 本で横 0 と 11 本目は押せない・消して ［元に戻す］、詳細のレッグの表（390 カード / 1440 表・10 本で横 0）・編集の段 leg が窓の中で横 0、編集の保存の PUT にレッグ 3 本';
+    return '記録の段 leg（2 列で決済・満期で消滅まで窓の中）・10 本で横 0 と 11 本目は押せない・消して ［元に戻す］、詳細の足の表（390 カード / 1440 表・10 本で横 0）・編集の段 leg が窓の中で横 0、編集の保存の PUT に足 3 本';
   });
 
   // OPT118（#118）: 明細のオプションの行 → ポジションの下書き。偽の読み取りが架空のオプションの行 3 本（同じ日の 2 本 = 1 件、
-  // 別の日の 1 本 = 次の件。1 本目は年を補った限月）を返し、2 段目の要約・取引の欄のシートのレッグの一覧（印「読み取り ·
+  // 別の日の 1 本 = 次の件。1 本目は年を補った限月）を返し、2 段目の要約・取引の欄のシートの足の一覧（印「読み取り ·
   // 年を補った」・「明細の次のポジション ［このポジションに入れる］」）を見る。［別のポジションにする］ → ［このポジションに入れる］
   // で 1 件に戻る。シートが窓の中・横 0。--shots なら 2 つ（2 段目・取引の欄のシート。ダーク）だけ撮る
   await check('OPT118', async () => {
@@ -311,24 +311,24 @@ export async function flows(kit) {
       await makeImage(p, STATEMENT_SPEC, 'paste');
       await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
       await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
-      // 2 段目: 上の帯に「1 / 2 件目」（取引とポジションを合わせて数える）、要約に「レッグ 2」
+      // 2 段目: 上の帯に「1 / 2 件目」（取引とポジションを合わせて数える）、要約に「足 2」
       await p.getByText('1 / 2 件目').first().waitFor({ timeout: 5000 });
       expectEq(
-        ((await p.locator('#record-summary').textContent()) ?? '').includes('レッグ 2'),
+        ((await p.locator('#record-summary').textContent()) ?? '').includes('足 2'),
         true,
-        '要約のレッグ',
+        '要約の足',
       );
       expectEq(await hscroll(), 0, '2 段目の横のスクロール');
-      // 年を補った限月の札（注意の色）が要約に出る。要約の名前・「L · レッグ 2」は切れない（デザインレビュー 1・5・#164）
+      // 年を補った限月の札（注意の色）が要約に出る。要約の名前・「L · 足 2」は切れない（デザインレビュー 1・5・#164）
       await p.locator('#record-summary .field__mark--warn').waitFor({ timeout: 5000 });
       expectEq((await summaryCuts(p)).join('、'), '', '要約の切れた文字');
       await shot('opt118-review');
-      // 取引の欄のシート: レッグ 2 本の印・次のポジションの行
+      // 取引の欄のシート: 足 2 本の印・次のポジションの行
       await openFields(p);
       await p.locator('#record-legs-merge').scrollIntoViewIfNeeded();
       await settleSheet(p);
       const metas = await p.locator('#record-legs .rowlink__meta').allTextContents();
-      expectEq(metas.join(' | '), '読み取り | 読み取り', 'レッグの印');
+      expectEq(metas.join(' | '), '読み取り | 読み取り', '足の印');
       expectEq(await p.locator('#record-legs .field__mark--warn').count(), 1, '年の札');
       const nextText = (await p.locator('#record-legs .legs__next').textContent()) ?? '';
       expectEq(
@@ -339,17 +339,17 @@ export async function flows(kit) {
       expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), '取引の欄のシート');
       expectEq(await hscroll(), 0, 'シートの横のスクロール');
       await shot('opt118-legs');
-      // ［別のポジションにする］（レッグ 2 の段）→ 1 本に。［このポジションに入れる］ で 2 本に戻る（7.6）
+      // ［別のポジションにする］（足 2 の段）→ 1 本に。［このポジションに入れる］ で 2 本に戻る（7.6）
       await p.locator('#record-legs-1').click();
       await p.locator('#leg-1-split').waitFor({ state: 'visible', timeout: 5000 });
       await settleSheet(p);
-      expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), 'レッグ 1 本の段');
-      expectEq(await hscroll(), 0, 'レッグの段の横のスクロール');
+      expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), '足 1 本の段');
+      expectEq(await hscroll(), 0, '足の段の横のスクロール');
       await shot('opt118-leg');
       await p.locator('#leg-1-split').click();
       await expectPollAsync(
         async () => (await p.locator('#record-legs .legs__item').count()) === 1,
-        '分けた後のレッグ',
+        '分けた後の足',
       );
       await p.getByText('1 / 3 件目').first().waitFor({ timeout: 5000 });
       await expectPollAsync(
@@ -361,14 +361,14 @@ export async function flows(kit) {
       await p.locator('#record-legs-merge').click();
       await expectPollAsync(
         async () => (await p.locator('#record-legs .legs__item').count()) === 2,
-        '入れた後のレッグ',
+        '入れた後の足',
       );
       // 2 件目（別の日のポジション 1 本）: 1 件目をスキップして移る
       await p.getByRole('button', { name: 'このポジションをスキップ' }).click();
       await p.getByText('2 / 2 件目').first().waitFor({ timeout: 5000 });
       await closeSheets(p);
       expectEq(
-        ((await p.locator('#record-summary').textContent()) ?? '').includes('レッグ 1'),
+        ((await p.locator('#record-summary').textContent()) ?? '').includes('足 1'),
         true,
         '2 件目の要約',
       );
@@ -378,7 +378,7 @@ export async function flows(kit) {
     } finally {
       await c.close();
     }
-    return '明細のオプションの行 3 本 → 2 件（ポジション 2 本 + 1 本）・「1 / 2 件目」・要約「レッグ 2」（切れない）と年の札・次のポジションの見出し（エントリーの日・レッグの 1 行）、レッグの段、［別のポジションにする］ → 3 件・知らせ → ［このポジションに入れる］ で 2 本に戻る、2 件目、シートが窓の中・横 0';
+    return '明細のオプションの行 3 本 → 2 件（ポジション 2 本 + 1 本）・「1 / 2 件目」・要約「足 2」（切れない）と年の札・次のポジションの見出し（エントリーの日・足の 1 行）、足の段、［別のポジションにする］ → 3 件・知らせ → ［このポジションに入れる］ で 2 本に戻る、2 件目、シートが窓の中・横 0';
   });
 
   // OPT118N（#118 の見直し）: オプションの銘柄が一覧に無い明細のポジション。2 段目の要約に「未入力 乗数」、押すと取引の欄の

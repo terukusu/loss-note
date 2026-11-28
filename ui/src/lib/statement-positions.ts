@@ -3,11 +3,11 @@
 //   「i / N 件目」は取引とポジションを合わせて数える（7.6 の 2）
 // - ポジションの合成の行（unitRow）: 原資産の名前・最初に建てた時刻・最後に決済した時刻・損益と手数料の合計。下書きへの流し込み
 //   （fillFromRow）・時間帯の確かめ（statement-tz.ts）は先物の行と同じ道を通る。プレミアムの価格・枚数は取引の欄へ入れない
-// - レッグの下書き（unitLegs）: 明細の行 1 つ = 1 レッグ（読み取りの印つき）。まとめ直しても本人が直したレッグは保つ
+// - 足の下書き（unitLegs）: 明細の行 1 つ = 1 足（読み取りの印つき）。まとめ直しても本人が直した足は保つ
 // - [別のポジションにする]（splitUnit）・［このポジションに入れる］（mergeNext。7.6 の [前のポジションに入れる] を前の側から押す形）
 // - C54 の既定（syncExpiry）: 決済の時点が SQ（注文の種類 expiry）なら、明細の逆指値から入れた既定（決済の理由 = LC・逆指値を
 //   入れた）を触っていなければ外し、決済の時刻を SQ の日に。SQ でなくなれば明細の値に戻す
-// - 手で足した決済のレッグの損益を明細の損益に足す（statementPnlWithLegs。4.7）
+// - 手で追加した決済の足の損益を明細の損益に加える（statementPnlWithLegs。4.7）
 import { legPnlPrice, positionExitOrderType, positionExitPoint } from '../../../core/option';
 import type { InstrumentRecord } from '../../../core/record';
 import type { Leg } from '../../../core/trade';
@@ -184,7 +184,7 @@ function timeMs(t: ReadTime | null, zone: TzId | null): number | undefined {
   return r.kind === 'ok' ? r.ms : undefined;
 }
 
-/** 明細のオプションの行 → レッグの下書き（読み取りの印つき。P / C・限月・行使価格・売買は読めなければ空） */
+/** 明細のオプションの行 → 足の下書き（読み取りの印つき。P / C・限月・行使価格・売買は読めなければ空） */
 export function legDraftOf(row: ReadRow, raw: number, unit: Unit, zone: TzId | null): LegDraft {
   const o = row.option;
   const entryTime = timeMs(row.entryTime, zone);
@@ -205,7 +205,7 @@ export function legDraftOf(row: ReadRow, raw: number, unit: Unit, zone: TzId | n
 }
 
 /**
- * ポジションのレッグの並び: 明細の行の順のレッグ（前の下書きに同じ行のレッグがあれば、本人の直しごと保つ）+ 手で足したレッグ。
+ * ポジションの足の並び: 明細の行の順の足（前の下書きに同じ行の足があれば、本人の直しごと保つ）+ 手で追加した足。
  * 10 本を超えても黙って落とさない（readLegs が保存を止める）
  */
 export function unitLegs(
@@ -227,7 +227,7 @@ export function unitLegs(
   return [...read, ...current.filter((l) => l.read === undefined)];
 }
 
-/** 時間帯を選んだ・外したとき: 明細から読んだレッグの時刻を、明細の行から当て直す（時間帯が無ければ時刻なし） */
+/** 時間帯を選んだ・外したとき: 明細から読んだ足の時刻を、明細の行から当て直す（時間帯が無ければ時刻なし） */
 export function legsWithZone(
   legs: readonly LegDraft[],
   raw: readonly ReadRow[],
@@ -258,9 +258,9 @@ function statementTime(t: ReadTime | null, zone: TzId | null): { value: string; 
 /**
  * C54 の既定（明細から作ったポジションの下書きだけ）。決済の時点が SQ（注文の種類が expiry になる）なら:
  * - 明細の逆指値から入れた既定を外す（触っていなければ決済の理由 = その他・印なし、逆指値を入れたか = 未回答）
- * - 決済の時刻を SQ の日（満期で消えたレッグの時刻 = その日の日本時間の終わり）に（触っていなければ。印「SQ の日」）
+ * - 決済の時刻を SQ の日（満期で消えた足の時刻 = その日の日本時間の終わり）に（触っていなければ。印「SQ の日」）
  * SQ でなくなれば明細の値に戻す（決済の理由 = LC・印「明細から」、逆指値を入れた、決済の時刻 = 明細の時刻）。
- * レッグがそろっていない間は変えない
+ * 足がそろっていない間は変えない
  */
 export function syncExpiry(
   draft: Draft,
@@ -307,10 +307,10 @@ export function syncExpiry(
 }
 
 /**
- * 明細の損益（ポジションの明細の行の合計）+ 手で足した決済したレッグの導出の損益（4.7）。
- * - 明細から読んだレッグが欠けた（消した・別のポジションにした後に直した）・満期で消滅にしたときは、明細の損益がどのレッグの分か
- *   分からないので無し（レッグの合計に切り替える。直す画面と同じ）
- * - 為替が要るのに無ければ無し（レッグの合計を使う）
+ * 明細の損益（ポジションの明細の行の合計）+ 手で追加した決済した足の導出の損益（4.7）。
+ * - 明細から読んだ足が欠けた（消した・別のポジションにした後に直した）・満期で消滅にしたときは、明細の損益がどの足の分か
+ *   分からないので無し（足の合計に切り替える。直す画面と同じ）
+ * - 為替が要るのに無ければ無し（足の合計を使う）
  * 返す changed = 明細の損益をそのまま使わない（足した・空にした）
  */
 export function statementPnlWithLegs(
@@ -341,13 +341,13 @@ export function statementPnlWithLegs(
 }
 
 /**
- * 先物・CFD などの銘柄の名前を打ったポジションの理由（保存しない。API はレッグを持てる銘柄を商品の形で決める。ADR-0020 の
+ * 先物・CFD などの銘柄の名前を打ったポジションの理由（保存しない。API は足を持てる銘柄を商品の形で決める。ADR-0020 の
  * 決定 9）。先物の銘柄の形を変えさせない（以後の先物の記録が壊れるため。#118 のレビュー B1）
  */
 export const OPTION_INSTRUMENT_NEEDED =
-  'オプションのポジションです。先物・CFD の銘柄にはレッグを記録できないので、オプションの銘柄を選んでください';
+  'オプションのポジションです。先物・CFD の銘柄には足を記録できないので、オプションの銘柄を選んでください';
 
-/** 保存の門: 明細のポジションなのに、銘柄がオプションの形でない（レッグを読まない）間は保存しない。名前が空なら足りない欄に任せる */
+/** 保存の門: 明細のポジションなのに、銘柄がオプションの形でない（足を読まない）間は保存しない。名前が空なら足りない欄に任せる */
 export function gatePosition(read: DraftReading, row: ReadRow | undefined): DraftReading {
   if (row?.legs === undefined || read.option !== undefined || read.instrument.name === '') {
     return read;
@@ -386,7 +386,7 @@ export interface NextPositionView {
 }
 
 /**
- * 今の件（index）の次の同じ原資産のポジションの見出し: レッグの本数・1 本目のレッグの 1 行・エントリーの日（明細に書かれた日の
+ * 今の件（index）の次の同じ原資産のポジションの見出し: 足の本数・1 本目の足の 1 行・エントリーの日（明細に書かれた日の
  * 「M/D」）。無ければ null（デザインレビュー 2）
  */
 export function nextPositionView(

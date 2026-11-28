@@ -20,7 +20,7 @@ from loss_note_api.store import UnknownSchemaVersion
 A = "versionUserA"
 B = "versionUserB"
 CONFLICT = {"error": "conflict", "reason": "unknownSchemaVersion"}
-# この版の知らない版（#116 でこの版はレッグの版 2 を知るので、知らない版は 3）
+# この版の知らない版（#116 でこの版は足の版 2 を知るので、知らない版は 3）
 NEWER = trade_version.SCHEMA_VERSION + 1
 
 
@@ -104,7 +104,7 @@ def test_missing_version_is_unknown():
 
 
 def test_schema_version_value():
-    """この版の知る値は 2（#116。レッグを持つ取引の版。レッグの無い取引には今どおり 1 を書く = test_v1_unchanged）"""
+    """この版の知る値は 2（#116。足を持つ取引の版。足の無い取引には今どおり 1 を書く = test_v1_unchanged）"""
     assert trade_version.SCHEMA_VERSION == 2
 
 

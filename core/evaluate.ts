@@ -17,12 +17,12 @@ export type Evaluation =
       readonly overRisk?: boolean;
       readonly prePlan: boolean;
       readonly judgment?: Judgment;
-      /** 1R の出どころ（レッグを持つ取引で 1R が出たときだけ。C49） */
+      /** 1R の出どころ（足を持つ取引で 1R が出たときだけ。C49） */
       readonly oneRSource?: OneRSource;
     };
 
 /**
- * レッグを持つ取引の決済の注文の種類は、入力をそのまま信じずレッグの決済の時点から導く（C54。時点が SQ なら満期（SQ）。
+ * 足を持つ取引の決済の注文の種類は、入力をそのまま信じず足の決済の時点から導く（C54。時点が SQ なら満期（SQ）。
  * 明細の「逆指値」が残ったまま渡っても、SQ まで残した売りを救わない）
  */
 function withDerivedOrderType(t: TradeInput): TradeInput {

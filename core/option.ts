@@ -1,5 +1,5 @@
-// オプションのポジション（原資産の取引 + レッグ）の計算（設計書 4.7・5.7・C47〜C49・C54・ADR-0020）。
-// 判定は 5.3・5.4 の同じ関数（judge.ts）を通り、ここはレッグに特有の数だけを出す: ポジションの損益（満期で消えたレッグを必ず足す）・
+// オプションのポジション（原資産の取引 + 足）の計算（設計書 4.7・5.7・C47〜C49・C54・ADR-0020）。
+// 判定は 5.3・5.4 の同じ関数（judge.ts）を通り、ここは足に特有の数だけを出す: ポジションの損益（満期で消えた足を必ず加える）・
 // 手数料を除いた損益・1R（(1) 見込み・(2) 実際の動きから・(3) 満期の損益から・「最大損失まで」）・満期の損益と最大損失の口座の通貨の額・
 // 向き（LC の側と満期の損益の比べ方・食い違い）・決済の時点と注文の種類。区分線形の式は expiry.ts（価格の通貨）。
 // 金額は口座の通貨。丸めずに返す。I/O・時刻・乱数なし
@@ -7,7 +7,7 @@ import { expiryPnlPrice, maxLossPrice, sameContractMonth, sideFromExpiry } from 
 import { signOf } from './numeric';
 import type { ExitOrderType, Leg, Side, TradeInput } from './trade';
 
-/** レッグの本数の上限（4.7） */
+/** 足の本数の上限（4.7） */
 export const MAX_LEGS = 10;
 
 /** 買い = +1・売り = −1 */
@@ -15,7 +15,7 @@ export function legSign(l: Leg): 1 | -1 {
   return l.side === 'buy' ? 1 : -1;
 }
 
-/** レッグの導出の損益（価格の通貨）= sign × (決済値 − 建値) × 枚数 × 乗数。満期で消えたレッグは決済値 = 本源的価値 */
+/** 足の導出の損益（価格の通貨）= sign × (決済値 − 建値) × 枚数 × 乗数。満期で消えた足は決済値 = 本源的価値 */
 export function legPnlPrice(l: Leg, multiplier: number): number {
   return legSign(l) * (l.exit.price - l.entry.price) * l.quantity * multiplier;
 }
@@ -29,7 +29,7 @@ function sumPrice(legs: readonly Leg[], multiplier: number): number {
   return legs.reduce((sum, l) => sum + legPnlPrice(l, multiplier), 0);
 }
 
-/** すべてのレッグの価格の通貨の損益の合計（為替が出ないときの勝ち負けの境。4.7・C48）。レッグが無ければ無し */
+/** すべての足の価格の通貨の損益の合計（為替が出ないときの勝ち負けの境。4.7・C48）。足が無ければ無し */
 export function positionPnlPriceCurrency(t: TradeInput): number | undefined {
   if (t.option === undefined) return undefined;
   return sumPrice(t.option.legs, t.instrument.multiplier);
@@ -37,7 +37,7 @@ export function positionPnlPriceCurrency(t: TradeInput): number | undefined {
 
 /**
  * ポジションの損益（口座の通貨。判定と R の正。4.7）。
- * 明細の損益があれば、それ（決済したレッグの分）+ 満期で消えたレッグの導出の損益 × 為替。無ければすべてのレッグの導出の損益 × 為替。
+ * 明細の損益があれば、それ（決済した足の分）+ 満期で消えた足の導出の損益 × 為替。無ければすべての足の導出の損益 × 為替。
  * 為替が出ず換算が要るときは無し（明細の損益だけで済ませない: 消えた買いで全体がマイナスのことがあるため）
  */
 export function positionPnlYen(t: TradeInput): number | undefined {
@@ -57,8 +57,8 @@ export function positionPnlYen(t: TradeInput): number | undefined {
 
 /**
  * 手数料を除いた損益（勝ち負けの境と R の分子。4.7・C48・C49）。明細の損益があれば
- * 明細の損益 + 手数料の合計 + 満期で消えたレッグの導出の損益（明細の損益は手数料を引いた実損なので足して戻す）、
- * 無ければすべてのレッグの導出の損益の合計（もともと手数料を含まないので手数料を足さない）。為替が出ず換算できなければ無し
+ * 明細の損益 + 手数料の合計 + 満期で消えた足の導出の損益（明細の損益は手数料を引いた実損なので足して戻す）、
+ * 無ければすべての足の導出の損益の合計（もともと手数料を含まないので手数料を足さない）。為替が出ず換算できなければ無し
  */
 export function positionNetYen(t: TradeInput): number | undefined {
   const pnl = positionPnlYen(t);
@@ -79,8 +79,8 @@ export interface OptionOneR {
 }
 
 /**
- * 原資産 = x の満期の損益（口座の通貨。5.7 の 5）。すべてのレッグの限月が同じで為替が出るときだけ
- * （為替は C43 のまま。価格の通貨 = 口座の通貨なら 1）。レッグが無ければ無し
+ * 原資産 = x の満期の損益（口座の通貨。5.7 の 5）。すべての足の限月が同じで為替が出るときだけ
+ * （為替は C43 のまま。価格の通貨 = 口座の通貨なら 1）。足が無ければ無し
  */
 export function optionExpiryPnlYen(t: TradeInput, x: number): number | undefined {
   const o = t.option;
@@ -125,7 +125,7 @@ function plannedLc(t: TradeInput): number | undefined {
  * そうでなければ (1) 見込み → (2) 実際の動きから → (3) 満期の損益から の順で 1 つ目に出たもの。
  * (2) は手数料を除いた損益がマイナスで、原資産が思惑と逆に LC までの幅の半分以上動いたときだけ
  * `|手数料を除いた損益| × |イン − LC| ÷ |決済 − イン|`（イン・決済・LC は原資産。LC は入る前の LC。C30）。
- * (3) はすべてのレッグの限月が同じで為替が出るとき、原資産 = LC（入る前の LC）の満期の損益（口座の通貨）がマイナスならその絶対値。
+ * (3) はすべての足の限月が同じで為替が出るとき、原資産 = LC（入る前の LC）の満期の損益（口座の通貨）がマイナスならその絶対値。
  * (1) は口座の通貨の値なので、為替が空で損益が出ないときも出す（R は損益が無いので出ない）。(2) は損益が要る。
  * 5.1 の補いの式は当てない
  */
@@ -202,7 +202,7 @@ export function optionSideMismatch(t: TradeInput): boolean {
 }
 
 /**
- * ポジションの決済の時点（C54）。closed = 自分で決済したレッグ、expiredSell = 満期で消えた売りのレッグ（SQ）、
+ * ポジションの決済の時点（C54）。closed = 自分で決済した足、expiredSell = 満期で消えた売りの足（SQ）、
  * expiredBuy = すべてが満期で消えた買いのとき（SQ）
  */
 export interface ExitPoint {
@@ -218,9 +218,9 @@ function pointOf(l: Leg): ExitPoint {
 }
 
 /**
- * リスクが残っていたレッグを最後に閉じた時点（C54）。数えるのは決済したレッグと満期で消えた売りのレッグで、満期で消えた買いは
- * 数えない（損益にだけ入る）。数えるレッグが無ければ（すべてが消えた買い）SQ。同じ時刻なら満期で消えた売りを取る（救わない側）。
- * 数えるレッグが 2 本以上で時刻の無いものがあれば、順が決まらないので無し（C54。SQ の日はその日の日本時間の終わりとして保存する。#116）
+ * リスクが残っていた足を最後に閉じた時点（C54）。数えるのは決済した足と満期で消えた売りの足で、満期で消えた買いは
+ * 数えない（損益にだけ入る）。数える足が無ければ（すべてが消えた買い）SQ。同じ時刻なら満期で消えた売りを取る（救わない側）。
+ * 数える足が 2 本以上で時刻の無いものがあれば、順が決まらないので無し（C54。SQ の日はその日の日本時間の終わりとして保存する。#116）
  */
 export function positionExitPoint(legs: readonly Leg[]): ExitPoint | undefined {
   const counted = legs.filter((l) => l.exit.kind === 'closed' || l.side === 'sell');
@@ -244,7 +244,7 @@ export function positionExitPoint(legs: readonly Leg[]): ExitPoint | undefined {
 
 /**
  * ポジションの決済の注文の種類（C54）。時点が SQ（満期で消えた売り・すべてが消えた買い）なら expiry（満期（SQ））、
- * そうでなければ明細の値（無ければ unknown。expiry が渡っても unknown に戻す）。すべてのレッグが満期で消えた買いなら時刻によらず
+ * そうでなければ明細の値（無ければ unknown。expiry が渡っても unknown に戻す）。すべての足が満期で消えた買いなら時刻によらず
  * expiry。時点が決まらないときは、満期で消えた売りがあれば expiry（証拠が無いので救わない側。C26・C54）
  */
 export function positionExitOrderType(

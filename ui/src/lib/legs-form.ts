@@ -1,9 +1,9 @@
-// オプションのポジションのレッグの下書き（#117。設計書 4.7・7.6・C47・C51・C54・ADR-0020）。純関数（DOM・通信・現在時刻なし）。
-// - レッグの下書き（欄ごとの文字列 + 選択 + 保存済みの時刻）→ 欄ごとの誤り・足りない欄・API に送るレッグ（core/trade.ts の Leg）
-// - [＋ レッグ] は直前のレッグの限月・P / C・買い / 売り・枚数を写す（7.6「違うのは行使価格と建値・決済値だけのことが多い」）
+// オプションのポジションの足の下書き（#117。設計書 4.7・7.6・C47・C51・C54・ADR-0020）。純関数（DOM・通信・現在時刻なし）。
+// - 足の下書き（欄ごとの文字列 + 選択 + 保存済みの時刻）→ 欄ごとの誤り・足りない欄・API に送る足（core/trade.ts の Leg）
+// - [＋ 足] は直前の足の限月・P / C・買い / 売り・枚数を写す（7.6「違うのは行使価格と建値・決済値だけのことが多い」）
 // - [満期で消滅] は決済値 0（ITM で消えたときは本人が入れる）・決済の時刻は限月の SQ の日の日本時間の終わり（C54・#116）。
 //   SQ の日は限月 YYYY-MM なら第 2 金曜（祝日の繰り上げは見ない。後ろにずれても救わない側に倒れる）、週次 YYYY-MM-DD はその日
-// - 手で入れるレッグは時刻を持たない（7.6 の手で入れる欄に時刻は無い）。直す画面は保存済みの時刻を保つ
+// - 手で入れる足は時刻を持たない（7.6 の手で入れる欄に時刻は無い）。直す画面は保存済みの時刻を保つ
 // - ID はポジションの中の並び順で l1〜l10 に振る（API の LEG_ID と同じ形）
 import { MAX_LEGS } from '../../../core/option';
 import type { Leg, LegSide } from '../../../core/trade';
@@ -11,9 +11,9 @@ import { formatPlain, formatPrice } from './format';
 
 export { MAX_LEGS };
 
-/** レッグの下書き。文字の欄は打ったまま、選択は未選択 = null */
+/** 足の下書き。文字の欄は打ったまま、選択は未選択 = null */
 export interface LegDraft {
-  /** 保存済みのレッグの ID（直す画面だけ。手で足したレッグには無く、読むときに空いている ID を振る） */
+  /** 保存済みの足の ID（直す画面だけ。手で追加した足には無く、読むときに空いている ID を振る） */
   readonly id?: string;
   readonly optionType: 'P' | 'C' | null;
   /** 限月（YYYY-MM。週次は YYYY-MM-DD） */
@@ -25,25 +25,25 @@ export interface LegDraft {
   readonly exitPrice: string;
   /** 満期で消えた（決済明細に出ない） */
   readonly expired: boolean;
-  /** 保存済みの建ての時刻（直す画面だけ。手で入れたレッグには無い） */
+  /** 保存済みの建ての時刻（直す画面だけ。手で入れた足には無い） */
   readonly entryTime?: number;
-  /** 保存済みの決済の時刻（決済したレッグだけ使う。満期で消えたレッグは SQ の日から作る） */
+  /** 保存済みの決済の時刻（決済した足だけ使う。満期で消えた足は SQ の日から作る） */
   readonly exitTime?: number;
   /**
-   * 保存済みの満期で消えたレッグの時刻と、そのときの限月（直す画面だけ）。限月が同じで満期の印のままなら保ち、SQ の日から
-   * 作り直さない（祝日で繰り上げた SQ などで作り直すと、何も変えない編集でも「レッグを編集した」になるため）
+   * 保存済みの満期で消えた足の時刻と、そのときの限月（直す画面だけ）。限月が同じで満期の印のままなら保ち、SQ の日から
+   * 作り直さない（祝日で繰り上げた SQ などで作り直すと、何も変えない編集でも「足を編集した」になるため）
    */
   readonly expiredTime?: number;
   readonly expiredMonth?: string;
-  /** 明細から読んだレッグ（記録する画面だけ。#118。手で足したレッグには無い） */
+  /** 明細から読んだ足（記録する画面だけ。#118。手で追加した足には無い） */
   readonly read?: LegRead;
 }
 
-/** 明細から読んだレッグの出どころ（#118。statement-positions.ts が作る） */
+/** 明細から読んだ足の出どころ（#118。statement-positions.ts が作る） */
 export interface LegRead {
-  /** 明細の行の番号（0 から。ポジションをまとめ直したときに、本人が直したレッグを保つ目印） */
+  /** 明細の行の番号（0 から。ポジションをまとめ直したときに、本人が直した足を保つ目印） */
   readonly raw: number;
-  /** そのポジションの明細の行の番号（明細の損益がどのレッグの分か = すべてそろっているかを確かめる） */
+  /** そのポジションの明細の行の番号（明細の損益がどの足の分か = すべてそろっているかを確かめる） */
   readonly unit: readonly number[];
   /** 限月の年を建てた日から補った（明細に年が無い。7.6 の 1） */
   readonly yearInferred: boolean;
@@ -51,16 +51,16 @@ export interface LegRead {
   readonly edited?: true;
 }
 
-/** 明細から読んだレッグの印（一覧の行の右の添え。「読み取り」/「修正済み」。年を補った印は別の札 = YEAR_INFERRED_CHIP） */
+/** 明細から読んだ足の印（一覧の行の右の添え。「読み取り」/「修正済み」。年を補った印は別の札 = YEAR_INFERRED_CHIP） */
 export function legReadText(d: LegDraft): string | null {
   if (d.read === undefined) return null;
   return d.read.edited ? '修正済み' : '読み取り';
 }
 
-/** 限月の年を補ったレッグの札（注意の色。一覧の行と 2 段目の要約。デザインレビュー 1） */
+/** 限月の年を補った足の札（注意の色。一覧の行と 2 段目の要約。デザインレビュー 1） */
 export const YEAR_INFERRED_CHIP = '限月の年は推定';
 
-/** 年を補ったまま（本人が限月を直していない）のレッグがあるか */
+/** 年を補ったまま（本人が限月を直していない）の足があるか */
 export const hasYearInferred = (legs: readonly LegDraft[]): boolean =>
   legs.some((l) => l.read?.yearInferred === true);
 
@@ -69,7 +69,7 @@ export const YEAR_INFERRED_HINT =
   '明細に年が無いので、エントリーした日から補いました。違えば直してください';
 
 /**
- * レッグの欄を直した（LegEditor の onChange）: 明細から読んだレッグなら印を「修正済み」にし、限月を直したら年を補った印を外す
+ * 足の欄を直した（LegEditor の onChange）: 明細から読んだ足なら印を「修正済み」にし、限月を直したら年を補った印を外す
  */
 export function editLeg(prev: LegDraft, next: LegDraft): LegDraft {
   if (prev.read === undefined || next.read === undefined) return next;
@@ -129,14 +129,14 @@ export const LEG_MSG = {
 /** API の入力の上限（record-form の MAX_ABS と同じ） */
 const MAX_ABS = 1e12;
 
-/** ポジションの中の n 番目（0 から）のレッグの ID */
+/** ポジションの中の n 番目（0 から）の足の ID */
 export function legId(index: number): string {
   return `l${index + 1}`;
 }
 
 /**
- * [＋ レッグ] で足す行: 直前のレッグの限月・P / C・買い / 売り・枚数を写す（行使価格・建値・決済値は空、満期で消滅は外す）。
- * レッグが無ければ空の行
+ * [＋ 足] で追加する行: 直前の足の限月・P / C・買い / 売り・枚数を写す（行使価格・建値・決済値は空、満期で消滅は外す）。
+ * 足が無ければ空の行
  */
 export function nextLeg(legs: readonly LegDraft[]): LegDraft {
   const prev = legs[legs.length - 1];
@@ -150,15 +150,15 @@ export function nextLeg(legs: readonly LegDraft[]): LegDraft {
   };
 }
 
-/** 消したレッグ（［元に戻す］ で元の位置・ID・時刻ごと戻す。P4・#117 のレビュー B1） */
+/** 消した足（［元に戻す］ で元の位置・ID・時刻ごと戻す。P4・#117 のレビュー B1） */
 export interface LegUndo {
   readonly leg: LegDraft;
   readonly index: number;
 }
 
-/** 消した後の 1 行「レッグ 2 を削除しました」 */
+/** 消した後の 1 行「足 2 を削除しました」 */
 export function legRemovedText(u: LegUndo): string {
-  return `レッグ ${u.index + 1} を削除しました`;
+  return `足 ${u.index + 1} を削除しました`;
 }
 
 /** ［元に戻す］ を押せるか（戻すと上限の 10 本を超えるときは押せない。#117 の再レビュー B2） */
@@ -167,9 +167,9 @@ export function canUndoLegRemove(legs: readonly LegDraft[]): boolean {
 }
 
 /** 戻せないときの理由（［元に戻す］ の横の 1 行） */
-export const LEG_UNDO_FULL = `レッグが ${MAX_LEGS} 本あるため戻せません`;
+export const LEG_UNDO_FULL = `足が ${MAX_LEGS} 本あるため戻せません`;
 
-/** 消したレッグを元の位置へ戻す（並びが短くなっていれば末尾。上限の 10 本なら戻さない） */
+/** 消した足を元の位置へ戻す（並びが短くなっていれば末尾。上限の 10 本なら戻さない） */
 export function undoLegRemove(legs: readonly LegDraft[], u: LegUndo): LegDraft[] {
   if (!canUndoLegRemove(legs)) return [...legs];
   const at = Math.min(u.index, legs.length);
@@ -244,17 +244,17 @@ function parse(raw: string): Num {
 }
 
 export interface LegsReading {
-  /** レッグごとの欄の誤り（並びはレッグと同じ） */
+  /** 足ごとの欄の誤り（並びは足と同じ） */
   readonly errors: readonly Readonly<Partial<Record<LegField, string>>>[];
-  /** 足りない欄のあるレッグの名前（「レッグ 2」。レッグが 1 本も無ければ「レッグ」） */
+  /** 足りない欄のある足の名前（「足 2」。足が 1 本も無ければ「足」） */
   readonly missing: readonly string[];
-  /** すべてのレッグがそろって誤りが無ければ、API に送るレッグ */
+  /** すべての足がそろって誤りが無ければ、API に送る足 */
   readonly legs?: readonly [Leg, ...Leg[]];
   /** 上限（10 本）を超えている（保存しない。黙って末尾を落とさない。#117 の再レビュー B2） */
   readonly tooMany?: boolean;
 }
 
-/** 1 本のレッグの欄ごとの誤りと、足りない欄 */
+/** 1 本の足の欄ごとの誤りと、足りない欄 */
 export function readLeg(
   d: LegDraft,
   id: string,
@@ -308,7 +308,7 @@ export function readLeg(
   ) {
     return { errors, missing };
   }
-  // 保存済みの満期で消えたレッグ（expiredMonth あり）は、限月が同じなら保存済みの時刻のまま（時刻が無ければ無いまま）
+  // 保存済みの満期で消えた足（expiredMonth あり）は、限月が同じなら保存済みの時刻のまま（時刻が無ければ無いまま）
   const exitTime = d.expired
     ? d.expiredMonth !== undefined && d.expiredMonth === contractMonth
       ? d.expiredTime
@@ -331,7 +331,7 @@ export function readLeg(
   return { errors, missing, leg };
 }
 
-/** レッグの ID: 保存済みの ID は保ち（重なれば外す）、無いレッグには空いている l1〜l10 を若い順に振る */
+/** 足の ID: 保存済みの ID は保ち（重なれば外す）、無い足には空いている l1〜l10 を若い順に振る */
 export function legIds(drafts: readonly LegDraft[]): string[] {
   const used = new Set<string>();
   const kept = drafts.map((d) => {
@@ -349,9 +349,9 @@ export function legIds(drafts: readonly LegDraft[]): string[] {
   });
 }
 
-/** レッグの並びを読む（1〜10 本。0 本は足りない、11 本以上は足せない作りなので読まない） */
+/** 足の並びを読む（1〜10 本。0 本は足りない、11 本以上は追加できない作りなので読まない） */
 export function readLegs(drafts: readonly LegDraft[]): LegsReading {
-  if (drafts.length === 0) return { errors: [], missing: ['レッグ'] };
+  if (drafts.length === 0) return { errors: [], missing: ['足'] };
   if (drafts.length > MAX_LEGS) {
     return { errors: drafts.map(() => ({})), missing: [], tooMany: true };
   }
@@ -362,7 +362,7 @@ export function readLegs(drafts: readonly LegDraft[]): LegsReading {
   drafts.slice(0, MAX_LEGS).forEach((d, i) => {
     const r = readLeg(d, ids[i] as string);
     errors.push(r.errors);
-    if (r.missing.length > 0) missing.push(`レッグ ${i + 1}`);
+    if (r.missing.length > 0) missing.push(`足 ${i + 1}`);
     if (r.leg) legs.push(r.leg);
   });
   const ok = legs.length === Math.min(drafts.length, MAX_LEGS);
@@ -374,7 +374,7 @@ export function readLegs(drafts: readonly LegDraft[]): LegsReading {
   };
 }
 
-/** 保存済みのレッグ → 下書き（数は指数表記にしない。時刻を保つ） */
+/** 保存済みの足 → 下書き（数は指数表記にしない。時刻を保つ） */
 export function legDraftsFromStored(legs: readonly Leg[]): LegDraft[] {
   return legs.map((l) => ({
     id: l.id,
@@ -414,7 +414,7 @@ function legKey(l: Leg): string {
   ]);
 }
 
-/** レッグを直したか（足した・直した・消した。記録した後の直す画面で明細の損益を空にする。4.7） */
+/** 足を直したか（追加した・直した・消した。記録した後の直す画面で明細の損益を空にする。4.7） */
 export function legsChanged(before: readonly Leg[], after: readonly Leg[]): boolean {
   if (before.length !== after.length) return true;
   return before.some((l, i) => legKey(l) !== legKey(after[i] as Leg));

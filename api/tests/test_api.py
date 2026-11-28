@@ -102,7 +102,7 @@ def test_create_and_read_t1(api):
     ],
 )
 def test_lc_cancelled_and_stop_not_placed_round_trip(api, over, label):
-    """#165 AC-4・KEEP-4（C56）: 取り消した・未設定 を受けて読み戻しで同じ。レッグの無い取引の版は 1 のまま"""
+    """#165 AC-4・KEEP-4（C56）: 取り消した・未設定 を受けて読み戻しで同じ。足の無い取引の版は 1 のまま"""
     inst = api.instrument(A)
     res = api.post("/api/trades", A, t1(inst["id"], **over))
     assert res.status_code == 201, label

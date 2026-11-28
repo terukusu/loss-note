@@ -35,7 +35,7 @@ const TEXT: { readonly [K in ReasonKind]: (r: Of<K>, side: Side) => string } = {
     r.from !== undefined && r.to !== undefined
       ? `時間足を変えた（${TIMEFRAME_NAME[r.from]} → ${TIMEFRAME_NAME[r.to]}${r.source === 'chart' ? '・チャートから' : ''}）`
       : '時間足を変えた',
-  // レッグを持つ取引は決済したときの原資産を見せる（設計書 5.7 の 3。「LC で切らずに持ち続けた（原資産 37,300）」）
+  // 足を持つ取引は決済したときの原資産を見せる（設計書 5.7 の 3。「LC で切らずに持ち続けた（原資産 37,300）」）
   heldPastLc: (r) =>
     r.underlying !== undefined
       ? `LC で切らずに持ち続けた（原資産 ${formatPrice(r.underlying)}）`

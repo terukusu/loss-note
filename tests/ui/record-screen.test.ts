@@ -130,7 +130,7 @@ describe('要約の 3 行と名指し（AC-4・#164）', () => {
     expect(tradeSummary(d, { pnlYen: '数値を入力してください' }, {}).line3).toBe('3/4 10:00 決済');
     expect(tradeSummary(draft({ pnlYen: '' }), {}, {}).line3).toBe('3/4 10:00 決済');
   });
-  it('#164: オプションの形はレッグの本数と原資産のイン / 決済。レッグを直した（legsEdited）ときは明細の損益を出さない', () => {
+  it('#164: オプションの形は足の本数と原資産のイン / 決済。足を直した（legsEdited）ときは明細の損益を出さない', () => {
     const d = draft({
       side: null,
       entryPrice: '30000',
@@ -147,10 +147,10 @@ describe('要約の 3 行と名指し（AC-4・#164）', () => {
       legsEdited: false,
     };
     const s = tradeSummary(d, {}, {}, option);
-    expect(s.line2).toBe('S · レッグ 2 · 原資産 イン 30,000 → 決済 29,500.5');
+    expect(s.line2).toBe('S · 足 2 · 原資産 イン 30,000 → 決済 29,500.5');
     expect(s.line3).toBe('3/4 10:00 決済 · 明細の損益 +98,000円');
     expect(s.spoken).toBe(
-      'S、レッグ 2、原資産 イン 30,000、決済 29,500.5、3/4 10:00 決済、明細の損益 +98,000円',
+      'S、足 2、原資産 イン 30,000、決済 29,500.5、3/4 10:00 決済、明細の損益 +98,000円',
     );
     const edited = tradeSummary(d, {}, {}, { ...option, legsEdited: true });
     expect(edited.line3).toBe('3/4 10:00 決済');
@@ -519,7 +519,7 @@ describe('次の行の知らせを名前の上の 1 行へ（#180 の例 #1〜#4
     expect(rowSaved(1, 3)).toBe('2 / 3 行目を記録しました。次の行（3 / 3）です');
     expect(rowSkipped(0, 2)).toBe('1 / 2 行目をスキップしました。次の行（2 / 2）です');
     expect(POSITION_SPLIT(2, 3)).toBe(
-      'レッグを別のポジションにしました。次の取引（2 / 3）で記録します',
+      '足を別のポジションにしました。次の取引（2 / 3）で記録します',
     );
   });
   it('#5: 知らせの無い最初の行は完了の文のまま。キャンセル・読み取り中が先（知らせを持ったまま読み直しても「読み取り中…」）', () => {
@@ -536,7 +536,7 @@ describe('次の行の知らせを名前の上の 1 行へ（#180 の例 #1〜#4
       '1 / 2 行目を記録しました。',
       '次の行（2 / 2）です',
     ]);
-    expect(sentencesOf(POSITION_MERGED(2))).toEqual(['次のポジションのレッグ 2 本を入れました']);
+    expect(sentencesOf(POSITION_MERGED(2))).toEqual(['次のポジションの足 2 本を入れました']);
     for (const t of [rowSaved(1, 3), rowSkipped(0, 2), POSITION_SPLIT(2, 3), 'A。B。', '']) {
       expect(sentencesOf(t).join('')).toBe(t);
     }

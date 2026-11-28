@@ -24,7 +24,7 @@ interface Book {
   readonly entry: number;
 }
 
-/** 限月のそろったレッグ（1〜6 本）。原資産・行使価格は整数、建値は小数も混ぜる */
+/** 限月のそろった足（1〜6 本）。原資産・行使価格は整数、建値は小数も混ぜる */
 function genBook(r: Rng): Book {
   const entry = r.int(20_000, 40_000);
   const n = r.int(1, 6);
@@ -92,7 +92,7 @@ function genMaxLossTrade(r: Rng): TradeInput {
 }
 
 describe('満期の損益・最大損失の性質', () => {
-  it('満期の損益はすべてのレッグの満期の損益の和', () => {
+  it('満期の損益はすべての足の満期の損益の和', () => {
     forAll(11401, N, genBook, (book) => {
       for (const x of [0, ...book.legs.map((l) => l.strike), book.entry, book.entry * 2]) {
         const whole = expiryPnlPrice(book.legs, book.mult, x);
@@ -102,7 +102,7 @@ describe('満期の損益・最大損失の性質', () => {
     });
   });
 
-  it('L / S の対称: 原資産の価格を折り返したレッグは、折り返した点で同じ満期の損益・同じ最大損失（定まるか・理由も）', () => {
+  it('L / S の対称: 原資産の価格を折り返した足は、折り返した点で同じ満期の損益・同じ最大損失（定まるか・理由も）', () => {
     forAll(
       11402,
       N,

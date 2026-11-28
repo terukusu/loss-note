@@ -1,8 +1,8 @@
-// オプションのポジション（レッグつきの取引。Issue #116・設計書 4.7・C46・C54・ADR-0020）の、共有の合成の fixture
+// オプションのポジション（足つきの取引。Issue #116・設計書 4.7・C46・C54・ADR-0020）の、共有の合成の fixture
 // `tests/fixtures/records/option-legs.json`。値・名前はすべて架空（架空の指数 XYZ・ABC のオプション）。
 // API のテスト（api/tests/test_option_legs.py）が同じ fixture を本物の API に通し、POST / GET / PUT / 範囲の一覧で
-// record が値と型を変えずに往復すること・snapshot が期待どおりなこと・legacyEdit（レッグを知らない画面が作る本文）の PUT が
-// 409 でレッグを落とさないことを確かめる（EPIC #120 の終了条件 4・4b）。#117 の画面の本文（screenCreate = 記録する画面で手で
+// record が値と型を変えずに往復すること・snapshot が期待どおりなこと・legacyEdit（足を知らない画面が作る本文）の PUT が
+// 409 で足を落とさないことを確かめる（EPIC #120 の終了条件 4・4b）。#117 の画面の本文（screenCreate = 記録する画面で手で
 // 入れたポジション、screenEdits = 直す画面で開いて何も変えずに保存した本文）も、API のテストが本物に通す（201 / 200）。
 // 本文の形が変わったら `UPDATE_FIXTURES=1 npx vitest run tests/ui/option-legs-fixture.test.ts` で書き直す
 import { describe, expect, it } from 'vitest';
@@ -43,7 +43,7 @@ const PLACEHOLDER = 'INSTRUMENT';
 /** 記録する画面の本文（screenCreate）の決済の時刻。日本時間 2027-01-06 13:30 */
 const SCREEN_EXIT_TIME = 1_799_209_800_000;
 
-// 時点（日本時間）。満期で消えたレッグの決済の時刻は SQ の日の日本時間の終わり（翌日 0 時の 1 ms 前。設計書 C54）
+// 時点（日本時間）。満期で消えた足の決済の時刻は SQ の日の日本時間の終わり（翌日 0 時の 1 ms 前。設計書 C54）
 const OPEN_0900 = 1_799_020_800_000; // 2027-01-04 09:00
 const OPEN_0901 = 1_799_020_860_000;
 const OPEN_0902 = 1_799_020_920_000;
@@ -69,7 +69,7 @@ interface Item {
     readonly oneR: number | null;
     readonly oneRSource: string | null;
     readonly pnlYen: number | null;
-    /** レッグの決済の時点から導いた注文の種類（C54） */
+    /** 足の決済の時点から導いた注文の種類（C54） */
     readonly orderType: string;
   };
 }
@@ -77,7 +77,7 @@ interface Item {
 interface Fixture {
   readonly items: readonly Item[];
   /**
-   * レッグを知らない画面（#117 より前の直す画面・切り戻した後・古いタブ）が P1 を開いて何も変えずに保存したときの本文
+   * 足を知らない画面（#117 より前の直す画面・切り戻した後・古いタブ）が P1 を開いて何も変えずに保存したときの本文
    * （#117 の直す画面の本文から legs・riskPlan・lcLossPlanYen を落としたもの = 前の直す画面の本文と同じ）。API は 409 で止める
    */
   readonly legacyEdit: { readonly of: string; readonly body: TradeRecord };
@@ -86,8 +86,8 @@ interface Fixture {
   /** 直す画面（#117）で各件を開いて何も変えずに保存した本文。元の記録と同じで、API は 200 */
   readonly screenEdits: readonly { readonly of: string; readonly body: TradeRecord }[];
   /**
-   * 明細から読んだポジション（#118）: 読み取りの行 2 本（時刻つき・最後の決済は逆指値）+ 手で足した決済のレッグ 1 本 +
-   * 手で足した満期で消えた売り 1 本。注文の種類は満期（SQ）・決済の理由はその他・明細の損益は足した後の値。API は 201
+   * 明細から読んだポジション（#118）: 読み取りの行 2 本（時刻つき・最後の決済は逆指値）+ 手で追加した決済の足 1 本 +
+   * 手で追加した満期で消えた売り 1 本。注文の種類は満期（SQ）・決済の理由はその他・明細の損益は足した後の値。API は 201
    */
   readonly statementCreate: { readonly instrument: InstrumentBody; readonly body: TradeRecord };
 }
@@ -144,8 +144,8 @@ const BASE = {
   timeframeChange: 'none',
 } as const satisfies Partial<TradeRecord>;
 
-// P1: 向き L・建てたときの原資産 38,500・LC 37,800（崩れの条件つき）・決済したときの原資産 37,700（LC に当たって全レッグを決済）。
-// レッグ 3 本（プットの買い・プットの売り 2 枚・コールの買い）。明細の損益 −71,100 円・手数料 1,100 円・見込み 80,000 円
+// P1: 向き L・建てたときの原資産 38,500・LC 37,800（崩れの条件つき）・決済したときの原資産 37,700（LC に当たって全足を決済）。
+// 足 3 本（プットの買い・プットの売り 2 枚・コールの買い）。明細の損益 −71,100 円・手数料 1,100 円・見込み 80,000 円
 const p1Legs: readonly [Leg, ...Leg[]] = [
   {
     id: 'l1',
@@ -203,7 +203,7 @@ const p1: TradeRecord = {
 };
 
 // P2: 売りのプットの裸 1 本を SQ まで持って満期で消滅（OTM・決済値 0）。決済の時点は SQ（注文の種類は満期（SQ））。
-// 時刻は建てた時刻だけ（レッグの建てた時刻は無し = 任意）
+// 時刻は建てた時刻だけ（足の建てた時刻は無し = 任意）
 const p2: TradeRecord = {
   ...BASE,
   side: 'L',
@@ -231,7 +231,7 @@ const p2: TradeRecord = {
   ],
 };
 
-// P3: 「最大損失まで」（LC なし）のコールの買いのスプレッド。すべて決済・明細の損益なし（レッグの合計）。時刻なし
+// P3: 「最大損失まで」（LC なし）のコールの買いのスプレッド。すべて決済・明細の損益なし（足の合計）。時刻なし
 const p3: TradeRecord = {
   ...BASE,
   side: 'L',
@@ -270,7 +270,7 @@ const p3: TradeRecord = {
 };
 
 // P4: 価格の通貨 USD・円の口座（為替 150）。向き S（LC 5,100 は建てたときの原資産 5,000 より上）。プットの買いを決済し、
-// 先の限月のプットの買いは満期で消滅（買いの SQ はポジションの決済より後でよい。C54）。明細の損益は決済したレッグの分
+// 先の限月のプットの買いは満期で消滅（買いの SQ はポジションの決済より後でよい。C54）。明細の損益は決済した足の分
 const p4: TradeRecord = {
   ...BASE,
   side: 'S',
@@ -314,7 +314,7 @@ function item(name: string, instrument: InstrumentBody, record: TradeRecord): It
   const snapshot = snapshotOf(instrument);
   const ev = evaluateTrade(toTradeInput({ record, snapshot }));
   if (!ev.ok) throw new Error(`${name}: 受け付けられなかった ${JSON.stringify(ev.issues)}`);
-  // 判定が使う注文の種類（レッグの決済の時点から導き直した値。C54）
+  // 判定が使う注文の種類（足の決済の時点から導き直した値。C54）
   const orderType = positionExitOrderType(record.legs ?? [], record.exit.orderType);
   return {
     name,
@@ -511,7 +511,7 @@ function build(): Fixture {
   };
 }
 
-describe('レッグつきの取引の共有の fixture（option-legs.json。#116）', () => {
+describe('足つきの取引の共有の fixture（option-legs.json。#116）', () => {
   const built = build();
 
   it('fixture が場面から作った値と一致する', () => {
@@ -521,7 +521,7 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(onDisk).toEqual(built);
   });
 
-  it('各件の写し: option にレッグ（と見込み）が入り、計算が受け付ける', () => {
+  it('各件の写し: option に足（と見込み）が入り、計算が受け付ける', () => {
     const onDisk = JSON.parse(fs.readFileSync(FIXTURE, 'utf8')) as Fixture;
     expect(onDisk.items.map((x) => x.name)).toEqual(['P1', 'P2', 'P3', 'P4']);
     for (const x of onDisk.items) {
@@ -542,7 +542,7 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
 
   it('P1: 見込みの 1R 80,000 円・損益 −71,100 円・R = −70,000 ÷ 80,000 = −0.875・LC で切った負け = A', () => {
     const p = built.items[0]?.expect;
-    // 手数料を除いた損益 = −71,100 + 1,100 = −70,000 円（明細の損益があり、満期で消えたレッグは無い）
+    // 手数料を除いた損益 = −71,100 + 1,100 = −70,000 円（明細の損益があり、満期で消えた足は無い）
     expect(p?.oneRSource).toBe('plan');
     expect(p?.oneR).toBe(80_000);
     expect(p?.pnlYen).toBe(-71_100);
@@ -581,14 +581,14 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(p?.pnlYen).toBe(749_500);
   });
 
-  it('直す画面（#117）で開いて何も変えずに保存した本文は、元の記録と同じ（レッグ・見込み・「最大損失まで」を落とさない）', () => {
+  it('直す画面（#117）で開いて何も変えずに保存した本文は、元の記録と同じ（足・見込み・「最大損失まで」を落とさない）', () => {
     for (const e of built.screenEdits) {
       const of = built.items.find((x) => x.name === e.of);
       expect(e.body, e.of).toEqual(of?.record);
     }
   });
 
-  it('記録する画面で手で入れたポジション: レッグ 3 本・数量 1・向き L（LC から）・1R は満期の損益から 140,000 円・+0.5R・計画どおりの勝ち', () => {
+  it('記録する画面で手で入れたポジション: 足 3 本・数量 1・向き L（LC から）・1R は満期の損益から 140,000 円・+0.5R・計画どおりの勝ち', () => {
     const b = built.screenCreate.body;
     expect(b.legs?.map((l) => l.id)).toEqual(['l1', 'l2', 'l3']);
     expect(b.entries).toEqual([{ price: 38_500, quantity: 1 }]);
@@ -606,7 +606,7 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(ev.judgment?.grade).toBe('safeWin');
   });
 
-  it('明細から読んだポジション（#118）: レッグ 4 本・時刻は読み取りの 2 本だけ・満期（SQ）・明細の損益 68,000', () => {
+  it('明細から読んだポジション（#118）: 足 4 本・時刻は読み取りの 2 本だけ・満期（SQ）・明細の損益 68,000', () => {
     const b = built.statementCreate.body;
     expect(b.source).toBe('statement');
     expect(b.legs?.map((l) => [l.id, l.exit.kind, l.entry.time !== undefined])).toEqual([
@@ -619,7 +619,7 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(b.fees).toEqual([{ amountYen: 2_000 }]);
     expect(b.exit).toMatchObject({ orderType: 'expiry', reason: 'other' });
     expect(b.stopOrderPlaced).toBe('unanswered');
-    // 時刻の無い決済のレッグ（手で足した）があるので決済の時点は決まらず、決済の時刻は明細の値のまま。注文の種類は満期で
+    // 時刻の無い決済の足（手で追加した）があるので決済の時点は決まらず、決済の時刻は明細の値のまま。注文の種類は満期で
     // 消えた売りがあるので満期（SQ。C54 の救わない側）
     expect(b.exit.time).toBe(OPT_A2.closed.epochMs);
     const ev = evaluateTrade(toTradeInput({ record: b, snapshot: snapshotOf(XYZ) }));
@@ -628,13 +628,13 @@ describe('レッグつきの取引の共有の fixture（option-legs.json。#116
     expect(ev.pnlYen).toBe(98_000);
   });
 
-  it('レッグを知らない画面の本文は legs・riskPlan・lcLossPlanYen を落とす → API が 409 で止める（守り (b)）', () => {
+  it('足を知らない画面の本文は legs・riskPlan・lcLossPlanYen を落とす → API が 409 で止める（守り (b)）', () => {
     const body = built.legacyEdit.body;
     expect(built.legacyEdit.of).toBe('P1');
     expect('legs' in body).toBe(false);
     expect('lcLossPlanYen' in body).toBe(false);
     expect('riskPlan' in body).toBe(false);
-    // ほかの欄は元の記録のまま（落とすのはレッグを知らない欄だけ）
+    // ほかの欄は元の記録のまま（落とすのは足を知らない欄だけ）
     expect(body.lc).toBe(p1.lc);
     expect(body.entries).toEqual(p1.entries);
     expect(body.exit.price).toBe(p1.exit.price);

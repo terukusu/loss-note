@@ -410,7 +410,7 @@ function DetailBody(p: TradeDetailViewProps) {
         taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
       />
       {block !== null ? <p class="detail__note">{block}</p> : null}
-      {/* オプションのポジションのレッグ（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
+      {/* オプションのポジションの足（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
       {t.record.legs !== undefined ? <LegTable rows={legRows(t)} /> : null}
       <ChartsView {...p} />
       {/* なぜの段（#248・C69）: 心理 → Good / More → 総評を 1 枚のカードに。判定のカードとチャート 2 枚を最初の画面に収める

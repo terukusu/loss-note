@@ -84,7 +84,7 @@ describe('stripStatement（R1・R2。例 #1・#8・#10）', () => {
     expect(stripStatement(A, MARKS, 'default').accountId).toBe('default');
   });
 
-  it('例 #10: 明細から読んだレッグだけを除き、手で足したレッグは残す', () => {
+  it('例 #10: 明細から読んだ足だけを除き、手で追加した足は残す', () => {
     const withLegs = { ...A, legs: [readLeg('36000'), readLeg('35500'), handLeg] };
     expect(stripStatement(withLegs, MARKS).legs).toEqual([handLeg]);
   });
@@ -100,7 +100,7 @@ describe('オプションの行の原資産の欄（#184 のコードレビュ�
   };
   const opt = { ...A, legs: [readLeg('36000'), handLeg] };
 
-  it('削除しても原資産の L / S・イン・決済・数量は残り、明細が入れた欄・明細のレッグは取り除く', () => {
+  it('削除しても原資産の L / S・イン・決済・数量は残り、明細が入れた欄・明細の足は取り除く', () => {
     const d = stripStatement(opt, OPT_MARKS);
     expect(d).toMatchObject({ side: 'L', entryPrice: '100', exitPrice: '99.0', quantity: '1' });
     expect(d).toMatchObject({ instrumentName: '', exitTime: '', pnlYen: '', feeYen: '' });
@@ -148,7 +148,7 @@ describe('restoreStatement（R4・R6。例 #2）', () => {
     expect(back.exitPrice).toBe('99.0');
   });
 
-  it('レッグ: 明細のレッグ（削除の前の並び）+ 今の手で足したレッグ', () => {
+  it('足: 明細の足（削除の前の並び）+ 今の手で追加した足', () => {
     const before = { ...A, legs: [readLeg('36000'), readLeg('35500'), handLeg] };
     const stripped = stripStatement(before, MARKS);
     const hand2 = { ...handLeg, strike: '41000' };

@@ -94,7 +94,7 @@ def opened_side(side_written: str | None, side_of: str | None) -> Literal["L", "
 
 
 def option_side(side_written: str | None, side_of: str | None) -> Literal["buy", "sell"] | None:
-    """オプションの行の書かれた向き → 建てた向きの買い / 売り（レッグの ``buy`` / ``sell``。設計書 7.6 の 1）。
+    """オプションの行の書かれた向き → 建てた向きの買い / 売り（足の ``buy`` / ``sell``。設計書 7.6 の 1）。
     ``opened_side`` で建てた向き（L / S）に直してから、L = 買い・S = 売りにする。直せなければ None"""
     side = opened_side(side_written, side_of)
     if side is None:

@@ -1,12 +1,12 @@
-"""取引の保存にレッグを足す（Issue #116。設計書 4.7・C46・C52・C54・K15・ADR-0020 の決定 1〜3・6・7 の (b)・9）。
+"""取引の保存に足を追加する（Issue #116。設計書 4.7・C46・C52・C54・K15・ADR-0020 の決定 1〜3・6・7 の (b)・9）。
 
 - 共有の合成の fixture ``tests/fixtures/records/option-legs.json``（TS のテスト
-  ``tests/ui/option-legs-fixture.test.ts`` が作る）のレッグつきの取引が、POST / GET / PUT / 範囲の一覧で値と型を
+  ``tests/ui/option-legs-fixture.test.ts`` が作る）の足つきの取引が、POST / GET / PUT / 範囲の一覧で値と型を
   変えずに往復する（EPIC #120 の終了条件 4）
-- 守り (b): 保存済みにレッグがある取引へ ``legs`` の無い本文で PUT すると 409（何も書かない）。前からの取引
-  （レッグの無い取引）にレッグを足す PUT は 400。チャートの PUT / DELETE はレッグを変えない。レッグの無い取引の版は
+- 守り (b): 保存済みに足がある取引へ ``legs`` の無い本文で PUT すると 409（何も書かない）。前からの取引
+  （足の無い取引）に足を追加する PUT は 400。チャートの PUT / DELETE は足を変えない。足の無い取引の版は
   1 のまま（4b）
-- レッグ・``riskPlan``・``lcLossPlanYen``・``expiry`` の検査（400。issues は既知の道筋と種類だけ）
+- 足・``riskPlan``・``lcLossPlanYen``・``expiry`` の検査（400。issues は既知の道筋と種類だけ）
 
 保存先 2 つ（記憶・エミュレーターの Firestore）で同じテストを回す。値・名前・画像はすべて架空。
 """
@@ -102,7 +102,7 @@ def test_fixture_round_trip(api):
         assert got["schemaVersion"] == 2, name
         assert got["record"] == sent and same_typed(got["record"], sent), name
         assert got["snapshot"] == item["snapshot"] and same_typed(got["snapshot"], item["snapshot"]), name
-        # 直す（レッグを知る画面の本文 = legs を含む）: 総評とレッグの決済値を変える
+        # 直す（足を知る画面の本文 = legs を含む）: 総評と足の決済値を変える
         edited = copy.deepcopy(sent)
         edited["exit"]["review"] = "直した総評（架空）"
         edited["legs"][0]["exit"]["price"] = edited["legs"][0]["exit"]["price"] + 0.5
@@ -146,7 +146,7 @@ def test_screen_create_body(api):
 
 def test_statement_create_body(api):
     """明細から読んだポジション（#118。fixture の statementCreate: 読み取りの 2 本は時刻つき・
-    手で足した決済のレッグと満期で消えた売り・注文の種類は満期（SQ））は 201 で、値と型を変えずに保存する"""
+    手で追加した決済の足と満期で消えた売り・注文の種類は満期（SQ））は 201 で、値と型を変えずに保存する"""
     sc = FIXTURE["statementCreate"]
     iid = add_instrument(api, A, sc["instrument"])
     put_default_account(api, A, ITEMS["P1"]["settings"])
@@ -175,7 +175,7 @@ def test_screen_edit_bodies(api):
 
 
 def test_multipart_create_with_charts(api, option_iid):
-    """チャートつきの作成（multipart）でもレッグを受ける"""
+    """チャートつきの作成（multipart）でも足を受ける"""
     rec = p1_body(option_iid, entryChartTimeframe="1h")
     body, ctype = encode_multipart(chart_parts(rec, {"entry": (chart_png(), "image/png")}))
     res = api.call("POST", "/api/trades", A, raw=body, content_type=ctype)
@@ -188,7 +188,7 @@ def test_multipart_create_with_charts(api, option_iid):
 
 
 def test_legacy_edit_body_conflict(api):
-    """今の直す画面（レッグを知らない）が作る本文（fixture の legacyEdit）の PUT は 409 で、文書は前のまま"""
+    """今の直す画面（足を知らない）が作る本文（fixture の legacyEdit）の PUT は 409 で、文書は前のまま"""
     assert FIXTURE["legacyEdit"]["of"] == "P1"
     tid, iid, _sent = create(api, "P1")
     before = raw_trade(api, A, tid)
@@ -247,11 +247,11 @@ def test_legs_with_riskplan_removed_is_users_choice(api):
 
 @pytest.mark.parametrize("product_form", ["future", "option"])
 def test_add_legs_to_legacy_trade(api, product_form):
-    """前からの取引（レッグの無い版 1。先物・プレミアムで記録したオプション）にレッグを足す PUT は 400・何も書かない"""
+    """前からの取引（足の無い版 1。先物・プレミアムで記録したオプション）に足を追加する PUT は 400・何も書かない"""
     iid = api.instrument(A, "架空の銘柄", productForm=product_form)["id"]
     tid = api.post("/api/trades", A, t1(iid)).get_json()["id"]
     before = raw_trade(api, A, tid)
-    # レッグの形として正しい本文（エントリーの数量 1・満期で消えた売りのレッグ）でも、前からの取引には足せない
+    # 足の形として正しい本文（エントリーの数量 1・満期で消えた売りの足）でも、前からの取引には追加できない
     legs = copy.deepcopy(ITEMS["P2"]["record"]["legs"])
     res = api.put(f"/api/trades/{tid}", A, t1(iid, legs=legs, entries=[{"price": 100, "quantity": 1}]))
     assert issues_of(res) == [{"field": "legs", "kind": "legacyTrade"}]
@@ -259,7 +259,7 @@ def test_add_legs_to_legacy_trade(api, product_form):
 
 
 def test_charts_keep_legs(api):
-    """チャートの PUT / DELETE の後も、レッグ・見込み・版が同じ"""
+    """チャートの PUT / DELETE の後も、足・見込み・版が同じ"""
     tid, _iid, sent = create(api, "P1")
     res = api.call("PUT", f"/api/trades/{tid}/charts/entry", A, raw=chart_png(), content_type="image/png")
     assert res.status_code == 200, res.get_json()
@@ -284,7 +284,7 @@ def test_riskplan_survives_chart_change(api):
 
 
 def test_legacy_trades_stay_version_1(api):
-    """レッグの無い取引の作成・PUT・付け替え・?snapshot=current で版は 1 のまま（文書も）"""
+    """足の無い取引の作成・PUT・付け替え・?snapshot=current で版は 1 のまま（文書も）"""
     iid = api.instrument(A)["id"]
     created = api.post("/api/trades", A, t1(iid)).get_json()
     tid = created["id"]
@@ -297,7 +297,7 @@ def test_legacy_trades_stay_version_1(api):
 
 
 def test_other_users_trade_is_not_found(api):
-    """ほかの利用者のレッグつきの取引は 404（409 で存在を漏らさない）"""
+    """ほかの利用者の足つきの取引は 404（409 で存在を漏らさない）"""
     tid, _iid, sent = create(api, "P1")
     biid = add_instrument(api, B, ITEMS["P1"]["instrument"])
     assert api.put(f"/api/trades/{tid}", B, {**sent, "instrumentId": biid}).status_code == 404
@@ -443,7 +443,7 @@ NO_LEGS_CASES = [
 
 @pytest.mark.parametrize(("name", "over", "issue"), NO_LEGS_CASES, ids=[c[0] for c in NO_LEGS_CASES])
 def test_new_fields_require_legs(api, name, over, issue):
-    """レッグの無い取引に riskPlan・lcLossPlanYen・満期（SQ）は 400（前からの取引の形を変えない）"""
+    """足の無い取引に riskPlan・lcLossPlanYen・満期（SQ）は 400（前からの取引の形を変えない）"""
     iid = api.instrument(A)["id"]
     res = api.post("/api/trades", A, apply_over(t1(iid), over))
     assert issue in issues_of(res), name
@@ -461,7 +461,7 @@ ACCEPTED_CASES = [
                                   "legs": [p1_legs()[0],
                                            {**p1_legs()[1], "exit": {"price": 0, "time": CLOSE, "kind": "expired"}},
                                            p1_legs()[2]]}),
-    # レッグの時刻は任意。ポジションの建てた時刻が無ければ下限を見ない
+    # 足の時刻は任意。ポジションの建てた時刻が無ければ下限を見ない
     ("no position entry time", {"entries": [{"price": 38_500, "quantity": 1}],
                                 "legs": with_leg0(entry={"price": 300, "time": 1})}),
     ("leg times at the bounds", {"legs": with_leg0(entry={"price": 300, "time": OPEN},
@@ -482,7 +482,7 @@ def test_accepted_bodies(api, option_iid, name, over):
     assert res.get_json()["record"] == sent and res.get_json()["schemaVersion"] == 2
 
 
-# ── レッグは商品の形がオプションの銘柄だけ（決定 9） ──
+# ── 足は商品の形がオプションの銘柄だけ（決定 9） ──
 
 
 @pytest.mark.parametrize("product_form", ["spotCfd", "future"])
@@ -527,7 +527,7 @@ def test_nan_in_legs_body_is_400(api, option_iid):
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf"), 1e300])
 @pytest.mark.parametrize("key", ["strike", "quantity"])
 def test_non_finite_leg_numbers(key, value):
-    """検査の関数に直に渡しても、レッグの数の欄の有限でない・巨大な値は range"""
+    """検査の関数に直に渡しても、足の数の欄の有限でない・巨大な値は range"""
     body = body_of(ITEMS["P1"], "IID")
     body["legs"][0][key] = value
     record, issues = schema.validate_trade(body)

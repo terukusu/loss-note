@@ -86,7 +86,7 @@ function genLongPosition(r: Rng): TradeInput {
   };
 }
 
-/** 原資産の価格を K で折り返した S のポジション（L / S の対称）。レッグは P / C と行使価格を折り返し、プレミアムは同じ */
+/** 原資産の価格を K で折り返した S のポジション（L / S の対称）。足は P / C と行使価格を折り返し、プレミアムは同じ */
 function mirror(t: TradeInput, k: number): TradeInput {
   const f = (p: number) => 2 * k - p;
   const o = t.option;

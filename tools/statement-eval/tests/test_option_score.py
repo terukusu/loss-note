@@ -57,7 +57,7 @@ def test_option_field_mismatches_and_missing():
 
 
 def test_match_rows_uses_option_fields_to_pair_legs():
-    """行使価格だけが違う 2 本のレッグは、オプションの欄で対応づける"""
+    """行使価格だけが違う 2 本の足は、オプションの欄で対応づける"""
     a1, a2 = _answer(strike="37000"), _answer(strike="36500")
     reads = [_read(a2, strike=36500), _read(a1, strike=37000)]
     assert match_rows([a1, a2], reads) == [(0, 1), (1, 0)]

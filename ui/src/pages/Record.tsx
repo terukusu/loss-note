@@ -335,7 +335,7 @@ export function RecordScreen() {
   const prevPhase = useRef(state.phase);
   // 開いているシート（取引の欄・ほかの欄・タイムゾーン・判定・チャート。#130。書きかけには残さない）
   const [sheet, setSheet] = useState<RecordSheet | null>(null);
-  // 直前に消したレッグ（［元に戻す］。シートを閉じたら忘れる。#117）
+  // 直前に消した足（［元に戻す］。シートを閉じたら忘れる。#117）
   const [legUndo, setLegUndo] = useState<LegUndo | null>(null);
   /** ［別のポジションにする］ の後の知らせ（シートを閉じたら忘れる。#118 のデザインレビュー 4） */
   const [legNotice, setLegNotice] = useState<string | null>(null);
@@ -538,7 +538,7 @@ export function RecordScreen() {
     document.getElementById(STATEMENT_TITLE_ID)?.focus({ preventScroll: true });
   }, [rowKey]);
 
-  // 取引の欄のシートの段 2（ほかの欄・レッグ 1 本の欄。#117）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。ui-guidelines 9.3・9.7）
+  // 取引の欄のシートの段 2（ほかの欄・足 1 本の欄。#117）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。ui-guidelines 9.3・9.7）
   const moreLayered = useRef(false);
   // 段 2 を開いたまま画面ごと外れた（403 の旗・ログインの門の置き換えなど）ときは層を外す（#130 のレビュー N3）
   useEffect(
@@ -639,7 +639,7 @@ export function RecordScreen() {
           value: undoLegRemove(controller.getState().draft.legs, legUndo),
         });
         setLegUndo(null);
-        // ボタンは消えるので、戻したレッグの行へ
+        // ボタンは消えるので、戻した足の行へ
         focusSoon(`${LEG_LIST_ID}-${legUndo.index}`);
       }}
       onManual={() => {
@@ -736,9 +736,9 @@ export function RecordScreen() {
       onSplitLeg={(i) => {
         controller.splitLeg(i);
         setLegUndo(null);
-        setLegNotice(`レッグ ${i + 1} を別のポジションにしました。次の件で記録します`);
+        setLegNotice(`足 ${i + 1} を別のポジションにしました。次の件で記録します`);
         onSheet({ kind: 'fields', step: 'main' });
-        // 分けたレッグは「次のポジション ［このポジションに入れる］」の行になる（押せば戻る）
+        // 分けた足は「次のポジション ［このポジションに入れる］」の行になる（押せば戻る）
         focusSoon(LEG_MERGE_ID);
       }}
       onMergeNext={() => {
@@ -773,11 +773,11 @@ export interface RecordViewProps {
   readonly sheet?: RecordSheet | null;
   /** シートを開く・替える・閉じる（null） */
   readonly onSheet?: (sheet: RecordSheet | null) => void;
-  /** 直前に消したレッグ（一覧の「レッグ 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
+  /** 直前に消した足（一覧の「足 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
   readonly legUndo?: LegUndo | null;
-  /** レッグの一覧の直前の操作の知らせ（［別のポジションにする］ の後。#118） */
+  /** 足の一覧の直前の操作の知らせ（［別のポジションにする］ の後。#118） */
   readonly legNotice?: string | null;
-  /** ［このレッグを削除］ で消した（戻すために覚える） */
+  /** ［この足を削除］ で消した（戻すために覚える） */
   readonly onLegRemoved?: (u: LegUndo) => void;
   /** ［元に戻す］（元の位置・ID・時刻ごと戻す） */
   readonly onLegUndo?: () => void;
@@ -828,7 +828,7 @@ export interface RecordViewProps {
   readonly onOpenOtherZones?: () => void;
   /** [この行を飛ばす] */
   readonly onSkipRow?: () => void;
-  /** [別のポジションにする]（下書きのレッグの番号。#118） */
+  /** [別のポジションにする]（下書きの足の番号。#118） */
   readonly onSplitLeg?: (legIndex: number) => void;
   /** ［このポジションに入れる］（#118） */
   readonly onMergeNext?: () => void;
@@ -1114,12 +1114,12 @@ function RecordForm(p: RecordViewProps) {
   const line = verdictLine(read, errorLabels, tzNeed === 'choose');
   const sheet = p.sheet ?? null;
   const openSheet = (s: RecordSheet | null) => p.onSheet?.(s);
-  // オプションのポジション（#117。銘柄の商品の形がオプション）: レッグの行・[＋ レッグ] は取引の欄のシートの段 2（レッグ 1 本の欄）
+  // オプションのポジション（#117。銘柄の商品の形がオプション）: 足の行・[＋ 足] は取引の欄のシートの段 2（足 1 本の欄）
   const legAt = sheet?.kind === 'fields' && sheet.step === 'leg' ? (sheet.leg ?? 0) : null;
   const legIndex = legAt !== null && d.legs[legAt] !== undefined ? legAt : null;
   const openLeg = (i: number) => openSheet({ kind: 'fields', step: 'leg', leg: i });
   const setLegs = (value: typeof d.legs) => onUpdate({ type: 'set', field: 'legs', value });
-  // 明細のポジション（#118）: 次の同じ原資産のポジションのレッグの本数と、今のポジションの明細のレッグの本数
+  // 明細のポジション（#118）: 次の同じ原資産のポジションの足の本数と、今のポジションの明細の足の本数
   const unitsNow = st?.phase === 'ready' ? st.units : undefined;
   const nextPosition =
     st?.phase === 'ready' && st.raw && unitsNow
@@ -1186,7 +1186,7 @@ function RecordForm(p: RecordViewProps) {
           <StageInput {...p} />
         ) : (
           <>
-            {/* 入れたもののカード（明細の要約の行・口座・チャートの行。#117 のレッグの欄は取引の欄のシートの中 = 段 leg） */}
+            {/* 入れたもののカード（明細の要約の行・口座・チャートの行。#117 の足の欄は取引の欄のシートの中 = 段 leg） */}
             <div class="rinput">
               <StatementArea
                 {...p}
@@ -1238,7 +1238,7 @@ function RecordForm(p: RecordViewProps) {
             sheet?.kind === 'fields' && sheet.step === 'more'
               ? 'ほかの欄（任意）'
               : legIndex !== null
-                ? `レッグ ${legIndex + 1}`
+                ? `足 ${legIndex + 1}`
                 : '取引の欄'
           }
           lead={
@@ -1623,7 +1623,7 @@ function StatementNotices({
           {st.notice}
         </p>
       ) : null}
-      {/* 次の件も同じ原資産のポジション（#118 のレビュー指摘 1）: 記録した後は編集でレッグを足すしかないので、記録の前に知らせる */}
+      {/* 次の件も同じ原資産のポジション（#118 のレビュー指摘 1）: 記録した後は編集で足を追加するしかないので、記録の前に知らせる */}
       {st?.phase === 'ready' &&
       st.raw &&
       st.units &&
@@ -1916,7 +1916,7 @@ function StageInput(p: RecordViewProps) {
           </div>
         </div>
         {/* 削除の後の 1 行（その場の ［元に戻す］。押した ［削除］ のすぐ下 = 枠の本文の直後に、文と ［元に戻す］ を 1 つの面で。
-            全画面のシートの中なのでトーストにしない = レッグの削除と同じ形。P4・10.2・#184）。読み上げの領域は常に描き、中身だけを替える */}
+            全画面のシートの中なのでトーストにしない = 足の削除と同じ形。P4・10.2・#184）。読み上げの領域は常に描き、中身だけを替える */}
         <div class="rin__removed" role="status">
           {removed ? (
             <>

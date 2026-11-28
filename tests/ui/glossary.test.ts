@@ -55,7 +55,7 @@ const DESIGN_SECTIONS = new Set(
 );
 
 describe('用語のデータの形', () => {
-  it('21 項目・ID は重複なし・すべての ID がある（#88 で計画どおり率・規律コスト、#117 でレッグ・原資産の LC・最大損失、#201 で逆指値 未設定を足した）', () => {
+  it('21 項目・ID は重複なし・すべての ID がある（#88 で計画どおり率・規律コスト、#117 で「足」・原資産の LC・最大損失、#201 で逆指値 未設定を足した）', () => {
     expect(GLOSSARY).toHaveLength(21);
     expect(GLOSSARY.map((g) => g.id).sort()).toEqual([...IDS].sort());
     expect(isGlossaryId('lc')).toBe(true);

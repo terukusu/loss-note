@@ -3151,7 +3151,7 @@ describe('読み取りが終わったことの知らせ（#166。例は Issue �
 
   it('#180 の #4: 最初の行でポジションを分けた知らせは完了の文の代わりに同じ 1 行。#7: 1 段目では枠の下の今の段落のまま', () => {
     const f = filledE1();
-    const split = 'レッグを別のポジションにしました。次の取引（2 / 3）で記録します';
+    const split = '足を別のポジションにしました。次の取引（2 / 3）で記録します';
     const t = view(
       withStatement(f.draft, { marks: f.marks, rows: [ROW_E1, ROW_E1, ROW_E1], notice: split }),
     );

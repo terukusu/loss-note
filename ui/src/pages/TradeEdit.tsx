@@ -85,7 +85,7 @@ const IDS = partIds('edit');
 /** 「今の値と比べる」の行（比較のシートを閉じたらここへフォーカスが戻る） */
 export const COMPARE_ROW_ID = 'edit-compare';
 const MORE_ROW_ID = 'edit-more';
-/** 取引の欄のシートの段 2（ほかの欄・レッグ 1 本の欄。#117）の戻るの層 */
+/** 取引の欄のシートの段 2（ほかの欄・足 1 本の欄。#117）の戻るの層 */
 const MORE_LAYER = `${EDIT_SHEET_ID.fields}~more`;
 
 function TradeEditScreen({
@@ -125,7 +125,7 @@ function TradeEditScreen({
   const [state, setState] = useState<EditState>(controller.getState());
   // 開いているシート（取引の欄・チャート・判定・比較。#131。書きかけには残さない）
   const [sheet, setSheet] = useState<EditSheet | null>(null);
-  // 直前に消したレッグ（［元に戻す］。シートを閉じたら忘れる。#117）
+  // 直前に消した足（［元に戻す］。シートを閉じたら忘れる。#117）
   const [legUndo, setLegUndo] = useState<LegUndo | null>(null);
   const del = useContext(DeletionsContext);
   const nav = useContext(NavigatorContext);
@@ -175,7 +175,7 @@ function TradeEditScreen({
     }
   }, [state.phase, state.error, id, nav]);
 
-  // 取引の欄のシートの段 2（ほかの欄・レッグ 1 本の欄）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。記録する画面と同じ。ui-guidelines 9.3・9.7）
+  // 取引の欄のシートの段 2（ほかの欄・足 1 本の欄）は戻るの層を 1 段積む（戻る・Esc で段 1 へ。記録する画面と同じ。ui-guidelines 9.3・9.7）
   const moreLayered = useRef(false);
   useEffect(
     () => () => {
@@ -235,7 +235,7 @@ function TradeEditScreen({
           value: undoLegRemove(controller.getState().draft.legs, legUndo),
         });
         setLegUndo(null);
-        // ボタンは消えるので、戻したレッグの行へ
+        // ボタンは消えるので、戻した足の行へ
         focusLater(`${LEG_LIST_ID}-${legUndo.index}`);
       }}
       hidden={del?.state.hidden ?? NO_HIDDEN}
@@ -318,9 +318,9 @@ export interface TradeEditViewProps {
   readonly resumedAt?: number | null;
   /** 今の時刻（「N 分前」。省けば Date.now） */
   readonly now?: number;
-  /** 直前に消したレッグ（一覧の「レッグ 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
+  /** 直前に消した足（一覧の「足 2 を削除しました ［元に戻す］」。P4・#117 のレビュー B1。省けば出さない） */
   readonly legUndo?: LegUndo | null;
-  /** ［このレッグを削除］ で消した（戻すために覚える） */
+  /** ［この足を削除］ で消した（戻すために覚える） */
   readonly onLegRemoved?: (u: LegUndo) => void;
   /** ［元に戻す］（元の位置・ID・時刻ごと戻す） */
   readonly onLegUndo?: () => void;
@@ -438,7 +438,7 @@ function TradeEditBody(p: TradeEditViewProps) {
     <K extends keyof typeof d>(field: K) =>
     (value: (typeof d)[K]) =>
       p.onUpdate({ type: 'set', field, value } as DraftAction);
-  // オプションのポジション（#117。元の取引にレッグがある）: レッグの行・[＋ レッグ] は取引の欄のシートの段 2（レッグ 1 本の欄）
+  // オプションのポジション（#117。元の取引に足がある）: 足の行・[＋ 足] は取引の欄のシートの段 2（足 1 本の欄）
   const legAt = sheet?.kind === 'fields' && sheet.step === 'leg' ? (sheet.leg ?? 0) : null;
   const legIndex = legAt !== null && d.legs[legAt] !== undefined ? legAt : null;
   const openLeg = (i: number) => openSheet({ kind: 'fields', step: 'leg', leg: i });
@@ -575,7 +575,7 @@ function TradeEditBody(p: TradeEditViewProps) {
             sheet?.kind === 'fields' && sheet.step === 'more'
               ? 'ほかの欄（任意）'
               : legIndex !== null
-                ? `レッグ ${legIndex + 1}`
+                ? `足 ${legIndex + 1}`
                 : '取引の欄'
           }
           lead={

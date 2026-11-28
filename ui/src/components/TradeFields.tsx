@@ -67,18 +67,18 @@ export interface TradeFieldsProps {
   readonly currency?: CurrencyView;
   /**
    * オプションのポジション（#117。readDraft の option があるときだけ画面が渡す）。渡すと数量の欄を出さず、L / S は自動の向きが
-   * 出ないときだけ、イン / 決済 / LC は原資産の言葉、イン | 決済の下にレッグの一覧、LC に「最大損失まで」を出す
+   * 出ないときだけ、イン / 決済 / LC は原資産の言葉、イン | 決済の下に足の一覧、LC に「最大損失まで」を出す
    */
   readonly option?: OptionFields;
 }
 
 export interface OptionFields {
   readonly reading: ReadingOption;
-  /** レッグの行を押した（そのレッグの欄を開く。同時に開くのは 1 本） */
+  /** 足の行を押した（その足の欄を開く。同時に開くのは 1 本） */
   readonly onOpenLeg: (index: number) => void;
-  /** [＋ レッグ]（直前のレッグを写した行を足して開く） */
+  /** [＋ 足]（直前の足を写した行を追加して開く） */
   readonly onAddLeg: () => void;
-  /** 直前に消したレッグの 1 行と ［元に戻す］（P4。省けば出さない） */
+  /** 直前に消した足の 1 行と ［元に戻す］（P4。省けば出さない） */
   readonly removed?: string | null;
   readonly onUndoRemove?: () => void;
   /** 明細の次のポジションと ［このポジションに入れる］（記録する画面だけ。#118） */
@@ -389,7 +389,7 @@ export function TradeCoreFields(p: TradeFieldsProps) {
 export function LcFields(p: TradeFieldsProps) {
   const { d, e, set, onUpdate } = fieldHelpers(p);
   const o = p.option;
-  // 「最大損失まで」は最大損失が定まるときだけ出す（選んだ後にレッグを変えて定まらなくなっても、外せるよう出したまま）
+  // 「最大損失まで」は最大損失が定まるときだけ出す（選んだ後に足を変えて定まらなくなっても、外せるよう出したまま）
   const maxLossShown = o !== undefined && (o.reading.maxLossSelectable || d.lcMaxLoss);
   const maxLossOn = o !== undefined && d.lcMaxLoss;
   // 「なし」「最大損失まで」で止まった価格の欄は薄いまま押せ、押すとその選択を外して価格を入れられる（#171）

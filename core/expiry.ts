@@ -12,7 +12,7 @@ export function intrinsicValue(l: Leg, x: number): number {
   return l.optionType === 'P' ? Math.max(l.strike - x, 0) : Math.max(x - l.strike, 0);
 }
 
-/** すべてのレッグの限月が同じか（満期の損益・最大損失・(3)・向きの比べ方はこのときだけ。C49・C50） */
+/** すべての足の限月が同じか（満期の損益・最大損失・(3)・向きの比べ方はこのときだけ。C49・C50） */
 export function sameContractMonth(legs: readonly Leg[]): boolean {
   const [first, ...rest] = legs;
   return first !== undefined && rest.every((l) => l.contractMonth === first.contractMonth);

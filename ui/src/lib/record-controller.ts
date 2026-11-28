@@ -214,8 +214,8 @@ export const rowSkipped = (index: number, total: number, unit: RowUnit = '行目
   `${rowLabel(index, total, unit)}をスキップしました。次の${nextWord(unit)}（${index + 2} / ${total}）です`;
 /** [別のポジションにする]・［このポジションに入れる］ の後の知らせ（#118） */
 export const POSITION_SPLIT = (next: number, total: number) =>
-  `レッグを別のポジションにしました。次の取引（${next} / ${total}）で記録します`;
-export const POSITION_MERGED = (legs: number) => `次のポジションのレッグ ${legs} 本を入れました`;
+  `足を別のポジションにしました。次の取引（${next} / ${total}）で記録します`;
+export const POSITION_MERGED = (legs: number) => `次のポジションの足 ${legs} 本を入れました`;
 
 /** 明細の行の数え方 */
 export function rowUnitOf(st: Pick<StatementState, 'rows'>): RowUnit {
@@ -453,9 +453,9 @@ export interface RecordController {
   openOtherZones(): void;
   /** [この行を飛ばす] */
   skipRow(): void;
-  /** [別のポジションにする]: 明細から読んだレッグ（下書きのレッグの番号）を次の取引として記録する（#118・7.6） */
+  /** [別のポジションにする]: 明細から読んだ足（下書きの足の番号）を次の取引として記録する（#118・7.6） */
   splitLeg(legIndex: number): void;
-  /** ［このポジションに入れる］: 次の同じ原資産のポジションのレッグを今のポジションに入れる（#118・7.6） */
+  /** ［このポジションに入れる］: 次の同じ原資産のポジションの足を今のポジションに入れる（#118・7.6） */
   mergeNextPosition(): void;
   /** ［明細なしで手入力］: 明細の場所を要約の状態にする（取引の欄のシートを開くのは画面。#130） */
   startManual(): void;
@@ -648,7 +648,7 @@ export function createRecordController(deps: {
         entry: base.charts?.entry?.phase === 'ready',
         exit: base.charts?.exit?.phase === 'ready',
       },
-      // 損益の欄を本人が打った・直したら、手で足したレッグの損益を足さない（#118 のレビュー 3）
+      // 損益の欄を本人が打った・直したら、手で追加した足の損益を加えない（#118 のレビュー 3）
       ...(base.statement ? { statementPnl: base.statement.marks.pnlYen === 'read' } : {}),
       // 明細の損益の通貨（その場で足すオプションの銘柄の価格の通貨。#118 の見直し 2）
       ...(() => {
@@ -1005,7 +1005,7 @@ export function createRecordController(deps: {
     }
     statementZone = preferred;
     return {
-      // 明細から読んだレッグの時刻も同じ時間帯で（#118）
+      // 明細から読んだ足の時刻も同じ時間帯で（#118）
       draft: row.legs ? { ...a.draft, legs: legsWithZone(a.draft.legs, raw, preferred) } : a.draft,
       marks: a.marks,
       tz: {
@@ -1064,7 +1064,7 @@ export function createRecordController(deps: {
   };
 
   /**
-   * 行（先物の行かポジションのまとまり）を下書きに流し込む。ポジションはレッグも（明細の行の順 + 手で足したレッグ。#118）
+   * 行（先物の行かポジションのまとまり）を下書きに流し込む。ポジションは足も（明細の行の順 + 手で追加した足。#118）
    */
   const fillUnit = (
     base: Draft,
@@ -1126,7 +1126,7 @@ export function createRecordController(deps: {
   };
 
   /**
-   * まとめ直した（#118）: 今のポジションを新しいまとまりで流し込み直す。本人が触った欄・直したレッグ・手で足したレッグは保つ
+   * まとめ直した（#118）: 今のポジションを新しいまとまりで流し込み直す。本人が触った欄・直した足・手で追加した足は保つ
    */
   const regroup = (st: StatementState, units: readonly Unit[], notice: string) => {
     const raw = st.raw ?? [];
@@ -1282,7 +1282,7 @@ export function createRecordController(deps: {
     }
     // 次の明細を選んだら削除の ［元に戻す］ は終わる（#184 R4）
     dropUndo();
-    // 読めた明細があれば、明細から来たもの（読み取りの欄 9 つ。読んだ後に本人が直した値も・明細のレッグ・「明細から」の既定・
+    // 読めた明細があれば、明細から来たもの（読み取りの欄 9 つ。読んだ後に本人が直した値も・明細の足・「明細から」の既定・
     // 自動で選んだ口座）を取り除いてから読む（#184 R5・Q1 = 持ち越さない）。前の明細は読み直しの戻り先に持つ（失敗・キャンセルで
     // 戻す。R6）。読み取りの途中で選び直したときは、前の戻り先（最後に読めた明細）のまま
     const prev = state.statement;

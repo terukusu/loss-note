@@ -185,7 +185,7 @@ function props(d: Draft): TradeFieldsProps {
 }
 
 describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
-  it('数量と L / S を出さず、原資産の言葉の欄とレッグの一覧（2 行のカード）と [＋ レッグ]', () => {
+  it('数量と L / S を出さず、原資産の言葉の欄と足の一覧（2 行のカード）と [＋ 足]', () => {
     const tree = expand(<TradeCoreFields {...props(spread)} />);
     expect(byId(tree, 'record-quantity')).toBeUndefined();
     expect(byId(tree, 'record-side')).toBeUndefined();
@@ -197,7 +197,7 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
       '買い 1 · P 38,000 · 2027-01400 → 300',
       '売り 1 · P 37,000 · 2027-01150 → 180',
     ]);
-    expect(text(byId(tree, 'record-legs-add') as El)).toContain('レッグ');
+    expect(text(byId(tree, 'record-legs-add') as El)).toContain('足');
   });
   it('「最大損失まで」は定まるときだけ。選ぶと LC の欄は使えず、LC を動かしたかを聞かない', () => {
     const lc = expand(<LcFields {...props(spread)} />);
@@ -292,8 +292,8 @@ describe('取引の欄（オプションの形。AC-1・AC-5・AC-8）', () => {
   });
 });
 
-describe('レッグの部品', () => {
-  it('一覧: 誤り・未入力は右の添え、10 本で [＋ レッグ] を押せない', () => {
+describe('足の部品', () => {
+  it('一覧: 誤り・未入力は右の添え、10 本で [＋ 足] を押せない', () => {
     const legs = Array.from({ length: 10 }, (_, i) => leg({ strike: String(36_000 + i * 100) }));
     const tree = expand(
       <LegList legs={legs} errors={[{ strike: 'x' }]} onOpen={noop} onAdd={noop} />,
@@ -303,18 +303,18 @@ describe('レッグの部品', () => {
     expect(metas[1]).toBe('未入力あり');
     expect((byId(tree, 'record-legs-add') as El).props.disabled).toBe(true);
   });
-  it('1 本の欄: [満期で消滅] は押す形（aria-pressed）、[このレッグを削除]', () => {
+  it('1 本の欄: [満期で消滅] は押す形（aria-pressed）、[この足を削除]', () => {
     const tree = expand(
       <LegEditor leg={leg({ expired: true })} index={1} onChange={noop} onRemove={noop} />,
     );
     expect((byId(tree, 'leg-1-expired') as El).props['aria-pressed']).toBe('true');
-    expect(text(byId(tree, 'leg-1-remove') as El)).toContain('このレッグを削除');
+    expect(text(byId(tree, 'leg-1-remove') as El)).toContain('この足を削除');
     // 満期で消滅の意味は欄の下に出さず、押す形の横の「i」の中（#251・AC-2）
-    expect(text(tree)).not.toContain('決済明細に出ないレッグ');
+    expect(text(tree)).not.toContain('決済明細に出ない足');
     expect(byId(tree, 'leg-1-expired-hint')).toBeUndefined();
     expect((byId(tree, 'leg-1-expired') as El).props['aria-describedby']).toBeUndefined();
     expect(all(tree, (e) => e.props['aria-label'] === '「満期で消滅」の説明')).toHaveLength(1);
-    expect(EXPIRED_INFO.body).toContain('決済明細に出ないレッグ');
+    expect(EXPIRED_INFO.body).toContain('決済明細に出ない足');
     expect(EXPIRED_INFO.body).toContain('SQ での価値（OTM なら 0）');
     expect(labels(tree)).toEqual(
       expect.arrayContaining(['P', '買い', '売り', '限月', '行使価格', '枚数', 'イン', '決済']),
@@ -375,7 +375,7 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
       SIDE_MISMATCH,
     );
   });
-  it('詳細のレッグの表: 狭い列のカードと広い列の表に同じ行（損益は無色）', () => {
+  it('詳細の足の表: 狭い列のカードと広い列の表に同じ行（損益は無色）', () => {
     const tree = expand(<LegTable rows={legRows(stored(spread))} />);
     expect(all(tree, (e) => e.props.class === 'legtable__card').map((e) => text(e))).toEqual([
       '買い 1 · P 38,000 · 2027-01400 → 300−100,000円',
@@ -387,17 +387,17 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
     expect(cells[0]).toEqual(['限月', 'P / C', '行使価格', '売買', '枚数', 'イン', '決済', '損益']);
     expect(cells[1]).toEqual(['2027-01', 'P', '38,000', '買い', '1', '400', '300', '−100,000円']);
   });
-  it('一覧の行: 「銘柄 · S · レッグ 2」', () => {
+  it('一覧の行: 「銘柄 · S · 足 2」', () => {
     const row = tradeRow(stored(spread), [XYZ]);
-    expect(row.legsText).toBe('レッグ 2');
+    expect(row.legsText).toBe('足 2');
     const tree = expand(<TradeRow row={row} />);
     expect(text(all(tree, (e) => e.props.class === 'traderow__head')[0] as El)).toBe(
-      '架空指数XYZオプションSレッグ 2',
+      '架空指数XYZオプションS足 2',
     );
-    expect(row.label).toContain('レッグ 2');
+    expect(row.label).toContain('足 2');
   });
 
-  it('詳細の画面: レッグを持つ取引だけ判定のカードの下にレッグの表（#131 の 1 画面の形）', () => {
+  it('詳細の画面: 足を持つ取引だけ判定のカードの下に足の表（#131 の 1 画面の形）', () => {
     const detail = (t: StoredTrade) =>
       expand(
         <TradeDetailView
@@ -437,12 +437,12 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
     expect(rows.get('LC（原資産）')).toBe('最大損失まで');
     expect(rows.get('LC を入る前に決めていたか')).toBe('決めていない');
     expect(rows.has('LC を動かしたか')).toBe(false);
-    // イン / 決済は原資産、数量（使わない 1）の代わりにレッグの本数、1R の決め方
+    // イン / 決済は原資産、数量（使わない 1）の代わりに足の本数、1R の決め方
     expect(rows.get('エントリー時の原資産')).toBe('38,200');
     expect(rows.get('決済時の原資産')).toBe('38,100');
     expect(rows.has('イン')).toBe(false);
     expect(rows.has('数量')).toBe(false);
-    expect(rows.get('レッグ')).toBe('2 本');
+    expect(rows.get('足')).toBe('2 本');
     expect(rows.get('1R の決め方')).toBe('最大損失');
   });
   it('見込みを入れた取引は「LC での損失の見込み」の行と 1R の決め方', () => {
@@ -482,7 +482,7 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
     expect(f.draft.pnlYen).toBe('100000');
   });
 
-  describe('編集の画面（取引の欄のシートの段 leg。保存の本文にレッグを載せる = #116 の 409 legsMissing を避ける）', () => {
+  describe('編集の画面（取引の欄のシートの段 leg。保存の本文に足を載せる = #116 の 409 legsMissing を避ける）', () => {
     async function open() {
       const t = stored(spread);
       const fake = createFakeApi({ trades: [t], instruments: [XYZ], capitalYen: 20_000_000 });
@@ -514,10 +514,10 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
     const fieldsSheet = (tree: Node[]) =>
       all(tree, (e) => e.props['data-sheet'] === EDIT_SHEET_ID.fields)[0] as El;
 
-    it('要約は「レッグ 2」、取引の欄はレッグの一覧。行を押すとそのレッグの段、[＋ レッグ] は写した行を足して開く', async () => {
+    it('要約は「足 2」、取引の欄は足の一覧。行を押すとその足の段、[＋ 足] は写した行を追加して開く', async () => {
       const { c, tree, opened } = await open();
       const main = tree({ kind: 'fields', step: 'main' });
-      expect(text(byId(main, 'edit-summary') as El)).toContain('レッグ 2');
+      expect(text(byId(main, 'edit-summary') as El)).toContain('足 2');
       const sheet = fieldsSheet(main);
       expect(labels([sheet])).not.toContain('数量');
       const row = byId([sheet], `${LEG_LIST_ID}-1`) as El;
@@ -529,7 +529,7 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
       expect(opened.at(-1)).toEqual({ kind: 'fields', step: 'leg', leg: 2 });
     });
 
-    it('デザインレビュー B1: ［このレッグを削除］ は消したレッグを覚えさせ、一覧に「レッグ 2 を削除しました ［元に戻す］」', async () => {
+    it('デザインレビュー B1: ［この足を削除］ は消した足を覚えさせ、一覧に「足 2 を削除しました ［元に戻す］」', async () => {
       const { c, tree, opened, removed, undone } = await open();
       const leg2 = fieldsSheet(tree({ kind: 'fields', step: 'leg', leg: 1 }));
       const before = c.getState().draft.legs[1];
@@ -540,7 +540,7 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
       const main = fieldsSheet(tree({ kind: 'fields', step: 'main' }, removed[0] ?? null));
       const status = all([main], (e) => e.props.class === 'legs__removed')[0] as El;
       expect(status.props.role).toBe('status');
-      expect(text(status)).toContain('レッグ 2 を削除しました');
+      expect(text(status)).toContain('足 2 を削除しました');
       ((byId([main], LEG_UNDO_ID) as El).props.onClick as () => void)();
       expect(undone()).toBe(1);
       // 再レビュー B2: 10 本のときの ［元に戻す］ は押せず、理由を出す
@@ -549,28 +549,28 @@ describe('判定の枠・詳細・一覧（AC-6・AC-7・AC-10・AC-11）', () =
       const full = fieldsSheet(tree({ kind: 'fields', step: 'main' }, removed[0] ?? null));
       expect((byId([full], LEG_UNDO_ID) as El).props.disabled).toBe(true);
       expect(text(all([full], (e) => e.props.class === 'legs__removed')[0] as El)).toContain(
-        'レッグが 10 本あるため戻せません',
+        '足が 10 本あるため戻せません',
       );
       c.update({ type: 'set', field: 'legs', value: [...tenLegs, tenLegs[0] as LegDraft] });
-      expect(c.getState().read.errors.legs).toBe('レッグは 10 本までです。1 本を削除してください');
+      expect(c.getState().read.errors.legs).toBe('足は 10 本までです。1 本を削除してください');
       expect(c.getState().read.canSave).toBe(false);
-      // ［＋ レッグ］ の読み上げの名前（レビュー 3）
-      expect((byId([main], `${LEG_LIST_ID}-add`) as El).props['aria-label']).toBe('レッグを追加');
+      // ［＋ 足］ の読み上げの名前（レビュー 3）
+      expect((byId([main], `${LEG_LIST_ID}-add`) as El).props['aria-label']).toBe('足を追加');
     });
 
-    it('段 leg: 題「レッグ N」・戻るの印・1 本の欄。直した値は下書きのレッグへ', async () => {
+    it('段 leg: 題「足 N」・戻るの印・1 本の欄。直した値は下書きの足へ', async () => {
       const { c, tree } = await open();
       const leg2 = fieldsSheet(tree({ kind: 'fields', step: 'leg', leg: 1 }));
-      expect(text(leg2)).toContain('レッグ 2');
+      expect(text(leg2)).toContain('足 2');
       expect(text(leg2)).toContain('取引の欄');
       expect(labels([leg2])).toEqual(expect.arrayContaining(['行使価格', '枚数']));
-      // 無い番号の段は取引の欄（レッグを消した後など）
+      // 無い番号の段は取引の欄（足を消した後など）
       const gone = fieldsSheet(tree({ kind: 'fields', step: 'leg', leg: 9 }));
       expect(all([gone], (e) => e.props.id === 'record-entry')).toHaveLength(1);
       expect(c.getState().draft.legs).toHaveLength(2);
     });
 
-    it('何も変えずに保存した PUT の本文にレッグがそのまま載り、明細の損益も残る', async () => {
+    it('何も変えずに保存した PUT の本文に足がそのまま載り、明細の損益も残る', async () => {
       const { t, fake, c } = await open();
       await c.save();
       const put = fake.calls.find((x) => x.method === 'PUT' && x.path === `/api/trades/${t.id}`);
@@ -607,23 +607,23 @@ describe('記録する画面の 2 段目（振り返る段。取引の欄のシ�
   const sheetOf = (tree: Node[]) =>
     all(tree, (e) => e.props['data-sheet'] === 'record-fields-sheet')[0] as El;
 
-  it('オプションの銘柄: 要約は「レッグ 2」、取引の欄にレッグの一覧。行を押すと段 leg', () => {
+  it('オプションの銘柄: 要約は「足 2」、取引の欄に足の一覧。行を押すと段 leg', () => {
     const opened: unknown[] = [];
     const tree = record(spread, { kind: 'fields', step: 'main' }, opened);
-    expect(text(byId(tree, 'record-summary') as El)).toContain('レッグ 2');
+    expect(text(byId(tree, 'record-summary') as El)).toContain('足 2');
     const sheet = sheetOf(tree);
     expect(labels([sheet])).not.toContain('数量');
     ((byId([sheet], `${LEG_LIST_ID}-0`) as El).props.onClick as () => void)();
     expect(opened).toEqual([{ kind: 'fields', step: 'leg', leg: 0 }]);
   });
 
-  it('段 leg: 題「レッグ N」と 1 本の欄', () => {
+  it('段 leg: 題「足 N」と 1 本の欄', () => {
     const sheet = sheetOf(record(spread, { kind: 'fields', step: 'leg', leg: 1 }));
-    expect(text(sheet)).toContain('レッグ 2');
+    expect(text(sheet)).toContain('足 2');
     expect(labels([sheet])).toEqual(expect.arrayContaining(['行使価格', '枚数']));
   });
 
-  it('オプションでない銘柄: レッグの一覧を出さず、数量の欄', () => {
+  it('オプションでない銘柄: 足の一覧を出さず、数量の欄', () => {
     const fut: Draft = { ...EMPTY_DRAFT, instrumentName: '架空の先物' };
     const sheet = sheetOf(record(fut, { kind: 'fields', step: 'main' }));
     expect(byId([sheet], LEG_LIST_ID)).toBeUndefined();
@@ -679,7 +679,7 @@ describe('明細から読んだポジション（#118。取引の欄のシート
       }),
     );
 
-  it('レッグの行に「読み取り」と年の札、一覧の下に区切り + 次のポジションの見出し ［このポジションに入れる］', async () => {
+  it('足の行に「読み取り」と年の札、一覧の下に区切り + 次のポジションの見出し ［このポジションに入れる］', async () => {
     const c = await read();
     const calls = { split: [] as number[], merged: 0 };
     const tree = view(c, { kind: 'fields', step: 'main' }, calls);
@@ -691,7 +691,7 @@ describe('明細から読んだポジション（#118。取引の欄のシート
     // 年を補った限月は注意の札（一覧の 1 本目と 2 段目の要約）
     const warns = all(tree, (e) => String(e.props.class ?? '').includes('field__mark--warn'));
     expect(warns.map((e) => text(e))).toEqual(['限月の年は推定', '限月の年は推定']);
-    // 次のポジションの見出し: エントリーの日と 1 本目のレッグの 1 行（区切りの下）
+    // 次のポジションの見出し: エントリーの日と 1 本目の足の 1 行（区切りの下）
     const next = all(tree, (e) => e.props.class === 'legs__next')[0] as El;
     expect(text(next)).toContain('明細の次のポジション · エントリー 12/9');
     expect(text(next)).toContain('買い 1 · C 41,000 · 2027-01');
@@ -716,7 +716,7 @@ describe('明細から読んだポジション（#118。取引の欄のシート
     ).toBeUndefined();
   });
 
-  it('レッグの段: 年を補った限月の 1 行と ［別のポジションにする］', async () => {
+  it('足の段: 年を補った限月の 1 行と ［別のポジションにする］', async () => {
     const c = await read();
     const calls = { split: [] as number[], merged: 0 };
     const tree = view(c, { kind: 'fields', step: 'leg', leg: 0 }, calls);
@@ -730,7 +730,7 @@ describe('明細から読んだポジション（#118。取引の欄のシート
   });
 });
 
-describe('レッグの一覧の部品（#118 のデザインレビュー 3・4）', () => {
+describe('足の一覧の部品（#118 のデザインレビュー 3・4）', () => {
   const next = { legs: 2, head: '売り 1 · P 34,000 · 2027-01', opened: '12/9' };
   it('入れると 10 本を超えるときは押せず、理由の 1 行', () => {
     const legs = Array.from({ length: 9 }, () => leg({}));
@@ -738,7 +738,7 @@ describe('レッグの一覧の部品（#118 のデザインレビュー 3・4�
       <LegList legs={legs} onOpen={noop} onAdd={noop} nextPosition={next} onMergeNext={noop} />,
     );
     expect((byId(tree, LEG_MERGE_ID) as El).props.disabled).toBe(true);
-    expect(text(tree)).toContain('レッグは 10 本までです');
+    expect(text(tree)).toContain('足は 10 本までです');
     expect(text(tree)).toContain('売り 1 · P 34,000 · 2027-01（ほか 1 本）');
   });
   it('［別のポジションにする］ は区切りの上の tonal、削除は区切りの下。分けた後の知らせ', () => {
@@ -755,9 +755,9 @@ describe('レッグの一覧の部品（#118 のデザインレビュー 3・4�
         legs={[leg({})]}
         onOpen={noop}
         onAdd={noop}
-        notice="レッグ 2 を別のポジションにしました"
+        notice="足 2 を別のポジションにしました"
       />,
     );
-    expect(text(list)).toContain('レッグ 2 を別のポジションにしました');
+    expect(text(list)).toContain('足 2 を別のポジションにしました');
   });
 });

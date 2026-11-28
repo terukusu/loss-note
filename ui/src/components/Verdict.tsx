@@ -65,7 +65,7 @@ export interface VerdictProps {
    * [今の値で計算し直す]。#31）。注記が無ければ出さない
    */
   readonly asideAction?: ComponentChildren;
-  /** 直す画面でレッグを編集した（明細の損益を外してレッグの合計にした 1 行。#117・4.7） */
+  /** 直す画面で足を編集した（明細の損益を外して足の合計にした 1 行。#117・4.7） */
   readonly legsEdited?: boolean;
   /**
    * LC の物差しを主役にする（取引の詳細だけ。#231・C66）: 物差しを添え書き・崩れの文の直後、数の段の前に置く。
@@ -260,7 +260,7 @@ export function Verdict(v: VerdictProps) {
         </p>
       ) : null}
       {v.account ? <p class="verdict__aside verdict__account">{v.account}</p> : null}
-      {/* オプションのポジション（#117。5.7・C47・C49・C50）: 1R の出どころ・最大損失の行と、向きの食い違い・レッグを編集した警告 */}
+      {/* オプションのポジション（#117。5.7・C47・C49・C50）: 1R の出どころ・最大損失の行と、向きの食い違い・足を編集した警告 */}
       {pending
         ? null
         : option.facts.map((t) => (

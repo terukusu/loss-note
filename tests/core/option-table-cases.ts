@@ -20,7 +20,7 @@ export interface OptionScene extends Scene {
 /** 場面がまだ無い行（#113・#114 ですべて足した） */
 export const PENDING_ROWS: readonly string[] = [];
 
-// レッグの決済の時刻（エポックからのミリ秒。架空。t1 < t2 < t3 < SQ）
+// 足の決済の時刻（エポックからのミリ秒。架空。t1 < t2 < t3 < SQ）
 const T1 = 1_800_000_000_000;
 const T2 = T1 + 86_400_000;
 const T3 = T2 + 86_400_000;
@@ -28,7 +28,7 @@ const SQ = T3 + 86_400_000;
 
 const at = (time: number): Partial<Leg['exit']> => ({ time });
 
-// 決済の注文の種類は明細の値（生の値）のまま渡し、判定がレッグの決済の時点から導き直すことを確かめる（C54）
+// 決済の注文の種類は明細の値（生の値）のまま渡し、判定が足の決済の時点から導き直すことを確かめる（C54）
 
 // O2・O3: 売りのプット 150 → 360（−210,000 円）、決済したときの原資産 37,100（LC を 400 越えた・成行）
 // → 1R = 210,000 × 1,000 ÷ 1,400 = 150,000 円（実際の動きから）、−1.4R、リスク 1.5%
@@ -68,7 +68,7 @@ const bearPutSpread = (
     'lc',
   );
 
-// O17: すべてのレッグが満期で消滅。SQ の原資産 36,800。
+// O17: すべての足が満期で消滅。SQ の原資産 36,800。
 // 売りのプット 37,000（150 → 本源的価値 200。−50,000 円）、買いのプット 36,000（50 → 0。−50,000 円）
 const allExpiredLegs = [
   expiredLeg('P', 37_000, 'sell', 1, 150, 200, SQ),
@@ -375,7 +375,7 @@ export const OPTION_TABLE_CASES: Readonly<Record<string, readonly OptionScene[]>
   ],
   O21: [
     {
-      // 明細の注文の種類は逆指値（先に決済したレッグ）だが、決済の時点は満期で消えた売り → 「満期（SQ）」。−250,000 円
+      // 明細の注文の種類は逆指値（先に決済した足）だが、決済の時点は満期で消えた売り → 「満期（SQ）」。−250,000 円
       input: position(stopThenSqLegs, 36_300, {}, { time: SQ, orderType: 'stop' }),
       grade: 'B',
       reasons: ['heldPastLc'],

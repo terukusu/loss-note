@@ -154,13 +154,15 @@ export function tradeSummary(
   const inLabel = option ? '原資産 イン' : 'イン';
   const line2Parts = [`${side} ·`, `${size} ·`, `${inLabel} ${entry} →`, `決済 ${exit}`];
   const time = errors.exitTime !== undefined ? DASH : timeText(draft.exitTime);
-  const pnl = pnlText(
-    draft.pnlYen,
-    errors.pnlYen !== undefined || option?.legsEdited === true,
-    currency,
-  );
+  // 足を追加して明細の損益に足したときは、欄の値（1 枚目の明細）ではなく足した合計を出す（保存の本文と同じ値）
+  const summed = option?.summedPnl;
+  const pnl =
+    summed !== undefined
+      ? formatMoney(summed, currency)
+      : pnlText(draft.pnlYen, errors.pnlYen !== undefined || option?.legsEdited === true, currency);
+  const pnlLabel = summed !== undefined ? '明細の損益（合計）' : '明細の損益';
   const at = `${time} 決済`;
-  const line3Parts = pnl === null ? [at] : [`${at} ·`, `明細の損益 ${pnl}`];
+  const line3Parts = pnl === null ? [at] : [`${at} ·`, `${pnlLabel} ${pnl}`];
   const say = (t: string) => (t === DASH ? '未入力' : t);
   const spoken = [
     say(side),
@@ -168,7 +170,7 @@ export function tradeSummary(
     `${inLabel} ${say(entry)}`,
     `決済 ${say(exit)}`,
     time === DASH ? '決済の時刻 未入力' : at,
-    ...(pnl === null ? [] : [`明細の損益 ${pnl}`]),
+    ...(pnl === null ? [] : [`${pnlLabel} ${pnl}`]),
   ].join('、');
   const named: NamedField[] = [];
   for (const f of SUMMARY_FIELDS) {

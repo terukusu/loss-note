@@ -9,6 +9,7 @@ import { EMPTY_LEG, type LegDraft } from '../../ui/src/lib/legs-form';
 import { ADDED_NOT_SUMMED, LEGS_EDITED, optionVerdictLines } from '../../ui/src/lib/option-view';
 import { READ_PATH } from '../../ui/src/lib/record-controller';
 import { type Draft, EMPTY_DRAFT, readDraft, summarize } from '../../ui/src/lib/record-form';
+import { tradeSummary } from '../../ui/src/lib/record-screen';
 import { ADD_LEGS_MSG, legNoticeWithPnl } from '../../ui/src/lib/statement-add-legs';
 import { defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeApi, type ReadScript } from './helpers/fake-api';
@@ -183,6 +184,11 @@ describe('例 #1: 開いたときの足を変えずに明細から 1 本追加�
     // 判定の枠: 損益 28,500。R は手数料を除いた損益 30,000（= 足の導出の合計 180,000 − 90,000 − 60,000）から出るので、
     // 明細の損益・手数料を外した（足の合計の）同じ記録の R と同じ
     expect(s.preview.pnlYen).toBe(28_500);
+    // 取引の欄の要約も、保存を待たずに足した合計を出す（欄の値 = 1 枚目の明細の損益ではない）
+    const sum = tradeSummary(s.draft, s.read.errors, {}, s.read.option);
+    expect(s.read.option?.summedPnl).toBe(28_500);
+    expect(sum.line3Parts.at(-1)).toBe('明細の損益（合計） +28,500円');
+    expect(before.read.option?.summedPnl).toBeUndefined();
     await c.save();
     const body = put(fake)[0];
     if (!body) throw new Error('PUT が無い');

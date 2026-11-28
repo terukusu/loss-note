@@ -25,6 +25,7 @@ import {
   groupPath,
   groupStateOf,
   isGroup,
+  linkBlock,
   type PickerSections,
   parseGroupList,
   pickerSections,
@@ -53,6 +54,9 @@ export const GROUP_IN_OTHER =
   'ほかの両建てのまとまりに入っている取引があります。画面を再読み込みしてから変更してください。';
 export const GROUP_GONE =
   '選んだ取引が見つかりません（削除された可能性があります）。選択を変更してください。';
+/** まとまりの画面の書き（直す・解く）の 404（ほかのタブ・端末で解かれた） */
+export const GROUP_SCREEN_GONE =
+  'このまとまりは見つかりません。解かれた可能性があります。画面を再読み込みしてください。';
 export const GROUP_SHAPE = 'この組み合わせでは結べません。向きと銘柄を確認してください。';
 export const GROUP_CANDIDATES_FAILED =
   '候補を読み込めませんでした。通信状況を確認して、もう一度開いてください。';
@@ -119,11 +123,15 @@ export async function loadGroupOf(
 }
 
 /** 書きの失敗 → 決まった文言 */
-async function writeError(res: Response | null, kind: FailureKind): Promise<string> {
+async function writeError(
+  res: Response | null,
+  kind: FailureKind,
+  gone: string = GROUP_GONE,
+): Promise<string> {
   if (kind === 'auth') return AUTH_EXPIRED;
   if (kind === 'network') return GROUP_NETWORK_FAILED;
   if (res?.status === 409 && (await conflictReason(res)) === 'inOtherGroup') return GROUP_IN_OTHER;
-  if (res?.status === 404) return GROUP_GONE;
+  if (res?.status === 404) return gone;
   if (res?.status === 400) return GROUP_SHAPE;
   return GROUP_SAVE_FAILED;
 }
@@ -256,7 +264,7 @@ export function createGroupController(deps: {
       } catch (e) {
         const cur = state;
         if (cur.phase === 'ready')
-          set({ ...cur, saving: null, error: await writeError(res, kindOf(e)) });
+          set({ ...cur, saving: null, error: await writeError(res, kindOf(e), GROUP_SCREEN_GONE) });
         return false;
       }
     },
@@ -275,7 +283,7 @@ export function createGroupController(deps: {
       } catch (e) {
         const cur = state;
         if (cur.phase === 'ready')
-          set({ ...cur, saving: null, error: await writeError(res, kindOf(e)) });
+          set({ ...cur, saving: null, error: await writeError(res, kindOf(e), GROUP_SCREEN_GONE) });
         return false;
       }
     },
@@ -336,6 +344,8 @@ export function createPickerController(deps: {
   readonly request: RequestFn;
   readonly base: StoredTrade;
   readonly instruments: readonly InstrumentRecord[];
+  /** 消した印（[元に戻す] を待っている取引）か。候補から除く */
+  readonly isHidden?: (id: string) => boolean;
 }): PickerController {
   const { base, request } = deps;
   const listeners = new Set<(s: PickerState) => void>();
@@ -375,7 +385,7 @@ export function createPickerController(deps: {
         );
         if (!Array.isArray(body?.items)) throw new Failed('other');
         if (my !== gen) return;
-        const items = body.items as StoredTrade[];
+        const items = (body.items as StoredTrade[]).filter((t) => !deps.isHidden?.(t.id));
         pool = new Map(items.map((t) => [t.id, t]));
         set({
           phase: 'ready',
@@ -415,6 +425,8 @@ export function createPickerController(deps: {
       const s = state;
       if (s.phase !== 'ready' || s.saving) return null;
       const members = self.members();
+      // 結べない組は送らない（ボタンを押せない形と同じ規則。7.7）
+      if (linkBlock(members) !== null) return null;
       set({ ...s, saving: true, error: null });
       let res: Response | null = null;
       try {

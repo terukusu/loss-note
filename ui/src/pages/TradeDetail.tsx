@@ -52,6 +52,7 @@ import {
   detailActions,
   fieldsHref,
   groupActionOf,
+  shownJudgment,
   WHY_INFO_ID,
   WHY_TITLE_ID,
   whyCardModel,
@@ -231,6 +232,8 @@ function TradeDetailScreen({
           request: createRequest(api),
           base: cur.trade,
           instruments: cur.instruments,
+          // 消した印の取引（[元に戻す] を待っている）は候補に出さない
+          isHidden: (tid) => del?.state.hidden.has(tid) ?? false,
         });
         picker.current = c;
         c.subscribe(setPickerState);
@@ -562,7 +565,8 @@ function DetailWhy(p: TradeDetailViewProps) {
   const tags = normalizeEmotions(t.emotionTags);
   const reflection = normalizeReflection(t.reflection);
   const filled = reflectionCardSides(reflection);
-  const m = whyCardModel(t, state.summary.judgment?.grade ?? null, {
+  // 両建てのメンバーはまとまりの判定の段（読んでいる間・読めなかったときは中立。#267・C78）
+  const m = whyCardModel(t, shownJudgment(state.summary.judgment, state.group)?.grade ?? null, {
     emotions: tags.length,
     reflection: filled.length > 0,
   });

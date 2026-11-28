@@ -330,3 +330,104 @@ describe('一覧の行の部品（AC-9）', () => {
     expect(text(member)).not.toContain('—');
   });
 });
+
+describe('独立レビューの直し（#267 の B1・非 block）', () => {
+  it('B1: 決済の代わりのメンバー（単独なら C）の「なぜ」のカードは、まとまりが計画どおりの勝ちなら「なぜ守れたか」・案内なし', () => {
+    const { f, c, g } = h1();
+    const group: GroupDetail = {
+      phase: 'ready',
+      state: groupStateOf(g, byId(f, c)),
+      byId: byId(f, c),
+    };
+    // 単独の判定は C（LC なし）
+    expect(summarize(c).judgment?.grade).toBe('C');
+    const tree = detailTree(c, { state: detailState(c, group) });
+    const why = all(tree, hasClass('dwhy'))[0] as El;
+    expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('なぜ守れたか');
+    expect(all([why], (e) => e.type === 'button' && hasClass('info')(e))).toEqual([]);
+  });
+
+  it('B1: まとまりを読んでいる間・読めなかったときの「なぜ」は中立の題（単独の判定で決めない）', () => {
+    const { c } = h1();
+    for (const group of [{ phase: 'loading' }, { phase: 'failed' }] as GroupDetail[]) {
+      const why = all(detailTree(c, { state: detailState(c, group) }), hasClass('dwhy'))[0] as El;
+      expect(text(all([why], (e) => e.type === 'h2')[0] as El)).toBe('心理と振り返り');
+    }
+  });
+
+  it('［解く］ の添えは上書きがあれば「修正ごと」戻ることを言う。崩れたまとまりは戻せない添え', () => {
+    const { f, c, g } = h1();
+    const st = (gr: typeof g, ts: StoredTrade[]): GroupScreenState => ({
+      phase: 'ready',
+      group: gr,
+      state: groupStateOf(gr, byId(...ts)),
+      byId: byId(...ts),
+      instruments: INSTRUMENTS,
+      accounts: [],
+      saving: null,
+      error: null,
+    });
+    const rowOf = (s: GroupScreenState) =>
+      text(
+        all(
+          expand(
+            <TradeGroupView
+              state={s}
+              sheet="actions"
+              onSheet={noop}
+              draft={{ price: '', orderType: '', reason: '' }}
+              draftError={null}
+              onDraft={noop}
+              onSaveExit={noop}
+              onGapSlip={noop}
+              onUnlink={noop}
+              onReload={noop}
+              onRelogin={noop}
+            />,
+          ),
+          (e) => e.props.id === 'group-action-unlink',
+        )[0] as El,
+      );
+    expect(rowOf(st(g, [f, c]))).toContain('8 秒は元に戻せます · 記録・心理は残ります');
+    expect(rowOf(st({ ...g, exit: { price: 38_440 } }, [f, c]))).toContain('修正ごと');
+    expect(rowOf(st(g, [f]))).toContain('記録・心理・Good / More は残ります');
+  });
+
+  it('段の見出しは候補の向きで決まり、先にエントリーした相手を選んでも替わらない', () => {
+    const f = future('f1', { exitPrice: 38_600 });
+    const c = cfd('c1', { price: 38_450, exitPrice: 38_620 });
+    const sections = pickerSections(c, [f], INSTRUMENTS);
+    const heads = (selected: string[]) => {
+      const state: PickerState = {
+        phase: 'ready',
+        sections,
+        selected,
+        mainSide: null,
+        saving: false,
+        error: null,
+      };
+      const members = rolesOf(c, selected.length ? [f] : [], selected.length ? 'L' : 'S');
+      return all(
+        expand(
+          <GroupPickerBody
+            prefix="t"
+            base={c}
+            state={state}
+            members={members}
+            instruments={INSTRUMENTS}
+            volume={volumeLine(members)}
+            preview={previewLine(members)}
+            accountName={() => undefined}
+            onToggle={noop}
+            onSwap={noop}
+            onLink={noop}
+            onRetry={noop}
+          />,
+        ),
+        hasClass('gpick__section-title'),
+      ).map(text);
+    };
+    expect(heads([])).toEqual(['逆の向き']);
+    expect(heads(['f1'])).toEqual(['逆の向き']);
+  });
+});

@@ -13,6 +13,7 @@ import {
   BROKEN_TEXT,
   entryStartOf,
   type MemberRowModel,
+  PICKER_SECTION,
   type PreviewLine,
   ROLE_TEXT,
   shortDateTime,
@@ -125,13 +126,12 @@ export function GroupPickerBody(p: GroupPickerProps) {
       </div>
     );
   }
-  const baseRole = p.members[0]?.role ?? 'main';
-  const otherRole: GroupRole = baseRole === 'main' ? 'hedge' : 'main';
   const mains = p.members.filter((m) => m.role === 'main').map((m) => m.trade);
   const sections: { key: string; title: string; items: readonly StoredTrade[] }[] = [
-    { key: 'opposite', title: ROLE_TEXT[otherRole], items: state.sections.opposite },
-    { key: 'same', title: `${ROLE_TEXT[baseRole]}に加える`, items: state.sections.same },
-    { key: 'other', title: 'ほかの銘柄', items: state.sections.other },
+    // 段の見出しは候補の向きで決まり、選んでも替わらない（役割は上の「本玉: …」と量の行で見せる）
+    { key: 'opposite', title: PICKER_SECTION.opposite, items: state.sections.opposite },
+    { key: 'same', title: PICKER_SECTION.same, items: state.sections.same },
+    { key: 'other', title: PICKER_SECTION.other, items: state.sections.other },
   ];
   const empty = sections.every((s) => s.items.length === 0);
   const block = p.preview.kind === 'none';

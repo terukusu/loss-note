@@ -3,10 +3,11 @@
 // - チャートは 2 枠を横に並べ、押すと全画面で見る層。追加のチャート（#89）は 2 枠の下に同じ形で並べる
 // - 「すべての欄」「総評」は次の画面（その場で開かない）
 // - チャートの下に「なぜ」のカード 1 枚（心理 → Good / More → 総評。題と Good / More の並びは判定の段。#248・C69）
-import type { Grade } from '../../../core/judge';
+import type { Grade, Judgment } from '../../../core/judge';
 import type { StoredTrade } from '../../../core/record';
 import { badgeModel, type Tier } from './badge';
 import type { AnySlot } from './charts';
+import type { GroupDetail } from './trade-detail-controller';
 import type { ChartSlotView } from './trade-view';
 
 /** 開いているシート（TradeDetailScreen が持つ。View は受けて描くだけ） */
@@ -96,6 +97,21 @@ export function chartCaption(c: ChartSlotView): string {
 export function commentOf(t: StoredTrade): string | null {
   const v = t.record.exit.review?.trim();
   return v ? v : null;
+}
+
+/**
+ * 詳細に見せる判定（「なぜ」のカードの題・時間足の行の「判定に使用」。#267・C78）: まとまりにいない・崩れたまとまり = その取引の
+ * 判定、まとまりが ok = まとまりの判定（メンバー単独の判定を出さない）、まとまりを読んでいる間・読めなかった = 無し（中立）
+ */
+export function shownJudgment(
+  own: Judgment | undefined,
+  group: GroupDetail | undefined,
+): Judgment | undefined {
+  const g = group ?? { phase: 'none' as const };
+  if (g.phase === 'none') return own;
+  if (g.phase !== 'ready') return undefined;
+  if (g.state.kind === 'broken') return own;
+  return g.state.ev.ok ? g.state.ev.judgment : undefined;
 }
 
 /** 詳細の次の画面の URL（#131。「すべての欄」「総評」） */

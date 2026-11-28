@@ -47,6 +47,7 @@ import {
   firstMainOf,
   fixLineParts,
   gapSlipReason,
+  groupBody,
   groupNoteText,
   groupSide,
   groupSummary,
@@ -56,6 +57,8 @@ import {
   memberRows,
   pnlListText,
   readExitDraft,
+  UNLINK_BROKEN_NOTE,
+  unlinkNote,
 } from '../lib/position-group';
 import { REFLECTION_TITLE, reflectionCardSides } from '../lib/reflection';
 import {
@@ -66,6 +69,7 @@ import {
 import { createRequest } from '../lib/request';
 import { NavigatorContext } from '../lib/router';
 import { titleOf } from '../lib/routes';
+import { UnlinksContext } from '../lib/unlinks-context';
 import { backTargetOf, type ReflectionActions } from './TradeDetail';
 import { LoadState } from './Trades';
 
@@ -82,7 +86,6 @@ export const GROUP_SHEET_ID = {
 /** 操作のシートの行の文字 */
 export const EDIT_EXIT_LABEL = '固定の価格などを直す';
 export const UNLINK_LABEL = '解く';
-export const UNLINK_NOTE = '記録・心理・Good / More は残ります';
 /** 直すシートの題 */
 export const EXIT_SHEET_TITLE = '固定の価格と決済';
 /** 固定の価格の「i」の中身（5.8 の 1・7.7） */
@@ -114,6 +117,7 @@ function TradeGroupScreen({ id }: { readonly id: string }) {
   const [draft, setDraft] = useState<ExitDraft>({ price: '', orderType: '', reason: '' });
   const [draftError, setDraftError] = useState<string | null>(null);
   const nav = useContext(NavigatorContext);
+  const unlinks = useContext(UnlinksContext);
   const emotion = useRef<EmotionController | null>(null);
   const [emotionState, setEmotionState] = useState<EmotionState | null>(null);
   const reflection = useRef<ReflectionController | null>(null);
@@ -216,9 +220,23 @@ function TradeGroupScreen({ id }: { readonly id: string }) {
         void controller.saveExit(exit);
       }}
       onUnlink={() => {
+        // 判定に使えるまとまりは、解いた後に上書きごと結び直せるよう本文を預ける（[元に戻す]。ADR-0007 の形・7.7）
+        const cur = controller.getState();
+        const undo =
+          cur.phase === 'ready' && cur.state.kind === 'ok'
+            ? {
+                // トーストは「US30 L の両建てを解きました」（題の頭の「両建て · 」を重ねない）
+                label: groupTitle(mainsOf(cur.state.members), cur.instruments).replace(
+                  /^両建て · /,
+                  '',
+                ),
+                body: groupBody(cur.group.members, cur.group.exit),
+              }
+            : null;
         void controller.unlink().then((ok) => {
           if (!ok) return;
           setSheet(null);
+          if (undo) unlinks?.done(undo.label, undo.body);
           nav?.back('/trades');
         });
       }}
@@ -432,7 +450,11 @@ function GroupSheets(p: TradeGroupViewProps) {
               {EDIT_EXIT_LABEL}
             </RowLink>
           ) : null}
-          <RowLink id="group-action-unlink" onClick={p.onUnlink} meta={UNLINK_NOTE}>
+          <RowLink
+            id="group-action-unlink"
+            onClick={p.onUnlink}
+            meta={ok ? unlinkNote(state.group.exit !== undefined) : UNLINK_BROKEN_NOTE}
+          >
             {state.saving === 'unlink' ? '解いています…' : UNLINK_LABEL}
           </RowLink>
         </div>

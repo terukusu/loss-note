@@ -1,7 +1,7 @@
 // 両建てのまとまりの画面の純関数（#267。Issue のルールと例 R1〜R13。値は架空・設計書 5.8 の例と同じ）
 import { describe, expect, it } from 'vitest';
 import type { StoredTrade } from '../../core/record';
-import { detailActions, groupActionOf } from '../../ui/src/lib/detail-view';
+import { detailActions, groupActionOf, shownJudgment } from '../../ui/src/lib/detail-view';
 import {
   asksGapSlip,
   cleanExit,
@@ -29,6 +29,7 @@ import {
   rolesOf,
   volumeLine,
 } from '../../ui/src/lib/position-group';
+import { summarize } from '../../ui/src/lib/record-form';
 import { parseRoute } from '../../ui/src/lib/routes';
 import { bootStack } from '../../ui/src/lib/tab-nav';
 import { monthGroups } from '../../ui/src/lib/trade-list';
@@ -408,5 +409,24 @@ describe('応答の検査と経路', () => {
 
   it('XYZ CFD は原資産の名前が XYZ（銘柄の名前と違っても同じ原資産）', () => {
     expect(XYZ_CFD.underlying).toBe('XYZ');
+  });
+});
+
+describe('詳細に見せる判定（#267 の B1・C78）', () => {
+  it('まとまりにいない・崩れた = その取引、ok = まとまり、読み込み中・失敗 = 無し', () => {
+    const { f, c, g } = h1();
+    const ownC = summarize(c).judgment;
+    expect(shownJudgment(ownC, undefined)?.grade).toBe('C');
+    expect(shownJudgment(ownC, { phase: 'none' })?.grade).toBe('C');
+    expect(shownJudgment(ownC, { phase: 'loading' })).toBeUndefined();
+    expect(shownJudgment(ownC, { phase: 'failed' })).toBeUndefined();
+    expect(
+      shownJudgment(ownC, { phase: 'ready', state: groupStateOf(g, byId(f, c)), byId: byId(f, c) })
+        ?.grade,
+    ).toBe('safeWin');
+    expect(
+      shownJudgment(ownC, { phase: 'ready', state: groupStateOf(g, byId(c)), byId: byId(c) })
+        ?.grade,
+    ).toBe('C');
   });
 });

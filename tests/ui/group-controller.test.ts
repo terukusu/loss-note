@@ -5,12 +5,14 @@ import {
   createGroupController,
   createPickerController,
   GROUP_IN_OTHER,
+  GROUP_SCREEN_GONE,
   loadGroupIndex,
 } from '../../ui/src/lib/group-controller';
-import { SIDE_LOCKED } from '../../ui/src/lib/position-group';
+import { groupBody, MAX_RANGE_MS, pickRange, SIDE_LOCKED } from '../../ui/src/lib/position-group';
 import { createRequest } from '../../ui/src/lib/request';
 import { createTradeDetailController } from '../../ui/src/lib/trade-detail-controller';
 import { createTradesController } from '../../ui/src/lib/trades-controller';
+import { createUnlinks, UNLINK_TOAST_TEXT } from '../../ui/src/lib/unlinks';
 import { createFakeApi } from './helpers/fake-api';
 import { cfd, ENTRY, future, h1, h2, INSTRUMENTS, MON } from './helpers/group-examples';
 
@@ -239,5 +241,99 @@ describe('一覧のまとまりの索引（AC-9）', () => {
     await settle();
     const s = ctl.getState();
     expect(s.phase === 'ready' && s.groups?.groups.get(a.g.id)?.kind).toBe('ok');
+  });
+});
+
+describe('独立レビューの直し（#267 の非 block）', () => {
+  it('消した印の取引は候補に出さない。結べない組は送らない', async () => {
+    const f = future('f1', { exitPrice: 38_600 });
+    const c = cfd('c1', { price: 38_450, exitPrice: 38_620 });
+    const c2 = cfd('c2', { price: 38_440, exitPrice: 38_620 });
+    const fake = createFakeApi({ trades: [f, c, c2], instruments: [...INSTRUMENTS] });
+    const p = createPickerController({
+      request: createRequest(fake.api),
+      base: f,
+      instruments: INSTRUMENTS,
+      isHidden: (id) => id === 'c2',
+    });
+    await p.load();
+    const s = p.getState();
+    expect(s.phase === 'ready' && s.sections.opposite.map((t) => t.id)).toEqual(['c1']);
+    expect(await p.link()).toBeNull();
+    expect(fake.calls.some((x) => x.method === 'POST')).toBe(false);
+  });
+
+  it('まとまりの画面の直しの 404（ほかで解かれた）はまとまりの画面の文言', async () => {
+    const { f, c, g } = h1();
+    const fake = createFakeApi({ trades: [f, c], instruments: [...INSTRUMENTS], groups: [g] });
+    const ctl = createGroupController({ api: fake.api, id: g.id });
+    await ctl.load();
+    fake.groups.splice(0, 1);
+    expect(await ctl.saveExit({ price: 38_440 })).toBe(false);
+    const s = ctl.getState();
+    expect(s.phase === 'ready' && s.error).toBe(GROUP_SCREEN_GONE);
+  });
+
+  it('保有が 353 日を超える取引でも、読む範囲は範囲の入口の上限（367 日）に収める', () => {
+    const long = future('L', { exitPrice: 38_600, entryTime: MON - 400 * DAY });
+    const r = pickRange(long);
+    expect(r.exitTo - r.exitFrom).toBe(MAX_RANGE_MS);
+    expect(r.exitTo).toBe(MON + 7 * DAY + 1);
+  });
+});
+
+describe('解く + [元に戻す]（ADR-0007 の形・7.7）', () => {
+  const timers = () => {
+    const q: { fn: () => void; ms: number }[] = [];
+    return {
+      q,
+      setTimer: (fn: () => void, ms: number) => {
+        q.push({ fn, ms });
+        return q.length - 1;
+      },
+      clearTimer: (id: unknown) => {
+        const t = q[id as number];
+        if (t) t.fn = () => {};
+      },
+    };
+  };
+
+  it('[元に戻す] は預けた本文（上書きごと）で結び直し、新しいまとまりの ID を返す', async () => {
+    const { f, c, g } = h1();
+    const fake = createFakeApi({ trades: [f, c], instruments: [...INSTRUMENTS], groups: [g] });
+    const ctl = createGroupController({ api: fake.api, id: g.id });
+    await ctl.load();
+    expect(await ctl.saveExit({ price: 38_440 })).toBe(true);
+    const s = ctl.getState();
+    if (s.phase !== 'ready') throw new Error('not ready');
+    const body = groupBody(s.group.members, s.group.exit);
+    expect(await ctl.unlink()).toBe(true);
+    const t = timers();
+    const u = createUnlinks({ api: fake.api, setTimer: t.setTimer, clearTimer: t.clearTimer });
+    u.done('両建て · XYZ 先物 L', body);
+    expect(u.getState().toast).toEqual({ label: '両建て · XYZ 先物 L' });
+    expect(t.q[0]?.ms).toBe(8_000);
+    const id = await u.undo();
+    expect(id).toBe(fake.groups[0]?.id);
+    expect(fake.groups[0]?.exit).toEqual({ price: 38_440 });
+    expect(fake.trades.map((x) => x.positionGroupId)).toEqual([id, id]);
+    expect(u.getState()).toMatchObject({ toast: null, failed: false });
+  });
+
+  it('時間が過ぎたらトーストを閉じて本文を捨てる。結び直せなければ失敗の知らせ', async () => {
+    const { f, c, g } = h1();
+    const fake = createFakeApi({ trades: [f, c], instruments: [...INSTRUMENTS] });
+    const t = timers();
+    const u = createUnlinks({ api: fake.api, setTimer: t.setTimer, clearTimer: t.clearTimer });
+    u.done('x', groupBody(g.members));
+    t.q[0]?.fn();
+    expect(u.getState().toast).toBeNull();
+    expect(await u.undo()).toBeNull();
+    // 別のまとまりに入っていて結び直せない
+    fake.trades[0] = { ...f, positionGroupId: 'gX' };
+    u.done('x', groupBody(g.members));
+    expect(await u.undo()).toBeNull();
+    expect(u.getState()).toMatchObject({ toast: null, failed: true });
+    expect(UNLINK_TOAST_TEXT.failed).not.toContain('409');
   });
 });

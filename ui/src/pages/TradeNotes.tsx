@@ -10,7 +10,7 @@ import { api, signOutActive } from '../auth/session';
 import { type BackTarget, TopBar } from '../components/AppBar';
 import { APP_NAME } from '../lib/app-name';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
-import { commentOf } from '../lib/detail-view';
+import { commentOf, shownJudgment } from '../lib/detail-view';
 import { NavigatorContext } from '../lib/router';
 import { titleOf } from '../lib/routes';
 import { browserCodec } from '../lib/statement-image';
@@ -42,7 +42,6 @@ function NotesScreen(p: {
         api,
         id: p.id,
         charts: false,
-        group: false,
         preview: (bytes, type) => browserCodec.preview(bytes, type),
       }),
     [p.id],
@@ -135,14 +134,18 @@ export function TradeNotesView(p: TradeNotesViewProps) {
       <section class="card notes" aria-label={`${label} のすべての欄`}>
         <p class="notes__sub">{label}</p>
         <dl class="fields">
-          {recordFields(t, state.instrumentName, state.summary.judgment, state.accounts).map(
-            (f) => (
-              <div key={f.label} class="fields__row">
-                <dt class="fields__label">{f.label}</dt>
-                <dd class="fields__value">{f.value}</dd>
-              </div>
-            ),
-          )}
+          {recordFields(
+            t,
+            state.instrumentName,
+            // 両建てのメンバーは時間足の行の「判定に使用」もまとまりの判定から（#267・C78）
+            shownJudgment(state.summary.judgment, state.group),
+            state.accounts,
+          ).map((f) => (
+            <div key={f.label} class="fields__row">
+              <dt class="fields__label">{f.label}</dt>
+              <dd class="fields__value">{f.value}</dd>
+            </div>
+          ))}
         </dl>
       </section>
     </>

@@ -232,7 +232,10 @@ export function createTradeDetailController(deps: {
           charts: Object.fromEntries(
             ALL_SLOTS.map((s) => [s, has(s) ? { phase: 'loading' } : { phase: 'none' }]),
           ) as Record<ChartSlot, ChartView>,
-          group: trade.positionGroupId === undefined ? { phase: 'none' } : { phase: 'loading' },
+          group:
+            trade.positionGroupId === undefined || deps.group === false
+              ? { phase: 'none' }
+              : { phase: 'loading' },
         });
         await Promise.all([
           ...ALL_SLOTS.filter(has).map((slot) => readChart(slot)),

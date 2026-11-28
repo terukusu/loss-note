@@ -866,11 +866,25 @@ export async function flows(kit) {
       await p.locator('#detail-link-sheet button', { hasText: '結ぶ' }).click();
       await waitReady(p, '両建て · US30 L');
       await p.locator('main .verdict', { hasText: '計画どおりの勝ち' }).waitFor({ timeout: 15000 });
+      // 画面の移りが終わってから撮る
+      await settle(p);
       await shot('g267-linked', 390, 844, 'dark');
+      // 解く → 前の画面（詳細）に「両建てを解きました」と [元に戻す] → 押すと上書きごと結び直してまとまりの画面
+      await p.locator('#group-more').click();
+      await p.locator('#group-actions-sheet[open]').waitFor({ state: 'visible', timeout: 5000 });
+      await settleSheet(p);
+      await p.locator('#group-action-unlink').click();
+      await waitDetail(p);
+      await p.locator('#toast-unlink-undo').waitFor({ timeout: 15000 });
+      await settle(p);
+      await shot('g267-unlinked', 390, 844, 'dark');
+      await p.locator('#toast-unlink-undo').click();
+      await waitReady(p, '両建て · US30 L');
+      await p.locator('main .verdict', { hasText: '計画どおりの勝ち' }).waitFor({ timeout: 15000 });
       expectEq(errors.length, 0, 'ページのエラー');
     } finally {
       await c.close();
     }
-    return `${seen.length} 状態で横 0・当たり 0・はみ出し 0（相手を選ぶシート・まとまりの画面・直すシート・メンバーの詳細・一覧）・結ぶとまとまりの画面`;
+    return `${seen.length} 状態で横 0・当たり 0・はみ出し 0（相手を選ぶシート・まとまりの画面・直すシート・メンバーの詳細・一覧）・結ぶとまとまりの画面・解いて [元に戻す] で結び直す`;
   });
 }

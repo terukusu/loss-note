@@ -68,9 +68,23 @@ export async function conflictReason(res: Response): Promise<string | null> {
 
 /** 操作のシートの行の文字（7.7） */
 export const LINK_LABEL = '両建てに結ぶ';
+/** ［解く］ の添え（上書きがあれば、上書きごと戻ることも言う。7.7） */
+export function unlinkNote(hasExit: boolean): string {
+  return hasExit
+    ? '8 秒は元に戻せます（固定の価格などの修正ごと）'
+    : '8 秒は元に戻せます · 記録・心理は残ります';
+}
+/** 崩れたまとまりの ［解く］ の添え（結び直せないので戻せない） */
+export const UNLINK_BROKEN_NOTE = '記録・心理・Good / More は残ります';
 export const OPEN_GROUP_LABEL = 'まとまりを見る';
 /** 相手を選ぶシートの題（7.7） */
 export const PICKER_TITLE = '両建ての相手';
+/** 相手を選ぶシートの段の見出し（候補の向き。選んでも替わらない） */
+export const PICKER_SECTION = {
+  opposite: '逆の向き',
+  same: '同じ向き（本玉か決済の代わりに加える）',
+  other: 'ほかの銘柄（逆の向き）',
+} as const;
 
 /** 相手を選ぶ範囲（この取引のエントリーの 7 日前〜決済の 7 日後。7.7） */
 export const PICK_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
@@ -460,11 +474,13 @@ export function pickRange(base: StoredTrade): {
   readonly exitFrom: number;
   readonly exitTo: number;
 } {
-  return {
-    exitFrom: entryStartOf(base) - PICK_WINDOW_MS,
-    exitTo: base.record.exit.time + PICK_WINDOW_MS + 1,
-  };
+  const exitTo = base.record.exit.time + PICK_WINDOW_MS + 1;
+  // 範囲の入口の上限（367 日）に収める。保有が 353 日を超える取引だけ、エントリーの 7 日前より後から読む（まれ）
+  return { exitFrom: Math.max(entryStartOf(base) - PICK_WINDOW_MS, exitTo - MAX_RANGE_MS), exitTo };
 }
+
+/** 範囲の入口の長さの上限（API の trade_range と同じ 367 日） */
+export const MAX_RANGE_MS = 367 * 24 * 60 * 60 * 1000;
 
 /** 本玉の向きの既定（最初にエントリーした取引の側。同じ時刻なら base の側。7.7） */
 export function defaultMainSide(base: StoredTrade, picked: readonly StoredTrade[]): Side {

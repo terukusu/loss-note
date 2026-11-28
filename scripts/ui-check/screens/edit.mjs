@@ -283,7 +283,7 @@ export async function flows(kit) {
         await settleSheet(p);
         expectEq(
           (await actions.locator('.rowlink .rowlink__text').allTextContents()).join(' / '),
-          '今の値と比べる / 削除',
+          '今の値と比べる / 両建てに結ぶ / 削除',
           '操作のシートの行',
         );
         expectSheetInWindow(await sheetBox(p), `${w} 操作のシート`);

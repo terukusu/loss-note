@@ -4,11 +4,15 @@
 // フォーカス・ポインタがある間は取り消しの時間を止める（WCAG 2.2.1）。ダイアログにしない（確認を挟まない）。hook を持たない
 import { TOAST_TEXT, type ToastState } from '../lib/deletions';
 import { DRAFT_TOAST_TEXT, type DraftToast } from '../lib/drafts';
+import { UNLINK_TOAST_TEXT, type UnlinkToast } from '../lib/unlinks';
 import { Button } from './Button';
 import { Icon } from './Icon';
 
 /** [消す] の後にフォーカスを移す先 */
 export const TOAST_UNDO_ID = 'toast-undo';
+
+/** 両建てを解いた後にフォーカスを移す先（[元に戻す]。#267） */
+export const UNLINK_UNDO_ID = 'toast-unlink-undo';
 
 /** 書きかけを破棄した後にフォーカスを移す先（[元に戻す]。#75） */
 export const DRAFT_UNDO_ID = 'toast-draft-undo';
@@ -27,6 +31,43 @@ export interface ToastProps {
   readonly onDraftDismiss?: () => void;
   readonly onDraftHold?: () => void;
   readonly onDraftResume?: () => void;
+  /** 両建てを解いた知らせ（#267。[元に戻す] = 上書きごと結び直す）。省けば出さない */
+  readonly unlink?: UnlinkToast;
+  readonly unlinkSending?: boolean;
+  readonly unlinkFailed?: boolean;
+  readonly onUnlinkUndo?: () => void;
+  readonly onUnlinkDismiss?: () => void;
+  readonly onUnlinkDismissFailed?: () => void;
+  readonly onUnlinkHold?: () => void;
+  readonly onUnlinkResume?: () => void;
+}
+
+/** 両建てを解いた知らせの中身（hook を持たない） */
+function UnlinkToastBody(p: ToastProps) {
+  const u = p.unlink;
+  if (!u) return null;
+  return (
+    <div
+      class="toast"
+      onFocusIn={p.onUnlinkHold}
+      onFocusOut={p.onUnlinkResume}
+      onPointerEnter={p.onUnlinkHold}
+      onPointerLeave={p.onUnlinkResume}
+    >
+      <p class="toast__text">{UNLINK_TOAST_TEXT.done(u.label)}</p>
+      <Button
+        id={UNLINK_UNDO_ID}
+        label="両建てを元に戻す"
+        variant="tonal"
+        icon="undo"
+        disabled={p.unlinkSending === true}
+        onClick={() => p.onUnlinkUndo?.()}
+      >
+        元に戻す
+      </Button>
+      <CloseButton onClick={() => p.onUnlinkDismiss?.()} />
+    </div>
+  );
 }
 
 /** 書きかけの知らせの中身（hook を持たない） */
@@ -86,7 +127,14 @@ export function Toast(p: ToastProps) {
         ) : null}
         {/* 書きかけの知らせも同じ読み上げの領域に（#75。削除の知らせと並ぶ） */}
         <DraftToastBody {...p} />
+        <UnlinkToastBody {...p} />
       </div>
+      {p.unlinkFailed ? (
+        <div class="toast toast--error" role="alert">
+          <p class="toast__text">{UNLINK_TOAST_TEXT.failed}</p>
+          <CloseButton onClick={() => p.onUnlinkDismissFailed?.()} />
+        </div>
+      ) : null}
       {p.failed ? (
         <div class="toast toast--error" role="alert">
           <p class="toast__text">{TOAST_TEXT.failed}</p>

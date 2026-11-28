@@ -470,4 +470,43 @@ describe('手入力・外貨の口座・時間帯（例 #8・#9・#10・AC-6）'
     expect(c.getState().draft.legs[0]?.read?.sheet).toBeUndefined();
     expect(c.getState().legAdd).toBeUndefined();
   });
+
+  it('レビュー N2: 決済の時点になった追加の足を削除したら、決済の時刻・注文の種類・決済の理由（明細から）を追加する前へ戻す', async () => {
+    const { c } = await setup([read([ADD_A, ADD_B]), read([ADD_C])]);
+    const before = c.getState();
+    await c.addLegsFromStatement(file());
+    expect(c.getState().draft.exitOrderType).toBe('market');
+    c.update({ type: 'set', field: 'legs', value: c.getState().draft.legs.slice(0, 2) });
+    const s = c.getState();
+    expect(s.draft).toMatchObject({
+      exitOrderType: 'stop',
+      exitReason: 'lc',
+      stopOrderPlaced: 'placed',
+      exitTime: before.draft.exitTime,
+    });
+    expect(s.statement?.marks.exitReason).toBe('statement');
+    expect(s.statement?.marks.exitTime).toBe(before.statement?.marks.exitTime);
+  });
+
+  it('レビュー N2: 本人が触った決済の時刻・決済の理由は戻さない（注文の種類は証拠なので戻す）', async () => {
+    const { c } = await setup([read([ADD_A, ADD_B]), read([ADD_C])]);
+    await c.addLegsFromStatement(file());
+    const mine = toLocalInput((ADD_C.closed.epochMs as number) + 60_000);
+    c.update({ type: 'set', field: 'exitTime', value: mine });
+    c.update({ type: 'set', field: 'exitReason', value: 'tp' });
+    c.update({ type: 'set', field: 'legs', value: c.getState().draft.legs.slice(0, 2) });
+    expect(c.getState().draft).toMatchObject({
+      exitTime: mine,
+      exitReason: 'tp',
+      exitOrderType: 'stop',
+    });
+  });
+
+  it('レビュー N7: 追加した明細と同じ画像を 1 段目に入れ替えても、同じ足を二重に持たない', async () => {
+    const { c } = await setup([read([ADD_A, ADD_B]), read([ADD_C]), read([ADD_A, ADD_B, ADD_C])]);
+    await c.addLegsFromStatement(file());
+    await c.readImage(file());
+    expect(strikes(c)).toEqual(['36000', '35000', '40000']);
+    expect(c.getState().draft.legs.every((l) => l.read?.sheet === undefined)).toBe(true);
+  });
 });

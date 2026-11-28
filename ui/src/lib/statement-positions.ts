@@ -17,6 +17,7 @@ import { nameKey } from './instrument-name';
 import {
   fromAddedStatement,
   fromMainStatement,
+  isSameLeg,
   type LegDraft,
   legCardText,
   readLegs,
@@ -231,7 +232,11 @@ export function unitLegs(
       ? { ...kept, read: { ...kept.read, unit: at } }
       : legDraftOf(r, raw, at, zone);
   });
-  return [...read, ...current.filter((l) => !fromMainStatement(l))];
+  // 追加した明細の足と同じ足（同じ明細を 1 段目にも入れた）は二重に持たない（#260 のレビュー N7）
+  const rest = current.filter(
+    (l) => !fromMainStatement(l) && !(fromAddedStatement(l) && read.some((r) => isSameLeg(r, l))),
+  );
+  return [...read, ...rest];
 }
 
 /**
@@ -390,7 +395,10 @@ export function statementPnlWithLegs(
   }
   let sum = base;
   for (const group of sheets.values()) {
-    const ok = wholeUnit(group) && group.every((d) => d.read?.pnl != null && fills(d, money));
+    // 行の損益・手数料のどちらかが読めない行があれば、手数料を除いた損益が出せないので足の合計へ（レビュー B1）
+    const ok =
+      wholeUnit(group) &&
+      group.every((d) => d.read?.pnl != null && d.read?.fee != null && fills(d, money));
     if (!ok) return { pnl: undefined, dropped: true };
     for (const d of group) sum += d.read?.pnl as number;
   }
@@ -406,7 +414,8 @@ export function statementPnlWithLegs(
 }
 
 /**
- * 足した明細の足の手数料の合計（口座の通貨。#260・C73）。行の手数料が読めない足は 0、口座の通貨に合わない足は数えない。
+ * 追加した明細の足の手数料の合計（口座の通貨。#260・C73）。行の手数料が読めない足は 0（そのときは statementPnlWithLegs が足の
+ * 合計に切り替えるので勝ち負けの境・R には効かない）、口座の通貨に合わない足は数えない。
  * 足した明細の足が無ければ 0
  */
 export function addedLegFees(drafts: readonly LegDraft[], money?: LegMoney): number {

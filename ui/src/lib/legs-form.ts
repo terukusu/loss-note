@@ -69,6 +69,30 @@ export const fromMainStatement = (l: LegDraft): boolean =>
 /** 足した明細（2 枚目から）の足か（#260） */
 export const fromAddedStatement = (l: LegDraft): boolean => l.read?.sheet !== undefined;
 
+/** 数の欄を比べる形（カンマ・空白を外して数。数でなければ打ったまま） */
+function numKey(s: string): string {
+  const t = s.replace(/[,\s]/g, '');
+  const n = Number(t);
+  return t !== '' && Number.isFinite(n) ? String(n) : s.trim();
+}
+
+const minute = (ms: number) => Math.floor(ms / 60_000);
+
+/** 同じ足か（#260 の R3。7 欄 + 両方にある時刻を分まで。追加と 1 枚目の明細の入れ替えの両方で使う） */
+export function isSameLeg(a: LegDraft, b: LegDraft): boolean {
+  if (a.optionType !== b.optionType || a.side !== b.side) return false;
+  if (a.contractMonth.trim() !== b.contractMonth.trim()) return false;
+  for (const f of ['strike', 'quantity', 'entryPrice', 'exitPrice'] as const) {
+    if (numKey(a[f]) !== numKey(b[f])) return false;
+  }
+  for (const f of ['entryTime', 'exitTime'] as const) {
+    const x = a[f];
+    const y = b[f];
+    if (x !== undefined && y !== undefined && minute(x) !== minute(y)) return false;
+  }
+  return true;
+}
+
 /** 明細から読んだ足の印（一覧の行の右の添え。「読み取り」/「修正済み」。年を補った印は別の札 = YEAR_INFERRED_CHIP） */
 export function legReadText(d: LegDraft): string | null {
   if (d.read === undefined) return null;

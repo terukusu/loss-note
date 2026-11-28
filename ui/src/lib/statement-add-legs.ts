@@ -11,7 +11,10 @@ import { positionExitPoint } from '../../../core/option';
 import type { InstrumentRecord } from '../../../core/record';
 import { fromLocalInput, toLocalInput } from './datetime';
 import { findInstrument, nameKey } from './instrument-name';
-import { fromAddedStatement, type LegDraft, MAX_LEGS, readLegs } from './legs-form';
+import { fromAddedStatement, isSameLeg, type LegDraft, MAX_LEGS, readLegs } from './legs-form';
+
+export { isSameLeg };
+
 import type { Draft, DraftField } from './record-form';
 import type { FieldMark, Marks, ReadRow } from './statement-fill';
 import { legDraftOf, OPTION_SUFFIX } from './statement-positions';
@@ -92,30 +95,6 @@ export function pickAddRows(
     if (u != null && underlyingKey(u) === key) picked.push(i);
   });
   return { rows: picked, skipped: rows.length - picked.length };
-}
-
-/** 数の欄を比べる形（カンマ・空白を外して数。数でなければ打ったまま） */
-function numKey(s: string): string {
-  const t = s.replace(/[,\s]/g, '');
-  const n = Number(t);
-  return t !== '' && Number.isFinite(n) ? String(n) : s.trim();
-}
-
-const minute = (ms: number) => Math.floor(ms / 60_000);
-
-/** 同じ足か（R3。7 欄 + 両方にある時刻を分まで） */
-export function isSameLeg(a: LegDraft, b: LegDraft): boolean {
-  if (a.optionType !== b.optionType || a.side !== b.side) return false;
-  if (a.contractMonth.trim() !== b.contractMonth.trim()) return false;
-  for (const f of ['strike', 'quantity', 'entryPrice', 'exitPrice'] as const) {
-    if (numKey(a[f]) !== numKey(b[f])) return false;
-  }
-  for (const f of ['entryTime', 'exitTime'] as const) {
-    const x = a[f];
-    const y = b[f];
-    if (x !== undefined && y !== undefined && minute(x) !== minute(y)) return false;
-  }
-  return true;
 }
 
 export interface AddLegsInput {
@@ -206,6 +185,19 @@ export function addLegsBlock(p: {
   if (p.legReading) return ADD_LEGS_MSG.reading;
   if (p.legs >= MAX_LEGS) return ADD_LEGS_MSG.full;
   return null;
+}
+
+/**
+ * 決済の時点（C54）を決める足が追加した明細の足か（#260 のレビュー N2。足を消した後に、追加で替えた注文の種類・決済の時刻を
+ * 戻すかを決める）。足がそろっていない・時点が決まらないときは null（分からないので何も戻さない）
+ */
+export function pointIsAdded(legs: readonly LegDraft[]): boolean | null {
+  const parsed = readLegs(legs).legs;
+  const point = parsed === undefined ? undefined : positionExitPoint(parsed);
+  if (point === undefined || parsed === undefined) return null;
+  const at = parsed.findIndex((l) => l.id === point.legId);
+  const leg = at >= 0 ? legs[at] : undefined;
+  return point.kind === 'closed' && leg !== undefined && fromAddedStatement(leg);
 }
 
 /** pointAfterAdd が変える欄（［元に戻す］ で戻す欄と同じ） */

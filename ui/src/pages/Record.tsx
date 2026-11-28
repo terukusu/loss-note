@@ -35,7 +35,13 @@ import { EmotionSheetBody, type EmotionShort, emotionMoreStartId } from '../comp
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
 import { LegEditor } from '../components/LegEditor';
-import { LEG_ADD_FROM_ID, LEG_LIST_ID, LEG_MERGE_ID } from '../components/LegList';
+import {
+  LEG_ADD_CANCEL_ID,
+  LEG_ADD_FROM_ID,
+  LEG_ADD_UNDO_ID,
+  LEG_LIST_ID,
+  LEG_MERGE_ID,
+} from '../components/LegList';
 import { CandleArt, StatementArt } from '../components/RecordArt';
 import {
   MiniChart,
@@ -651,7 +657,13 @@ export function RecordScreen() {
       onAddLegsFromStatement={(f) => {
         setLegUndo(null);
         setLegNotice(null);
-        void controller.addLegsFromStatement(f);
+        // 押したボタンは読み取り中は押せないので ［キャンセル］ へ、終わったら ［元に戻す］ か ［明細から追加］ へ（レビュー N4）
+        focusSoon(LEG_ADD_CANCEL_ID);
+        void controller.addLegsFromStatement(f).then(() => {
+          const a = document.activeElement;
+          if (a !== null && a !== document.body && a.id !== LEG_ADD_CANCEL_ID) return;
+          focusSoon(controller.getState().legAdd?.undo ? LEG_ADD_UNDO_ID : LEG_ADD_FROM_ID);
+        });
       }}
       onCancelLegRead={() => {
         controller.cancelLegRead();

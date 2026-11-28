@@ -353,6 +353,27 @@ describe('明細の損益・手数料（R5・4.7・C73。例 #1・#8・#9）', (
     expect(addedLegFees(p.legs, usd)).toBe(0);
   });
 
+  it('レビュー B1: 追加した行の手数料が読めない（損益だけ読める）→ 足の合計に切り替える（勝ち負けが入れ替わる例）', () => {
+    // 1 枚目 = 売り 1 P 36,000 100 → 100（導出 0）・行の損益 −500・手数料 500
+    // 2 枚目 = 買い 1 C 40,000 100 → 100.3（導出 +1 × 0.3 × 1 × 1,000 = +300）・行の損益 −200・手数料 読めない
+    // 手数料を 0 と数えると 明細の損益 −700 + 手数料 500 = −200（負け）。正しくは足の導出の合計 +300（勝ち）
+    const raw = rowsOf([{ ...ADD_A, entry: 100, exit: 100, pnl: -500 }]);
+    const row = unitRows(raw, initialUnits(raw))[0] as ReadRow;
+    const main = unitLegs([], row, null);
+    const second = rowsOf([{ ...ADD_C, side: 'buy', entry: 100, exit: 100.3, pnl: -200 }]).map(
+      (r) => ({ ...r, fees: null, feesTotal: null }),
+    );
+    const p = plan(main, second);
+    if (p.kind !== 'added') throw new Error('追加できない');
+    expect(p.legs[1]?.read?.fee).toBeNull();
+    const legs = parsed(p.legs);
+    expect(statementPnlWithLegs(-500, p.legs, legs, MULT, 1, JPY)).toEqual({
+      pnl: undefined,
+      dropped: true,
+    });
+    expect(legs.reduce((s, l) => s + legPnlPrice(l, MULT), 0)).toBeCloseTo(300, 6);
+  });
+
   it('追加した足を消した（まとまりが欠けた）・満期で消滅にした・行の損益が読めない → 足の合計に切り替える', () => {
     const rows = rowsOf([ADD_C, { ...ADD_C, strike: 41_000, pnl: 10_000 }]);
     const p = plan(mainLegs(), rows);

@@ -85,7 +85,7 @@ import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import { nameKey as nameKeyOf } from './instrument-name';
 import { resolveInstrument as resolveInstrumentId } from './instrument-resolve';
-import { fromMainStatement, MAX_LEGS } from './legs-form';
+import { fromAddedStatement, fromMainStatement, MAX_LEGS } from './legs-form';
 import {
   applyDraft,
   applyFxRule,
@@ -126,6 +126,7 @@ import {
   POINT_FIELDS,
   planAddLegs,
   pointAfterAdd,
+  pointIsAdded,
 } from './statement-add-legs';
 import {
   type FieldMark,
@@ -677,6 +678,11 @@ export function createRecordController(deps: {
     readonly marksBefore: Marks | null;
     readonly marksAfter: Marks | null;
   } | null = null;
+  /**
+   * 最初に足を追加する前の決済の時刻・注文の種類・決済の理由と印（#260 のレビュー N2）。決済の時点を決めていた追加の足を消したら、
+   * 本人が触っていない欄をこの値へ戻す。次の件・空の下書き・1 枚目の明細の入れ替え・削除で捨てる
+   */
+  let pointBase: { readonly draft: Partial<Draft>; readonly marks: Marks | null } | null = null;
   /** 明細が無い間に本人が触った欄（#260 の R6「触っていなければ」。明細がある間は touched が持つ） */
   let manualTouched = new Set<DraftField>();
 
@@ -989,6 +995,7 @@ export function createRecordController(deps: {
     legAbort?.abort();
     legAbort = null;
     legUndo = null;
+    pointBase = null;
     if (state.legAdd) {
       const { legAdd: _gone, ...rest } = state;
       state = rest;
@@ -1007,6 +1014,37 @@ export function createRecordController(deps: {
   /** R6 の「本人が触った欄」（明細がある間は touched、無い間は明細の前後に触った欄も） */
   const touchedNow = (): ReadonlySet<DraftField> =>
     state.statement ? touched : new Set([...touched, ...manualTouched]);
+
+  /**
+   * 足が変わった後の決済の時点（#260 のレビュー N2）: 時点が追加した足ならその足の値（pointAfterAdd）、追加した足でなくなったら
+   * 最初に追加する前の値へ（本人が触った決済の時刻・決済の理由は戻さない。注文の種類と逆指値を入れたかは証拠なので戻す）。
+   * 時点が決まらない（足がそろっていない・時刻が無い）間は変えない
+   */
+  const repoint = (draft: Draft, marks: Marks | null): { draft: Draft; marks: Marks | null } => {
+    const base = pointBase;
+    const added = pointIsAdded(draft.legs);
+    if (base === null || added === null) return { draft, marks };
+    if (added) return pointAfterAdd(draft, marks, touchedNow());
+    const t = touchedNow();
+    const patch: Record<string, unknown> = {
+      exitOrderType: base.draft.exitOrderType,
+      stopOrderPlaced: base.draft.stopOrderPlaced,
+    };
+    const m: Partial<Record<DraftField, FieldMark>> | null = marks ? { ...marks } : null;
+    for (const f of ['exitTime', 'exitReason'] as const) {
+      if (t.has(f)) continue;
+      patch[f] = base.draft[f];
+      if (m) {
+        const was = base.marks?.[f];
+        if (was === undefined) delete m[f];
+        else m[f] = was;
+      }
+    }
+    const same = Object.keys(patch).every((k) => patch[k] === draft[k as keyof Draft]);
+    return same
+      ? { draft, marks }
+      : { draft: { ...draft, ...(patch as Partial<Draft>) }, marks: m };
+  };
 
   /**
    * 写しの明細の状態に戻す（#184 R4・R6）: 明細から来た値・印・画像・行・明細ごとの記憶を戻し、本人の計画の欄は今のまま。
@@ -1638,6 +1676,7 @@ export function createRecordController(deps: {
         for (const f of POINT_FIELDS) out[f] = d[f];
         return out as Partial<Draft>;
       };
+      if (pointBase === null) pointBase = { draft: pick(before), marks };
       legUndo = {
         before: pick(before),
         after: pick(point.draft),
@@ -1690,6 +1729,9 @@ export function createRecordController(deps: {
       marks = m;
     }
     legSheets = Math.max(0, legSheets - 1);
+    if (!((back.legs as Draft['legs'] | undefined) ?? state.draft.legs).some(fromAddedStatement)) {
+      pointBase = null;
+    }
     const { legAdd: _gone, ...rest } = state;
     state = rest;
     set({
@@ -2039,11 +2081,19 @@ export function createRecordController(deps: {
         if (action.field === 'legs') dropLegNotice();
       }
       // 口座・銘柄を替えて為替が意味を失ったら、打った為替を空にする（#47 PR-2。fxStale の規則）
-      const nextDraft = withFxRule(
+      let nextDraft = withFxRule(
         applyDraft(state.draft, action),
         state.accounts,
         action.type === 'set' && action.field === 'fxRate',
       );
+      // 足を消した・直した: 決済の時点を決めていた追加の足でなくなったら、追加で替えた欄を戻す（#260 のレビュー N2）
+      if (action.type === 'set' && action.field === 'legs' && pointBase !== null) {
+        const moved = repoint(nextDraft, st?.marks ?? null);
+        if (moved.draft !== nextDraft) {
+          nextDraft = moved.draft;
+          if (st && moved.marks) state = { ...state, statement: { ...st, marks: moved.marks } };
+        }
+      }
       // 削除の後に本人が選んだ答え・口座も、［元に戻す］・次の明細の提案で上書きしない（#184 R2）
       if (!st && undoSnap && action.type === 'set') {
         if (action.field === 'accountId') accountTouched = true;

@@ -117,8 +117,15 @@ header() {  # 名前 ヘッダ名 → 値
 }
 
 check /api/health 200 health
-# 起動の準備（#60）が gunicorn の起動の段で走り、失敗しても起動している（ログの warmup の行が 1 行）
-[ "$(docker logs "$cid" 2>&1 | grep -c '"event":"warmup"')" = 1 ] || fail "起動の準備のログ（warmup）が 1 行でない"
+# 起動の準備（#60）が gunicorn の起動の段で走り、失敗しても起動している（ログの warmup の行が 1 行）。
+# 準備は裏のスレッドで走り、最初の応答を待たせない（#256）ので、行が出るまで最大 30 秒待つ
+warm_lines=0
+for _ in $(seq 1 60); do
+  warm_lines=$(docker logs "$cid" 2>&1 | grep -c '"event":"warmup"' || true)
+  [ "$warm_lines" -ge 1 ] && break
+  sleep 0.5
+done
+[ "$warm_lines" = 1 ] || fail "起動の準備のログ（warmup）が 1 行でない（$warm_lines 行）"
 echo "ok: 起動の準備（warmup の行 1 行）"
 grep -q '"status":"ok"' "$work/health.body" || fail "/api/health の本文が {\"status\":\"ok\"} でない"
 check / 200 index

@@ -68,6 +68,7 @@ from loss_note_api import (
     statement_read,
     trade_pages,
     trade_range,
+    trade_version,
 )
 from loss_note_api.auth import AuthUnavailable, InvalidToken, TokenVerifier, bearer_token
 from loss_note_api.logs import log_event
@@ -80,6 +81,7 @@ from loss_note_api.store import (
     Store,
     StoreUnavailable,
     UnknownSchemaVersion,
+    check_known_version,
 )
 from loss_note_api.trade_version import version_of
 
@@ -525,6 +527,9 @@ def make_blueprint(
             if action == "skip":
                 return None
             writes = {} if action == "write" else position_groups.relink_writes(gid, others, [], others, now)
+            if not all(trade_version.is_known(others[t]) for t in writes):
+                # 逆参照を外す相手に知らない版の取引がある: まとまりも書かない（崩れたまとまりと同じ。ADR-0020 の (a)）
+                return None
             return new_group, writes
 
         if not valid_id(trade_id) or not store.delete_trade(g.uid, trade_id, regroup=regroup):
@@ -681,6 +686,13 @@ def make_blueprint(
         if issues:
             raise InvalidRecord(issues)
 
+    def known_writes(writes: dict[str, dict], trades: dict[str, dict]) -> dict[str, dict]:
+        # 逆参照を外す・付ける取引に知らない版があれば何も書かない（409。ADR-0020 の決定 7 の (a)。
+        # 心理のタグと同じ守り）
+        for tid in writes:
+            check_known_version(trades[tid])
+        return writes
+
     def group_write_error(e: Exception) -> Response:
         if isinstance(e, UnknownSchemaVersion):
             return unknown_version()
@@ -728,7 +740,8 @@ def make_blueprint(
             check_members(members, trades, group_id)
             now = clock()
             new = position_groups.build_group(members, value.get("exit"), trades, now, prev=group)
-            return new, position_groups.relink_writes(group_id, position_groups.member_ids(group), ids, trades, now)
+            writes = position_groups.relink_writes(group_id, position_groups.member_ids(group), ids, trades, now)
+            return new, known_writes(writes, trades)
 
         try:
             doc = store.update_position_group(g.uid, group_id, ids, build)
@@ -745,7 +758,8 @@ def make_blueprint(
 
         def unlink(group: dict, trades: dict[str, dict]) -> dict[str, dict]:
             # 逆参照を外すだけ（記録・心理のタグ・Good / More はそのまま）
-            return position_groups.relink_writes(group_id, position_groups.member_ids(group), [], trades, clock())
+            writes = position_groups.relink_writes(group_id, position_groups.member_ids(group), [], trades, clock())
+            return known_writes(writes, trades)
 
         try:
             done = store.delete_position_group(g.uid, group_id, unlink)

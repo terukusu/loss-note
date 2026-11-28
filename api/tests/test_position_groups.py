@@ -60,6 +60,10 @@ def set_group_version(api, uid: str, gid: str, version) -> None:
 
 @pytest.fixture
 def iids(api):
+    return setup_iids(api)
+
+
+def setup_iids(api) -> dict:
     """先物（乗数 1,000）と CFD（乗数 10）の銘柄"""
     put_default_account(api, A, {"capitalYen": 30_000_000, "riskTolerancePct": 1})
     fut = api.instrument(A, "XYZ 先物", productForm="future", multiplier=1000)["id"]
@@ -460,7 +464,47 @@ def test_delete_main_keeps_group_with_rest(api, iids):
     assert api.delete(f"/api/trades/{m1}", A).status_code == 204
     stored = raw_groups(api, A)[g["id"]]
     assert [m["tradeId"] for m in stored["members"]] == [m2, h]
+    assert stored["updatedAt"] > g["updatedAt"]
     assert trade(api, m2)[position_groups.KEY] == g["id"] and trade(api, h)[position_groups.KEY] == g["id"]
+
+
+def test_delete_trade_failure_writes_nothing(memory_api):
+    """保存先が途中で失敗したら、取引もまとまりも逆参照も前のまま（同じトランザクション）"""
+    api = memory_api
+    ids = setup_iids(api)
+    f, c = pair(api, ids)
+    linked(api, members((f, "main"), (c, "hedge")))
+    before = (raw_groups(api, A), raw_trade(api, A, f), raw_trade(api, A, c))
+    api.store.fail_charts = True
+    assert api.delete(f"/api/trades/{c}", A).status_code == 503
+    api.store.fail_charts = False
+    assert (raw_groups(api, A), raw_trade(api, A, f), raw_trade(api, A, c)) == before
+
+
+def set_trade_version(api, tid: str, version: int) -> None:
+    if api.kind == "memory":
+        api.store.users[A]["trades"][tid]["schemaVersion"] = version
+    else:
+        trade_ref(api, A, tid).update({"schemaVersion": version})
+
+
+def test_unlinking_unknown_version_trade_writes_nothing(api, iids):
+    """逆参照を外す相手が知らない版の取引なら、まとまりの PUT・DELETE は 409、取引の DELETE はまとまりを書かない"""
+    f, c = pair(api, iids)
+    c2 = make(api, cfd(iids["cfd"]))
+    g = linked(api, members((f, "main"), (c, "hedge")))
+    set_trade_version(api, c, 99)
+    before = (raw_groups(api, A), raw_trade(api, A, c))
+    res = api.delete(f"{PATH}/{g['id']}", A)
+    assert res.status_code == 409 and res.get_json()["reason"] == "unknownSchemaVersion"
+    res = api.put(f"{PATH}/{g['id']}", A, {"members": members((f, "main"), (c2, "hedge"))})
+    assert res.status_code == 409 and res.get_json()["reason"] == "unknownSchemaVersion"
+    assert (raw_groups(api, A), raw_trade(api, A, c)) == before
+    assert position_groups.KEY not in trade(api, c2)
+    # 本玉を消すと役割の組は崩れるが、残りの c は知らない版なので、まとまりも c も書かない
+    assert api.delete(f"/api/trades/{f}", A).status_code == 204
+    assert raw_trade(api, A, f) is None
+    assert (raw_groups(api, A), raw_trade(api, A, c)) == before
 
 
 def test_delete_hedge_dissolves_group(api, iids):
@@ -580,6 +624,24 @@ def test_range_returns_groups_and_outside_members(api, iids):
     # 幅の外
     body = ranged(api, MON + DAY + 1, MON + 2 * DAY)
     assert body == {"items": [], "truncated": False, "positionGroups": [], "groupMembers": []}
+
+
+def test_range_counts_members_in_limit(api, iids, monkeypatch):
+    """件数の上限はメンバーの取引も数え、超えた分の groupMembers は返さず truncated"""
+    from loss_note_api import trade_range
+
+    f = make(api, future(iids["fut"]))
+    lone = make(api, future(iids["fut"]))
+    c = make(api, cfd(iids["cfd"], exit={"time": MON + DAY, "price": 38_400, "reason": "other"}))
+    g = linked(api, members((f, "main"), (c, "hedge")))
+    monkeypatch.setattr(trade_range, "MAX_RANGE_ITEMS", 3)
+    body = ranged(api, MON - 1, MON + 1)
+    assert sorted(t["id"] for t in body["items"]) == sorted([f, lone])
+    assert [t["id"] for t in body["groupMembers"]] == [c] and body["truncated"] is False
+    monkeypatch.setattr(trade_range, "MAX_RANGE_ITEMS", 2)
+    body = ranged(api, MON - 1, MON + 1)
+    assert len(body["items"]) == 2 and body["groupMembers"] == [] and body["truncated"] is True
+    assert body["positionGroups"] == [g]
 
 
 def test_range_without_groups_has_empty_lists(api, iids):

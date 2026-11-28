@@ -711,8 +711,7 @@ _EMOTION_FIELDS = ("tradeIds", "tags")
 
 
 def validate_emotion_tags(body: Any) -> tuple[dict | None, list[Issue], bool]:
-    """``PUT /api/trade-emotions`` の本文 →
-    ``(値, issues, 取引の ID の形が崩れている)``。
+    """``PUT /api/trade-emotions`` の本文 → ``(値, issues, 取引の ID の形が崩れている)``。
 
     値は ``{"tradeIds": [...], "tags": [一覧の順]}``。tradeIds は 1〜20 件・重複なし。tags は 0〜21 個の一覧の ID・
     重複なし・平常心はほかと同時に付かない（exclusive）。取引の ID の形が崩れていれば 3 つ目を True にする（呼び出し側は
@@ -781,8 +780,7 @@ _LINE_BREAK_CATEGORIES = ("Zl", "Zp")
 
 
 def validate_reflection(body: Any) -> tuple[dict | None, list[Issue], bool]:
-    """``PUT /api/trade-reflections`` の本文 →
-    ``(値, issues, 取引の ID の形が崩れている)``。
+    """``PUT /api/trade-reflections`` の本文 → ``(値, issues, 取引の ID の形が崩れている)``。
 
     値は ``{"tradeIds": [...], "good": {"topics": [一覧の順], "notes": [...]}, "more": {...}}``。tradeIds は心理のタグと
     同じ 1〜20 件・重複なし。topics はその側の一覧の ID・重複なし。notes は 0〜10 行・前後の空白を除いて 1〜100 字
@@ -923,7 +921,6 @@ def validate_emotion_settings(body: Any) -> tuple[dict | None, list[Issue]]:
     if c.issues:
         return None, c.issues
     return out, []
-
 
 
 # ── 両建てのまとまり（#266・C75・4.8・ADR-0027）──────────────────

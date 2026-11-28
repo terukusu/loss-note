@@ -1,6 +1,6 @@
 /* 記録する画面の 2 つの段（#130。2026-11-21 に 2 段へ。設計書 K17・9.2・docs/ui-guidelines.md 9.4）。部品 pages/Record.tsx が読み込む。
    安全域（上 47・下 34）を入れた 390×844 で、2 段目の 4 つの状態と 1 段目は縦のスクロール 0px（ui:check の R12）。
-   1 段目 = 見出し・明細とチャートの絵の枠・［明細なしで手入力］。2 段目 = 入れたもののカード（明細の行・口座・チャートの行）・
+   1 段目 = 見出し・明細とチャートの絵の枠・［明細なしで手入力］。2 段目 = 入れたもののカード（明細の行・口座）・チャートの 2 枠（#261）・
    LC と一言・決済までの行動のタップ、下の帯に判定の 1 行と [記録する]。
    色はトークンだけ（tokens.css）。形（縦・横・広い）で DOM を替えない（9.5）。文字の拡大では縦に伸びてよい */
 
@@ -366,7 +366,7 @@
   display: none;
 }
 
-/* ── 編集の画面のチャートの 2 枠と、その下の注意（MiniCharts）。注意の共通の形 .charts__notice は段の gap を詰める負の
+/* ── 編集の画面と記録する画面の 2 段目のチャートの 2 枠と、その下の注意（MiniCharts。#261）。注意の共通の形 .charts__notice は段の gap を詰める負の
    上の余白を持つが、この節は gap の無いブロックなので、そのままでは注意が 2 枠の下の 1 行ぶんに重なっていた（#208）。
    節を縦の格子にし、注意は gap だけ離す */
 .rcharts {
@@ -376,6 +376,31 @@
 
 .rcharts .rcharts__notice {
   margin: 0;
+}
+
+/* 付属のチャートの枚数（押すとチャートのシート。2 枠の下の 1 行）。当たりは 44px のまま、上下の gap に重ねて縦を詰める
+   （上は枠の下端・下は注意の文に接するだけで、ほかの当たりと重ならない。390×844 の 2 段目の縦のスクロール 0px。#261） */
+.rcharts__extras {
+  margin-block: calc(-1 * var(--sp-1));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--sp-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.rcharts__chev {
+  color: var(--ink-3);
 }
 
 /* ── 1 段目のチャートの枠に入った後のエントリー時・決済時の 2 枠（横に並べる） */
@@ -961,7 +986,7 @@
   color: var(--ink-3);
 }
 
-/* ── 2 段目の入れたもののカード（明細の行・口座・チャートの行を 1 枚の面に） */
+/* ── 2 段目の入れたもののカード（明細の行・口座を 1 枚の面に。チャートの 2 枠はカードの外。#261） */
 .rinput {
   display: grid;
   overflow: hidden;
@@ -995,12 +1020,7 @@
   gap: var(--sp-2);
 }
 
-.rinput .rchartrow__blocked {
-  margin: 0;
-  padding: 0 var(--sp-3) var(--sp-2);
-}
-
-/* まとめて選んだときの 1 行（明細の行とチャートの行の間。#232・C67）。読み上げの領域は 2 段目の入れたもののカードに常に描き、
+/* まとめて選んだときの 1 行（明細の行の下。#232・C67）。読み上げの領域は 2 段目の入れたもののカードに常に描き、
    空なら高さ 0（中身が入ったときだけ区切りの線と余白） */
 .rbulk:not(:empty) {
   display: grid;
@@ -1029,111 +1049,6 @@
 
 .rbulk__dropped {
   color: var(--ink-2);
-}
-
-/* チャートの行: 空は押すとエントリー時のチャートを選ぶ（1 タップ）、入ったら押すとチャートのシート */
-.rchartrow {
-  position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--sp-3);
-  width: 100%;
-  min-height: 52px;
-  padding: var(--sp-1) var(--sp-3);
-  border: 0;
-  border-top: 1px solid var(--line);
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-
-.rchartrow:focus-within,
-.rchartrow:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: -2px;
-}
-
-.rchartrow__thumb {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 44px;
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-  background: var(--s3);
-  line-height: 0;
-}
-
-.rchartrow__thumb:has(canvas) {
-  background: none;
-}
-
-.rchartrow__thumb > svg {
-  width: 100%;
-  height: 100%;
-}
-
-.rchartrow__thumb--empty {
-  overflow: visible;
-  border: 1.5px dashed var(--line-2);
-  background: none;
-}
-
-.rchartrow__plus {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--radius-pill);
-  color: var(--accent);
-}
-
-.rchartrow__plus .icon {
-  width: 16px;
-  height: 16px;
-}
-
-.rchartrow__text {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.rchartrow:not(.rchartrow--full) .rchartrow__text {
-  grid-column: 2 / 4;
-}
-
-/* 切らずに塊の間で折る（#212。10.3。時間足・「追加 N 枚」は塊） */
-.rchartrow__l1,
-.rchartrow__l2 {
-  min-width: 0;
-  line-height: 1.4;
-}
-
-.rchartrow__l1 {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-}
-
-.rchartrow__l2 {
-  font-size: var(--fs-sm);
-  color: var(--ink-2);
-}
-
-.rchartrow .rchartrow__notice {
-  margin: 0;
-  line-height: 1.3;
-}
-
-.rchartrow__chev {
-  color: var(--ink-3);
 }
 
 /* ── 絵（RecordArt.tsx。色はトークンだけ） */

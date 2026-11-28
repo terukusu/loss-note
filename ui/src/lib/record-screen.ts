@@ -386,15 +386,7 @@ export function joinParts(parts: readonly LinePart[]): string {
   return parts.map((p) => p.text).join(' ');
 }
 
-/** 最後の塊の末尾に区切りの「 ·」を付ける（前の塊の末尾に置く） */
-function withSeparator(parts: readonly LinePart[]): LinePart[] {
-  const out = [...parts];
-  const last = out[out.length - 1];
-  if (last) out[out.length - 1] = { ...last, text: `${last.text} ·` };
-  return out;
-}
-
-/** チャートの枠の状態（小さな枠の 1 行と 2 段目のチャートの行の入力） */
+/** チャートの枠の状態（小さな枠の 1 行の入力） */
 export interface ChartLike {
   readonly hasChart: boolean;
   readonly preparing: boolean;
@@ -482,56 +474,6 @@ export function stage1Reading(st: { readonly phase: StatementPhaseLike } | undef
 /** 1 段目の下に ［振り返りへ進む］ を出すか（2 段目に見せる要約があるとき。無ければ ［明細なしで手入力］） */
 export function showProceed(s: Parameters<typeof statementArea>[0]): boolean {
   return statementArea(s) !== 'pick';
-}
-
-/**
- * 2 段目のチャートの行: 空 = 押すとエントリー時のチャートを選ぶ（1 タップ。準備中・失敗は状態の文）、
- * 入った = 「エントリー時 · 時間足」と決済時の 1 行（押すとチャートのシート）
- */
-export type ChartRow =
-  | { readonly kind: 'empty'; readonly status: string | null }
-  | { readonly kind: 'full'; readonly line1: string; readonly line2: string };
-
-/** 2 段目のチャートの行を塊で（#212。画面は塊の間で折る。chartRow はこれを 1 行の文字に戻したもの） */
-export type ChartRowParts =
-  | { readonly kind: 'empty'; readonly status: readonly LinePart[] | null }
-  | {
-      readonly kind: 'full';
-      readonly line1: readonly LinePart[];
-      readonly line2: readonly LinePart[];
-    };
-
-export function chartRowParts(c: {
-  readonly entry: ChartLike;
-  readonly exit: ChartLike;
-  readonly extras: number;
-}): ChartRowParts {
-  const { entry, exit } = c;
-  if (!entry.hasChart && !exit.hasChart && c.extras === 0) {
-    const status = entry.preparing || entry.failed ? chartSlotParts(entry) : null;
-    return { kind: 'empty', status };
-  }
-  const line1 = [
-    atomPart('エントリー時 ·'),
-    ...(entry.hasChart ? chartSlotParts(entry) : [atomPart('未選択')]),
-  ];
-  const exitParts =
-    exit.hasChart || exit.preparing
-      ? [atomPart('決済時 ·'), ...chartSlotParts(exit)]
-      : [textPart('決済時のチャートも追加できます')];
-  const line2 =
-    c.extras > 0 ? [...withSeparator(exitParts), atomPart(`追加 ${c.extras} 枚`)] : exitParts;
-  return { kind: 'full', line1, line2 };
-}
-
-export function chartRow(c: {
-  readonly entry: ChartLike;
-  readonly exit: ChartLike;
-  readonly extras: number;
-}): ChartRow {
-  const r = chartRowParts(c);
-  if (r.kind === 'empty') return { kind: 'empty', status: r.status && joinParts(r.status) };
-  return { kind: 'full', line1: joinParts(r.line1), line2: joinParts(r.line2) };
 }
 
 /**

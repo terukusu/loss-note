@@ -160,11 +160,11 @@ export async function openVerdict(page) {
   await settleSheet(page);
 }
 
-/** チャートのシート（2 段目のチャートの行・1 段目のチャートのある小さな枠を押す。#130・2026-11-21） */
+/** チャートのシート（2 段目・1 段目のチャートのある小さな枠を押す。#130・2026-11-21） */
 export async function openChartSheet(page) {
   if ((await page.locator('#record-chart-sheet[open]').count()) > 0) return;
   await closeSheets(page);
-  await page.locator('.rchart--full, .rchartrow--full').first().click();
+  await page.locator('.rchart--full').first().click();
   await page.locator('#record-chart-sheet[open]').waitFor({ state: 'visible', timeout: 5000 });
   await settleSheet(page);
 }
@@ -394,8 +394,8 @@ export async function makeChart(page, to, target = null) {
 }
 
 /**
- * チャートを貼り、プレビューが出るまで待つ。エントリー時は 1 段目の枠か 2 段目のチャートの行に貼り（空はファイルの欄、ある枠・行は
- * そのものに data-chart-slot。2026-11-21）、決済時は 1 段目の小さな枠があればそこへ、無ければ（2 段目）チャートのシートの枠を
+ * チャートを貼り、プレビューが出るまで待つ。エントリー時は 1 段目の枠か小さな枠に貼り（空はファイルの欄、ある枠は
+ * そのものに data-chart-slot。2026-11-21）、決済時は小さな枠があればそこへ（2 段目は常に 2 枠。#261）、無ければチャートのシートの枠を
  * 選んで貼ってシートを閉じる。追加の枠はチャートのシートの枠を選んで（クリックでフォーカスして）貼る
  */
 export async function pasteChart(page, slot) {

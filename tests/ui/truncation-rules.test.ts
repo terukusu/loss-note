@@ -110,12 +110,11 @@ describe('文字の省略は「省略してよい所」だけ（ui-guidelines 10
     expect(Object.keys(ALLOWED).filter((s) => !now.has(s))).toEqual([]);
   });
 
-  it('記録する・編集の塊で分けた行（#212）: atom の塊は折らない・4 か所に省略も nowrap も無い', () => {
+  it('記録する・編集の塊で分けた行（#212）: atom の塊は折らない・2 か所に省略も nowrap も無い', () => {
     const record = stripComments(files['../../ui/src/styles/record.css'] ?? '');
     expect(record).toMatch(/\.rpart--atom\s*\{[^}]*white-space:\s*nowrap/);
     for (const sel of [
       /\.rchart__line\s*\{([^}]*)\}/,
-      /\.rchartrow__l1,\s*\.rchartrow__l2\s*\{([^}]*)\}/,
       /\.record__lc \.lcrow > \.field > \.field__hint\s*\{([^}]*)\}/,
     ]) {
       const body = sel.exec(record)?.[1] ?? '';

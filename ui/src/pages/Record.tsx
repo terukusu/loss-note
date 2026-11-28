@@ -1,12 +1,12 @@
 // 記録する（Issue #13。手で入れて記録する。設計書 7.5 の流れ 3〜7・9.2、契約 R-4）。
 // 2 つの段（2026-11-21。設計書 0.4 K17・9.2 の記録するの行・docs/ui-guidelines.md 9.4）: 同じ全画面のシートの中で、
 // 1 段目「スクショを入れる」= 決済明細とチャートの絵つきの大きな枠と ［明細なしで手入力］、2 段目「振り返る」= 入れたものの
-// カード（明細の要約の行・口座・チャートの行）・入る前に決めた LC と一言・決済までの行動のタップ、下の帯に判定の 1 行と [記録する]。
+// カード（明細の要約の行・口座）・チャートの 2 枠（編集の画面と同じ MiniCharts。#261）・入る前に決めた LC と一言・決済までの行動のタップ、下の帯に判定の 1 行と [記録する]。
 // ［次へ］ は置かず、明細を選ぶと読み取りを待たずに 2 段目へ移る（C23。LC へフォーカス）。読み取りの結果は要約の 3 行に
 // 流れ込むだけ。2 段目の上の帯の ［スクショ］ で 1 段目へ戻る。取引の欄・ほかの欄・タイムゾーン・判定・チャートの詳細は下のシート。
 // 決済明細のスクショ（Issue #15）: 貼った・選んだ画像をすぐ読み取りへ送り、読み取りの値を同じ欄に印つきで入れる。
 // 送る前の注意は 1 段目の明細の枠の下に常に出す（ダイアログにしない。C38）。プレビューは送るものと同じ画像を canvas に描く。
-// 根拠の足のチャート（Issue #12）: 1 段目の絵の枠・2 段目のチャートの行から 1 タップで選ぶ。枠を選んで（フォーカスして）貼ると
+// 根拠の足のチャート（Issue #12）: 1 段目の絵の枠・2 段目のチャートの 2 枠から 1 タップで選ぶ。枠を選んで（フォーカスして）貼ると
 // その枠に入り、明細の読み取りには送らない（枠の外の貼り付けは今までどおり明細へ。R1）。チャートは [記録する] で取引と一緒に送る。
 // 3 層: 純関数（lib/record-form.ts・lib/record-screen.ts）→ 通信と状態（lib/record-controller.ts）→ この画面（薄い）。
 // Record は hook を持たない（App のテストが 1 段だけ呼ぶ）。RecordScreen が controller を購読し、開いているシートを持つ。
@@ -38,8 +38,8 @@ import { LegEditor } from '../components/LegEditor';
 import { LEG_LIST_ID, LEG_MERGE_ID } from '../components/LegList';
 import { CandleArt, StatementArt } from '../components/RecordArt';
 import {
-  LineParts,
   MiniChart,
+  MiniCharts,
   partIds,
   SummaryCard,
   VerdictLineButton,
@@ -65,7 +65,6 @@ import {
 import { backLayers } from '../lib/back-layers';
 import { BULK_SWAP_TEXT, bulkDroppedText, bulkSwapLabel, swapTargetOf } from '../lib/bulk-pick';
 import { CHART_READ_NOTICE, CHART_SEND_INFO, timeframeConflict } from '../lib/chart-read';
-import type { ChartState } from '../lib/chart-slots';
 import {
   type AnySlot,
   CHART_SLOT_TEXT,
@@ -96,7 +95,7 @@ import { loadEmotionCounts } from '../lib/emotion-history';
 import { emotionSheetTitle, type SavedVerdict, savedCandidates } from '../lib/emotion-tags';
 import { formatPrice, formatQuantity } from '../lib/format';
 import { editLeg, type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
-import { reasonText, TIMEFRAME_NAME } from '../lib/reasons';
+import { reasonText } from '../lib/reasons';
 import {
   createRecordController,
   enterRecordScreen,
@@ -108,9 +107,6 @@ import {
 } from '../lib/record-controller';
 import { type DraftAction, FIELD_LABEL, OPTIONAL_FIELDS, summarize } from '../lib/record-form';
 import {
-  type ChartLike,
-  chartRow,
-  chartRowParts,
   FIELD_INPUT_ID,
   focusLcAfterRead,
   miniChartId,
@@ -912,7 +908,7 @@ const PROCEED_ID = 'record-proceed';
 const REPICK_ID = 'record-repick';
 /** 2 段目の ［入れ替える］（#232） */
 export const BULK_SWAP_ID = 'record-bulk-swap';
-const CHART_NOTICE_ID = 'record-chart-notice';
+const CHART_NOTICE_ID = IDS.chartsNotice;
 const STATEMENT_ROW_ID = 'record-statement-row';
 const TZ_NAME = 'record-tz';
 const TZ_OTHER_ID = 'record-tz-other';
@@ -1186,7 +1182,7 @@ function RecordForm(p: RecordViewProps) {
           <StageInput {...p} />
         ) : (
           <>
-            {/* 入れたもののカード（明細の要約の行・口座・チャートの行。#117 の足の欄は取引の欄のシートの中 = 段 leg） */}
+            {/* 入れたもののカード（明細の要約の行・口座。#117 の足の欄は取引の欄のシートの中 = 段 leg） */}
             <div class="rinput">
               <StatementArea
                 {...p}
@@ -1205,8 +1201,20 @@ function RecordForm(p: RecordViewProps) {
                 accountChip={choice === 'select' && account ? account.name : null}
               />
               <BulkNotes {...p} />
-              <ChartRowView {...p} />
             </div>
+
+            {/* チャートの入れ口: 編集の画面と同じ 2 枠（カードの外・LC の前。#261・C74）。注意は 2 枠の下（C70。「i」はチャートのシートの見出しの下） */}
+            <MiniCharts
+              prefix="record"
+              charts={state.charts}
+              timeframes={{ entry: d.entryChartTimeframe, exit: d.exitChartTimeframe }}
+              blocked={state.chartBlocked}
+              extras={(state.extras ?? []).length}
+              onPick={(slot, f) => p.onPickChart?.(slot, f)}
+              onOpen={() => p.onSheet?.({ kind: 'chart' })}
+            >
+              <ChartReplaced text={p.chartReplaced} />
+            </MiniCharts>
 
             <div class="record__lc">
               <LcFields {...fields} />
@@ -1765,20 +1773,8 @@ function StatementDetails(p: RecordViewProps) {
   );
 }
 
-/** チャートの枠の状態を、行・枠の文の入力に写す */
-function chartLike(c: ChartState | undefined, timeframe: Timeframe | null): ChartLike {
-  return {
-    hasChart: c?.phase === 'ready',
-    preparing: c?.phase === 'preparing',
-    reading: c?.read === 'reading',
-    failed: c?.phase === 'failed',
-    timeframe: timeframe ? TIMEFRAME_NAME[timeframe] : null,
-    suggest: c?.readSuggest ? TIMEFRAME_NAME[c.readSuggest] : null,
-  };
-}
-
 /**
- * まとめて選んだときの 2 段目の 1 行（明細の行とチャートの行の間。#232・C67）: 明細が「明細として読めない」で相手の枠があれば
+ * まとめて選んだときの 2 段目の 1 行（明細の行の下。#232・C67）: 明細が「明細として読めない」で相手の枠があれば
  * 「明細とチャートが逆かもしれません」と ［入れ替える］、枠が足りずに入れなかった枚数があればその 1 行。読み上げの領域は
  * 2 段目の入れたもののカードに常に描き、中身だけを替える（役割と中身を同時に出すと読み上げられないことがある。空なら高さ 0）
  */
@@ -2099,108 +2095,6 @@ function ChartFileInput(p: {
         if (file) p.onPick(file);
       }}
     />
-  );
-}
-
-/**
- * 2 段目のチャートの行（入れたもののカードの 2 行目。2026-11-21）: 空 = 小さなローソク足の絵と題とチャートの注意（C38）。
- * 行全体が押せて 1 タップでエントリー時のチャートを選ぶ。入った = 小さな写し・「エントリー時 · 時間足」・決済時の 1 行・›、
- * 押すとチャートのシート（時間足・差し替え・削除・決済時・追加のチャート）
- */
-function ChartRowView(p: RecordViewProps) {
-  const { state } = p;
-  const d = state.draft;
-  const charts = state.charts ?? {};
-  const rowInput = {
-    entry: chartLike(charts.entry, d.entryChartTimeframe),
-    exit: chartLike(charts.exit, d.exitChartTimeframe),
-    extras: (state.extras ?? []).length,
-  };
-  const row = chartRow(rowInput);
-  // 画面は塊で描く（塊の間で折る。#212）。読み上げの名前は 1 行の文字（row）のまま
-  const parts = chartRowParts(rowInput);
-  const id = miniChartId('entry');
-  const blocked = (
-    <>
-      {state.chartBlocked ? (
-        <p class="statement__text rchartrow__blocked" role="status">
-          {state.chartBlocked}
-        </p>
-      ) : null}
-      <ChartReplaced text={p.chartReplaced} />
-    </>
-  );
-  if (row.kind === 'full') {
-    const c = charts.entry?.phase === 'ready' ? charts.entry : charts.exit;
-    const preview = c?.phase === 'ready' ? c.preview : null;
-    return (
-      <>
-        <button
-          type="button"
-          id={id}
-          class="rchartrow rchartrow--full"
-          data-chart-slot="entry"
-          aria-haspopup="dialog"
-          aria-label={`チャート: ${row.line1}。${row.line2}（チャートを開く）`}
-          onClick={() => p.onSheet?.({ kind: 'chart' })}
-        >
-          <span class="rchartrow__thumb" aria-hidden="true">
-            {preview ? (
-              <canvas
-                class="rchart__canvas"
-                width={preview.width}
-                height={preview.height}
-                ref={(el: HTMLCanvasElement | null) => {
-                  if (el) preview.draw(el);
-                }}
-              />
-            ) : (
-              <CandleArt small />
-            )}
-          </span>
-          <span class="rchartrow__text">
-            <span class="rchartrow__l1">
-              {parts.kind === 'full' ? <LineParts parts={parts.line1} /> : row.line1}
-            </span>
-            <span class="rchartrow__l2">
-              {parts.kind === 'full' ? <LineParts parts={parts.line2} /> : row.line2}
-            </span>
-          </span>
-          <Icon name="chevron" class="rchartrow__chev" />
-        </button>
-        {blocked}
-      </>
-    );
-  }
-  return (
-    <>
-      <label class="rchartrow" id={id} for={`${id}-file`}>
-        <span class="rchartrow__thumb rchartrow__thumb--empty" aria-hidden="true">
-          <CandleArt small />
-          <span class="rchartrow__plus">
-            <Icon name="plus" />
-          </span>
-        </span>
-        <span class="rchartrow__text">
-          <span class="rchartrow__l1">
-            {parts.kind === 'empty' && parts.status ? (
-              <LineParts parts={parts.status} />
-            ) : (
-              'エントリーした足のチャート'
-            )}
-          </span>
-          <span class="charts__notice rchartrow__notice" id={CHART_NOTICE_ID}>
-            {CHART_READ_NOTICE}
-          </span>
-        </span>
-        <ChartFileInput
-          slot="entry"
-          describedBy={CHART_NOTICE_ID}
-          onPick={(f) => p.onPickChart?.('entry', f)}
-        />
-      </label>
-      {blocked}
-    </>
   );
 }
 

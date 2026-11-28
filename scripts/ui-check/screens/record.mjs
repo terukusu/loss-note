@@ -705,7 +705,7 @@ export async function flows(kit) {
               }
             : {
                 lc: seen('#record-lc'),
-                chartNotice: seen('.rchartrow__notice'),
+                chartNotice: seen('.rcharts__notice'),
                 line: seen('#record-verdict-line'),
                 submit: seen('#record-submit'),
                 taps: seen('[role="radiogroup"][aria-label="時間足を変えたか"]'),
@@ -2114,8 +2114,8 @@ export async function flows(kit) {
   });
 
   // LV2（#212。ui-guidelines 10.3・10.6）: 記録する画面と編集の画面のいちばん長い値で、
-  //   - 2 段目: 時刻の印「時刻が未確定」・チャートの行（エントリー時 = 選んだ値と読めた値が違う「チャートからは 15 分足」、
-  //     決済時 = 読み取り中・追加 5 枚）・LC の欄の手がかり（逆指値の「i」つき）
+  //   - 2 段目: 時刻の印「時刻が未確定」・チャートの 2 枠（エントリー時 = 選んだ値と読めた値が違う「チャートからは 15 分足」、
+  //     決済時 = 読み取り中）と「追加のチャート 5 枚」（#261）・LC の欄の手がかり（逆指値の「i」つき）
   //   - 1 段目: チャートの小さな 2 枠（読み取り中・選んだ値と読めた値が違う）
   //   - 編集: チャートの小さな 2 枠（差し替え済み・削除（未保存））・LC の欄の手がかり
   // を 360×780 と 390×844（ダーク）で開き、どの要素にも「…」が出ない（省略してよい所の外）・値の要素が箱の中に全部ある・
@@ -2126,7 +2126,7 @@ export async function flows(kit) {
     const out = [];
     const fails = [];
     const VALUES =
-      '.rsum__tzmark, .rchartrow__l1, .rchartrow__l2, .rchart__line, .record__lc .lcrow .field__hint, .rpart';
+      '.rsum__tzmark, .rchart__line, .rcharts__extras, .record__lc .lcrow .field__hint, .rpart';
     const look = async (p, what, file, { over = null, zoom = false } = {}) => {
       const r = await p.evaluate(
         ({ allowed, values }) => {
@@ -2228,7 +2228,7 @@ export async function flows(kit) {
           const p = await ctx.newPage();
           const errors = [];
           p.on('pageerror', (e) => errors.push(e.message));
-          // 2 段目: 時刻の印・チャートの行・LC の手がかり
+          // 2 段目: 時刻の印・チャートの 2 枠・LC の手がかり
           await openRecord(p, base);
           fake.read = { status: 200, rows: [READ_E10[0]], holdMs: 0 };
           await makeImage(p, STATEMENT_SPEC, 'paste');
@@ -2247,10 +2247,11 @@ export async function flows(kit) {
           for (const slot of ['x1', 'x2', 'x3', 'x4', 'x5']) await pasteChart(p, slot);
           await closeSheets(p);
           await p.evaluate(() => window.scrollTo(0, 0));
-          const l1 = (await p.locator('.rchartrow__l1').textContent()) ?? '';
-          const l2 = (await p.locator('.rchartrow__l2').textContent()) ?? '';
-          if (!l1.includes('15 分足') || !l2.includes('読み取り中') || !l2.includes('追加 5 枚'))
-            throw new Error(`${tag} チャートの行: ${l1} / ${l2}`);
+          const l1 = (await p.locator('#record-mini-entry').textContent()) ?? '';
+          const l2 = (await p.locator('#record-mini-exit').textContent()) ?? '';
+          const ex = (await p.locator('.rcharts__extras').textContent()) ?? '';
+          if (!l1.includes('15 分足') || !l2.includes('読み取り中') || !ex.includes('5'))
+            throw new Error(`${tag} チャートの 2 枠: ${l1} / ${l2} / ${ex}`);
           await settle(p);
           await look(p, `${tag} 2 段目`, file('stage2'), { over: limit, zoom });
           // 1 段目: チャートの小さな 2 枠

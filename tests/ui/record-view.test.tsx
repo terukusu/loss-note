@@ -1774,24 +1774,26 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
           all([n as El], (e) => e.props['aria-label'] === '「チャートの送り方」の説明'),
         ).toHaveLength(1);
       // ファイルの欄の読み上げの説明は注意の文だけ（「i」の名前を混ぜない）
-      const chartNote = all(tree, (e) => e.props.id === 'record-chart-notice');
+      const chartNote = all(tree, (e) => e.props.id === 'record-mini-charts-notice');
       if (chartNote.length > 0) expect(text(chartNote)).toBe(CHART_READ_NOTICE);
       const body = text(all(tree, (e) => e.props.id === 'record-statement-notice'));
       expect(body).toContain('明細の画像は AI の提供元（Anthropic）に送って読み取り、保存しません');
     }
-    // 2 段目: 空のチャートの行の中（1 タップで送れる）と、チャートのシートの見出しの下。明細の注意は無い
-    const empty = view(stateFor(E1, NO_CAPITAL));
-    const notices = all(empty, hasClass('charts__notice'));
-    expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
-    expect(cls(notices[0] as El)).toContain('rchartrow__notice');
-    // 2 段目の行は押すとファイルを選ぶ枠なので、中に「i」を置かない（文だけ。「i」は 1 段目とチャートのシート）
-    expect(
-      all([notices[0] as El], (e) => e.props['aria-label'] === '「チャートの送り方」の説明'),
-    ).toEqual([]);
-    expect(all(empty, (e) => e.props.id === 'record-statement-notice')).toEqual([]);
-    // チャートが入った行は押すとシート（シートの見出しの下に注意）
-    const full = view(stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }));
-    expect(all(full, hasClass('charts__notice')).map(text)).toEqual([CHART_READ_NOTICE]);
+    // 2 段目: 2 枠の下（カードの外。#261・C74）と、チャートのシートの見出しの下。明細の注意は無い
+    for (const st of [
+      stateFor(E1, NO_CAPITAL),
+      stateFor(E1, NO_CAPITAL, { charts: { entry: ready() } }),
+    ]) {
+      const tree = view(st);
+      const notices = all(tree, hasClass('charts__notice'));
+      expect(notices.map(text)).toEqual([CHART_READ_NOTICE, CHART_READ_NOTICE]);
+      expect(cls(notices[0] as El)).toContain('rcharts__notice');
+      // 2 枠の下の注意は文だけ（編集の画面と同じ。「i」は 1 段目とチャートのシート）
+      expect(
+        all([notices[0] as El], (e) => e.props['aria-label'] === '「チャートの送り方」の説明'),
+      ).toEqual([]);
+      expect(all(tree, (e) => e.props.id === 'record-statement-notice')).toEqual([]);
+    }
   });
 
   it('U9: 利用者の選んだ値と読めた値が違えば、読めた値と [〈値〉にする] を出す', () => {
@@ -1878,7 +1880,7 @@ describe('チャートの時間足の読み取りの表示（Issue #27 の U0・
 });
 
 describe('密度と階層（Issue #33）', () => {
-  it('2026-11-21（#130 の AC-3 の置き換え）: 2 段目の並びは 入れたもののカード（明細の行 → チャートの行）→ LC と一言 → 3 つのタップ。判定は判定のシートの中。1 段目は入れる段だけ', () => {
+  it('2026-11-21（#130 の AC-3 の置き換え）: 2 段目の並びは 入れたもののカード（明細の行）→ チャートの 2 枠（#261）→ LC と一言 → 3 つのタップ。判定は判定のシートの中。1 段目は入れる段だけ', () => {
     const kidsOf = (tree: Node[]) => {
       const fieldset = all(tree, (e) => e.type === 'fieldset' && hasClass('record__fields')(e))[0];
       return (fieldset?.children ?? []).filter(
@@ -1888,10 +1890,10 @@ describe('密度と階層（Issue #33）', () => {
     for (const d of [draft({}), E1, E16]) {
       const tree = view(stateFor(d, NO_CAPITAL));
       const kids = kidsOf(tree);
-      expect(kids.map((k) => cls(k))).toEqual(['rinput', 'record__lc', 'record__taps']);
+      expect(kids.map((k) => cls(k))).toEqual(['rinput', 'rcharts', 'record__lc', 'record__taps']);
       const card = (kids[0] as El).children.filter((n): n is El => typeof n !== 'string');
-      // まとめて選んだときの読み上げの領域（#232）は明細の行とチャートの行の間に常に描く（空なら中身なし）
-      expect(card.map((k) => cls(k).split(' ')[0])).toEqual(['rstmt', 'rbulk', 'rchartrow']);
+      // まとめて選んだときの読み上げの領域（#232）は明細の行の下に常に描く（空なら中身なし）
+      expect(card.map((k) => cls(k).split(' ')[0])).toEqual(['rstmt', 'rbulk']);
       expect((card[1] as El).children).toEqual([]);
       expect(all([sheetOf(tree, 'record-verdict-sheet')], hasClass('verdict'))).toHaveLength(1);
       expect(all(tree, (e) => e.props.id === 'record-submit')).toHaveLength(1);
@@ -2632,7 +2634,7 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(input.props.multiple).toBe(false);
   });
 
-  it('入れ替えの案内（#232 例 #6）: 明細が読めない・相手の枠がチャートでない → 明細の行とチャートの行の間に 1 行と ［入れ替える］', () => {
+  it('入れ替えの案内（#232 例 #6）: 明細が読めない・相手の枠がチャートでない → 明細の行の下に 1 行と ［入れ替える］', () => {
     let swapped = 0;
     const base = stateFor(draft({}), NO_CAPITAL, { stage: 'review' });
     const state: RecordState = {
@@ -2813,38 +2815,57 @@ describe('1 画面の形（#130。設計書 K17・ui-guidelines 9.4）', () => {
     expect(text(statusOf(open))).toMatch(/^あと \d+ 欄$/);
   });
 
-  it('2026-11-21: 2 段目のチャートの行。空は行全体が 1 タップで選ぶ（ファイルの欄に data-chart-slot）、入ったら押すとチャートのシート', () => {
+  it('#261: 2 段目のチャートの入れ口は編集の画面と同じ 2 枠（カードの外）。空の枠は 1 タップで選ぶ、入った枠は押すとチャートのシート', () => {
     const { got, onSheet } = sheets();
     const picked: unknown[] = [];
     const empty = view(stateFor(E1, NO_CAPITAL), {
       onSheet,
       onPickChart: (slot, f) => picked.push([slot, f]),
     });
-    const row = all(empty, hasClass('rchartrow'))[0] as El;
-    expect(row.type).toBe('label');
-    expect(text(all([row], hasClass('rchartrow__l1')))).toBe('エントリーした足のチャート');
-    const input = all([row], (e) => e.type === 'input')[0] as El;
-    expect(row.props.for).toBe(input.props.id);
-    expect(input.props['data-chart-slot']).toBe('entry');
-    expect(input.props['aria-label']).toBe('エントリー時のチャートを選ぶ');
-    const target = { files: ['架空のチャート'], value: 'x' };
-    (input.props.onChange as (e: unknown) => void)({ currentTarget: target });
-    expect(picked).toEqual([['entry', '架空のチャート']]);
+    expect(all(empty, hasClass('rinput')).flatMap((c) => all([c], hasClass('rchart')))).toEqual([]);
+    const grid = all(empty, hasClass('rcharts__grid'))[0] as El;
+    const slots = grid.children.filter((n): n is El => typeof n !== 'string');
+    expect(slots.map((k) => k.props.id)).toEqual(['record-mini-entry', 'record-mini-exit']);
+    expect(slots.map(text)).toEqual(['エントリー時チャートを選ぶ', '決済時チャートを選ぶ']);
+    for (const [i, slot] of (['entry', 'exit'] as const).entries()) {
+      const row = slots[i] as El;
+      expect(row.type).toBe('label');
+      const input = all([row], (e) => e.type === 'input')[0] as El;
+      expect(row.props.for).toBe(input.props.id);
+      expect(input.props['data-chart-slot']).toBe(slot);
+      expect(input.props['aria-describedby']).toBe('record-mini-charts-notice');
+      const target = { files: [`架空のチャート ${slot}`], value: 'x' };
+      (input.props.onChange as (e: unknown) => void)({ currentTarget: target });
+    }
+    expect(picked).toEqual([
+      ['entry', '架空のチャート entry'],
+      ['exit', '架空のチャート exit'],
+    ]);
+    // 付属のチャートが無ければ枚数の行は無い
+    expect(all(empty, hasClass('rcharts__extras'))).toEqual([]);
     const full = view(
       stateFor(E1, NO_CAPITAL, {
         draft: { ...E1, entryChartTimeframe: '1h' },
         charts: { entry: { phase: 'ready', preview: fakePreview(1200, 800), message: null } },
+        extras: [{ slot: 'x1', timeframe: null, note: '' }],
       }),
       { onSheet },
     );
-    const btn = all(full, hasClass('rchartrow--full'))[0] as El;
+    const btn = all(full, (e) => e.props.id === 'record-mini-entry')[0] as El;
     expect(btn.type).toBe('button');
     expect(btn.props['aria-haspopup']).toBe('dialog');
-    expect(text(btn)).toBe('エントリー時 · 1 時間足決済時のチャートも追加できます');
+    expect(text(btn)).toBe('エントリー時1 時間足');
     expect(all([btn], (e) => e.type === 'canvas')).toHaveLength(1);
     (btn.props.onClick as () => void)();
     expect(got).toEqual([{ kind: 'chart' }]);
-    // 行に貼って差し替えたら 1 行で知らせる（2026-11-21 のレビュー N5）
+    // 決済時の枠は空のまま選べる
+    expect((all(full, (e) => e.props.id === 'record-mini-exit')[0] as El).type).toBe('label');
+    // 付属のチャートの枚数は押せる 1 行（チャートのシート）
+    const extras = all(full, hasClass('rcharts__extras'))[0] as El;
+    expect(text(extras)).toBe('追加のチャート 1 枚');
+    (extras.props.onClick as () => void)();
+    expect(got).toEqual([{ kind: 'chart' }, { kind: 'chart' }]);
+    // 枠に貼って差し替えたら 1 行で知らせる（2026-11-21 のレビュー N5）
     const replaced = view(
       stateFor(E1, NO_CAPITAL, {
         charts: { entry: { phase: 'ready', preview: fakePreview(1200, 800), message: null } },

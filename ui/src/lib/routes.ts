@@ -17,6 +17,8 @@ export type Route =
   /** 詳細の次の画面「すべての欄」と「総評」（#131。設計書 9.2・ui-guidelines 9.3） */
   | { readonly name: 'tradeFields'; readonly id: string }
   | { readonly name: 'tradeComment'; readonly id: string }
+  /** 両建てのまとまり（取引のタブの次の画面。#267・設計書 7.7・9.2） */
+  | { readonly name: 'tradeGroup'; readonly id: string }
   | { readonly name: 'settings' }
   /** 設定の次の画面（#133。ui-guidelines 9.3・9.7）: 口座・銘柄・AI の利用状況 */
   | { readonly name: 'settingsAccounts' }
@@ -64,6 +66,9 @@ export function parseRoute(pathname: string, opts: RouteOptions): Route | null {
   const fixed = FIXED[path];
   if (fixed) return fixed;
   if (path === '/dev/parts') return opts.dev ? { name: 'parts' } : null;
+  // 両建てのまとまり（#267）。取引の ID の経路より先に見る（/trades/groups/<id> を取引の次の画面と取り違えない）
+  const g = /^\/trades\/groups\/([^/]+)$/.exec(path);
+  if (g) return TRADE_ID.test(g[1] ?? '') ? { name: 'tradeGroup', id: g[1] ?? '' } : null;
   const m = /^\/trades\/([^/]+)$/.exec(path);
   if (m && TRADE_ID.test(m[1] ?? '')) return { name: 'trade', id: m[1] ?? '' };
   // 直す（Issue #9。URL を持つ = 再読み込みで同じ取引の直しが開く。P6）
@@ -101,6 +106,8 @@ export function hrefOf(route: Route): string {
       return `/trades/${route.id}/fields`;
     case 'tradeComment':
       return `/trades/${route.id}/comment`;
+    case 'tradeGroup':
+      return `/trades/groups/${route.id}`;
     case 'settings':
       return '/settings';
     case 'settingsAccounts':
@@ -132,6 +139,7 @@ const NAMES: Readonly<Record<RouteName, string>> = {
   tradeEdit: '取引を編集',
   tradeFields: 'すべての欄',
   tradeComment: '総評',
+  tradeGroup: '両建て',
   settings: '設定',
   settingsAccounts: '口座',
   settingsInstruments: '銘柄',
@@ -206,6 +214,7 @@ export function tabOfRoute(route: Route): Tab {
     case 'tradeEdit':
     case 'tradeFields':
     case 'tradeComment':
+    case 'tradeGroup':
       return 'trades';
     case 'review':
     case 'reviewTable':

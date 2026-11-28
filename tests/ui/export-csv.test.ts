@@ -17,6 +17,7 @@ import {
 } from '../../ui/src/lib/export-data';
 import { tradeRow } from '../../ui/src/lib/trade-view';
 import { account, defaultAccount } from './helpers/accounts';
+import { INSTRUMENTS as GROUP_INSTRUMENTS, h1 } from './helpers/group-examples';
 import { stored, T_1110, T_1111, T_1112, US30 } from './helpers/trade-examples';
 
 const NK: InstrumentRecord = {
@@ -288,6 +289,54 @@ describe('exportCsv（AC-5）', () => {
   it('日時は端末の時間帯の YYYY-MM-DD HH:mm', () => {
     expect(csvDateTime(new Date(2026, 10, 24, 9, 5).getTime())).toBe('2026-11-24 09:05');
     expect(csvDateTime(undefined)).toBe('');
+  });
+});
+
+describe('両建てのまとまり（#267 の R12・4.8・C75）', () => {
+  const rowsOf = (d: ExportData) => {
+    const [head, ...lines] = parseCsv(exportCsv(d).slice(BOM.length));
+    return lines.map((l) => Object.fromEntries((head ?? []).map((h, i) => [h, l[i] ?? ''])));
+  };
+
+  it('最初の本玉の行に「本玉」・まとまりの ID・まとまりの判定と R、決済の代わりの行は判定・R・リスクが空（損益は各行の値）', () => {
+    const { f, c, g } = h1();
+    const rows = rowsOf({
+      ...data([f, c]),
+      instruments: [...GROUP_INSTRUMENTS],
+      positionGroups: [g],
+    });
+    const byIdRow = Object.fromEntries(rows.map((r) => [r.ID, r]));
+    expect(byIdRow.f1).toMatchObject({
+      両建て: '本玉',
+      まとまり: g.id,
+      判定: '計画どおりの勝ち',
+      R: '1.5',
+    });
+    expect(byIdRow.c1).toMatchObject({
+      両建て: '決済の代わり',
+      まとまり: g.id,
+      判定: '',
+      R: '',
+      'リスク（%）': '',
+    });
+    // 損益は取引ごと（+600,000 円と −170,000 円）。足すとまとまりの損益
+    expect([byIdRow.f1?.損益, byIdRow.c1?.損益]).toEqual(['600000', '-170000']);
+  });
+
+  it('まとまりの無い取引の 2 列は空。逆参照の指す先が無い（崩れた）取引は単独の値', () => {
+    expect(rowOf(E4)).toMatchObject({ 両建て: '', まとまり: '' });
+    const { f } = h1();
+    const rows = rowsOf({ ...data([f]), instruments: [...GROUP_INSTRUMENTS] });
+    expect(rows[0]).toMatchObject({
+      両建て: '',
+      まとまり: '',
+      判定: tradeRow(f, GROUP_INSTRUMENTS).badge.label,
+    });
+  });
+
+  it('前の版の書き出し（positionGroups の鍵が無い）も受け、まとまりの形が崩れていれば受けない', () => {
+    expect(parseExport(JSON.parse(JSON.stringify(data([E4]))))).not.toBeNull();
+    expect(parseExport({ ...data([E4]), positionGroups: [{ id: 1 }] })).toBeNull();
   });
 });
 

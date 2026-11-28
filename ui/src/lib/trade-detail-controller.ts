@@ -8,7 +8,9 @@ import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
 import { isEmptyReflection, type Reflection } from '../../../core/reflection';
 import { ALL_SLOTS, type AnySlot, type ChartSlot, type ExtraSlot } from './charts';
+import { loadGroupOf } from './group-controller';
 import { type ImageType, imageInfo } from './image-limits';
+import { type GroupState, groupPath } from './position-group';
 import { type Summary, summarize } from './record-form';
 import {
   type ApiFn,
@@ -36,6 +38,25 @@ export type ChartView =
   | { readonly phase: 'ready'; readonly preview: PreviewHandle }
   | { readonly phase: 'failed' };
 
+/**
+ * 両建てのまとまり（#267・7.7）: none = メンバーでない（逆参照が無い・指す先が無い）/ loading / failed = 読めなかった
+ * （単独の判定を出さない）/ ready = まとまりの状態（ok なら判定のカードの代わりにまとまりへの 1 行、broken なら単独の判定と ［解く］）
+ */
+export type GroupDetail =
+  | { readonly phase: 'none' }
+  | { readonly phase: 'loading' }
+  | { readonly phase: 'failed' }
+  | {
+      readonly phase: 'ready';
+      readonly state: GroupState;
+      readonly byId: ReadonlyMap<string, StoredTrade>;
+      /** 解いている */
+      readonly unlinking?: boolean;
+      readonly error?: string;
+    };
+
+export const GROUP_UNLINK_FAILED = '解けませんでした。通信状況を確認して、もう一度押してください。';
+
 export type DetailState =
   | { readonly phase: 'loading' }
   | { readonly phase: 'notFound' }
@@ -50,6 +71,8 @@ export type DetailState =
       /** エントリー時・決済時は常に、付属の枠（#89）は画像のある枠だけ */
       readonly charts: Readonly<Record<ChartSlot, ChartView>> &
         Readonly<Partial<Record<ExtraSlot, ChartView>>>;
+      /** 両建てのまとまり（#267。省いた = none） */
+      readonly group?: GroupDetail;
     };
 
 export interface DetailController {
@@ -62,6 +85,10 @@ export interface DetailController {
   applyEmotionTags(tags: readonly EmotionTagId[]): void;
   /** Good / More を保存できた: 読んだ取引の Good / More だけを差し替える（#123。判定・チャートは変えない） */
   applyReflection(r: Reflection): void;
+  /** 両建てのまとまりを読み直す（読めなかったとき） */
+  reloadGroup(): Promise<void>;
+  /** 崩れたまとまりを解く（DELETE。解けたら取引を読み直す）。解けたら true */
+  unlinkGroup(): Promise<boolean>;
   /** 画面を離れた: チャートの handle を close し、後で届いた応答を捨てる */
   dispose(): void;
 }
@@ -96,6 +123,8 @@ export function createTradeDetailController(deps: {
   readonly timeoutMs?: number;
   /** チャートを読み戻すか（詳細の次の画面「すべての欄」「総評」は読まない。#131。既定 true） */
   readonly charts?: boolean;
+  /** 両建てのまとまりを読むか（詳細の次の画面は読まない。既定 true） */
+  readonly group?: boolean;
 }): DetailController {
   const { id } = deps;
   const request = createRequest(deps.api, deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
@@ -137,7 +166,28 @@ export function createTradeDetailController(deps: {
     }
   };
 
-  return {
+  let groupGen = 0;
+  const setGroup = (g: GroupDetail) => {
+    if (state.phase !== 'ready') return;
+    set({ ...state, group: g });
+  };
+  const readGroup = async (trade: StoredTrade): Promise<void> => {
+    if (trade.positionGroupId === undefined) return;
+    const my = ++groupGen;
+    const current = () => !disposed && my === groupGen && state.phase === 'ready';
+    setGroup({ phase: 'loading' });
+    try {
+      const got = await loadGroupOf(request, trade);
+      if (!current()) return;
+      setGroup(
+        got === null ? { phase: 'none' } : { phase: 'ready', state: got.state, byId: got.byId },
+      );
+    } catch {
+      if (current()) setGroup({ phase: 'failed' });
+    }
+  };
+
+  const self: DetailController = {
     getState: () => state,
     subscribe(fn) {
       listeners.add(fn);
@@ -182,8 +232,12 @@ export function createTradeDetailController(deps: {
           charts: Object.fromEntries(
             ALL_SLOTS.map((s) => [s, has(s) ? { phase: 'loading' } : { phase: 'none' }]),
           ) as Record<ChartSlot, ChartView>,
+          group: trade.positionGroupId === undefined ? { phase: 'none' } : { phase: 'loading' },
         });
-        await Promise.all(ALL_SLOTS.filter(has).map((slot) => readChart(slot)));
+        await Promise.all([
+          ...ALL_SLOTS.filter(has).map((slot) => readChart(slot)),
+          ...(deps.group === false ? [] : [readGroup(trade)]),
+        ]);
       } catch (e) {
         if (my !== gen || disposed) return;
         const kind = kindOf(e);
@@ -211,12 +265,38 @@ export function createTradeDetailController(deps: {
       const { reflection: _old, ...rest } = state.trade;
       set({ ...state, trade: isEmptyReflection(r) ? rest : { ...rest, reflection: r } });
     },
+    async reloadGroup() {
+      if (state.phase !== 'ready' || state.group?.phase !== 'failed') return;
+      await readGroup(state.trade);
+    },
+    async unlinkGroup() {
+      const s = state;
+      if (s.phase !== 'ready' || s.group?.phase !== 'ready' || s.group.unlinking) return false;
+      const g = s.group;
+      setGroup({ ...g, unlinking: true });
+      try {
+        const res = await request(groupPath(g.state.group.id), { method: 'DELETE' });
+        // 既に無い（ほかのタブで解いた）も解けた扱い
+        if (res.status !== 204 && res.status !== 404) throw new Failed('other');
+        if (disposed) return false;
+        await self.load();
+        return true;
+      } catch (e) {
+        if (!disposed && state.phase === 'ready' && state.group?.phase === 'ready') {
+          const { unlinking: _u, ...rest } = state.group;
+          setGroup({ ...rest, error: kindOf(e) === 'auth' ? AUTH_EXPIRED : GROUP_UNLINK_FAILED });
+        }
+        return false;
+      }
+    },
     dispose() {
       disposed = true;
       gen++;
+      groupGen++;
       for (const s of ALL_SLOTS) chartGen[s]++;
       closeCharts();
       listeners.clear();
     },
   };
+  return self;
 }

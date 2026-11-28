@@ -2,15 +2,24 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   expectPollAsync,
+  measure,
   opts,
   ROOT,
   settle,
   setupContext,
+  TAP,
   THEMES,
   waitDetail,
   waitReady,
 } from '../base.mjs';
-import { exampleTrade, waitSaved } from '../fixtures.mjs';
+import {
+  exampleTrade,
+  FAKE_US30,
+  fakeTrade,
+  GROUP_TRADES,
+  GROUP_X_G2,
+  waitSaved,
+} from '../fixtures.mjs';
 import { accountsGroup, chartsGroup, fxGroup, pagesGroup, zoomPagesGroup } from '../groups.mjs';
 import {
   closeSheet,
@@ -729,5 +738,139 @@ export async function flows(kit) {
       }
     }
     return `崩れの区間と矢印は崩れの段の塗り（x-d1・x-r1・x-r3）・A と窓・滑りの A は段の色なし・LC なしは「LC なし」の印と極悪の段の塗り・「最大損失（−1.0R）」・幅 360 で横 0（${out.join(' / ')}）`;
+  });
+
+  // G267（#267・設計書 7.7・9.2）: 両建て。取引の詳細の「…」→ ［両建てに結ぶ］ → 相手を選ぶシート（候補を選ぶ・量の比べ・判定の 1 行）
+  // → ［結ぶ］ → まとまりの画面（判定のカード・固定の 1 行・メンバー・なぜ）、メンバーの詳細（判定のカードの代わりの 1 行）、
+  // 固定の価格などを直すシート、取引の一覧のメンバーの行（「両建て」・役割の文字）。幅 360 / 390 × ダーク / ライトで、横スクロール 0・
+  // 当たり 44px 未満 0・はみ出し 0・ページのエラー 0。390×844 のダークを撮る
+  await check('G267', async () => {
+    const seen = [];
+    const { c, p, errors } = await recordContext({
+      trades: [fakeTrade('t-last', FAKE_US30.id, 2, 1700000100000), ...GROUP_TRADES],
+      groups: [GROUP_X_G2],
+    });
+    const look = async (what, w) => {
+      await settle(p);
+      const m = await measure(p, w === 360, TAP);
+      const bad = [
+        ...(m.h > 0 ? [`横 ${m.h}px`] : []),
+        ...m.small.map((x) => `当たり<44 ${x}`),
+        ...m.clipped.map((x) => `はみ出し ${x}`),
+      ];
+      if (bad.length > 0) throw new Error(`${what}: ${bad.join(' / ')}`);
+      seen.push(what);
+    };
+    const shot = async (slug, w, h, theme) => {
+      if (!opts.shots || w !== 390 || theme !== 'dark') return;
+      await p.screenshot({
+        path: join(opts.shots, `${w}x${h}-${theme}-${slug}.png`),
+        fullPage: true,
+      });
+    };
+    const openPicker = async () => {
+      await p.locator('#detail-more').click();
+      await p.locator('#detail-actions-sheet[open]').waitFor({ state: 'visible', timeout: 5000 });
+      await settleSheet(p);
+      await p.locator('#detail-action-link').click();
+      await p.locator('#detail-link-sheet[open] .gpick__cand').first().waitFor({ timeout: 15000 });
+      await settleSheet(p);
+    };
+    try {
+      for (const [w, h] of [
+        [360, 780],
+        [390, 844],
+      ]) {
+        for (const theme of THEMES) {
+          await p.setViewportSize({ width: w, height: h });
+          const setTheme = () =>
+            p.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+          const tag = `${w} ${theme}`;
+          // 結ぶ前の詳細と相手を選ぶシート（選んだ後: 量の比べと判定の 1 行）
+          await p.goto(`${base}/trades/x-gf1`);
+          await waitDetail(p);
+          await setTheme();
+          await openPicker();
+          await p.locator('#detail-link-sheet .gpick__cand').first().click();
+          await p
+            .locator('#detail-link-sheet .gpick__volume', { hasText: '揃っています' })
+            .waitFor({ timeout: 5000 });
+          expectEq(
+            ((await p.locator('#detail-link-sheet .gpick__vline').textContent()) ?? '').includes(
+              '計画どおりの勝ち',
+            ),
+            true,
+            `${tag} 判定の 1 行`,
+          );
+          await look(`${tag} 相手を選ぶシート`, w);
+          await shot('g267-picker', w, h, theme);
+          await closeSheets(p);
+          // まとまりの画面（結んである x-g2 = B）と直すシート
+          await p.goto(`${base}/trades/groups/x-g2`);
+          await waitReady(p, '両建て · US30 L');
+          await setTheme();
+          await p.locator('main .verdict', { hasText: 'B 悪い損失' }).waitFor({ timeout: 15000 });
+          await p.locator('main .gfix__line').waitFor();
+          expectEq(await p.locator('main .gmembers a').count(), 2, `${tag} メンバーの行`);
+          await look(`${tag} まとまりの画面`, w);
+          await shot('g267-group', w, h, theme);
+          await p.locator('#group-more').click();
+          await p
+            .locator('#group-actions-sheet[open]')
+            .waitFor({ state: 'visible', timeout: 5000 });
+          await settleSheet(p);
+          await p.locator('#group-action-exit').click();
+          await p.locator('#group-exit-sheet[open] #group-fix-price').waitFor({ timeout: 5000 });
+          await settleSheet(p);
+          await look(`${tag} 直すシート`, w);
+          await shot('g267-exit-sheet', w, h, theme);
+          await closeSheets(p);
+          // メンバーの詳細（判定のカードの代わりの 1 行）
+          await p.goto(`${base}/trades/x-gc2`);
+          await p.locator('#detail-group-line').waitFor({ timeout: 15000 });
+          await setTheme();
+          expectEq(
+            await p.locator('main .verdict').count(),
+            0,
+            `${tag} メンバーの詳細の判定のカード`,
+          );
+          expectEq(
+            ((await p.locator('#detail-group-line').textContent()) ?? '').trim(),
+            '両建て（決済の代わり）· まとまりの判定 B 悪い損失',
+            `${tag} メンバーの 1 行`,
+          );
+          await look(`${tag} メンバーの詳細`, w);
+          await shot('g267-member', w, h, theme);
+          // 取引の一覧のメンバーの行
+          await p.goto(`${base}/trades`);
+          await waitReady(p, '取引');
+          await setTheme();
+          await p
+            .locator('a.traderow[href="/trades/x-gc2"]', { hasText: '決済の代わり' })
+            .waitFor({ timeout: 15000 });
+          expectEq(
+            await p.locator('a.traderow[href="/trades/x-gc2"] .traderow__nums').count(),
+            0,
+            `${tag} 決済の代わりの行の R`,
+          );
+          await look(`${tag} 一覧`, w);
+          await shot('g267-list', w, h, theme);
+        }
+      }
+      // 結ぶ（1 回だけ。保存して、まとまりの画面へ）
+      await p.setViewportSize({ width: 390, height: 844 });
+      await p.goto(`${base}/trades/x-gf1`);
+      await waitDetail(p);
+      await openPicker();
+      await p.locator('#detail-link-sheet .gpick__cand').first().click();
+      await p.locator('#detail-link-sheet button', { hasText: '結ぶ' }).click();
+      await waitReady(p, '両建て · US30 L');
+      await p.locator('main .verdict', { hasText: '計画どおりの勝ち' }).waitFor({ timeout: 15000 });
+      await shot('g267-linked', 390, 844, 'dark');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return `${seen.length} 状態で横 0・当たり 0・はみ出し 0（相手を選ぶシート・まとまりの画面・直すシート・メンバーの詳細・一覧）・結ぶとまとまりの画面`;
   });
 }

@@ -1,0 +1,275 @@
+{
+  "instruments": [
+    {
+      "name": "XYZ 先物",
+      "underlying": "XYZ",
+      "underlyingKind": "index",
+      "productForm": "future",
+      "priceCurrency": "JPY",
+      "multiplier": 1000,
+      "quantityStep": 1
+    },
+    {
+      "name": "XYZ ミニ先物",
+      "underlying": "XYZ",
+      "underlyingKind": "index",
+      "productForm": "future",
+      "priceCurrency": "JPY",
+      "multiplier": 100,
+      "quantityStep": 1
+    },
+    {
+      "name": "XYZ CFD",
+      "underlying": "XYZ",
+      "underlyingKind": "index",
+      "productForm": "spotCfd",
+      "priceCurrency": "JPY",
+      "multiplier": 10,
+      "quantityStep": 1
+    }
+  ],
+  "trades": [
+    {
+      "name": "F",
+      "instrument": "XYZ 先物",
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "XYZ 先物",
+        "side": "L",
+        "lc": 37700,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "time": 1800000000000,
+            "price": 38000,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1800388800000,
+          "price": 38600,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    },
+    {
+      "name": "C",
+      "instrument": "XYZ CFD",
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "XYZ CFD",
+        "side": "S",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": false,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "time": 1800172800000,
+            "price": 38450,
+            "quantity": 100
+          }
+        ],
+        "exit": {
+          "time": 1800389100000,
+          "price": 38620,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    },
+    {
+      "name": "F5",
+      "instrument": "XYZ 先物",
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "XYZ 先物",
+        "side": "L",
+        "lc": 37700,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "time": 1800000000000,
+            "price": 38000,
+            "quantity": 1
+          }
+        ],
+        "exit": {
+          "time": 1800388800000,
+          "price": 38400,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    },
+    {
+      "name": "M5",
+      "instrument": "XYZ ミニ先物",
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "XYZ ミニ先物",
+        "side": "L",
+        "lc": 37800,
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": true,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "time": 1800000000000,
+            "price": 38100,
+            "quantity": 5
+          }
+        ],
+        "exit": {
+          "time": 1800388800000,
+          "price": 38400,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    },
+    {
+      "name": "C5",
+      "instrument": "XYZ CFD",
+      "record": {
+        "status": "closed",
+        "source": "manual",
+        "instrumentId": "XYZ CFD",
+        "side": "S",
+        "lcBasis": "chart",
+        "stopOrderPlaced": "unanswered",
+        "lcDecidedBeforeEntry": false,
+        "lcMove": {
+          "kind": "none"
+        },
+        "timeframeChange": "none",
+        "entries": [
+          {
+            "time": 1800172800000,
+            "price": 38300,
+            "quantity": 150
+          }
+        ],
+        "exit": {
+          "time": 1800389100000,
+          "price": 38420,
+          "orderType": "unknown",
+          "reason": "other",
+          "gapSlip": "unanswered"
+        },
+        "fees": []
+      }
+    }
+  ],
+  "scenes": [
+    {
+      "name": "F",
+      "create": {
+        "members": [
+          {
+            "tradeId": "F",
+            "role": "main"
+          },
+          {
+            "tradeId": "C",
+            "role": "hedge"
+          }
+        ]
+      },
+      "update": {
+        "members": [
+          {
+            "tradeId": "F",
+            "role": "main"
+          },
+          {
+            "tradeId": "C",
+            "role": "hedge"
+          }
+        ],
+        "exit": {
+          "price": 38440,
+          "orderType": "market"
+        }
+      },
+      "expect": {
+        "grade": "safeWin",
+        "r": 1.5
+      }
+    },
+    {
+      "name": "F5",
+      "create": {
+        "members": [
+          {
+            "tradeId": "F5",
+            "role": "main"
+          },
+          {
+            "tradeId": "M5",
+            "role": "main"
+          },
+          {
+            "tradeId": "C5",
+            "role": "hedge"
+          }
+        ]
+      },
+      "update": {
+        "members": [
+          {
+            "tradeId": "F5",
+            "role": "main"
+          },
+          {
+            "tradeId": "M5",
+            "role": "main"
+          },
+          {
+            "tradeId": "C5",
+            "role": "hedge"
+          }
+        ],
+        "exit": {
+          "orderType": "market"
+        }
+      },
+      "expect": {
+        "grade": "safeWin",
+        "r": 0.8888888888888888
+      }
+    }
+  ]
+}

@@ -2992,7 +2992,8 @@ a.chip.chip--selected:active,
 /* キーボードが出ている間は、下のシートの中の ［保存］ / ［追加］ の帯を貼り付けず、シートの本文の最後に置く（キーボードの上に
    貼り付いた帯を置かない = #172。下へスクロールすれば押せる = #183）。閉じたらすぐ下の端に戻す。ui-guidelines 10.1 */
 :root[data-keyboard] .sheet .setform__actions,
-:root[data-keyboard] .sheet .emotions__actions {
+:root[data-keyboard] .sheet .emotions__actions,
+:root[data-keyboard] .sheet .gsheet__actions {
   position: static;
   margin-bottom: 0;
   padding-block-end: var(--sp-3);

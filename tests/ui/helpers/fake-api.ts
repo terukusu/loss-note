@@ -59,6 +59,7 @@ import {
   type InstrumentRecord,
   type PerformanceUnit,
   type SettingsRecord,
+  type StoredPositionGroup,
   type StoredTrade,
   type TradeRecord,
 } from '../../../core/record';
@@ -120,6 +121,8 @@ export interface FakeOptions {
   readonly accounts?: readonly AccountRecord[];
   /** POST /api/chart-reads の応答（順に使う。#27） */
   readonly chartReads?: readonly ReadScript[];
+  /** 両建てのまとまり（#266・#267。取引の positionGroupId はテストの側でそろえる） */
+  readonly groups?: readonly StoredPositionGroup[];
 }
 
 export interface FakeApi {
@@ -127,6 +130,8 @@ export interface FakeApi {
   readonly calls: FakeCall[];
   readonly instruments: InstrumentRecord[];
   readonly trades: StoredTrade[];
+  /** 両建てのまとまり（#266。本物の入口と同じ検査の要点で書く） */
+  readonly groups: StoredPositionGroup[];
   /** 口座（#47。既定の口座を作るのは最初に口座を読む・使うとき） */
   readonly accounts: AccountRecord[];
   /** 保存したチャート（鍵 = 取引 ID-枠）。枚数 = size */
@@ -230,6 +235,7 @@ function json(status: number, body: unknown): Response {
 export function createFakeApi(opts: FakeOptions = {}): FakeApi {
   const instruments: InstrumentRecord[] = [...(opts.instruments ?? [])];
   const trades: StoredTrade[] = [...(opts.trades ?? [])];
+  const groups: StoredPositionGroup[] = [...(opts.groups ?? [])];
   const calls: FakeCall[] = [];
   const charts = new Map<string, FakeChart>();
   const profiles = new Map<string, string>();
@@ -454,6 +460,94 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       return new Response(null, { status: 204 });
     }
 
+    // 両建てのまとまり（#266。本物の position_groups の入口と同じ検査の要点: 形 400 → 無い取引 404 → 別のまとまり 409 →
+    // 足・向き 400。メンバーの逆参照を同じ要求で付け外しする）
+    if (key === 'GET /api/position-groups') {
+      return json(200, {
+        items: [...groups].sort((a, b) => b.createdAt - a.createdAt),
+        truncated: false,
+      });
+    }
+    const groupPath = /^\/api\/position-groups(?:\/([^/]+))?$/.exec(path);
+    if (groupPath && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
+      const gid = groupPath[1] === undefined ? undefined : decodeURIComponent(groupPath[1]);
+      const gi = gid === undefined ? -1 : groups.findIndex((g) => g.id === gid);
+      if (method !== 'POST' && gi < 0) return json(404, { error: 'not_found' });
+      const relink = (before: readonly string[], after: readonly string[], to: string) => {
+        for (const [i, t] of trades.entries()) {
+          if (before.includes(t.id) && !after.includes(t.id) && t.positionGroupId === to) {
+            const { positionGroupId: _g, ...rest } = t;
+            trades[i] = rest;
+          }
+          if (after.includes(t.id)) trades[i] = { ...t, positionGroupId: to };
+        }
+      };
+      const prevIds = gi < 0 ? [] : (groups[gi]?.members.map((m) => m.tradeId) ?? []);
+      if (method === 'DELETE') {
+        relink(prevIds, [], gid ?? '');
+        groups.splice(gi, 1);
+        return new Response(null, { status: 204 });
+      }
+      const b = (body ?? {}) as { members?: unknown; exit?: unknown };
+      const members = Array.isArray(b.members)
+        ? (b.members as { tradeId?: unknown; role?: unknown }[])
+        : null;
+      if (
+        !members ||
+        members.length < 2 ||
+        members.length > 10 ||
+        members.some(
+          (m) => typeof m.tradeId !== 'string' || (m.role !== 'main' && m.role !== 'hedge'),
+        ) ||
+        new Set(members.map((m) => m.tradeId)).size !== members.length ||
+        !members.some((m) => m.role === 'main') ||
+        !members.some((m) => m.role === 'hedge')
+      ) {
+        return json(400, { error: 'invalid', issues: [{ field: 'members', kind: 'roles' }] });
+      }
+      const found = members.map((m) => trades.find((t) => t.id === m.tradeId));
+      if (found.some((t) => t === undefined)) return json(404, { error: 'not_found' });
+      const ts = found as StoredTrade[];
+      if (ts.some((t) => t.positionGroupId !== undefined && t.positionGroupId !== gid)) {
+        return json(409, { error: 'conflict', reason: 'inOtherGroup' });
+      }
+      const mainSides = new Set(
+        ts.filter((_, i) => members[i]?.role === 'main').map((t) => t.record.side),
+      );
+      if (
+        ts.some((t) => t.record.legs !== undefined) ||
+        mainSides.size !== 1 ||
+        ts.some((t, i) => members[i]?.role === 'hedge' && mainSides.has(t.record.side))
+      ) {
+        return json(400, { error: 'invalid', issues: [{ field: 'members', kind: 'side' }] });
+      }
+      clock += 1;
+      const id = gid ?? `g${++seq}`;
+      const exit =
+        b.exit && typeof b.exit === 'object' ? (b.exit as StoredPositionGroup['exit']) : undefined;
+      const doc: StoredPositionGroup = {
+        id,
+        schemaVersion: 1,
+        members: ts.map((t, i) => ({
+          tradeId: t.id,
+          role: members[i]?.role as 'main' | 'hedge',
+          entryTime: t.record.entries[0].time ?? null,
+          exitTime: t.record.exit.time,
+        })),
+        ...(exit ? { exit } : {}),
+        createdAt: gi < 0 ? clock : (groups[gi]?.createdAt ?? clock),
+        updatedAt: clock,
+      };
+      relink(
+        prevIds,
+        ts.map((t) => t.id),
+        id,
+      );
+      if (gi < 0) groups.push(doc);
+      else groups[gi] = doc;
+      return json(gi < 0 ? 201 : 200, doc);
+    }
+
     if (key === 'GET /api/trades') {
       return json(200, { items: [...trades].sort(byExit) });
     }
@@ -493,6 +587,16 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
       }
       if (method === 'PUT') {
         const record = body as TradeRecord;
+        // 両建てのまとまりのメンバーの向きを変える PUT は 409（#266）
+        if (
+          prev.positionGroupId !== undefined &&
+          groups.some(
+            (g) => g.id === prev.positionGroupId && g.members.some((m) => m.tradeId === id),
+          ) &&
+          record.side !== prev.record.side
+        ) {
+          return json(409, { error: 'conflict', reason: 'inPositionGroup' });
+        }
         const inst = instruments.find((i) => i.id === record.instrumentId);
         if (!inst) return json(400, { error: 'invalid', issues: [{ field: 'instrumentId' }] });
         // チャートの変更（#89）: 直した後の枠
@@ -810,6 +914,7 @@ export function createFakeApi(opts: FakeOptions = {}): FakeApi {
     calls,
     instruments,
     trades,
+    groups,
     accounts,
 
     charts,

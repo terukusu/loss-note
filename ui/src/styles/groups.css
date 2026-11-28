@@ -1,0 +1,343 @@
+/* 両建てのまとまり（#267。components/GroupParts.tsx・pages/TradeGroup.tsx が読み込む）。設計書 7.7・9.2、ui-guidelines 9.3・9.9・9.12。
+   色はトークンだけ（判定の段の色はバッジだけ。数字は無色。C34・P2） */
+
+/* ── 相手を選ぶ下のシート ── */
+.gpick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.gpick__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2) var(--sp-3);
+}
+
+.gpick__main-line {
+  flex: 1 1 12em;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--fw-medium);
+}
+
+.gpick__status,
+.gpick__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.gpick__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.gpick__section-title {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.gpick__list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--s1);
+  list-style: none;
+}
+
+.gpick__list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+/* 候補の 1 行: 行全体が当たり（44px 以上）。選んだ印は ✓ と面の濃さと縁の 3 つ（色だけに頼らない） */
+.gpick__cand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  min-height: var(--tap);
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+
+.gpick__cand--on {
+  background: var(--s3);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gpick__cand:active:not(:disabled) {
+  background: var(--s3);
+}
+
+@media (hover: hover) {
+  .gpick__cand:hover:not(:disabled) {
+    background: var(--s2);
+  }
+}
+
+.gpick__check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  inline-size: 1.5rem;
+  block-size: 1.5rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+}
+
+.gpick__cand--on .gpick__check {
+  border-color: var(--accent);
+}
+
+.gpick__main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.gpick__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 var(--sp-2);
+  min-width: 0;
+  font-weight: var(--fw-medium);
+}
+
+.gpick__name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.gpick__side {
+  color: var(--ink-2);
+}
+
+.gpick__account {
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+
+.gpick__account::before {
+  content: "· ";
+}
+
+.gpick__sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.gpick__volume {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.gpick__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+/* 判定の 1 行（記録する画面の下の帯の .vline と同じ並び。押せない静かな行） */
+.gpick__vline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--tap);
+  padding: 0 var(--sp-1);
+}
+
+.gpick__vline .vline__caution {
+  flex: 1 1 0;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+}
+
+.gpick__vline .vline__risk {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+.gpick__vline .record__status {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+/* シートの下に貼り付く帯（心理のシートの .emotions__actions と同じ考え方） */
+.gsheet__actions {
+  position: sticky;
+  bottom: calc(-1 * (var(--sp-6) + var(--safe-bottom)));
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: calc(-1 * (var(--sp-6) + var(--safe-bottom)));
+  padding-block: var(--sp-3) calc(var(--sp-3) + var(--safe-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--s2);
+}
+
+.gsheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+/* ── 取引の詳細のメンバーの 1 行・崩れたまとまり ── */
+.gline .rowlink {
+  min-height: calc(var(--tap) + var(--sp-2));
+  font-weight: var(--fw-bold);
+  overflow-wrap: anywhere;
+}
+
+.gline__status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+
+.gline__status p {
+  margin: 0;
+}
+
+.gbroken {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+}
+
+.gbroken__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  font-weight: var(--fw-bold);
+}
+
+.gbroken__note,
+.gbroken__error {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+/* ── まとまりの画面 ── */
+.gfix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  padding: var(--sp-3) var(--sp-4);
+}
+
+.gfix__line {
+  /* 区切りの間の空白を残す（flex にすると空白の文字が消える）。区切りの中では折らない */
+  margin: 0;
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.gfix__line .detail__seg {
+  white-space: nowrap;
+}
+
+.gfix__note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.gmembers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.gmembers__title {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+
+.gmembers__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gmembers__list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.gmembers__list .rowlink {
+  padding-inline: var(--sp-4);
+  border-radius: 0;
+  background: transparent;
+}
+
+.gmember {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gmember__role {
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
+.gmember__title {
+  overflow-wrap: anywhere;
+}
+
+.gmember__account {
+  color: var(--ink-3);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+}
+
+.gmember__sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--sp-3);
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  font-variant-numeric: tabular-nums;
+}

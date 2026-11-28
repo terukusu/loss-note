@@ -42,6 +42,7 @@ function NotesScreen(p: {
         api,
         id: p.id,
         charts: false,
+        group: false,
         preview: (bytes, type) => browserCodec.preview(bytes, type),
       }),
     [p.id],

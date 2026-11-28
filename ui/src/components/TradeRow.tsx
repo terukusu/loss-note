@@ -44,6 +44,9 @@ export function TradeRow({
             <span class="traderow__name">{row.instrumentName}</span>
             <span class="traderow__side">{row.sideText}</span>
             {row.legsText !== undefined ? <span class="traderow__side">{row.legsText}</span> : null}
+            {row.groupMark !== undefined ? (
+              <span class="traderow__side">{row.groupMark}</span>
+            ) : null}
           </span>
           {row.accountName !== undefined ? (
             <span class="traderow__account">{row.accountName}</span>
@@ -64,20 +67,22 @@ export function TradeRow({
           noteEl
         )}
       </span>
-      <span class="traderow__nums">
-        <span
-          class={
-            m.rMissing
-              ? 'traderow__r traderow__none'
-              : m.rQuiet
-                ? 'num traderow__r traderow__r--quiet'
-                : 'num num--row traderow__r'
-          }
-        >
-          {m.rText}
+      {m.noNums ? null : (
+        <span class="traderow__nums">
+          <span
+            class={
+              m.rMissing
+                ? 'traderow__r traderow__none'
+                : m.rQuiet
+                  ? 'num traderow__r traderow__r--quiet'
+                  : 'num num--row traderow__r'
+            }
+          >
+            {m.rText}
+          </span>
+          {m.riskText !== null ? <span class="traderow__risk">{m.riskText}</span> : null}
         </span>
-        {m.riskText !== null ? <span class="traderow__risk">{m.riskText}</span> : null}
-      </span>
+      )}
     </Link>
   );
 }

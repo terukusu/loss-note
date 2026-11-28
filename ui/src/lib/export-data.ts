@@ -2,7 +2,13 @@
 // - 応答は GET /api/export の本文（API の export.export_body。一覧の API と同じ形の設定・口座・銘柄・取引）
 // - JSON の書き出しは応答の文字をそのまま保存する（画面で形を変えない = API の形が正）。CSV は export-csv.ts が組み立てる
 // - ファイルの名前は端末の時間帯の日付（画面の日時の表示と同じ）。例: loss-note-20261124.csv
-import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
+import type {
+  AccountRecord,
+  InstrumentRecord,
+  StoredPositionGroup,
+  StoredTrade,
+} from '../../../core/record';
+import { isGroup } from './position-group';
 
 export const EXPORT_PATH = '/api/export';
 export const EXPORT_FORMAT = 'loss-note-export';
@@ -28,6 +34,8 @@ export interface ExportData {
   readonly accounts: readonly AccountRecord[];
   readonly instruments: readonly InstrumentRecord[];
   readonly trades: readonly StoredTrade[];
+  /** 両建てのまとまり（#266・C75。前の版の書き出しには無い = 空とみなす） */
+  readonly positionGroups?: readonly StoredPositionGroup[];
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -57,6 +65,9 @@ export function parseExport(body: unknown): ExportData | null {
   if (!Array.isArray(accounts) || !accounts.every(isNamed)) return null;
   if (!Array.isArray(instruments) || !instruments.every(isNamed)) return null;
   if (!Array.isArray(trades) || !trades.every(isTrade)) return null;
+  // 両建てのまとまり（#266）: あれば形を見る（無い = まとまりなし）
+  const groups = body.positionGroups;
+  if (groups !== undefined && (!Array.isArray(groups) || !groups.every(isGroup))) return null;
   return body as unknown as ExportData;
 }
 

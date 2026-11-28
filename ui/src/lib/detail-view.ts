@@ -17,7 +17,9 @@ export type DetailSheet =
   /** 心理のタグを付ける・外す（#156。保存の後のシートと同じ中身） */
   | { readonly kind: 'emotion' }
   /** Good / More を付ける・外す・書く（#123） */
-  | { readonly kind: 'reflection' };
+  | { readonly kind: 'reflection' }
+  /** 両建ての相手を選ぶ（#267・7.7） */
+  | { readonly kind: 'link' };
 
 /** シートの ID（dialog の id。開いたボタンの aria-controls） */
 export const DETAIL_SHEET_ID = {
@@ -26,20 +28,46 @@ export const DETAIL_SHEET_ID = {
   chart: 'detail-chart-viewer',
   emotion: 'detail-emotion-sheet',
   reflection: 'detail-reflection-sheet',
+  link: 'detail-link-sheet',
 } as const;
 
 /** 上の帯の「…」の読み上げの名前と、操作のシートの題 */
 export const ACTIONS_LABEL = '操作';
 
 /** 操作のシートの行（押せる行。9.12） */
-export type DetailAction = 'compare' | 'delete';
+export type DetailAction = 'compare' | 'link' | 'openGroup' | 'delete';
+
+/** 両建ての行（#267・7.7）: link = ［両建てに結ぶ］ / open = ［まとまりを見る］ / null = 出さない */
+export type GroupAction = 'link' | 'open' | null;
 
 /**
- * 操作のシートの行: 今の値と比べる（違う値があり、直せる取引のときだけ。#31 の「違わなければ何も出さない」）→ 削除。
- * 消すは確認を挟まない（[元に戻す] はトースト。ADR-0007）
+ * 操作のシートの行: 今の値と比べる（違う値があり、直せる取引のときだけ。#31 の「違わなければ何も出さない」）→ 両建て
+ * （#267）→ 削除。消すは確認を挟まない（[元に戻す] はトースト。ADR-0007）
  */
-export function detailActions(hasOffer: boolean): readonly DetailAction[] {
-  return hasOffer ? ['compare', 'delete'] : ['delete'];
+export function detailActions(
+  hasOffer: boolean,
+  group: GroupAction = null,
+): readonly DetailAction[] {
+  return [
+    ...(hasOffer ? (['compare'] as const) : []),
+    ...(group === 'link' ? (['link'] as const) : group === 'open' ? (['openGroup'] as const) : []),
+    'delete',
+  ];
+}
+
+/**
+ * 両建ての行の出し方（7.7）: 足を持つ取引は出さない。まとまりが ok ならまとまりを見る、メンバーでない（逆参照が無い・
+ * 指す先が無い）なら結ぶ。読み込み中・読めなかった・崩れたまとまり（判定のカードの上の ［解く］）は出さない
+ */
+export function groupActionOf(
+  t: Pick<StoredTrade, 'record'>,
+  group: { readonly phase: string; readonly state?: { readonly kind: string } } | undefined,
+): GroupAction {
+  if (t.record.legs !== undefined) return null;
+  const phase = group?.phase ?? 'none';
+  if (phase === 'none') return 'link';
+  if (phase === 'ready') return group?.state?.kind === 'ok' ? 'open' : null;
+  return null;
 }
 
 /** 削除の行の文字 */

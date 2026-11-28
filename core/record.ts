@@ -164,6 +164,46 @@ export interface StoredTrade {
    * 書くのは PUT /api/trade-reflections だけ。読むときは core/reflection.ts の normalizeReflection を通す
    */
   readonly reflection?: Reflection;
+  /**
+   * 両建てのまとまりの逆参照（#266・C75・ADR-0027。record の外で判定・R の入力に入らない）。メンバーの取引だけ鍵がある。
+   * 書くのはまとまりの入口（POST / PUT / DELETE /api/position-groups）だけ
+   */
+  readonly positionGroupId?: string;
+}
+
+/** 両建てのまとまりのメンバーの役割（main = 本玉 / hedge = 決済の代わり。C76） */
+export type GroupRole = 'main' | 'hedge';
+
+/** 両建てのまとまりの決済の上書き（4.8 の `exit`。どれも任意） */
+export interface GroupExitBody {
+  /** 本人が直した固定の価格（正の数） */
+  readonly price?: number;
+  /** 決済の代わりを建てた注文の種類（無い = 不明。C78） */
+  readonly orderType?: 'stop' | 'market' | 'limit';
+  /** 決済の理由（無い = 最初の本玉の決済の理由） */
+  readonly reason?: ExitReason;
+}
+
+/** まとまりを結ぶ・置き換える本文（POST / PUT /api/position-groups。#266） */
+export interface PositionGroupBody {
+  readonly members: readonly { readonly tradeId: string; readonly role: GroupRole }[];
+  readonly exit?: GroupExitBody;
+}
+
+/** 保存した両建てのまとまり（GET /api/position-groups の 1 件。4.8・#266） */
+export interface StoredPositionGroup {
+  readonly id: string;
+  readonly schemaVersion: number;
+  /** 2〜10 件。並びは結んだ順（計算には使わない）。時刻は取引の写しで、範囲の読みだけに使う */
+  readonly members: readonly {
+    readonly tradeId: string;
+    readonly role: GroupRole;
+    readonly entryTime: number | null;
+    readonly exitTime: number;
+  }[];
+  readonly exit?: GroupExitBody;
+  readonly createdAt: number;
+  readonly updatedAt: number;
 }
 
 /** 銘柄の本文（省いた欄は API が既定を入れる） */

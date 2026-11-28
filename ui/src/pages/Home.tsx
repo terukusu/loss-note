@@ -19,6 +19,7 @@ import { recordKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { HOME_RECENT, homeDate, type MonthSlot, monthCard } from '../lib/home-view';
 import { monthSelection, periodRange, reviewHref } from '../lib/period';
+import { groupRowInfo } from '../lib/position-group';
 import { createReviewController, type ExitRange, type ReviewState } from '../lib/review-controller';
 import { type GroupSource, positionGroupIdOf } from '../lib/review-units';
 import { reviewModelFor } from '../lib/review-view';
@@ -205,7 +206,9 @@ export function HomeView(p: HomeViewProps) {
       </div>
     );
   }
-  const rows = recentRows(visible, state.instruments, HOME_RECENT, state.accounts);
+  const rows = recentRows(visible, state.instruments, HOME_RECENT, state.accounts, (t) =>
+    groupRowInfo(t, state.groups),
+  );
   const streak = streakModel(state.trades, p.hidden, p.streakGroups);
   const href = p.monthHref ?? p.month?.card?.href ?? '/review';
   return (

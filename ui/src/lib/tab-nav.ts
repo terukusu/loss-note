@@ -82,7 +82,7 @@ export function readMark(state: unknown, href: string, opts: RouteOptions): NavM
 }
 
 /**
- * 印の無い最初の起動で組み直す並び（9.7 の 5）。`/trades/a` → `[/, /trades, /trades/a]`、`/trades/a/edit`（詳細の次の画面
+ * 印の無い最初の起動で組み直す並び（9.7 の 5）。`/trades/a`（両建てのまとまり `/trades/groups/g` も。#267）→ `[/, /trades, /trades/a]`、`/trades/a/edit`（詳細の次の画面
  * `/trades/a/fields`・`/trades/a/comment` も。#131）→ `[/, /trades, /trades/a, /trades/a/edit]`、`/record` → `[/, /record]`、
  * `/glossary`・`/settings/accounts` → `[/, /settings, …]`、
  * `/review/table?q` → `[/, /review?q, /review/table?q]`、
@@ -95,6 +95,7 @@ export function bootStack(href: string, opts: RouteOptions): string[] {
   if (!route || route.name === 'login' || route.name === 'home') return [href];
   switch (route.name) {
     case 'trade':
+    case 'tradeGroup':
       return ['/', '/trades', href];
     case 'tradeEdit':
     case 'tradeFields':

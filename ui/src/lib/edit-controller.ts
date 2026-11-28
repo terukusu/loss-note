@@ -67,6 +67,7 @@ import {
 } from './edit-form';
 import type { ImageType } from './image-limits';
 import { resolveInstrument } from './instrument-resolve';
+import { conflictReason, SIDE_LOCKED } from './position-group';
 import {
   applyDraft,
   type Draft,
@@ -557,6 +558,13 @@ export function createEditController(deps: {
       ) {
         unsend();
         set({ phase: 'editing', error: EDIT_CHARTS_CHANGED, errorKind: 'other' });
+        slots.requeue(stopped);
+        return;
+      }
+      // 両建てのまとまりのメンバーの向きを変えた（409 inPositionGroup。#266・4.8）: 解いてから変える
+      if (res.status === 409 && (await conflictReason(res)) === 'inPositionGroup') {
+        unsend();
+        set({ phase: 'editing', error: SIDE_LOCKED, errorKind: 'other' });
         slots.requeue(stopped);
         return;
       }

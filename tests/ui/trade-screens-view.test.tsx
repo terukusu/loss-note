@@ -505,10 +505,15 @@ describe('AC-2・AC-3: 詳細（例 D1・D2）', () => {
     const open = detailTree(D1, { onDelete: () => deleted++, sheet: { kind: 'actions' } });
     const actions = all(open, (e) => e.props['data-sheet'] === 'detail-actions-sheet')[0] as El;
     expect(actions.props['data-open']).toBe('true');
-    // D1 は記録したときの値と今の銘柄の値が違う（「今の値と比べる」→「削除」の順。違わない取引は「削除」だけ = detail-view のテスト）
+    // D1 は記録したときの値と今の銘柄の値が違う（「今の値と比べる」→「両建てに結ぶ」（#267。足が無くまとまりにいない）→
+    // 「削除」の順。違わない取引は「両建てに結ぶ」「削除」だけ = detail-view のテスト）
     const rows = all([actions], (e) => e.type === 'button' && hasClass('rowlink')(e));
-    expect(rows.map(text)).toEqual(['今の値と比べる1 か所違います', '削除8 秒は元に戻せます']);
-    ((rows[1] as El).props.onClick as () => void)();
+    expect(rows.map(text)).toEqual([
+      '今の値と比べる1 か所違います',
+      '両建てに結ぶ',
+      '削除8 秒は元に戻せます',
+    ]);
+    ((rows[2] as El).props.onClick as () => void)();
     expect(deleted).toBe(1);
     noDialog(tree);
   });

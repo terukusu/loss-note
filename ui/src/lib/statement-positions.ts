@@ -354,6 +354,30 @@ function wholeUnit(group: readonly LegDraft[]): boolean {
 }
 
 /**
+ * 追加した明細ごとの実際に追加した行の損益の合計（#260・C73 の (5)）。どれかのまとまりの足が欠けた・満期で消滅にした、
+ * 行の損益か手数料が読めない（レビュー B1）・口座の通貨に合わないときは undefined（足の合計に切り替える）
+ */
+function addedSheetsPnl(
+  added: readonly LegDraft[],
+  money: LegMoney | undefined,
+): number | undefined {
+  const sheets = new Map<number, LegDraft[]>();
+  for (const d of added) {
+    const k = d.read?.sheet as number;
+    sheets.set(k, [...(sheets.get(k) ?? []), d]);
+  }
+  let sum = 0;
+  for (const group of sheets.values()) {
+    const ok =
+      wholeUnit(group) &&
+      group.every((d) => d.read?.pnl != null && d.read?.fee != null && fills(d, money));
+    if (!ok) return undefined;
+    for (const d of group) sum += d.read?.pnl as number;
+  }
+  return sum;
+}
+
+/**
  * 明細の損益（4.7・C73）= 1 枚目の明細のポジションの行の合計（損益の欄の値）+ 足した明細ごとの実際に足した行の損益の合計
  * + 手で追加した決済した足の導出の損益。
  * - 明細から読んだ足（どのまとまりでも）が欠けた（消した・別のポジションにした）・満期で消滅にした、足した明細の行の損益が
@@ -388,20 +412,9 @@ export function statementPnlWithLegs(
     if (pnl !== undefined) return { pnl: undefined, dropped: true };
     base = 0;
   }
-  const sheets = new Map<number, LegDraft[]>();
-  for (const d of added) {
-    const k = d.read?.sheet as number;
-    sheets.set(k, [...(sheets.get(k) ?? []), d]);
-  }
-  let sum = base;
-  for (const group of sheets.values()) {
-    // 行の損益・手数料のどちらかが読めない行があれば、手数料を除いた損益が出せないので足の合計へ（レビュー B1）
-    const ok =
-      wholeUnit(group) &&
-      group.every((d) => d.read?.pnl != null && d.read?.fee != null && fills(d, money));
-    if (!ok) return { pnl: undefined, dropped: true };
-    for (const d of group) sum += d.read?.pnl as number;
-  }
+  const addedSum = addedSheetsPnl(added, money);
+  if (addedSum === undefined) return { pnl: undefined, dropped: true };
+  const sum = base + addedSum;
   const manual = drafts
     .map((d, i) => ({ d, leg: legs[i] }))
     .filter((x) => x.d.read === undefined && !x.d.expired && x.leg !== undefined);
@@ -411,6 +424,27 @@ export function statementPnlWithLegs(
   if (fx === undefined) return { pnl: undefined, dropped: true };
   const derived = manual.reduce((s, x) => s + legPnlPrice(x.leg as Leg, multiplier) * fx, 0);
   return { pnl: tidy(sum + derived), dropped: false };
+}
+
+/**
+ * 編集の画面の明細の損益（#263・設計書 C82・4.7）: 保存済みの明細の損益（開いたときの欄の値）+ 追加した明細ごとの実際に
+ * 追加した行の損益の合計。保存済みの値は「決済した足すべての分」（4.7）なので、追加した行の分を足しても同じ不変条件を保つ。
+ * 保存済みの足（read の無い足）は保存済みの値に入っているので、導出の損益を足さない（記録する画面の手で追加した足とは違う）。
+ * - 追加した明細の足が無い: pnl のまま（今の直す画面と同じ。保存済みの足を変えたかは呼ぶ側 = readDraft の legsEdited が見る）
+ * - 保存済みの明細の損益が無い（もともと足の合計の取引）・どれかのまとまりの足が欠けた・満期で消滅にした・行の損益か手数料が
+ *   読めない・口座の通貨に合わない: 無し（dropped = 足の合計に切り替える）
+ */
+export function editStatementPnl(
+  pnl: number | undefined,
+  drafts: readonly LegDraft[],
+  money?: LegMoney,
+): { readonly pnl: number | undefined; readonly dropped: boolean } {
+  const added = drafts.filter(fromAddedStatement);
+  if (added.length === 0) return { pnl, dropped: false };
+  if (pnl === undefined) return { pnl: undefined, dropped: true };
+  const sum = addedSheetsPnl(added, money);
+  if (sum === undefined) return { pnl: undefined, dropped: true };
+  return { pnl: tidy(pnl + sum), dropped: false };
 }
 
 /**

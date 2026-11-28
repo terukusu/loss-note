@@ -17,12 +17,12 @@ import {
 
 /**
  * 画面の検査の単位「オプションのポジション」: 足の記録・詳細・編集 OPT117 と、明細のオプションの行 OPT118・OPT118N、
- * 2 枚目の明細から足を追加する OPT260
+ * 2 枚目の明細から足を追加する OPT260、編集の画面で明細から足を追加する OPT263
  */
 export const id = 'option';
 export const title = 'オプションのポジション';
 
-/** 手順（OPT117・OPT118・OPT118N・OPT260） */
+/** 手順（OPT117・OPT118・OPT118N・OPT260・OPT263） */
 export async function flows(kit) {
   const { base, check, expectEq, recordContext } = kit;
   // OPT117（#117）: オプションのポジションの足。架空の銘柄（商品の形 = オプション）と、合成の fixture（option-legs.json の P1）の
@@ -666,5 +666,182 @@ export async function flows(kit) {
       await c.close();
     }
     return '幅 360: ［明細から追加］ が ［＋ 足］ と同じ行か折り返し・読み取り中は押せず ［キャンセル］・［記録する］ も押せない、追加した後は 3 本・送信 1 回・知らせと ［元に戻す］、戻して追加し直し、同じ明細は追加しない知らせ、9 本で 2 本の明細は追加しない理由。どれも横 0・シートが窓の中';
+  });
+
+  // OPT263（#263・C82）: 編集の画面で明細から足を追加する。幅 360 で、保存済みの足 2 本（架空）の取引を編集で開き、取引の欄の
+  // シートの足の一覧 → ［明細から追加］ → 明細（1 本）を見る。状態: 押せる・読み取り中（押せない・［キャンセル］・［保存する］ は
+  // 押せない）・追加した後の知らせと ［元に戻す］。どれも横 0・シートが窓の中。保存の PUT の明細の損益 = 89,000 − 60,500 =
+  // 28,500・手数料 1,000 + 500。--shots なら 2 枚（読み取り中・追加した後。ダーク）
+  await check('OPT263', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await setupContext(c, 'dark');
+      await p.setViewportSize({ width: 360, height: 780 });
+      const inst = {
+        id: 'inst-xyzop',
+        name: '架空指数XYZOP',
+        underlyingKind: 'index',
+        productForm: 'option',
+        priceCurrency: 'JPY',
+        multiplier: 1000,
+        quantityStep: 1,
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+      };
+      fake.instruments.push(inst);
+      const t = (y, mo, d, h, mi) => jstTime(y, mo, d, h, mi).epochMs;
+      fake.trades.push({
+        id: 'x-opt263',
+        schemaVersion: 2,
+        createdAt: 1700000000030,
+        updatedAt: 1700000000030,
+        record: {
+          status: 'closed',
+          source: 'statement',
+          instrumentId: inst.id,
+          lcBasis: 'chart',
+          stopOrderPlaced: 'placed',
+          lcDecidedBeforeEntry: true,
+          lcMove: { kind: 'none' },
+          timeframeChange: 'none',
+          side: 'L',
+          lc: 37500,
+          brokenCondition: '架空の崩れの一言',
+          entries: [{ time: t(2026, 12, 1, 9, 0), price: 38000, quantity: 1 }],
+          exit: {
+            time: t(2026, 12, 9, 10, 0),
+            price: 37400,
+            orderType: 'stop',
+            reason: 'lc',
+            gapSlip: 'no',
+          },
+          statementPnlYen: 89000,
+          fees: [{ label: '手数料', amountYen: 1000 }],
+          legs: [
+            {
+              id: 'l1',
+              optionType: 'P',
+              contractMonth: '2027-01',
+              strike: 36000,
+              side: 'sell',
+              quantity: 1,
+              entry: { price: 300, time: t(2026, 12, 1, 9, 0) },
+              exit: { price: 120, time: t(2026, 12, 9, 10, 0), kind: 'closed' },
+            },
+            {
+              id: 'l2',
+              optionType: 'P',
+              contractMonth: '2027-01',
+              strike: 35000,
+              side: 'buy',
+              quantity: 1,
+              entry: { price: 150, time: t(2026, 12, 1, 9, 1) },
+              exit: { price: 60, time: t(2026, 12, 9, 10, 0), kind: 'closed' },
+            },
+          ],
+          lcLossPlanYen: 50000,
+        },
+        snapshot: {
+          instrument: {
+            multiplier: 1000,
+            quantityStep: 1,
+            priceCurrency: 'JPY',
+            underlyingKind: 'index',
+            productForm: 'option',
+          },
+          capitalYen: 10000000,
+          riskTolerancePct: 1,
+          accountCurrency: 'JPY',
+        },
+      });
+      fake.read = {
+        status: 200,
+        holdMs: 1500,
+        rows: [
+          {
+            symbol: '架空指数XYZOP C 40000',
+            side: 'S',
+            entryPrice: 200,
+            exitPrice: 260,
+            quantity: 1,
+            pnl: -60500,
+            pnlCurrency: 'JPY',
+            entryTime: jstTime(2026, 12, 2, 9, 30),
+            exitTime: jstTime(2026, 12, 10, 14, 0),
+            timeZoneNeedsCheck: false,
+            fees: [500],
+            feesTotal: 500,
+            exitOrderType: 'market',
+            option: {
+              underlying: '架空指数XYZOP',
+              expiry: '2027-01',
+              expiryYearInferred: false,
+              putCall: 'call',
+              strike: 40000,
+              side: 'sell',
+              position: 0,
+            },
+          },
+        ],
+      };
+      const shot = async (slug) => {
+        if (!opts.shots) return;
+        await p.mouse.move(0, 0);
+        await p.screenshot({ path: join(opts.shots, `360x780-dark-${slug}.png`) });
+      };
+      const hscroll = () =>
+        p.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+      const items = () => p.locator('#record-legs .legs__item').count();
+      const from = p.locator('#record-legs-from');
+      const status = p.locator('#record-legs .legs__fromstatus');
+      const bytes = Buffer.from(await makeImage(p, STATEMENT_SPEC, 'bytes'));
+      await p.goto(`${base}/trades/x-opt263/edit`);
+      await waitReady(p, '取引を編集');
+      await p.locator('#edit-submit').waitFor();
+      await openEditFields(p);
+      await from.scrollIntoViewIfNeeded();
+      expectEq(await items(), 2, '開いたときの足');
+      expectEq(await from.isDisabled(), false, '［明細から追加］ が押せる');
+      expectEq(await hscroll(), 0, '押せる状態の横のスクロール');
+      const sent = fake.reads.length;
+      await p
+        .locator('#record-legs-from-file')
+        .setInputFiles({ name: 'statement-2.png', mimeType: 'image/png', buffer: bytes });
+      await status.getByText('明細の足を読み取っています…').waitFor({ timeout: 5000 });
+      expectEq(await from.isDisabled(), true, '読み取り中は押せない');
+      await p.locator('#record-legs-from-cancel').waitFor({ state: 'visible', timeout: 5000 });
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#edit-fields-sheet[open]'), '読み取り中のシート');
+      expectEq(await hscroll(), 0, '読み取り中の横のスクロール');
+      await shot('opt263-reading');
+      await closeSheets(p);
+      expectEq(await p.locator('#edit-submit').isDisabled(), true, '読み取り中の ［保存する］');
+      await openEditFields(p);
+      await expectPollAsync(async () => (await items()) === 3, '追加した後の足');
+      expectEq(fake.reads.length, sent + 1, 'AI への送信 1 回');
+      await status.getByText('明細から足を 1 本追加しました').waitFor({ timeout: 5000 });
+      await p.locator('#record-legs-from-undo').scrollIntoViewIfNeeded();
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#edit-fields-sheet[open]'), '追加した後のシート');
+      expectEq(await hscroll(), 0, '追加した後の横のスクロール');
+      await shot('opt263-added');
+      await closeSheets(p);
+      await p.locator('#edit-submit').click();
+      await expectPollAsync(async () => fake.puts.length === 1, 'PUT が届く');
+      const body = fake.puts[0].body ?? {};
+      expectEq(body.legs?.length, 3, 'PUT の足の数');
+      expectEq(body.statementPnlYen, 28500, 'PUT の明細の損益');
+      expectEq(
+        (body.fees ?? []).reduce((a, f) => a + f.amountYen, 0),
+        1500,
+        'PUT の手数料の合計',
+      );
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '編集の画面・幅 360: ［明細から追加］ が押せる・読み取り中は押せず ［キャンセル］・［保存する］ も押せない、追加した後は 3 本・送信 1 回・知らせと ［元に戻す］、保存の PUT は明細の損益 28,500・手数料 1,500。どれも横 0・シートが窓の中';
   });
 }

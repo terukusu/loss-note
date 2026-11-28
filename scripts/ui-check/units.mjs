@@ -302,7 +302,7 @@ export const CHANGE_RULES = [
   [/Glossary|glossary|InfoSheet|InfoTip|info-(tip|context)|drafts|draft-status/, () => ['sheets']],
   [/statement-(tz|positions|remove)|zone-memory/, () => ['record-rows', 'record-read']],
   // 2 枚目の明細から足を追加する（#260）: 足の段の ［明細から追加］
-  [/statement-add-legs/, () => ['option', 'record-rows']],
+  [/statement-add-legs/, () => ['option', 'record-rows', 'edit']],
   [/statement-(fill|image)|record-screen|RecordArt/, () => ['record-read', 'record-rows']],
   [
     /statement-account|AccountField|AccountAdd|accounts\.ts/,

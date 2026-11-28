@@ -56,8 +56,14 @@ import type {
 import { fxFieldVisible } from './currency';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
-import { type LegDraft, type LegField, legsChanged, readLegs } from './legs-form';
-import { addedLegFees, statementPnlWithLegs } from './statement-positions';
+import {
+  fromAddedStatement,
+  type LegDraft,
+  type LegField,
+  legsChanged,
+  readLegs,
+} from './legs-form';
+import { addedLegFees, editStatementPnl, statementPnlWithLegs } from './statement-positions';
 
 export type LcMoveKind = LcMove['kind'];
 
@@ -229,7 +235,8 @@ export interface DraftContext {
    */
   readonly statementPnl?: boolean;
   /**
-   * 手数料の欄が明細の値のまま・空（#260）。false（本人が打った・直した）なら足した明細の足の手数料を加えない。省けば加える
+   * 手数料の欄が明細の値のまま・空（#260）。false（本人が打った・直した）なら足した明細の足の手数料を加えない。省けば加える。
+   * 直す画面（#263）では損益・手数料とも「欄の文字が開いたときのまま」を渡す（edit-controller）
    */
   readonly statementFee?: boolean;
   /**
@@ -341,6 +348,11 @@ export interface ReadingOption {
   readonly lossPlanUp: boolean;
   /** 直す画面で足を直した（明細の損益を本文に入れず、足の合計に切り替えた。4.7） */
   readonly legsEdited: boolean;
+  /**
+   * 直す画面で明細から追加した足の手数料（口座の通貨。#263・C82）。手数料に加えた額。保存の本文は保存済みの手数料の内訳の
+   * 後ろにこの 1 件を足す（mergeEdit）。加えていなければ無い
+   */
+  readonly addedFees?: number;
   /**
    * 明細から読んだポジションで、オプションの銘柄が一覧に無い: この名前で取引の形態 オプションの銘柄を足す（#118。
    * 乗数は本人が入れる）
@@ -776,7 +788,18 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       askSide,
       maxLossSelectable,
       lossPlanUp: naked,
-      legsEdited: base !== undefined && legs !== undefined && legsChanged(base, legs),
+      // 直す画面: 明細から追加した足（#263・C82）を除いた足が開いたときと違えば「足を直した」（4.7）。追加した足は末尾に並び、
+      // ID は legIds が保存済みの ID を避けて振るので、除いた並びは開いたときと同じ ID・順になる
+      legsEdited:
+        base !== undefined &&
+        legs !== undefined &&
+        legsChanged(
+          base,
+          legs.filter((_, i) => {
+            const d = draft.legs[i];
+            return d === undefined || !fromAddedStatement(d);
+          }),
+        ),
       ...(newOption ? { newInstrument: name, newInstrumentCurrency: newCurrency } : {}),
     };
   }
@@ -866,6 +889,17 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     option !== undefined &&
     readLegsOk !== undefined &&
     !option.legsEdited &&
+    ctx.statementPnl !== false &&
+    ctx.base?.legs !== undefined
+  ) {
+    // 直す画面（#263・C82）: 保存済みの明細の損益 + 明細から追加した行の損益。足せなければ足の合計に切り替える
+    const r = editStatementPnl(pnlYen, draft.legs, money);
+    pnlYen = r.pnl;
+    if (r.dropped) option = { ...option, legsEdited: true };
+  } else if (
+    option !== undefined &&
+    readLegsOk !== undefined &&
+    !option.legsEdited &&
     ctx.statementPnl !== false
   ) {
     const sameCurrency =
@@ -882,10 +916,15 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     pnlYen = r.pnl;
     if (r.dropped) option = { ...option, legsEdited: true };
   }
-  // 足した明細の足の手数料を手数料に加える（#260・C73。手数料の欄を本人が打った・直したら加えない）
-  if (optionMode && ctx.base === undefined && ctx.statementFee !== false && !errors.feeYen) {
+  // 足した明細の足の手数料を手数料に加える（#260・C73。手数料の欄を本人が打った・直したら加えない）。直す画面（#263・C82）も
+  // 同じで、加えた額を option.addedFees に出す（保存の本文では保存済みの手数料の内訳の後ろに 1 件足す = edit-form の mergeEdit）
+  const feeBase = ctx.base === undefined || ctx.base.legs !== undefined;
+  if (optionMode && feeBase && ctx.statementFee !== false && !errors.feeYen) {
     const extra = addedLegFees(draft.legs, money);
-    if (extra > 0) feeYen = Number.parseFloat(((feeYen ?? 0) + extra).toPrecision(15));
+    if (extra > 0) {
+      feeYen = Number.parseFloat(((feeYen ?? 0) + extra).toPrecision(15));
+      if (option !== undefined && ctx.base !== undefined) option = { ...option, addedFees: extra };
+    }
   }
   // 足の時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えた足の決済は見ない。API の outOfPosition。4.7）
   if (readLegsOk !== undefined) {

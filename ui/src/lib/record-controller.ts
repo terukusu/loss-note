@@ -123,10 +123,12 @@ import {
 import {
   ADD_LEGS_MSG,
   failedText,
-  POINT_FIELDS,
+  type LegAddState,
   planAddLegs,
   pointAfterAdd,
-  pointIsAdded,
+  pointFields,
+  repointLegs,
+  undoAddPatch,
 } from './statement-add-legs';
 import {
   type FieldMark,
@@ -170,7 +172,7 @@ import {
 import { DELIVERED_LIMIT, tradesPath } from './trade-pages';
 import { CHART_PREPARING } from './verdict-notes';
 
-export type { ApiFn, FailureKind };
+export type { ApiFn, FailureKind, LegAddState };
 export { AUTH_EXPIRED, REQUEST_TIMEOUT_MS };
 
 export const LOAD_FAILED =
@@ -427,15 +429,6 @@ export interface RecordState {
    * 押せるか。次の足の操作・シートを閉じる・記録する・次の行で消す
    */
   readonly legAdd?: LegAddState;
-}
-
-/** ［明細から足す］ の状態（#260） */
-export interface LegAddState {
-  readonly phase: 'reading' | 'done' | 'failed';
-  /** 結果の 1 行（読み取り中は null） */
-  readonly notice: string | null;
-  /** ［元に戻す］ が押せる（足した直後だけ） */
-  readonly undo: boolean;
 }
 
 export interface RecordController {
@@ -1016,36 +1009,9 @@ export function createRecordController(deps: {
   const touchedNow = (): ReadonlySet<DraftField> =>
     state.statement ? touched : new Set([...touched, ...manualTouched]);
 
-  /**
-   * 足が変わった後の決済の時点（#260 のレビュー N2）: 時点が追加した足ならその足の値（pointAfterAdd）、追加した足でなくなったら
-   * 最初に追加する前の値へ（本人が触った決済の時刻・決済の理由は戻さない。注文の種類と逆指値を入れたかは証拠なので戻す）。
-   * 時点が決まらない（足がそろっていない・時刻が無い）間は変えない
-   */
-  const repoint = (draft: Draft, marks: Marks | null): { draft: Draft; marks: Marks | null } => {
-    const base = pointBase;
-    const added = pointIsAdded(draft.legs);
-    if (base === null || added === null) return { draft, marks };
-    if (added) return pointAfterAdd(draft, marks, touchedNow());
-    const t = touchedNow();
-    const patch: Record<string, unknown> = {
-      exitOrderType: base.draft.exitOrderType,
-      stopOrderPlaced: base.draft.stopOrderPlaced,
-    };
-    const m: Partial<Record<DraftField, FieldMark>> | null = marks ? { ...marks } : null;
-    for (const f of ['exitTime', 'exitReason'] as const) {
-      if (t.has(f)) continue;
-      patch[f] = base.draft[f];
-      if (m) {
-        const was = base.marks?.[f];
-        if (was === undefined) delete m[f];
-        else m[f] = was;
-      }
-    }
-    const same = Object.keys(patch).every((k) => patch[k] === draft[k as keyof Draft]);
-    return same
-      ? { draft, marks }
-      : { draft: { ...draft, ...(patch as Partial<Draft>) }, marks: m };
-  };
+  /** 足が変わった後の決済の時点（#260 のレビュー N2。statement-add-legs.ts の repointLegs） */
+  const repoint = (draft: Draft, marks: Marks | null) =>
+    repointLegs(draft, marks, pointBase, touchedNow());
 
   /**
    * 写しの明細の状態に戻す（#184 R4・R6）: 明細から来た値・印・画像・行・明細ごとの記憶を戻し、本人の計画の欄は今のまま。
@@ -1672,11 +1638,7 @@ export function createRecordController(deps: {
       // 損益の欄を本人が打った・直した（明細の値でない）: その値を正として追加した行の分を足さない（R5）
       const typed = before.pnlYen.trim() !== '' && st?.marks.pnlYen !== 'read';
       const notice = typed ? `${plan.notice}。${ADD_LEGS_MSG.pnlTyped}` : plan.notice;
-      const pick = (d: Draft): Partial<Draft> => {
-        const out: Record<string, unknown> = { legs: d.legs };
-        for (const f of POINT_FIELDS) out[f] = d[f];
-        return out as Partial<Draft>;
-      };
+      const pick = pointFields;
       if (pointBase === null) pointBase = { draft: pick(before), marks };
       legUndo = {
         before: pick(before),
@@ -1714,10 +1676,7 @@ export function createRecordController(deps: {
     if (!u || state.phase !== 'editing') return;
     legUndo = null;
     // 足した後に本人が直した欄（足した直後の値と違う欄）は今のまま
-    const back: Record<string, unknown> = {};
-    for (const k of Object.keys(u.before) as (keyof Draft)[]) {
-      if (state.draft[k] === u.after[k]) back[k] = u.before[k];
-    }
+    const back: Record<string, unknown> = undoAddPatch(state.draft, u.before, u.after);
     const st = state.statement;
     let marks = st?.marks;
     if (st && u.marksBefore && u.marksAfter) {

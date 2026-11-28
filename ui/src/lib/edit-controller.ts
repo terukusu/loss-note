@@ -20,6 +20,11 @@
 //   2 枠を差し替えたときは前に保存した時間足を残し、読めたら置き換える（失敗で終われば「前のチャートの時間足のまま」）。
 //   読み取りの途中で保存したら、その枠は「指定なし」で保存する（#89 N2）。removeChart は利用者が [削除] した枠だけ。
 //   判定のプレビューは今の枠（チャートの有無）で出し直す（保存の帯の「判定: 前 → 後」）
+// - ［明細から追加］（#263・設計書 C82・C73）: 足を持つ取引で、明細の画像を 1 枚読み（記録する画面と同じ入口・1 日の上限）、
+//   取引の原資産のオプションの行を今の足の後ろに追加する（statement-add-legs.ts の planAddLegs）。保存済みの足・LC・口座・
+//   明細の特徴の覚え・端末の時間帯は変えない。損益・手数料は readDraft が決める（開いたときの足が変わっていなければ保存済みの
+//   値 + 追加した行。4.7）。決済の時点が追加した足になったら、決済の時刻（この編集で触っていなければ）・注文の種類・逆指値を
+//   入れたかをその足の値にする（決済の理由は保存した値のまま）。読み取り中は保存しない・チャートの時間足の読み取りは後
 import {
   type AccountRecord,
   accountCurrencyOf,
@@ -67,12 +72,15 @@ import {
 } from './edit-form';
 import type { ImageType } from './image-limits';
 import { resolveInstrument } from './instrument-resolve';
+import { fromAddedStatement, MAX_LEGS } from './legs-form';
 import { conflictReason, SIDE_LOCKED } from './position-group';
+import { READ_PATH, READ_TIMEOUT_MS, type ZoneMemory } from './record-controller';
 import {
   applyDraft,
   type Draft,
   type DraftAction,
   type DraftContext,
+  type DraftField,
   type DraftReading,
   EMPTY_DRAFT,
   type FxPair,
@@ -102,7 +110,19 @@ import {
   resnapshotOffer,
   withoutStaleFx,
 } from './resnapshot';
+import {
+  ADD_LEGS_MSG,
+  failedText,
+  type LegAddState,
+  planAddLegs,
+  pointAfterAdd,
+  pointFields,
+  repointLegs,
+  undoAddPatch,
+} from './statement-add-legs';
+import { parseReadResponse, READ_MSG, readFailureOf } from './statement-fill';
 import type { PrepareResult, PreviewHandle } from './statement-image';
+import type { TzId } from './statement-tz';
 import { loadChartPreview, tradePath } from './trade-detail-controller';
 import { CHART_PREPARING } from './verdict-notes';
 
@@ -162,6 +182,8 @@ export interface EditState {
   readonly extras: readonly ExtraEntry[];
   /** 保存でチャートの画像を送っている（帯の文を「チャートを送っています…」に。#89） */
   readonly sendingCharts?: true;
+  /** ［明細から追加］ の状態（#263。足の一覧の中の 1 行。次の足の操作・シートを閉じる・保存で消す） */
+  readonly legAdd?: LegAddState;
 }
 
 export interface EditController {
@@ -184,6 +206,17 @@ export interface EditController {
   acceptChartTimeframe(slot: AnySlot): void;
   /** [元に戻す]: 削除・差し替えした枠を保存済みのチャートに戻す */
   restoreChart(slot: AnySlot): void;
+  /**
+   * ［明細から追加］（#263・C82）: 明細の画像を 1 枚読み、取引の原資産のオプションの行を今の足の後ろに追加する。保存済みの足・
+   * LC・口座・明細の特徴の覚えは変えない
+   */
+  addLegsFromStatement(file: Blob): Promise<void>;
+  /** 足の読み取りをやめる（足は変えない） */
+  cancelLegRead(): void;
+  /** 追加した直後の ［元に戻す］: 追加する前の足・時刻・注文の種類・逆指値を入れたかに戻す（AI へ送らない） */
+  undoAddLegs(): void;
+  /** 足の一覧の知らせと ［元に戻す］ を消す（シートを閉じた。読み取り中は続ける） */
+  dismissLegAdd(): void;
   dispose(): void;
 }
 
@@ -213,6 +246,10 @@ export function createEditController(deps: {
   /** 保存済みのチャートを canvas に描ける形にする（画面は browserCodec.preview。省けば読み戻さない） */
   readonly preview?: (bytes: Uint8Array, type: ImageType) => Promise<PreviewHandle>;
   readonly readTimeoutMs?: number;
+  /** 明細の読み取り（［明細から追加］。#263）の時間の上限。省けば記録する画面と同じ */
+  readonly statementReadTimeoutMs?: number;
+  /** 端末に覚えた明細の時間帯（読むだけ。書かない = KEEP-4。#263） */
+  readonly zoneMemory?: ZoneMemory;
 }): EditController {
   const request = createRequest(deps.api, deps.timeoutMs ?? REQUEST_TIMEOUT_MS);
   const listeners = new Set<(s: EditState) => void>();
@@ -239,6 +276,20 @@ export function createEditController(deps: {
   let inflight: Promise<void> | null = null;
   let gen = 0;
   let disposed = false;
+  /** この編集で本人が触った欄（#263 の R5「触っていなければ」） */
+  let touched = new Set<DraftField>();
+  /** ［明細から追加］ の世代（新しい読み取り・やめた・開き直し・保存・離れるで進め、古い応答を捨てる） */
+  let legGen = 0;
+  let legAbort: AbortController | null = null;
+  /** 追加した明細の数（追加した足の LegRead.sheet の通し番号） */
+  let legSheets = 0;
+  /** 追加した直後の ［元に戻す］ の戻り先 */
+  let legUndo: { readonly before: Partial<Draft>; readonly after: Partial<Draft> } | null = null;
+  /** 最初に追加する前の足・決済の時点の欄（決済の時点を決めていた追加の足を消したら戻す。#260 のレビュー N2 と同じ） */
+  let pointBase: { readonly draft: Partial<Draft>; readonly marks: null } | null = null;
+  const legReading = () => state.legAdd?.phase === 'reading';
+  /** R5: 決済の理由は保存した値（本人の答え）のまま。ほかは触った欄だけ変えない */
+  const touchedNow = (): ReadonlySet<DraftField> => new Set([...touched, 'exitReason']);
 
   const emit = () => {
     for (const fn of listeners) fn(state);
@@ -253,10 +304,15 @@ export function createEditController(deps: {
     initial: Draft,
     refresh: boolean,
   ) => {
-    const ctx = editContext(trade, instruments, accounts, {
-      entry: slots.has('entry'),
-      exit: slots.has('exit'),
-    });
+    const ctx: DraftContext = {
+      ...editContext(trade, instruments, accounts, {
+        entry: slots.has('entry'),
+        exit: slots.has('exit'),
+      }),
+      // 損益・手数料の欄を本人が直したら、明細から追加した行の分を足さない（#263・C82）
+      statementPnl: draft0.pnlYen === initial.pnlYen,
+      statementFee: draft0.feeYen === initial.feeYen,
+    };
     let draft = draft0;
     let read = readDraft(draft, ctx);
     // ただし開いたときのまま（触っていない）答えは残す（保存で書き換えない。mergeEdit）
@@ -285,6 +341,10 @@ export function createEditController(deps: {
     }
     if (extraNoteErrors(slots.view().extras).length > 0) {
       gated = { ...gated, canSave: false, notice: gated.notice ?? extraNoteTooLong };
+    }
+    // 明細の足の読み取り中は保存しない（足りない足のまま保存しない。#263 の R1）
+    if (legReading()) {
+      gated = { ...gated, canSave: false, notice: gated.notice ?? ADD_LEGS_MSG.reading };
     }
     return {
       draft,
@@ -317,6 +377,8 @@ export function createEditController(deps: {
     readTimeoutMs: deps.readTimeoutMs ?? CHART_READ_TIMEOUT_MS,
     ...(deps.prepare ? { prepare: deps.prepare } : {}),
     timeframeOf: (slot) => state.draft[CHART_TIMEFRAME_FIELD[slot]],
+    // 明細の足の読み取り（#263）の間は待つ（AI の読み取りは 1 つずつ）
+    othersBusy: () => legReading(),
     commit: (c: ChartSlotsChange) => {
       const trade = state.trade;
       if (disposed || trade === null || state.phase === 'loading') return;
@@ -395,6 +457,9 @@ export function createEditController(deps: {
         return;
       }
       const initial = draftFromStored(trade, inst.items);
+      endLegAdd();
+      touched = new Set();
+      legSheets = 0;
       fxBasis = fxPairOf(initial, editContext(trade, inst.items, accounts));
       fxAutoCleared = false;
       // 保存済みのチャートは読み戻すまで「読み込んでいます」（チャートはある = 判定・時間足の欄はそのまま）
@@ -475,6 +540,8 @@ export function createEditController(deps: {
       return;
     }
     const body = read.body;
+    // ［明細から追加］ の知らせと ［元に戻す］ は保存で終わる（#263）
+    dropLegNotice();
     // 終わっていない時間足の読み取りは止めて結果を捨てる（記録する画面と同じ。#27）
     const stopped = slots.stopReads();
     if (stopped.length > 0) state = { ...state, charts: slots.view().charts };
@@ -592,6 +659,164 @@ export function createEditController(deps: {
 
   const editing = () => state.phase === 'editing' && state.trade !== null;
 
+  /** 下書きを置き直す（withDraft を通す） */
+  const redraw = (draft: Draft, patch: Partial<EditState> = {}) => {
+    const trade = state.trade;
+    if (trade === null) return;
+    // 足の読み取りの状態は先に置く（withDraft の保存の門が今の状態を見る）
+    if ('legAdd' in patch) state = { ...state, legAdd: patch.legAdd as LegAddState };
+    const next = withDraft(
+      trade,
+      state.instruments,
+      state.accounts,
+      draft,
+      state.initial,
+      state.refresh,
+    );
+    set({ ...next, ...(next.offer === null ? { refresh: false } : {}), ...patch });
+  };
+
+  /** ［明細から追加］ を終える: 読み取りを止め、知らせと ［元に戻す］ を消す（知らせは次の set で消える） */
+  function endLegAdd() {
+    const wasReading = legReading();
+    legGen++;
+    legAbort?.abort();
+    legAbort = null;
+    legUndo = null;
+    pointBase = null;
+    if (state.legAdd) {
+      const { legAdd: _gone, ...rest } = state;
+      state = rest;
+    }
+    if (wasReading) queueMicrotask(() => slots.pump());
+  }
+  /** 知らせと ［元に戻す］ だけを消す（次の足の操作・シートを閉じた・保存。読み取り中は続ける） */
+  function dropLegNotice() {
+    legUndo = null;
+    if (state.legAdd && state.legAdd.phase !== 'reading') {
+      const { legAdd: _gone, ...rest } = state;
+      state = rest;
+    }
+  }
+
+  const rememberedZone = (): TzId | null => {
+    try {
+      return deps.zoneMemory?.read() ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  /** 足の読み取りの失敗・やめた: 下書きを変えず、決まった文言の 1 文目 +「足は変わっていません。」（R3） */
+  const legFailed = (my: number, notice: string) => {
+    if (my !== legGen || !editing()) return;
+    redraw(state.draft, { legAdd: { phase: 'failed', notice, undo: false } });
+  };
+
+  const addLegsFromStatement = async (file: Blob) => {
+    if (!deps.prepare || !editing() || !state.read.option) return;
+    if (legReading() || state.draft.legs.length >= MAX_LEGS) return;
+    dropLegNotice();
+    legGen++;
+    const my = legGen;
+    const ctl = new AbortController();
+    legAbort = ctl;
+    redraw(state.draft, { legAdd: { phase: 'reading', notice: null, undo: false }, error: null });
+    try {
+      let prepared: PrepareResult;
+      try {
+        prepared = await deps.prepare(file);
+      } catch {
+        prepared = { ok: false, error: 'not_image' };
+      }
+      // プレビューは持たない（足の一覧に画像は出さない）
+      if (prepared.ok) prepared.image.preview.close();
+      if (my !== legGen) return;
+      if (!prepared.ok) {
+        legFailed(
+          my,
+          failedText(prepared.error === 'not_image' ? READ_MSG.notImage : READ_MSG.rejected),
+        );
+        return;
+      }
+      const { bytes, contentType } = prepared.image;
+      // 送っているチャートの時間足の読み取りがあれば終わるのを待つ（AI の読み取りは 1 つずつ）
+      await slots.idle();
+      if (my !== legGen) return;
+      const res = await request(
+        READ_PATH,
+        { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes as BodyInit },
+        { ms: deps.statementReadTimeoutMs ?? READ_TIMEOUT_MS, ctl },
+      );
+      if (my !== legGen) return;
+      if (res.status !== 200) {
+        const kind = readFailureOf(res.status);
+        if (kind === 'auth') throw new Failed('auth');
+        legFailed(my, failedText(READ_MSG[kind]));
+        return;
+      }
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (my !== legGen) return;
+      // 応答の明細の特徴（profile）は使わない: 口座を選び直さず、覚えない（KEEP-4）
+      const result = parseReadResponse(json);
+      if (result === null) {
+        legFailed(my, failedText(READ_MSG.failed));
+        return;
+      }
+      if (result.kind !== 'statement' || result.rows.length === 0) {
+        legFailed(my, failedText(READ_MSG.notStatement));
+        return;
+      }
+      if (!editing()) return;
+      const plan = planAddLegs({
+        legs: state.draft.legs,
+        instrumentName: state.draft.instrumentName,
+        instruments: state.instruments,
+        rows: result.rows,
+        sheet: legSheets + 1,
+        zone: rememberedZone(),
+      });
+      if (plan.kind !== 'added') {
+        legFailed(my, plan.notice);
+        return;
+      }
+      legSheets++;
+      const before = state.draft;
+      const point = pointAfterAdd({ ...before, legs: plan.legs }, null, touchedNow());
+      // 損益の欄を本人が直した: その値を正として追加した行の分を足さない（R4）
+      const typed = before.pnlYen !== state.initial.pnlYen;
+      const notice = typed ? `${plan.notice}。${ADD_LEGS_MSG.pnlTyped}` : plan.notice;
+      if (pointBase === null) pointBase = { draft: pointFields(before), marks: null };
+      legUndo = { before: pointFields(before), after: pointFields(point.draft) };
+      redraw(point.draft, { error: null, legAdd: { phase: 'done', notice, undo: true } });
+    } catch (e) {
+      if (my !== legGen) return;
+      legFailed(my, failedText(READ_MSG.failed));
+      if (kindOf(e) === 'auth') set({ error: AUTH_EXPIRED, errorKind: 'auth' });
+    } finally {
+      if (legAbort === ctl) legAbort = null;
+      if (!disposed) slots.pump();
+    }
+  };
+
+  const undoAddLegs = () => {
+    const u = legUndo;
+    if (!u || !editing()) return;
+    legUndo = null;
+    const back = undoAddPatch(state.draft, u.before, u.after);
+    legSheets = Math.max(0, legSheets - 1);
+    const legs = back.legs ?? state.draft.legs;
+    if (!legs.some(fromAddedStatement)) pointBase = null;
+    const { legAdd: _gone, ...rest } = state;
+    state = rest;
+    redraw({ ...state.draft, ...back }, { error: null });
+  };
+
   /** 送っている印を外す */
   function unsend() {
     if (state.sendingCharts) {
@@ -621,7 +846,16 @@ export function createEditController(deps: {
           state = { ...state, charts: slots.view().charts };
         }
       }
+      if (action.type === 'set') {
+        touched.add(action.field);
+        // 足の操作をしたら追加した直後の ［元に戻す］ は終わる（#263）
+        if (action.field === 'legs') dropLegNotice();
+      }
       let draft = applyDraft(state.draft, action);
+      // 足を消した・直した: 決済の時点を決めていた追加の足でなくなったら、追加で替えた欄を戻す（#260 のレビュー N2 と同じ）
+      if (action.type === 'set' && action.field === 'legs' && pointBase !== null) {
+        draft = repointLegs(draft, null, pointBase, touchedNow()).draft;
+      }
       let currencyCleared = state.currencyCleared;
       let fxCleared = state.fxCleared;
       if (action.type === 'set' && action.field === 'accountId') {
@@ -732,9 +966,29 @@ export function createEditController(deps: {
       state = { ...state, error: null };
       slots.restore(slot);
     },
+    addLegsFromStatement,
+    cancelLegRead() {
+      if (!legReading()) return;
+      legGen++;
+      legAbort?.abort();
+      legAbort = null;
+      redraw(state.draft, {
+        legAdd: { phase: 'failed', notice: ADD_LEGS_MSG.cancelled, undo: false },
+      });
+      queueMicrotask(() => slots.pump());
+    },
+    undoAddLegs,
+    dismissLegAdd() {
+      if (!state.legAdd || legReading()) return;
+      dropLegNotice();
+      emit();
+    },
     dispose() {
       disposed = true;
       gen++;
+      legGen++;
+      legAbort?.abort();
+      legAbort = null;
       slots.clear();
       listeners.clear();
     },

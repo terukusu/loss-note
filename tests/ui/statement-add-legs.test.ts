@@ -15,12 +15,16 @@ import {
   pickAddRows,
   planAddLegs,
   pointAfterAdd,
+  pointFields,
   positionUnderlying,
+  repointLegs,
   underlyingKey,
+  undoAddPatch,
 } from '../../ui/src/lib/statement-add-legs';
 import { parseReadResponse, READ_MSG, type ReadRow } from '../../ui/src/lib/statement-fill';
 import {
   addedLegFees,
+  editStatementPnl,
   initialUnits,
   statementPnlWithLegs,
   unitLegs,
@@ -580,5 +584,133 @@ describe('ポジションの時刻と注文の種類（R6・C54。例 #1・#10�
     expect(p.legs[2]?.exitTime).toBeUndefined();
     const d = statementDraft(p.legs);
     expect(pointAfterAdd(d, marks, new Set()).draft).toBe(d);
+  });
+});
+
+describe('編集の画面の明細の損益（#263・C82・4.7）', () => {
+  /** 保存済みの足（read の無い足。売り P 36,000 300 → 120・買い P 35,000 150 → 60） */
+  const storedLegs = (): LegDraft[] =>
+    mainLegs().map(({ read: _r, ...l }, i) => ({ ...l, id: `l${i + 1}` }));
+
+  it('手計算: 保存済み 89,000 + 追加した行 −60,500 = 28,500、手数料 500。手数料を除いた損益 30,000 = 足の導出の合計', () => {
+    const p = plan(storedLegs(), rowsOf([ADD_C]));
+    if (p.kind !== 'added') throw new Error(p.kind);
+    // 導出: 売り P −(120 − 300)×1,000 = 180,000、買い P (60 − 150)×1,000 = −90,000、売り C −(260 − 200)×1,000 = −60,000
+    const r = editStatementPnl(89_000, p.legs, JPY);
+    expect(r).toEqual({ pnl: 28_500, dropped: false });
+    expect(addedLegFees(p.legs, JPY)).toBe(500);
+    const derived = parsed(p.legs).reduce((s, l) => s + legPnlPrice(l, MULT), 0);
+    expect(derived).toBe(30_000);
+    expect(28_500 + 1_000 + 500).toBe(derived);
+    // 保存済みの足は導出を足さない（記録する画面の statementPnlWithLegs に当てると二重に数える）
+    expect(statementPnlWithLegs(89_000, p.legs, parsed(p.legs), MULT, 1, JPY).pnl).not.toBe(28_500);
+  });
+
+  it('追加した足が無ければ損益のまま・保存済みの損益が無い / 欠けた / 満期で消滅 / 行の手数料が読めない / 通貨に合わないなら足の合計', () => {
+    expect(editStatementPnl(89_000, storedLegs(), JPY)).toEqual({ pnl: 89_000, dropped: false });
+    expect(editStatementPnl(undefined, storedLegs(), JPY)).toEqual({
+      pnl: undefined,
+      dropped: false,
+    });
+    const p = plan(storedLegs(), rowsOf([ADD_C, { ...ADD_C, strike: 41_000 }]));
+    if (p.kind !== 'added') throw new Error(p.kind);
+    expect(editStatementPnl(89_000, p.legs, JPY).dropped).toBe(false);
+    expect(editStatementPnl(undefined, p.legs, JPY)).toEqual({ pnl: undefined, dropped: true });
+    const missing = p.legs.slice(0, 3);
+    expect(editStatementPnl(89_000, missing, JPY).dropped).toBe(true);
+    const expired = p.legs.map((l, i) => (i === 3 ? { ...l, expired: true } : l));
+    expect(editStatementPnl(89_000, expired, JPY).dropped).toBe(true);
+    const noFee = p.legs.map((l, i) =>
+      i === 2 && l.read ? { ...l, read: { ...l.read, fee: null } } : l,
+    );
+    expect(editStatementPnl(89_000, noFee, JPY).dropped).toBe(true);
+    expect(
+      editStatementPnl(89_000, p.legs, { accountCurrency: 'USD', priceCurrency: 'JPY' }).dropped,
+    ).toBe(true);
+  });
+
+  it('性質: 保存済み = 導出 − 手数料、行の損益 = 導出 − 手数料 なら、明細の損益 + 手数料 = 足の導出の合計（L/S・利益 / 損失・1〜2 枚。300 通り）', () => {
+    let seed = 263;
+    const rnd = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const spec = (i: number, sheet: number): OptionRowSpec => {
+      const side = rnd() < 0.5 ? ('buy' as const) : ('sell' as const);
+      const qty = 1 + Math.floor(rnd() * 3);
+      const entry = 5 + Math.floor(rnd() * 400);
+      const exit = 1 + Math.floor(rnd() * 400);
+      const fee = 100 * Math.floor(rnd() * 10);
+      const derived = (side === 'buy' ? 1 : -1) * (exit - entry) * qty * MULT;
+      return {
+        ...ADD_A,
+        putCall: rnd() < 0.5 ? 'put' : 'call',
+        strike: 30_000 + 250 * i + 10_000 * sheet,
+        side,
+        qty,
+        entry,
+        exit,
+        fee,
+        pnl: derived - fee,
+        closed: jst(2026, 12, 9 + sheet, 10, i),
+      };
+    };
+    for (let n = 0; n < 300; n++) {
+      const first = Array.from({ length: 1 + Math.floor(rnd() * 3) }, (_, i) => spec(i, 0));
+      const raw = rowsOf(first);
+      const row = unitRows(raw, initialUnits(raw))[0] as ReadRow;
+      let legs: LegDraft[] = unitLegs([], row, null).map(({ read: _r, ...l }, i) => ({
+        ...l,
+        id: `l${i + 1}`,
+      }));
+      const storedPnl = first.reduce((s, r) => s + r.pnl, 0);
+      const storedFee = first.reduce((s, r) => s + r.fee, 0);
+      for (let sheet = 1; sheet <= 2; sheet++) {
+        const more = Array.from({ length: 1 + Math.floor(rnd() * 2) }, (_, i) => spec(i, sheet));
+        const p = plan(legs, rowsOf(more), sheet);
+        if (p.kind === 'added') legs = [...p.legs];
+      }
+      const r = editStatementPnl(storedPnl, legs, JPY);
+      const fees = storedFee + addedLegFees(legs, JPY);
+      const derived = parsed(legs).reduce((s, l) => s + legPnlPrice(l, MULT), 0);
+      expect(r.dropped).toBe(false);
+      expect(Number.isFinite(r.pnl)).toBe(true);
+      expect((r.pnl ?? Number.NaN) + fees).toBeCloseTo(derived, 6);
+    }
+  });
+});
+
+describe('［元に戻す］ と決済の時点の戻し（共有の純関数。#260・#263）', () => {
+  const draft: Draft = {
+    ...EMPTY_DRAFT,
+    legs: mainLegs(),
+    exitTime: toLocalInput(ADD_A.closed.epochMs as number),
+    exitOrderType: 'stop',
+    stopOrderPlaced: 'placed',
+    exitReason: 'lc',
+  };
+
+  it('undoAddPatch: 追加した直後のままの欄だけを戻し、本人が後で直した欄は今のまま', () => {
+    const before = pointFields(draft);
+    const after = pointFields({ ...draft, exitOrderType: 'market', exitReason: 'other' });
+    const now = { ...draft, exitOrderType: 'market' as const, exitReason: 'tp' as const };
+    const back = undoAddPatch(now, before, after);
+    expect(back.exitOrderType).toBe('stop');
+    expect('exitReason' in back).toBe(false);
+  });
+
+  it('repointLegs: 戻り先が無い・時点が追加した足のままなら変えない、追加した足を消したら戻す（触った欄は戻さない）', () => {
+    const p = plan(draft.legs, rowsOf([ADD_C]));
+    if (p.kind !== 'added') throw new Error(p.kind);
+    const added = pointAfterAdd({ ...draft, legs: p.legs }, null, new Set()).draft;
+    expect(added.exitOrderType).toBe('market');
+    expect(repointLegs(added, null, null, new Set()).draft).toBe(added);
+    const base = { draft: pointFields(draft), marks: null };
+    expect(repointLegs(added, null, base, new Set()).draft.exitOrderType).toBe('market');
+    const removed = { ...added, legs: added.legs.slice(0, 2) };
+    const back = repointLegs(removed, null, base, new Set(['exitTime']));
+    expect(back.draft.exitOrderType).toBe('stop');
+    expect(back.draft.stopOrderPlaced).toBe('placed');
+    expect(back.draft.exitTime).toBe(added.exitTime);
   });
 });

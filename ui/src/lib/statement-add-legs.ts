@@ -259,3 +259,67 @@ export function pointAfterAdd(
   const same = (Object.keys(patch) as (keyof Draft)[]).every((k) => patch[k] === draft[k]);
   return { draft: same ? draft : { ...draft, ...patch }, marks: m };
 }
+
+/** ［明細から追加］ の状態（#260。記録する画面と編集の画面の controller が持つ。足の一覧の中の 1 行） */
+export interface LegAddState {
+  readonly phase: 'reading' | 'done' | 'failed';
+  /** 結果の 1 行（読み取り中は null） */
+  readonly notice: string | null;
+  /** ［元に戻す］ が押せる（追加した直後だけ） */
+  readonly undo: boolean;
+}
+
+/** 足と POINT_FIELDS の写し（［元に戻す］ の戻り先・最初に追加する前の値） */
+export function pointFields(d: Draft): Partial<Draft> {
+  const out: Record<string, unknown> = { legs: d.legs };
+  for (const f of POINT_FIELDS) out[f] = d[f];
+  return out as Partial<Draft>;
+}
+
+/**
+ * ［元に戻す］ で戻す欄（#260 の R4）: 追加した直後の値（after）のままの欄だけを追加する前（before）の値へ。追加した後に本人が
+ * 直した欄は今のまま
+ */
+export function undoAddPatch(
+  current: Draft,
+  before: Partial<Draft>,
+  after: Partial<Draft>,
+): Partial<Draft> {
+  const back: Record<string, unknown> = {};
+  for (const k of Object.keys(before) as (keyof Draft)[]) {
+    if (current[k] === after[k]) back[k] = before[k];
+  }
+  return back as Partial<Draft>;
+}
+
+/**
+ * 足が変わった後の決済の時点（#260 のレビュー N2）: 時点が追加した足ならその足の値（pointAfterAdd）、追加した足でなくなったら
+ * 最初に追加する前の値（base）へ（本人が触った決済の時刻・決済の理由は戻さない。注文の種類と逆指値を入れたかは証拠なので戻す）。
+ * 時点が決まらない（足がそろっていない・時刻が無い）間・base が無い間は変えない
+ */
+export function repointLegs(
+  draft: Draft,
+  marks: Marks | null,
+  base: { readonly draft: Partial<Draft>; readonly marks: Marks | null } | null,
+  touched: ReadonlySet<DraftField>,
+): { readonly draft: Draft; readonly marks: Marks | null } {
+  const added = pointIsAdded(draft.legs);
+  if (base === null || added === null) return { draft, marks };
+  if (added) return pointAfterAdd(draft, marks, touched);
+  const patch: Record<string, unknown> = {
+    exitOrderType: base.draft.exitOrderType,
+    stopOrderPlaced: base.draft.stopOrderPlaced,
+  };
+  const m: Partial<Record<DraftField, FieldMark>> | null = marks ? { ...marks } : null;
+  for (const f of ['exitTime', 'exitReason'] as const) {
+    if (touched.has(f)) continue;
+    patch[f] = base.draft[f];
+    if (m) {
+      const was = base.marks?.[f];
+      if (was === undefined) delete m[f];
+      else m[f] = was;
+    }
+  }
+  const same = Object.keys(patch).every((k) => patch[k] === draft[k as keyof Draft]);
+  return same ? { draft, marks } : { draft: { ...draft, ...(patch as Partial<Draft>) }, marks: m };
+}

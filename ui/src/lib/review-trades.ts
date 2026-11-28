@@ -6,6 +6,8 @@
 // Good / More（#221）: 話題（`&good=<ID>` / `&more=<ID>`。その側の一覧（C58）の ID だけ）と自分で書いた行（`&notes=good|more`）
 // 崩れの取引（#228。`&tier=off`。判定が B・危ない勝ち・C = core の runKindOf が off。振り返りの「崩れの取引を見る ›」から）
 // 崩れ方（#239・C68。`&reason=<種類>`。判定の崩れの理由がその種類の取引。崩れの理由の 8 種の ID だけ通す。要約は率を出さない）
+// 両建てのまとまり（#268・6.5）: 気づきと同じ単位で 1 件。行は最初の本玉の 1 行（まとまりの判定の札・R・リスク・決済の日付、
+// 銘柄の後ろに「· 両建て」）で、ほかのメンバーの行は出さない（行の数 = 要約の件数）。並びはまとまりの決済の時刻。押すと最初の本玉の詳細
 import {
   type EmotionTagId,
   isEmotionTagId,
@@ -28,9 +30,13 @@ import {
   reviewPeriod,
   runKindOf,
 } from '../../../core/review';
+import type { GroupUnit } from '../../../core/review-group';
+import { badgeModel } from './badge';
+import { formatDate } from './datetime';
 import { EMOTION_TEXT } from './emotion-tags';
+import { formatPct, formatR } from './format';
 import {
-  insightItems,
+  insightUnitItems,
   labeledSummaryOf,
   NOTES_ROW_NAME,
   reasonLabeledSummaryOf,
@@ -47,10 +53,20 @@ import {
   type WhyKey,
 } from './period';
 import { BREACH_NAME } from './reasons';
+import { RISK_NOTE } from './record-form';
 import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
-import { TRUNCATED } from './review-view';
-import { sortTrades, type TradeRow, tradeRow } from './trade-view';
+import {
+  type GroupSource,
+  newestFirst,
+  type ReviewUnit,
+  reviewUnits,
+  unitId,
+  unitIdsByTrade,
+  unitTrade,
+} from './review-units';
+import { GROUP_SUFFIX, TRUNCATED } from './review-view';
+import { MISSING, SIDE_TEXT, type TradeRow, tradeRow } from './trade-view';
 
 /** 経路の名前（上の帯の「‹ 期間の取引」・知らない絞り方の題） */
 export const REVIEW_TRADES_NAME = '期間の取引';
@@ -315,10 +331,74 @@ function pick(
   return target.filter((i) => ids.has(i.id));
 }
 
+/** 行の添えに使う取引（まとまりは最初の本玉に、まとまりの心理・Good / More の和を写したもの） */
+function noteTrade(u: ReviewUnit, item: ReviewItem | undefined): StoredTrade {
+  const t = unitTrade(u);
+  if (u.kind === 'trade') return t;
+  const { emotionTags: _e, reflection: _r, ...rest } = t;
+  return {
+    ...rest,
+    ...(item?.emotions === undefined ? {} : { emotionTags: item.emotions }),
+    ...(item?.reflection === undefined ? {} : { reflection: item.reflection }),
+  };
+}
+
+/**
+ * まとまりの行（最初の本玉の行に、まとまりの判定の札・R・リスク・決済の時刻。銘柄の後ろに「· 両建て」。6.5）。
+ * 取引の一覧の行の形（tradeRow）を使い、まとまりの値だけを差し替える
+ */
+function groupRow(
+  g: GroupUnit<StoredTrade>,
+  instruments: readonly InstrumentRecord[],
+  accounts: readonly AccountRecord[],
+): TradeRow {
+  const base = tradeRow(g.lead, instruments, accounts);
+  const ev = g.evaluation;
+  const grade = g.item.grade;
+  const badge = badgeModel(grade);
+  const r = g.item.r;
+  const riskPct = ev.ok ? ev.riskPct : undefined;
+  const rText = r === undefined ? MISSING : formatR(r);
+  const rNote = r === undefined ? (g.noLc ? RISK_NOTE.noLc : RISK_NOTE.invalid) : null;
+  const riskText = riskPct === undefined ? MISSING : formatPct(riskPct);
+  // リスクが出ない理由（単独の行の riskNoteOf と同じ文言: LC が無い → 資金の未設定 → 計算できない）
+  const noCapital = g.trades.some(
+    (t) => g.lead.record.side === t.record.side && t.snapshot.capitalYen == null,
+  );
+  const riskNote =
+    riskPct === undefined
+      ? g.noLc
+        ? RISK_NOTE.noLc
+        : noCapital
+          ? RISK_NOTE.noCapital
+          : RISK_NOTE.invalid
+      : null;
+  const instrumentName = `${base.instrumentName}${GROUP_SUFFIX}`;
+  const exitTime = g.item.exitTime;
+  const d = new Date(exitTime);
+  const dateText = formatDate(exitTime);
+  const pad2 = (n: number) => String(n).padStart(2, '0');
+  return {
+    ...base,
+    grade,
+    badge,
+    rText,
+    r: r ?? null,
+    rNote,
+    riskText,
+    riskNote,
+    instrumentName,
+    dateText,
+    dateIso: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+    exitTime,
+    label: `${dateText} ${instrumentName} ${SIDE_TEXT[g.lead.record.side]}${base.accountName === undefined ? '' : ` ${base.accountName}`} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
+  };
+}
+
 /** 期間の取引（範囲つきの一覧の応答）→ 期間の取引の画面の表示の形 */
 export function reviewTradesModel(
   trades: readonly StoredTrade[],
-  opts: {
+  opts: GroupSource & {
     readonly hidden: ReadonlySet<string>;
     readonly includeImports: boolean;
     readonly range?: { readonly from: number; readonly to: number };
@@ -344,18 +424,26 @@ export function reviewTradesModel(
     origin: null,
   };
   if (opts.filter === null) return none;
-  const picked = pick(insightItems(trades, opts), opts.filter, opts.includeImports);
+  const units = reviewUnits(trades, opts);
+  const picked = pick(insightUnitItems(units), opts.filter, opts.includeImports);
   if (picked.length === 0) return none;
   const ids = new Set(picked.map((i) => i.id));
   const filter = opts.filter;
-  const shown = sortTrades(trades.filter((t) => ids.has(t.id)));
-  const rows = shown.map((t) => tradeRow(t, opts.instruments, opts.accounts ?? []));
+  const shown = units.filter((u) => ids.has(unitId(u))).sort(newestFirst);
+  const rows = shown.map((u) =>
+    u.kind === 'trade'
+      ? tradeRow(u.trade, opts.instruments, opts.accounts ?? [])
+      : groupRow(u.group, opts.instruments, opts.accounts ?? []),
+  );
   const byId = new Map(picked.map((i) => [i.id, i]));
   const notes: Record<string, string> = {};
-  for (const t of shown) {
-    const n = noteOf(t, filter, byId.get(t.id));
-    if (n !== null) notes[t.id] = n;
+  for (const u of shown) {
+    const id = unitId(u);
+    const n = noteOf(noteTrade(u, byId.get(id)), filter, byId.get(id));
+    if (n !== null) notes[id] = n;
   }
+  // URL の元の取引がまとまりのメンバーなら、まとまりの行（最初の本玉の行）に札を付ける
+  const origin = opts.origin ? unitIdsByTrade(shown).get(opts.origin) : undefined;
   const v = reviewPeriod(picked, { includeImports: true });
   const reason = filter.kind === 'reason';
   return {
@@ -367,7 +455,7 @@ export function reviewTradesModel(
     empty: false,
     emptyText: null,
     truncatedText,
-    origin: opts.origin && ids.has(opts.origin) ? opts.origin : null,
+    origin: origin !== undefined && ids.has(origin) ? origin : null,
   };
 }
 
@@ -390,5 +478,7 @@ export function reviewTradesModelFor(
     ...opts,
     range: state.range,
     truncated: state.truncated,
+    groups: state.groups,
+    groupMembers: state.groupMembers,
   });
 }

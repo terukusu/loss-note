@@ -4,11 +4,17 @@
 // 既定値なので、規律の並びに混ぜない（6.1・11 章・#88 と同じ）。
 // 連続は core/review.ts の recentRun（最新の種類と、新しい方から同じ種類が続く件数）。判定・段は一覧と同じ
 // summarize と badge.ts から（色・記号・名前の対応を 2 か所に持たない）。損益・R は出さない（規律の並び）
+// 両建てのまとまり（#268・6.5）: まとまりとメンバーの取引（groups・groupMembers）を渡すと、先頭の 10 行のうちまとまりのメンバーを
+// 1 点（最初の本玉の行の位置。まとまりの判定の段・決済の時刻。取り込んだメンバーがあれば取り込み）にまとめ、ほかのメンバーの行は
+// 点にしない。最初の本玉の行が 10 行の外なら点にしない。渡さなければ今と同じ
+import type { Grade } from '../../../core/judge';
 import type { StoredTrade } from '../../../core/record';
 import { type RecentRun, recentRun } from '../../../core/review';
+import { type GroupUnit, groupTrades } from '../../../core/review-group';
 import { badgeModel, type Tier, type TierSymbol } from './badge';
 import { formatDate } from './datetime';
 import { summarize } from './record-form';
+import type { GroupSource } from './review-units';
 import { sortTrades, visibleTrades } from './trade-view';
 
 /** 並べる件数（決済の新しい方から。ホームが読む件数 HOME_LIMIT と同じ） */
@@ -56,23 +62,66 @@ function headlinePartsOf(run: RecentRun, latestLabel: string): string[] {
   return [`直近の ${run.count} 件は`, '判定なし'];
 }
 
-/** 取引（読み込み済みの分）→ 直近の流れ。並べる取引が無ければ null（段を出さない） */
+/** 取引（読み込み済みの分）→ 直近の流れ。並べる取引が無ければ null（段を出さない）。groups があればまとまりを 1 点に（#268） */
 export function streakModel(
   trades: readonly StoredTrade[],
   hidden: ReadonlySet<string>,
+  groups?: GroupSource,
 ): StreakModel | null {
-  return streakModelOfSorted(sortTrades(visibleTrades(trades, hidden)));
+  return streakModelOfSorted(sortTrades(visibleTrades(trades, hidden)), groups, hidden);
+}
+
+/** 並びの 1 点（取引 1 件 / まとまり 1 件） */
+interface StreakPoint {
+  readonly id: string;
+  readonly grade: Grade | null;
+  readonly time: number;
+  readonly imported: boolean;
+}
+
+/** 先頭の 10 行 → 点（まとまりのメンバーは最初の本玉の行で 1 点。ほかのメンバーの行は点にしない） */
+function pointsOf(
+  window: readonly StoredTrade[],
+  src: GroupSource | undefined,
+  hidden: ReadonlySet<string>,
+): StreakPoint[] {
+  const single = (t: StoredTrade): StreakPoint => ({
+    id: t.id,
+    grade: summarize(t).judgment?.grade ?? null,
+    time: t.record.exit.time,
+    imported: t.record.source === 'import',
+  });
+  const groups = src?.groups ?? [];
+  if (groups.length === 0) return window.map(single);
+  const { units } = groupTrades([...window, ...(src?.groupMembers ?? [])], groups, {
+    excluded: hidden,
+  });
+  const byTrade = new Map<string, GroupUnit<StoredTrade>>();
+  for (const u of units) for (const t of u.trades) byTrade.set(t.id, u);
+  return window.flatMap((t) => {
+    const u = byTrade.get(t.id);
+    if (u === undefined) return [single(t)];
+    if (u.leadId !== t.id) return [];
+    return [
+      { id: u.leadId, grade: u.item.grade, time: u.item.exitTime, imported: u.item.imported },
+    ];
+  });
 }
 
 /**
  * 消した印を除いて sortTrades で並べ済みの取引 → 直近の流れ（一覧は同じ描画で並べた配列を渡し、全件を 2 回並べない）。
- * 見るのは先頭の 10 件だけ
+ * 見るのは先頭の 10 件だけ。groups があればまとまりを 1 点に（#268）
  */
-export function streakModelOfSorted(sorted: readonly StoredTrade[]): StreakModel | null {
+export function streakModelOfSorted(
+  sorted: readonly StoredTrade[],
+  groups?: GroupSource,
+  hidden: ReadonlySet<string> = new Set(),
+): StreakModel | null {
   const window = sorted.slice(0, STREAK_WINDOW);
-  const shown = window.filter((t) => t.record.source !== 'import');
-  const excluded = window.length - shown.length;
-  const grades = shown.map((t) => summarize(t).judgment?.grade ?? null);
+  const points = pointsOf(window, groups, hidden);
+  const shown = points.filter((p) => !p.imported);
+  const excluded = points.length - shown.length;
+  const grades = shown.map((p) => p.grade);
   const run = recentRun(grades);
   if (!run) return null;
   const badges = grades.map(badgeModel);
@@ -82,7 +131,7 @@ export function streakModelOfSorted(sorted: readonly StoredTrade[]): StreakModel
       id: t.id,
       tier: b.tier,
       symbol: b.symbol,
-      label: `${formatDate(t.record.exit.time)} ${b.label}`,
+      label: `${formatDate(t.time)} ${b.label}`,
       run: i < run.count,
     };
   });

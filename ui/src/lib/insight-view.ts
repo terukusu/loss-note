@@ -7,6 +7,7 @@
 // Good / More のカード（#221）も同じ対象・同じ行の文の規則で、話題ごとの部分集合を数える（core の reviewByReflection）
 // 崩れ方（#239・C68）も同じ対象・同じ行の文の規則で、判定の崩れの理由ごとの部分集合を数える（core の reviewByReason）。
 // 行の取引はすべて崩れで計画どおり率がいつも 0% なので、率と分数は出さない（件数と規律コストだけ）
+// 両建てのまとまり（#268・6.5）は review-units.ts の単位で 1 件（心理・Good / More はメンバーの和、崩れ方はまとまりの判定の理由）
 import { CALM, type EmotionTagId, normalizeEmotions } from '../../../core/emotion-tags';
 import type { StoredTrade } from '../../../core/record';
 import {
@@ -29,10 +30,11 @@ import {
 } from '../../../core/review';
 import { EMOTION_TEXT } from './emotion-tags';
 import { formatDay, formatR, formatRate } from './format';
-import { inRange, type PeriodRange } from './period';
+import type { PeriodRange } from './period';
 import { BREACH_NAME } from './reasons';
 import { REFLECTION_SIDE_TEXT, REFLECTION_TOPIC_NAME } from './reflection';
 import type { ReviewState } from './review-controller';
+import { type GroupSource, type ReviewUnit, reviewUnits, unitItem } from './review-units';
 import {
   breachItemOf,
   HEADLINE_LEAD,
@@ -41,7 +43,6 @@ import {
   REVIEW_ONLY_IMPORTS,
   reviewItemOf,
 } from './review-view';
-import { visibleTrades } from './trade-view';
 
 export const INSIGHT_TITLE = '心理ごとの規律';
 /** 判定の出た取引が 5 件未満の行（6.1。率・分数・規律コストを出さない） */
@@ -624,21 +625,23 @@ export function insightItemOf(t: StoredTrade): ReviewItem {
  */
 export function insightItems(
   trades: readonly StoredTrade[],
-  opts: {
+  opts: GroupSource & {
     readonly hidden: ReadonlySet<string>;
     readonly range?: { readonly from: number; readonly to: number } | undefined;
   },
 ): ReviewItem[] {
-  const range = opts.range;
-  return visibleTrades(trades, opts.hidden)
-    .filter((t) => range === undefined || inRange(t.record.exit.time, range))
-    .map(insightItemOf);
+  return insightUnitItems(reviewUnits(trades, opts));
+}
+
+/** 集計の単位 → 気づきの集計の 1 件（まとまりはまとまりの 1 件 = 心理・Good / More の和と判定の崩れの理由。#268・6.5） */
+export function insightUnitItems(units: readonly ReviewUnit[]): ReviewItem[] {
+  return units.map((u) => unitItem(u, insightItemOf));
 }
 
 /** 期間の取引（範囲つきの一覧の応答）→ 気づきの表示（規律の reviewModel と同じ対象）。range があれば範囲の外を落とす */
 export function insightModel(
   trades: readonly StoredTrade[],
-  opts: {
+  opts: GroupSource & {
     readonly hidden: ReadonlySet<string>;
     readonly includeImports: boolean;
     readonly range?: { readonly from: number; readonly to: number };
@@ -691,5 +694,10 @@ export function insightModelFor(
 ): InsightModel | null {
   if (state.phase !== 'ready' || !range.ok) return null;
   if (state.range.from !== range.from || state.range.to !== range.to) return null;
-  return insightModel(state.trades, { ...opts, range: state.range });
+  return insightModel(state.trades, {
+    ...opts,
+    range: state.range,
+    groups: state.groups,
+    groupMembers: state.groupMembers,
+  });
 }

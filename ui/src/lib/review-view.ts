@@ -3,6 +3,8 @@
 // 判定・R は一覧と同じ summarize（= toTradeInput → evaluateTrade）で出し、core/review.ts の reviewPeriod で数える。
 // 消した印（[元に戻す] を待つ取引）は visibleTrades で外し、範囲の外の取引（範囲の引数を知らない古い API が全件を返したとき）も
 // 落とす。成績は R だけ（円を出さない。6.3）。R・% は無色（P3）
+// 両建てのまとまり（#268・6.5・C80）は review-units.ts の単位で 1 件（まとまりの判定・R・決済の時刻）に数え、メンバーを別に数えない。
+// 「数で見る」の行と曲線の日付はまとまりの決済の時刻、銘柄は最初の本玉の銘柄に「· 両建て」
 import type { InstrumentRecord, StoredTrade } from '../../../core/record';
 import {
   breachKindsOf,
@@ -16,10 +18,19 @@ import {
 } from '../../../core/review';
 import { badgeModel, type Tier, type TierSymbol } from './badge';
 import { formatDay, formatR, formatRate } from './format';
-import { inRange, type PeriodRange } from './period';
+import type { PeriodRange } from './period';
 import { summarize } from './record-form';
 import type { ReviewState } from './review-controller';
-import { instrumentNameOf, visibleTrades } from './trade-view';
+import {
+  type GroupSource,
+  type ReviewUnit,
+  reviewUnits,
+  unitExitTime,
+  unitId,
+  unitItem,
+  unitTrade,
+} from './review-units';
+import { instrumentNameOf } from './trade-view';
 
 export const REVIEW_TITLE = '規律の振り返り';
 export const REVIEW_EMPTY = 'この期間に決済した取引はありません';
@@ -37,6 +48,8 @@ export const HEADLINE_LEAD = {
 } as const;
 export const TRUNCATED = '期間の取引が多いので先頭の 2,000 件で集計しています';
 export const ROWS_CAPTION = '取引ごとの R と累積（決済の古い順）';
+/** 両建てのまとまりの銘柄の後ろの添え（一覧の行と同じ。6.5） */
+export const GROUP_SUFFIX = ' · 両建て';
 
 /** 保存した取引 → 集計の 1 件（一覧と同じ判定の計算） */
 export function reviewItemOf(t: StoredTrade): ReviewItem {
@@ -204,14 +217,14 @@ function barOf(v: PeriodReview): BarSegment[] {
 
 function curveDatesOf(
   curve: readonly CurvePoint[],
-  byId: ReadonlyMap<string, StoredTrade>,
+  byId: ReadonlyMap<string, ReviewUnit>,
   now: number,
 ): ReviewModel['curveDates'] {
   const a = byId.get(curve[0]?.id ?? '');
   const b = byId.get(curve[curve.length - 1]?.id ?? '');
   if (!a || !b) return null;
-  const first = formatDay(a.record.exit.time, now);
-  const last = formatDay(b.record.exit.time, now);
+  const first = formatDay(unitExitTime(a), now);
+  const last = formatDay(unitExitTime(b), now);
   return { first, last: last === first ? null : last };
 }
 
@@ -220,12 +233,19 @@ function gapOf(p: CurvePoint): number {
   return Math.min(0, p.actualCum - p.plannedCum);
 }
 
+/** 単位の銘柄の名前（まとまりは最初の本玉の銘柄 +「· 両建て」） */
+function unitInstrumentName(u: ReviewUnit, instruments: readonly InstrumentRecord[]): string {
+  const name = instrumentNameOf(unitTrade(u), instruments);
+  return u.kind === 'group' ? `${name}${GROUP_SUFFIX}` : name;
+}
+
 /**
- * 期間の取引（範囲つきの一覧の応答）→ 振り返りの表示。range があれば範囲の外を落とす。now は日付の書き方だけに使う
+ * 期間の取引（範囲つきの一覧の応答）→ 振り返りの表示。range があれば範囲の外を落とす。now は日付の書き方だけに使う。
+ * groups・groupMembers（範囲の一覧の positionGroups・groupMembers）があれば、まとまりを 1 件に数える（#268）
  */
 export function reviewModel(
   trades: readonly StoredTrade[],
-  opts: {
+  opts: GroupSource & {
     readonly hidden: ReadonlySet<string>;
     readonly includeImports: boolean;
     readonly instruments: readonly InstrumentRecord[];
@@ -234,28 +254,25 @@ export function reviewModel(
     readonly truncated?: boolean;
   },
 ): ReviewModel {
-  const range = opts.range;
-  const shown = visibleTrades(trades, opts.hidden).filter(
-    (t) => range === undefined || inRange(t.record.exit.time, range),
-  );
-  const byId = new Map(shown.map((t) => [t.id, t]));
-  const items = shown.map(reviewItemOf);
+  const units = reviewUnits(trades, opts);
+  const byId = new Map(units.map((u) => [unitId(u), u]));
+  const items = units.map((u) => unitItem(u, reviewItemOf));
   const v = reviewPeriod(items, { includeImports: opts.includeImports });
-  // 曲線の外（R が出ない）取引の内訳: LC が無い / 計算できない（直近の判定の脚注と同じ分け方）
+  // 曲線の外（R が出ない）取引の内訳: LC が無い / 計算できない（直近の判定の脚注と同じ分け方。まとまりは本玉の LC で）
   let noLc = 0;
   let invalid = 0;
-  shown.forEach((t, i) => {
+  units.forEach((u, i) => {
     const it = items[i];
     if (!it || it.r !== undefined || (it.imported && !opts.includeImports)) return;
-    if (t.record.lc === undefined) noLc += 1;
+    if (u.kind === 'group' ? u.group.noLc : u.trade.record.lc === undefined) noLc += 1;
     else invalid += 1;
   });
   const rows: ReviewRow[] = v.curve.map((p) => {
-    const t = byId.get(p.id);
+    const u = byId.get(p.id);
     return {
       id: p.id,
-      dateText: t ? formatDay(t.record.exit.time, opts.now) : '',
-      instrumentName: t ? instrumentNameOf(t, opts.instruments) : '',
+      dateText: u ? formatDay(unitExitTime(u), opts.now) : '',
+      instrumentName: u ? unitInstrumentName(u, opts.instruments) : '',
       gradeLabel: badgeModel(p.grade).label,
       rText: formatR(p.r),
       actualCumText: formatR(p.actualCum),
@@ -323,5 +340,11 @@ export function reviewModelFor(
 ): ReviewModel | null {
   if (state.phase !== 'ready' || !range.ok) return null;
   if (state.range.from !== range.from || state.range.to !== range.to) return null;
-  return reviewModel(state.trades, { ...opts, range: state.range, truncated: state.truncated });
+  return reviewModel(state.trades, {
+    ...opts,
+    range: state.range,
+    truncated: state.truncated,
+    groups: state.groups,
+    groupMembers: state.groupMembers,
+  });
 }

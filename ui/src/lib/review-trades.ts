@@ -361,7 +361,18 @@ function groupRow(
   const rText = r === undefined ? MISSING : formatR(r);
   const rNote = r === undefined ? (g.noLc ? RISK_NOTE.noLc : RISK_NOTE.invalid) : null;
   const riskText = riskPct === undefined ? MISSING : formatPct(riskPct);
-  const riskNote = riskPct === undefined ? (g.noLc ? RISK_NOTE.noLc : RISK_NOTE.invalid) : null;
+  // リスクが出ない理由（単独の行の riskNoteOf と同じ文言: LC が無い → 資金の未設定 → 計算できない）
+  const noCapital = g.trades.some(
+    (t) => g.lead.record.side === t.record.side && t.snapshot.capitalYen == null,
+  );
+  const riskNote =
+    riskPct === undefined
+      ? g.noLc
+        ? RISK_NOTE.noLc
+        : noCapital
+          ? RISK_NOTE.noCapital
+          : RISK_NOTE.invalid
+      : null;
   const instrumentName = `${base.instrumentName}${GROUP_SUFFIX}`;
   const exitTime = g.item.exitTime;
   const d = new Date(exitTime);

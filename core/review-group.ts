@@ -3,7 +3,7 @@
 // まとまりの 1 件の集計の項目（groupReviewItem = まとまりの判定・R・決済の時刻・心理と Good / More の和・取り込み）と、
 // 単独で数える取引に分ける。期間に入れるか（まとまりの決済の時刻で）は呼ぶ側が決める。
 // - 消した印（[元に戻す] を待つ）のメンバーは除いてまとまりを組み、残りで役割の組を満たさなければ残りを単独で数える
-// - 崩れたまとまり（無い取引を指す・役割の組が崩れた・同じ取引が 2 つのまとまりにいる）はメンバーを単独で数える（4.8）
+// - 崩れたまとまり（無い取引を指す・役割の組が崩れた・同じ取引が 2 つのまとまりにいる = そのどのまとまりも）はメンバーを単独で数える（4.8）
 // - 判定の出ないまとまり（メンバーの取引の入力の誤り）は判定なしの 1 件（今の「判定の出ない取引」と同じ）
 import {
   evaluatePositionGroup,
@@ -99,12 +99,18 @@ export function groupTrades<T extends GroupTrade>(
   const excluded = opts.excluded ?? new Set<string>();
   const byId = new Map<string, T>();
   for (const t of trades) if (!excluded.has(t.id) && !byId.has(t.id)) byId.set(t.id, t);
+  // 同じ取引が 2 つ以上のまとまりにいる（API は 409 で守る。崩れた）なら、そのどのまとまりも組まない（応答の並びに依らない）
+  const seen = new Map<string, number>();
+  for (const g of groups) {
+    for (const id of new Set(g.members.map((m) => m.tradeId))) {
+      if (!excluded.has(id)) seen.set(id, (seen.get(id) ?? 0) + 1);
+    }
+  }
   const consumed = new Set<string>();
   const units: GroupUnit<T>[] = [];
   for (const g of groups) {
     const kept = g.members.filter((m) => !excluded.has(m.tradeId));
-    // 同じ取引が先のまとまりに数えてある（2 つのまとまりにいる = 崩れた）なら、このまとまりは組まない
-    if (kept.some((m) => consumed.has(m.tradeId))) continue;
+    if (kept.some((m) => (seen.get(m.tradeId) ?? 0) > 1)) continue;
     const members: GroupMember[] = kept.map((m) => {
       const trade = byId.get(m.tradeId);
       return trade === undefined

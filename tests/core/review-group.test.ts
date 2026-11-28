@@ -114,15 +114,18 @@ describe('groupTrades（まとまりを 1 件に）', () => {
     expect(singles.map((t) => t.id)).toEqual(['f1']);
   });
 
-  it('同じ取引が 2 つのまとまりにいる → 後のまとまりは組まない（崩れた）', () => {
+  it('同じ取引が 2 つのまとまりにいる → どちらも組まない（並びに依らない）', () => {
     const c2 = hedge({ price: 38_400, exitPrice: 38_620 }, 'c2');
     const g2 = groupOf('g2', [H1_MAIN, c2]);
-    const { units, singles } = groupTrades(
-      [stored(H1_MAIN), stored(H1_HEDGE), stored(c2)],
+    const trades = [stored(H1_MAIN), stored(H1_HEDGE), stored(c2)];
+    for (const groups of [
       [H1, g2],
-    );
-    expect(units.map((u) => u.groupId)).toEqual(['g1']);
-    expect(singles.map((t) => t.id)).toEqual(['c2']);
+      [g2, H1],
+    ]) {
+      const { units, singles } = groupTrades(trades, groups);
+      expect(units).toEqual([]);
+      expect(singles.map((t) => t.id)).toEqual(['f1', 'c1', 'c2']);
+    }
   });
 
   it('判定の出ないまとまり（メンバーの入力の誤り）→ 判定なしの 1 件（決済の時刻 = 本玉の決済）', () => {

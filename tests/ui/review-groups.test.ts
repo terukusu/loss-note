@@ -6,7 +6,7 @@ import type { StoredTrade } from '../../core/record';
 import { reviewAfterWinStreak, reviewByEmotion, reviewByReason } from '../../core/review';
 import type { StoredPositionGroup } from '../../core/review-group';
 import { monthCard } from '../../ui/src/lib/home-view';
-import { insightItems } from '../../ui/src/lib/insight-view';
+import { insightItems, insightModel } from '../../ui/src/lib/insight-view';
 import { createReviewController } from '../../ui/src/lib/review-controller';
 import { parseTrail, reviewTradesModel } from '../../ui/src/lib/review-trades';
 import { reviewUnits } from '../../ui/src/lib/review-units';
@@ -243,6 +243,20 @@ describe('期間の取引（reviewTradesModel）', () => {
     expect(m.origin).toBe('f2');
   });
 
+  it('資金が未設定のまとまりの行のリスクの理由は単独の行と同じ文言', () => {
+    const f = main({ exitPrice: 37_400, capitalYen: null }, 'f2');
+    const m = reviewTradesModel([stored(f), stored(C2)], {
+      hidden: NONE,
+      includeImports: false,
+      range: WIDE,
+      filter: parseTrail('?tier=off'),
+      instruments: [],
+      groups: [groupOf('g2', [f, C2])],
+    });
+    expect(m.rows[0]?.riskText).toBe('—');
+    expect(m.rows[0]?.riskNote).toBe('資金を設定すると表示されます');
+  });
+
   it('KEEP-1: まとまりが無ければ行は今と同じ', () => {
     const opts = {
       hidden: NONE,
@@ -346,7 +360,17 @@ describe('性質', () => {
         main({ exitPrice: 1 }, 'zz1'),
         hedge({ price: 1, exitPrice: 1 }, 'zz2'),
       ]);
-      expect(reviewModel(trades, { ...opts, groups: [ghost] }).review).toEqual(now.review);
+      expect(reviewModel(trades, { ...opts, groups: [ghost] })).toEqual(now);
+      const iopts = { hidden, includeImports: false, range: WIDE, now: MON };
+      expect(insightModel(trades, { ...iopts, groups: [ghost] })).toEqual(
+        insightModel(trades, iopts),
+      );
+      for (const q of ['?tier=off', '?after=winStreak']) {
+        const topts = { ...iopts, filter: parseTrail(q), instruments: [] };
+        expect(reviewTradesModel(trades, { ...topts, groups: [ghost] })).toEqual(
+          reviewTradesModel(trades, topts),
+        );
+      }
     }
   });
 

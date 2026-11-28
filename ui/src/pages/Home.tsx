@@ -6,9 +6,11 @@
 // 読むのは決済の新しい順の先頭 10 件（直近の流れと直近の取引。#87）と、今月の範囲の取引（今月の規律。直近とは別に読む =
 // 失敗を巻き込まない。#88 KEEP-4）。Home・HomeView は hook を持たない（App のテストが 1 段だけ呼ぶ）。等倍の文字で窓に入らない
 // 高さでは 3 件目の行から CSS で隠し、文字の拡大では縦に伸びる（切らない。9.4）
+// 両建て（#268・6.5）: 直近の流れの 10 行に両建てのまとまりのメンバー（逆参照 positionGroupId）があるときだけ、その行の決済の時刻の
+// 範囲を範囲の入口で読み、まとまりと範囲の外のメンバーで 1 点にまとめる（無ければ要求を増やさない。読めなければ今の並び）
 import type { JSX } from 'preact';
 import { useContext, useEffect, useMemo, useState } from 'preact/hooks';
-import type { InstrumentRecord } from '../../../core/record';
+import type { InstrumentRecord, StoredTrade } from '../../../core/record';
 import { api, signOutActive } from '../auth/session';
 import { EmptyState } from '../components/EmptyState';
 import { DraftRow, HomeHead, HomeRecent, MonthCard } from '../components/HomeCards';
@@ -17,12 +19,13 @@ import { recordKey } from '../lib/drafts';
 import { DraftsKeptContext } from '../lib/drafts-context';
 import { HOME_RECENT, homeDate, type MonthSlot, monthCard } from '../lib/home-view';
 import { monthSelection, periodRange, reviewHref } from '../lib/period';
-import { createReviewController, type ReviewState } from '../lib/review-controller';
+import { createReviewController, type ExitRange, type ReviewState } from '../lib/review-controller';
+import { type GroupSource, positionGroupIdOf } from '../lib/review-units';
 import { reviewModelFor } from '../lib/review-view';
 import { NavigatorContext } from '../lib/router';
-import { streakModel } from '../lib/streak';
+import { STREAK_WINDOW, streakModel } from '../lib/streak';
 import { HOME_LIMIT } from '../lib/trade-pages';
-import { recentRows, visibleTrades } from '../lib/trade-view';
+import { recentRows, sortTrades, visibleTrades } from '../lib/trade-view';
 import type { TradesState } from '../lib/trades-controller';
 import { LoadState, useTrades } from './Trades';
 
@@ -90,9 +93,52 @@ function useMonth(instruments: readonly InstrumentRecord[], hidden: ReadonlySet<
   return { slot, now, href: reviewHref(sel) };
 }
 
+/** 範囲の入口の長さの上限（API の 367 日より 1 日短く。端の丸めの余裕） */
+const MAX_STREAK_SPAN_MS = 366 * 86_400_000;
+
+/**
+ * 直近の流れの 10 行にまとまりのメンバーがあれば、その行の決済の時刻の範囲（[最も古い決済, 最も新しい決済 + 1ms)。長さは 366 日まで）。
+ * 無ければ null（読まない）
+ */
+export function streakGroupRange(
+  trades: readonly StoredTrade[],
+  hidden: ReadonlySet<string>,
+): ExitRange | null {
+  const window = sortTrades(visibleTrades(trades, hidden)).slice(0, STREAK_WINDOW);
+  if (!window.some((t) => positionGroupIdOf(t) !== undefined)) return null;
+  const times = window.map((t) => t.record.exit.time);
+  const to = Math.max(...times) + 1;
+  return { from: Math.max(Math.min(...times), to - MAX_STREAK_SPAN_MS), to };
+}
+
+/** 直近の流れのまとまり（要るときだけ読む。読み終えるまで・失敗は undefined = 今の並び） */
+function useStreakGroups(state: TradesState, hidden: ReadonlySet<string>): GroupSource | undefined {
+  const range = state.phase === 'ready' ? streakGroupRange(state.trades, hidden) : null;
+  const from = range?.from ?? null;
+  const to = range?.to ?? null;
+  const controller = useMemo(() => createReviewController({ api }), []);
+  const [groups, setGroups] = useState<ReviewState>(controller.getState());
+  useEffect(() => {
+    const off = controller.subscribe(setGroups);
+    return () => {
+      off();
+      controller.dispose();
+    };
+  }, [controller]);
+  useEffect(() => {
+    void controller.load(from === null || to === null ? null : { from, to });
+  }, [controller, from, to]);
+  if (groups.phase !== 'ready' || from === null) return undefined;
+  return {
+    groups: groups.groups,
+    groupMembers: [...groups.trades, ...(groups.groupMembers ?? [])],
+  };
+}
+
 function HomeScreen({ empty }: { readonly empty: JSX.Element }) {
   const { state, controller, hidden } = useTrades({ pageSize: HOME_LIMIT });
   const month = useMonth(state.phase === 'ready' ? state.instruments : NO_INSTRUMENTS, hidden);
+  const streakGroups = useStreakGroups(state, hidden);
   const kept = useContext(DraftsKeptContext);
   return (
     <HomeView
@@ -104,6 +150,7 @@ function HomeScreen({ empty }: { readonly empty: JSX.Element }) {
       month={month.slot}
       monthHref={month.href}
       draft={kept.has(recordKey())}
+      {...(streakGroups === undefined ? {} : { streakGroups })}
       onReload={() => {
         void controller.load();
       }}
@@ -130,6 +177,8 @@ export interface HomeViewProps {
   readonly monthHref?: string;
   /** 記録する画面の書きかけを残している（「記録の書きかけがあります ›」） */
   readonly draft?: boolean;
+  /** 直近の流れのまとまり（#268。無ければまとまりを組まない） */
+  readonly streakGroups?: GroupSource;
 }
 
 /** ホームの 1 画面（hook を持たない）。取引が 0 件なら見出しの下に空の状態（［＋ 記録］ を指す一言。ボタンは足さない） */
@@ -157,7 +206,7 @@ export function HomeView(p: HomeViewProps) {
     );
   }
   const rows = recentRows(visible, state.instruments, HOME_RECENT, state.accounts);
-  const streak = streakModel(state.trades, p.hidden);
+  const streak = streakModel(state.trades, p.hidden, p.streakGroups);
   const href = p.monthHref ?? p.month?.card?.href ?? '/review';
   return (
     <div class="home">

@@ -269,6 +269,76 @@ export const REVIEW_S1 = [
   reviewTrade(5, 'rv-6', 99.6),
   reviewTrade(6, 'rv-7', 100.6),
 ];
+/**
+ * 両建てのまとまり（#268・設計書 6.5）の 2 件（架空の値）: 本玉 L（イン 100・LC 99.5）を 2 日前に建て、1 日前の夜に決済の代わり S
+ * （同じ量・LC なし）を 100.6 で建てて固定（+1.2R・計画どおりの勝ち）、at（既定は今日の 10:00）に両方を外した。固定は at の fixGap 前。偽の API は最上位の
+ * positionGroupId・groupRole（偽の API だけの印）からまとまりを組み、範囲の一覧に positionGroups・groupMembers を返す
+ */
+export function groupPair(prefix, at = reviewExit(0), fixGap = 12 * 3600_000) {
+  const fix = at - fixGap;
+  const gid = `${prefix}-g`;
+  const mainT = exampleTrade(
+    `${prefix}-m`,
+    1700000003001,
+    {
+      entries: [{ time: at - 2 * DAY_MS, price: 100, quantity: 10000 }],
+      exit: {
+        time: at,
+        price: 100.9,
+        orderType: 'unknown',
+        reason: 'other',
+        gapSlip: 'unanswered',
+      },
+      statementPnlYen: 9000,
+    },
+    { positionGroupId: gid, groupRole: 'main' },
+  );
+  const hedgeT = exampleTrade(
+    `${prefix}-h`,
+    1700000003002,
+    {
+      side: 'S',
+      lc: undefined,
+      lcDecidedBeforeEntry: false,
+      entries: [{ time: fix, price: 100.6, quantity: 10000 }],
+      exit: {
+        time: at + 5 * 60_000,
+        price: 100.9,
+        orderType: 'unknown',
+        reason: 'other',
+        gapSlip: 'unanswered',
+      },
+      statementPnlYen: -3000,
+    },
+    { positionGroupId: gid, groupRole: 'hedge' },
+  );
+  return [mainT, hedgeT];
+}
+/** 振り返りの S1 + 両建てのまとまり 1 件（#268。8 件 = S1 の 7 件 + まとまり 1 件。LC が無いのは rv-5 の 1 件だけ） */
+export const REVIEW_GROUP = [...REVIEW_S1, ...groupPair('rvg', reviewExit(0) - 3 * 3600_000)];
+
+/** 偽の API: 取引の最上位の印からまとまり（#268。4.8 の形。時刻の写しは取引から） */
+export function groupsOf(trades) {
+  const by = new Map();
+  for (const t of trades) {
+    if (!t.positionGroupId) continue;
+    const list = by.get(t.positionGroupId) ?? [];
+    list.push({
+      tradeId: t.id,
+      role: t.groupRole ?? 'main',
+      entryTime: t.record.entries[0]?.time ?? t.record.exit.time,
+      exitTime: t.record.exit.time,
+    });
+    by.set(t.positionGroupId, list);
+  }
+  return [...by].map(([id, members]) => ({
+    id,
+    schemaVersion: 1,
+    members,
+    createdAt: 1700000003000,
+    updatedAt: 1700000003000,
+  }));
+}
 /** S4 の取り込んだ取引 2 件（A −1.0R・B −1.3R） */
 export const REVIEW_IMPORTS = [
   reviewTrade(1, 'rv-i1', 99.5, {}, 'import'),
@@ -1065,10 +1135,22 @@ export async function installFakeApi(context, opts = {}) {
         const items = api.trades
           .filter((t) => t.record.exit.time >= from && t.record.exit.time < to)
           .sort(tradeSort);
+        // 両建て（#266・#268）: 時刻の写しの幅が範囲と重なるまとまりと、範囲の外のメンバー（本物の routes.py と同じ）
+        const groups = groupsOf(api.trades).filter((g) => {
+          const lo = Math.min(...g.members.map((m) => m.entryTime));
+          const hi = Math.max(...g.members.map((m) => m.exitTime));
+          return lo < to && hi >= from;
+        });
+        const inRange = new Set(items.map((t) => t.id));
+        const outside = new Set(
+          groups.flatMap((g) => g.members.map((m) => m.tradeId)).filter((id) => !inRange.has(id)),
+        );
         try {
           return await json(route, 200, {
             items: items.slice(0, 2000),
             truncated: items.length > 2000,
+            positionGroups: groups,
+            groupMembers: api.trades.filter((t) => outside.has(t.id)).sort(tradeSort),
           });
         } catch {
           return undefined; // 待たせている間に画面を離れた

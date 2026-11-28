@@ -2,6 +2,7 @@
 import {
   REVIEW_BIG,
   REVIEW_CLEAN,
+  REVIEW_GROUP,
   REVIEW_IMPORTS,
   REVIEW_INSIGHT,
   REVIEW_INSIGHT_LONG,
@@ -52,6 +53,8 @@ export function reviewStates(recApi) {
     // レビュー後に足した状態（#88 Phase 4b）: 差が無い・大きな負け・取引の多い期間（合成 120 件）・読み込み中・
     // 「i」を開いた・キーボードのフォーカス
     ['/review?period=7d', REVIEW_NOGAP, '.curve', 'review-nogap'],
+    // 両建てのまとまり（#268・6.5）: S1 の 7 件 + まとまり 1 件 = 8 件（決済の代わりを LC なしの C に数えない）
+    ['/review?period=7d', REVIEW_GROUP, '.curve', 'review-group'],
     ['/review?period=7d', REVIEW_BIG, '.curve', 'review-bigloss'],
     ['/review?period=3m', REVIEW_MANY, '.curve', 'review-many'],
     ['/review?period=7d', REVIEW_S1, '.review .loading', 'review-loading', null, 200, 4000],

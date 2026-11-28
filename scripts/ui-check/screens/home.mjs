@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { opts, settle, setupContext, waitReady } from '../base.mjs';
-import { homeMonthTrades, installFakeApi, TX_H1 } from '../fixtures.mjs';
+import { groupPair, homeMonthTrades, installFakeApi, TX_H1 } from '../fixtures.mjs';
 import {
   accountsGroup,
   pagesGroup,
@@ -12,7 +12,7 @@ import { toReview } from '../helpers.mjs';
 
 /**
  * 画面の検査の単位「ホーム」: ホームの画面（口座 2 つ・直近の流れ ST1・今月の取引ありの文字の拡大）と、
- * ホームの行 T-H1・1 画面 HM1・押せるカード HM2
+ * ホームの行 T-H1・1 画面 HM1・押せるカード HM2・両建てのまとまりを 1 件 / 1 点に数える HG1（#268）
  */
 export const id = 'home';
 export const title = 'ホーム';
@@ -62,6 +62,39 @@ export async function flows(kit) {
       await c.close();
     }
     return 'ホームに新しい順の 3 件（詰めた行）、2 件目の危ない勝ちは B と同じ崩れの段。[記録する] は下のタブだけ・「すべての取引」は押せる行';
+  });
+
+  // HG1（#268 AC-7・AC-9。設計書 6.5）: 今月の 7 件 + 両建てのまとまりのメンバー 2 行（固定も決済も今日）のホームは、
+  // 直近の流れが点 8 個（まとまりを 1 点）・今月の規律が 8 件。横スクロール 0
+  await check('HG1', async () => {
+    const t = new Date();
+    const start = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+    const trades = [...homeMonthTrades(), ...groupPair('hmg', start + 20 * 60_000, 10 * 60_000)];
+    const { c, p, errors } = await recordContext({ trades });
+    try {
+      await p.setViewportSize({ width: 360, height: 780 });
+      await p.goto(`${base}/`);
+      await waitReady(p, 'ホーム');
+      await p.locator('.streak__item').first().waitFor({ timeout: 15000 });
+      await p.locator('.homemonth').first().waitFor({ timeout: 15000 });
+      // まとまりを読み終えて 1 点になるまで待つ（直近の流れはまとまりの読みの後に組み直す）
+      await p.waitForFunction(() => document.querySelectorAll('.streak__item').length === 8, null, {
+        timeout: 15000,
+      });
+      await p.waitForFunction(
+        () => (document.querySelector('.homemonth')?.textContent ?? '').includes('8 件'),
+        null,
+        { timeout: 15000 },
+      );
+      const over = await p.evaluate(
+        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      );
+      expectEq(over, 0, '横スクロール');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '直近の流れは点 8 個（まとまりを 1 点）・今月の規律は 8 件・横スクロール 0';
   });
 
   // HM1（#128 AC-1・AC-2・AC-3・AC-5。ui-guidelines 9.4・9.10「1 画面に収まる」）: 等倍の文字のホームの縦のスクロール量

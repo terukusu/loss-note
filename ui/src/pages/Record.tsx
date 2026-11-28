@@ -35,7 +35,7 @@ import { EmotionSheetBody, type EmotionShort, emotionMoreStartId } from '../comp
 import { Icon } from '../components/Icon';
 import { InfoTip } from '../components/InfoTip';
 import { LegEditor } from '../components/LegEditor';
-import { LEG_LIST_ID, LEG_MERGE_ID } from '../components/LegList';
+import { LEG_ADD_FROM_ID, LEG_LIST_ID, LEG_MERGE_ID } from '../components/LegList';
 import { CandleArt, StatementArt } from '../components/RecordArt';
 import {
   MiniChart,
@@ -94,7 +94,14 @@ import {
 import { loadEmotionCounts } from '../lib/emotion-history';
 import { emotionSheetTitle, type SavedVerdict, savedCandidates } from '../lib/emotion-tags';
 import { formatPrice, formatQuantity } from '../lib/format';
-import { editLeg, type LegUndo, legRemovedText, nextLeg, undoLegRemove } from '../lib/legs-form';
+import {
+  editLeg,
+  fromMainStatement,
+  type LegUndo,
+  legRemovedText,
+  nextLeg,
+  undoLegRemove,
+} from '../lib/legs-form';
 import { reasonText } from '../lib/reasons';
 import {
   createRecordController,
@@ -134,6 +141,7 @@ import {
 import { createRequest } from '../lib/request';
 import { sheetDismiss } from '../lib/sheet';
 import { accountHintOf, learnedText, pnlFillOf } from '../lib/statement-account';
+import { addLegsBlock } from '../lib/statement-add-legs';
 import {
   imageFileFromClipboard,
   MARK_LABEL,
@@ -569,6 +577,8 @@ export function RecordScreen() {
     if (next === null) {
       setLegUndo(null);
       setLegNotice(null);
+      // ［明細から追加］ の知らせと ［元に戻す］ もシートを閉じたら消す（読み取り中は続ける。#260）
+      controller.dismissLegAdd();
       // 保存の後のシートを閉じた: 判定の枠の見出しへ（#156。保存の後の画面には LC が無い）
       if (controller.getState().phase === 'saved') {
         setTimeout(() => document.getElementById(VERDICT_TITLE_ID)?.focus(), 0);
@@ -637,6 +647,20 @@ export function RecordScreen() {
         setLegUndo(null);
         // ボタンは消えるので、戻した足の行へ
         focusSoon(`${LEG_LIST_ID}-${legUndo.index}`);
+      }}
+      onAddLegsFromStatement={(f) => {
+        setLegUndo(null);
+        setLegNotice(null);
+        void controller.addLegsFromStatement(f);
+      }}
+      onCancelLegRead={() => {
+        controller.cancelLegRead();
+        // ボタンは消えるので ［明細から追加］ へ
+        focusSoon(LEG_ADD_FROM_ID);
+      }}
+      onUndoAddLegs={() => {
+        controller.undoAddLegs();
+        focusSoon(LEG_ADD_FROM_ID);
       }}
       onManual={() => {
         onSheet({ kind: 'fields', step: 'main', focus: 'instrumentName' });
@@ -777,6 +801,12 @@ export interface RecordViewProps {
   readonly onLegRemoved?: (u: LegUndo) => void;
   /** ［元に戻す］（元の位置・ID・時刻ごと戻す） */
   readonly onLegUndo?: () => void;
+  /** ［明細から追加］ で画像を選んだ（#260。省けばボタンを出さない） */
+  readonly onAddLegsFromStatement?: (file: File) => void;
+  /** 足の読み取りの ［キャンセル］ */
+  readonly onCancelLegRead?: () => void;
+  /** 追加した直後の ［元に戻す］ */
+  readonly onUndoAddLegs?: () => void;
   /** ［明細なしで手入力］・［手入力で続ける］ */
   readonly onManual?: () => void;
   /** 段を替える（［振り返りへ進む］・［スクショを選ぶ］。2026-11-21） */
@@ -1143,6 +1173,23 @@ function RecordForm(p: RecordViewProps) {
             nextPosition,
             legNotice: p.legNotice ?? null,
             ...(p.onMergeNext ? { onMergeNext: p.onMergeNext } : {}),
+            ...(p.onAddLegsFromStatement
+              ? {
+                  fromStatement: {
+                    blocked: addLegsBlock({
+                      statementReading: st?.phase === 'preparing' || st?.phase === 'reading',
+                      legReading: state.legAdd?.phase === 'reading',
+                      legs: d.legs.length,
+                    }),
+                    reading: state.legAdd?.phase === 'reading',
+                    notice: state.legAdd?.notice ?? null,
+                    undo: state.legAdd?.undo === true,
+                    onPick: p.onAddLegsFromStatement,
+                    onCancel: () => p.onCancelLegRead?.(),
+                    onUndo: () => p.onUndoAddLegs?.(),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
@@ -1285,7 +1332,10 @@ function RecordForm(p: RecordViewProps) {
                 onChange={(leg) =>
                   setLegs(d.legs.map((x, i) => (i === legIndex ? editLeg(x, leg) : x)))
                 }
-                {...(p.onSplitLeg && d.legs[legIndex]?.read && unitLegCount >= 2
+                {...(p.onSplitLeg &&
+                d.legs[legIndex] !== undefined &&
+                fromMainStatement(d.legs[legIndex]) &&
+                unitLegCount >= 2
                   ? { onSplit: () => p.onSplitLeg?.(legIndex) }
                   : {})}
                 onRemove={() => {

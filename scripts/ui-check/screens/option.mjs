@@ -16,12 +16,13 @@ import {
 } from '../helpers.mjs';
 
 /**
- * 画面の検査の単位「オプションのポジション」: 足の記録・詳細・編集 OPT117 と、明細のオプションの行 OPT118・OPT118N
+ * 画面の検査の単位「オプションのポジション」: 足の記録・詳細・編集 OPT117 と、明細のオプションの行 OPT118・OPT118N、
+ * 2 枚目の明細から足を追加する OPT260
  */
 export const id = 'option';
 export const title = 'オプションのポジション';
 
-/** 手順（OPT117・OPT118・OPT118N） */
+/** 手順（OPT117・OPT118・OPT118N・OPT260） */
 export async function flows(kit) {
   const { base, check, expectEq, recordContext } = kit;
   // OPT117（#117）: オプションのポジションの足。架空の銘柄（商品の形 = オプション）と、合成の fixture（option-legs.json の P1）の
@@ -465,5 +466,205 @@ export async function flows(kit) {
       await c.close();
     }
     return 'オプションの銘柄が無い明細のポジション: 要約の「未入力 乗数」→ 乗数の欄へフォーカス・例「1000」・「価格の通貨 JPY」の 1 行が全幅、シートが窓の中・横 0';
+  });
+
+  // OPT260（#260・C73）: 2 枚目の明細から足を追加する。幅 360 で、1 枚目の明細（架空のオプションの行 2 本）→ 取引の欄のシートの
+  // 足の一覧 → ［明細から追加］ → 2 枚目（1 本）を見る。状態: 押せる・読み取り中（押せない・［キャンセル］・［記録する］ は押せない）・
+  // 追加した後の知らせと ［元に戻す］・同じ明細をもう一度（追加しない知らせ）・10 本を超える（追加しない理由）。どれも横 0・
+  // シートが窓の中。--shots なら 3 枚（読み取り中・追加した後・10 本を超えた。ダーク）
+  await check('OPT260', async () => {
+    const { c, p, fake, errors } = await recordContext();
+    try {
+      await setupContext(c, 'dark');
+      await p.setViewportSize({ width: 360, height: 780 });
+      fake.instruments.push({
+        id: 'inst-xyzop',
+        name: '架空指数XYZOP',
+        underlyingKind: 'index',
+        productForm: 'option',
+        priceCurrency: 'JPY',
+        multiplier: 1000,
+        quantityStep: 1,
+        createdAt: 1700000000000,
+        updatedAt: 1700000000000,
+      });
+      const opt = (o) => ({
+        symbol: `架空指数XYZOP ${o.pc === 'put' ? 'P' : 'C'} ${o.strike}`,
+        side: o.side === 'sell' ? 'S' : 'L',
+        entryPrice: o.entry,
+        exitPrice: o.exit,
+        quantity: 1,
+        pnl: o.pnl,
+        pnlCurrency: 'JPY',
+        entryTime: o.opened,
+        exitTime: o.closed,
+        timeZoneNeedsCheck: false,
+        fees: [500],
+        feesTotal: 500,
+        exitOrderType: o.order ?? 'unknown',
+        option: {
+          underlying: '架空指数XYZOP',
+          expiry: '2027-01',
+          expiryYearInferred: false,
+          putCall: o.pc,
+          strike: o.strike,
+          side: o.side,
+          position: 0,
+        },
+      });
+      const first = [
+        opt({
+          pc: 'put',
+          strike: 36000,
+          side: 'sell',
+          entry: 300,
+          exit: 120,
+          pnl: 179500,
+          opened: jstTime(2026, 12, 1, 9, 0),
+          closed: jstTime(2026, 12, 9, 10, 0),
+          order: 'stop',
+        }),
+        opt({
+          pc: 'put',
+          strike: 35000,
+          side: 'buy',
+          entry: 150,
+          exit: 60,
+          pnl: -90500,
+          opened: jstTime(2026, 12, 1, 9, 1),
+          closed: jstTime(2026, 12, 9, 10, 0),
+          order: 'stop',
+        }),
+      ];
+      const second = [
+        opt({
+          pc: 'call',
+          strike: 40000,
+          side: 'sell',
+          entry: 200,
+          exit: 260,
+          pnl: -60500,
+          opened: jstTime(2026, 12, 2, 9, 30),
+          closed: jstTime(2026, 12, 10, 14, 0),
+          order: 'market',
+        }),
+      ];
+      fake.read = { status: 200, holdMs: 0, rows: first };
+      const shot = async (slug) => {
+        if (!opts.shots) return;
+        await p.mouse.move(0, 0);
+        await p.screenshot({ path: join(opts.shots, `360x780-dark-${slug}.png`) });
+      };
+      const hscroll = () =>
+        p.evaluate(
+          () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        );
+      const items = () => p.locator('#record-legs .legs__item').count();
+      const from = p.locator('#record-legs-from');
+      const status = p.locator('#record-legs .legs__fromstatus');
+      const bytes = Buffer.from(await makeImage(p, STATEMENT_SPEC, 'bytes'));
+      const pick = () =>
+        p
+          .locator('#record-legs-from-file')
+          .setInputFiles({ name: 'statement-2.png', mimeType: 'image/png', buffer: bytes });
+      await openRecord(p, base);
+      await makeImage(p, STATEMENT_SPEC, 'paste');
+      await p.locator('#record-lc').waitFor({ state: 'visible', timeout: 15000 });
+      await p.locator(READ_DONE).first().waitFor({ timeout: 10000 });
+      await openFields(p);
+      await from.scrollIntoViewIfNeeded();
+      // 押せる・［＋ 足］ と同じ行か折り返し（横 0）
+      expectEq(await from.isDisabled(), false, '［明細から追加］ が押せる');
+      const sameRow = await p.evaluate(() => {
+        const a = document.getElementById('record-legs-add')?.getBoundingClientRect();
+        const b = document.getElementById('record-legs-from')?.getBoundingClientRect();
+        return a && b ? Math.abs(a.top - b.top) < 4 || b.top >= a.bottom : false;
+      });
+      expectEq(sameRow, true, '［＋ 足］ と同じ行か折り返し');
+      expectEq(await hscroll(), 0, '押せる状態の横のスクロール');
+      // 読み取り中
+      fake.read = { status: 200, holdMs: 1500, rows: second };
+      const sent = fake.reads.length;
+      await pick();
+      await status.getByText('明細の足を読み取っています…').waitFor({ timeout: 5000 });
+      expectEq(await from.isDisabled(), true, '読み取り中は押せない');
+      await p.locator('#record-legs-from-cancel').waitFor({ state: 'visible', timeout: 5000 });
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), '読み取り中のシート');
+      expectEq(await hscroll(), 0, '読み取り中の横のスクロール');
+      await shot('opt260-reading');
+      await closeSheets(p);
+      expectEq(await p.locator('#record-submit').isDisabled(), true, '読み取り中の ［記録する］');
+      await openFields(p);
+      // 追加した後: 3 本・知らせ・［元に戻す］
+      await expectPollAsync(async () => (await items()) === 3, '追加した後の足');
+      expectEq(fake.reads.length, sent + 1, 'AI への送信 1 回');
+      await status.getByText('明細から足を 1 本追加しました').waitFor({ timeout: 5000 });
+      await p.locator('#record-legs-from-undo').scrollIntoViewIfNeeded();
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), '追加した後のシート');
+      expectEq(await hscroll(), 0, '追加した後の横のスクロール');
+      await shot('opt260-added');
+      // ［元に戻す］ → 2 本。もう一度追加して、同じ明細をもう一度 → 追加しない知らせ
+      await p.locator('#record-legs-from-undo').click();
+      await expectPollAsync(async () => (await items()) === 2, '戻した後の足');
+      fake.read = { status: 200, holdMs: 0, rows: second };
+      await pick();
+      await expectPollAsync(async () => (await items()) === 3, 'もう一度追加した足');
+      await pick();
+      await status.getByText('この明細の足はすべて入っています').waitFor({ timeout: 5000 });
+      expectEq(await items(), 3, '同じ明細では足は増えない');
+      expectEq(await hscroll(), 0, '追加しない知らせの横のスクロール');
+      // 10 本を超える: ［＋ 足］ で 9 本にしてから 2 本読める明細
+      const titleOf = async () =>
+        ((await p.locator('#record-fields-sheet[open] .sheet__title').textContent()) ?? '').trim();
+      for (let n = 3; n < 9; n++) {
+        await p.locator('#record-legs-add').click();
+        await expectPollAsync(async () => (await titleOf()) === `足 ${n + 1}`, `足 ${n + 1} の段`);
+        await p.keyboard.press('Escape');
+        await expectPollAsync(async () => (await titleOf()) === '取引の欄', '段 1 へ戻る');
+      }
+      expectEq(await items(), 9, '9 本');
+      fake.read = {
+        status: 200,
+        holdMs: 0,
+        rows: [
+          opt({
+            pc: 'call',
+            strike: 41000,
+            side: 'sell',
+            entry: 50,
+            exit: 20,
+            pnl: 29500,
+            opened: jstTime(2026, 12, 3, 9, 0),
+            closed: jstTime(2026, 12, 11, 9, 0),
+          }),
+          opt({
+            pc: 'call',
+            strike: 42000,
+            side: 'buy',
+            entry: 30,
+            exit: 10,
+            pnl: -20500,
+            opened: jstTime(2026, 12, 3, 9, 1),
+            closed: jstTime(2026, 12, 11, 9, 1),
+          }),
+        ],
+      };
+      await pick();
+      await status
+        .getByText('足は 10 本までです（今 9 本 · この明細から 2 本）')
+        .waitFor({ timeout: 5000 });
+      expectEq(await items(), 9, '10 本を超えるなら追加しない');
+      await status.scrollIntoViewIfNeeded();
+      await settleSheet(p);
+      expectSheetInWindow(await sheetBox(p, '#record-fields-sheet[open]'), '10 本を超えたシート');
+      expectEq(await hscroll(), 0, '10 本を超えた横のスクロール');
+      await shot('opt260-too-many');
+      expectEq(errors.length, 0, 'ページのエラー');
+    } finally {
+      await c.close();
+    }
+    return '幅 360: ［明細から追加］ が ［＋ 足］ と同じ行か折り返し・読み取り中は押せず ［キャンセル］・［記録する］ も押せない、追加した後は 3 本・送信 1 回・知らせと ［元に戻す］、戻して追加し直し、同じ明細は追加しない知らせ、9 本で 2 本の明細は追加しない理由。どれも横 0・シートが窓の中';
   });
 }

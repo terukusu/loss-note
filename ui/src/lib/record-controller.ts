@@ -85,6 +85,7 @@ import { floorToMinute, toLocalInput } from './datetime';
 import { formatPlain } from './format';
 import { nameKey as nameKeyOf } from './instrument-name';
 import { resolveInstrument as resolveInstrumentId } from './instrument-resolve';
+import { fromMainStatement, MAX_LEGS } from './legs-form';
 import {
   applyDraft,
   applyFxRule,
@@ -119,6 +120,13 @@ import {
   type StatementProfile,
   suggestedAccount,
 } from './statement-account';
+import {
+  ADD_LEGS_MSG,
+  failedText,
+  POINT_FIELDS,
+  planAddLegs,
+  pointAfterAdd,
+} from './statement-add-legs';
 import {
   type FieldMark,
   type Filled,
@@ -413,6 +421,20 @@ export interface RecordState {
   readonly bulkSlots?: readonly AnySlot[];
   /** まとめて選んだ画像のうち、枠が足りずに入れなかった枚数（2 段目の 1 行。#232。0 = 出さない） */
   readonly bulkDropped?: number;
+  /**
+   * ［明細から足す］ の状態（#260・C73。取引の欄のシートの足の一覧の中の 1 行）。読み取り中・結果の知らせ・［元に戻す］ を
+   * 押せるか。次の足の操作・シートを閉じる・記録する・次の行で消す
+   */
+  readonly legAdd?: LegAddState;
+}
+
+/** ［明細から足す］ の状態（#260） */
+export interface LegAddState {
+  readonly phase: 'reading' | 'done' | 'failed';
+  /** 結果の 1 行（読み取り中は null） */
+  readonly notice: string | null;
+  /** ［元に戻す］ が押せる（足した直後だけ） */
+  readonly undo: boolean;
 }
 
 export interface RecordController {
@@ -457,6 +479,17 @@ export interface RecordController {
   splitLeg(legIndex: number): void;
   /** ［このポジションに入れる］: 次の同じ原資産のポジションの足を今のポジションに入れる（#118・7.6） */
   mergeNextPosition(): void;
+  /**
+   * ［明細から足す］（#260・C73）: 明細の画像を 1 枚読み（1 枚目と同じ入口・上限）、今のポジションの原資産のオプションの行を
+   * 今の足の後ろに足す。今の足・LC・ほかの欄・口座・明細の特徴の覚えは変えない
+   */
+  addLegsFromStatement(file: Blob): Promise<void>;
+  /** 足の読み取りをやめる（足は変えない） */
+  cancelLegRead(): void;
+  /** 足した直後の ［元に戻す］: 足す前の足・時刻・注文の種類・決済の理由に戻す（AI へ送らない） */
+  undoAddLegs(): void;
+  /** 足の一覧の知らせと ［元に戻す］ を消す（シートを閉じた。読み取り中は続ける） */
+  dismissLegAdd(): void;
   /** ［明細なしで手入力］: 明細の場所を要約の状態にする（取引の欄のシートを開くのは画面。#130） */
   startManual(): void;
   /** 段を替える（2 段目の上の帯の ［スクショ］ = input、1 段目の ［振り返りへ進む］ = review。値はそのまま） */
@@ -632,6 +665,20 @@ export function createRecordController(deps: {
    * 同じ枠を持つ
    */
   let bulk: { readonly statement: Blob; readonly slots: Map<AnySlot, Blob> } | null = null;
+  /** ［明細から足す］ の読み取りの世代（#260。新しい読み取り・やめた・1 枚目の明細・次の行で進め、古い応答を捨てる） */
+  let legGen = 0;
+  let legAbort: AbortController | null = null;
+  /** 今のポジションに足した明細の数（足した足の LegRead.sheet の通し番号。次の行・空の下書きで 0） */
+  let legSheets = 0;
+  /** 足した直後の ［元に戻す］ の戻り先（足す前と足した直後の足・時刻・注文の種類・決済の理由と印） */
+  let legUndo: {
+    readonly before: Partial<Draft>;
+    readonly after: Partial<Draft>;
+    readonly marksBefore: Marks | null;
+    readonly marksAfter: Marks | null;
+  } | null = null;
+  /** 明細が無い間に本人が触った欄（#260 の R6「触っていなければ」。明細がある間は touched が持つ） */
+  let manualTouched = new Set<DraftField>();
 
   const set = (patch: Partial<Omit<RecordState, 'read'>>, clearSaved = false) => {
     const merged = { ...state, ...patch };
@@ -648,8 +695,13 @@ export function createRecordController(deps: {
         entry: base.charts?.entry?.phase === 'ready',
         exit: base.charts?.exit?.phase === 'ready',
       },
-      // 損益の欄を本人が打った・直したら、手で追加した足の損益を加えない（#118 のレビュー 3）
-      ...(base.statement ? { statementPnl: base.statement.marks.pnlYen === 'read' } : {}),
+      // 損益の欄を本人が打った・直したら、手で追加した足・足した明細の足の損益を加えない（#118 のレビュー 3・#260）。
+      // 明細が無い（手入力）なら欄が空のときだけ加える
+      statementPnl: base.statement
+        ? base.statement.marks.pnlYen === 'read'
+        : base.draft.pnlYen.trim() === '',
+      // 手数料の欄を本人が打った・直したら、足した明細の足の手数料を加えない（#260）
+      statementFee: base.draft.feeYen.trim() === '' || base.statement?.marks.feeYen === 'read',
       // 明細の損益の通貨（その場で足すオプションの銘柄の価格の通貨。#118 の見直し 2）
       ...(() => {
         const st = base.statement;
@@ -680,6 +732,10 @@ export function createRecordController(deps: {
       });
       // 銘柄がオプションの形でないポジションは保存しない（#118）
       read = gatePosition(read, unitRow0);
+    }
+    // 明細の足の読み取り中は保存しない（足りない足のまま保存しない。#260 の R1）
+    if (base.legAdd?.phase === 'reading') {
+      read = { ...read, canSave: false, notice: read.notice ?? ADD_LEGS_MSG.reading };
     }
     // チャートの描き直し中は保存しない（送るものが決まっていない）
     if (Object.values(base.charts ?? {}).some((c) => c?.phase === 'preparing')) {
@@ -718,7 +774,8 @@ export function createRecordController(deps: {
     ...(deps.prepare ? { prepare: deps.prepare } : {}),
     timeframeOf: (slot) => state.draft[CHART_TIMEFRAME_FIELD[slot]],
     // まとめて選んだチャートの描き直しが残っている間も待つ（全部そろってから枠の順に送る。#232）
-    othersBusy: () => statementBusy() || bulkPreparing(),
+    // 明細の足の読み取り（#260）の間も待つ（AI の読み取りは 1 つずつ）
+    othersBusy: () => statementBusy() || bulkPreparing() || state.legAdd?.phase === 'reading',
     commit: (c: ChartSlotsChange) => {
       let draft = state.draft;
       for (const [slot, tf] of Object.entries(c.timeframes ?? {})) {
@@ -804,6 +861,9 @@ export function createRecordController(deps: {
       }
       const accounts = sortAccounts(a.items);
       defaults = defaultsFrom(t.items, i.items, now(), accounts);
+      endLegAdd();
+      legSheets = 0;
+      manualTouched = new Set();
       const { addAccount: _closed, ...rest } = state;
       state = rest;
       set({
@@ -918,6 +978,35 @@ export function createRecordController(deps: {
     dropSnap(snap);
     if (state.statementRemoved) state = { ...state, statementRemoved: false };
   };
+
+  /**
+   * ［明細から足す］ を終える（#260）: 読み取りを止め、知らせと ［元に戻す］ を消す（知らせは次の set で出す）。1 枚目の明細を
+   * 選ぶ・削除する・次の行・空の下書き・記録する・離れるで呼ぶ
+   */
+  const endLegAdd = () => {
+    const wasReading = state.legAdd?.phase === 'reading';
+    legGen++;
+    legAbort?.abort();
+    legAbort = null;
+    legUndo = null;
+    if (state.legAdd) {
+      const { legAdd: _gone, ...rest } = state;
+      state = rest;
+    }
+    // 足の読み取りを待っていたチャートの読み取りを送り出す（今の操作が終わった後に）
+    if (wasReading) queueMicrotask(pump);
+  };
+  /** 足の一覧の知らせと ［元に戻す］ だけを消す（次の足の操作・シートを閉じた。読み取り中は続ける） */
+  const dropLegNotice = () => {
+    legUndo = null;
+    if (state.legAdd && state.legAdd.phase !== 'reading') {
+      const { legAdd: _gone, ...rest } = state;
+      state = rest;
+    }
+  };
+  /** R6 の「本人が触った欄」（明細がある間は touched、無い間は明細の前後に触った欄も） */
+  const touchedNow = (): ReadonlySet<DraftField> =>
+    state.statement ? touched : new Set([...touched, ...manualTouched]);
 
   /**
    * 写しの明細の状態に戻す（#184 R4・R6）: 明細から来た値・印・画像・行・明細ごとの記憶を戻し、本人の計画の欄は今のまま。
@@ -1093,6 +1182,9 @@ export function createRecordController(deps: {
     const row = st.rows[index];
     if (!row) return;
     touched = new Set();
+    // 足した明細の足は今の件のもの（次の件へ持ち越さない。#260）
+    endLegAdd();
+    legSheets = 0;
     clearCharts();
     // 次の行は前の行の口座を引き継ぐ（#47 R4・B6）。外貨の口座では損益・手数料を入れない（PR-2・R7）
     const filled = withZone(
@@ -1133,6 +1225,7 @@ export function createRecordController(deps: {
     const rows = unitRows(raw, units);
     const row = rows[st.index];
     if (!row) return;
+    dropLegNotice();
     // 前のまとまりの明細の行から入れた既定（逆指値 → 決済の理由）と読み取りの欄の印は、新しいまとまりの行で
     // 決め直す（証拠の行を分けた後に「明細から」を残さない。本人が触った欄は残す。レビュー B2）
     let base = state.draft;
@@ -1282,6 +1375,9 @@ export function createRecordController(deps: {
     }
     // 次の明細を選んだら削除の ［元に戻す］ は終わる（#184 R4）
     dropUndo();
+    // 足の読み取り・足した直後の ［元に戻す］ も終わる（足した明細の足は残す。#260）
+    endLegAdd();
+    manualTouched = new Set();
     // 読めた明細があれば、明細から来たもの（読み取りの欄 9 つ。読んだ後に本人が直した値も・明細の足・「明細から」の既定・
     // 自動で選んだ口座）を取り除いてから読む（#184 R5・Q1 = 持ち越さない）。前の明細は読み直しの戻り先に持つ（失敗・キャンセルで
     // 戻す。R6）。読み取りの途中で選び直したときは、前の戻り先（最後に読めた明細）のまま
@@ -1450,6 +1546,159 @@ export function createRecordController(deps: {
     }
   };
 
+  /** 足の読み取りの失敗・やめた: 足も下書きも変えず、決まった文言の 1 文目 +「足は変わっていません。」（R4） */
+  const legFailed = (gen: number, notice: string) => {
+    if (gen !== legGen) return;
+    set({ legAdd: { phase: 'failed', notice, undo: false } });
+  };
+
+  const addLegsFromStatement = async (file: Blob) => {
+    if (!deps.prepare || state.phase !== 'editing' || !state.read.option) return;
+    if (statementBusy() || state.legAdd?.phase === 'reading') return;
+    if (state.draft.legs.length >= MAX_LEGS) return;
+    endLegAdd();
+    const gen = legGen;
+    const ctl = new AbortController();
+    legAbort = ctl;
+    set({ legAdd: { phase: 'reading', notice: null, undo: false }, error: null });
+    try {
+      let prepared: PrepareResult;
+      try {
+        prepared = await deps.prepare(file);
+      } catch {
+        prepared = { ok: false, error: 'not_image' };
+      }
+      // プレビューは持たない（足の一覧に画像は出さない）
+      if (prepared.ok) prepared.image.preview.close();
+      if (gen !== legGen) return;
+      if (!prepared.ok) {
+        legFailed(
+          gen,
+          failedText(prepared.error === 'not_image' ? READ_MSG.notImage : READ_MSG.rejected),
+        );
+        return;
+      }
+      const { bytes, contentType } = prepared.image;
+      // 送っているチャートの読み取りがあれば終わるのを待つ（AI の読み取りは 1 つずつ）
+      await chartIdle();
+      if (gen !== legGen) return;
+      const res = await request(
+        READ_PATH,
+        { method: 'POST', headers: { 'Content-Type': contentType }, body: bytes as BodyInit },
+        { ms: readTimeoutMs, ctl },
+      );
+      if (sentToAi(res.status)) warm(true);
+      if (gen !== legGen) return;
+      if (res.status !== 200) {
+        const kind = readFailureOf(res.status);
+        if (kind === 'auth') throw new Failed('auth');
+        legFailed(gen, failedText(READ_MSG[kind]));
+        return;
+      }
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
+      if (gen !== legGen) return;
+      // 応答の明細の特徴（profile）は使わない: 口座を選び直さず、覚えない（R4・KEEP-2）
+      const result = parseReadResponse(json);
+      if (result === null) {
+        legFailed(gen, failedText(READ_MSG.failed));
+        return;
+      }
+      if (result.kind !== 'statement' || result.rows.length === 0) {
+        legFailed(gen, failedText(READ_MSG.notStatement));
+        return;
+      }
+      if (state.phase !== 'editing') return;
+      const plan = planAddLegs({
+        legs: state.draft.legs,
+        instrumentName: state.draft.instrumentName,
+        instruments: state.instruments,
+        rows: result.rows,
+        sheet: legSheets + 1,
+        zone: statementZone ?? rememberedZone(),
+      });
+      if (plan.kind !== 'added') {
+        legFailed(gen, plan.notice);
+        return;
+      }
+      legSheets++;
+      const st = state.statement;
+      const marks = st ? st.marks : null;
+      const before = state.draft;
+      const point = pointAfterAdd({ ...before, legs: plan.legs }, marks, touchedNow());
+      // 損益の欄を本人が打った・直した（明細の値でない）: その値を正として追加した行の分を足さない（R5）
+      const typed = before.pnlYen.trim() !== '' && st?.marks.pnlYen !== 'read';
+      const notice = typed ? `${plan.notice}。${ADD_LEGS_MSG.pnlTyped}` : plan.notice;
+      const pick = (d: Draft): Partial<Draft> => {
+        const out: Record<string, unknown> = { legs: d.legs };
+        for (const f of POINT_FIELDS) out[f] = d[f];
+        return out as Partial<Draft>;
+      };
+      legUndo = {
+        before: pick(before),
+        after: pick(point.draft),
+        marksBefore: marks,
+        marksAfter: point.marks,
+      };
+      set({
+        draft: point.draft,
+        error: null,
+        legAdd: { phase: 'done', notice, undo: true },
+        ...(st && point.marks ? { statement: { ...st, marks: point.marks } } : {}),
+      });
+      // set の syncExpiry（C54）が時刻を替えたら、戻すときの「足した直後」もその値
+      legUndo = { ...legUndo, after: pick(state.draft) };
+      const after = state.statement?.marks;
+      if (after) legUndo = { ...legUndo, marksAfter: after };
+    } catch (e) {
+      if (gen !== legGen) return;
+      if (kindOf(e) === 'auth') {
+        legFailed(gen, failedText(READ_MSG.failed));
+        set({ error: AUTH_EXPIRED, errorKind: 'auth' });
+        return;
+      }
+      if (kindOf(e) === 'network') warm(true);
+      legFailed(gen, failedText(READ_MSG.failed));
+    } finally {
+      if (legAbort === ctl) legAbort = null;
+      pump();
+    }
+  };
+
+  const undoAddLegs = () => {
+    const u = legUndo;
+    if (!u || state.phase !== 'editing') return;
+    legUndo = null;
+    // 足した後に本人が直した欄（足した直後の値と違う欄）は今のまま
+    const back: Record<string, unknown> = {};
+    for (const k of Object.keys(u.before) as (keyof Draft)[]) {
+      if (state.draft[k] === u.after[k]) back[k] = u.before[k];
+    }
+    const st = state.statement;
+    let marks = st?.marks;
+    if (st && u.marksBefore && u.marksAfter) {
+      const m: Partial<Record<DraftField, FieldMark>> = { ...st.marks };
+      for (const f of ['entryTime', 'exitTime', 'exitReason'] as const) {
+        if (st.marks[f] !== u.marksAfter[f] || back[f] === undefined) continue;
+        if (u.marksBefore[f] === undefined) delete m[f];
+        else m[f] = u.marksBefore[f];
+      }
+      marks = m;
+    }
+    legSheets = Math.max(0, legSheets - 1);
+    const { legAdd: _gone, ...rest } = state;
+    state = rest;
+    set({
+      draft: { ...state.draft, ...(back as Partial<Draft>) },
+      error: null,
+      ...(st && marks ? { statement: { ...st, marks } } : {}),
+    });
+  };
+
   const setChart = async (slot: AnySlot, file: Blob) => {
     if (state.phase === 'saved') next();
     if (!deps.prepare) return;
@@ -1484,6 +1733,9 @@ export function createRecordController(deps: {
     const saved = state.saved;
     if (state.phase !== 'saved' || !saved) return;
     dropBulk();
+    endLegAdd();
+    legSheets = 0;
+    manualTouched = new Set();
     set(
       {
         phase: 'editing',
@@ -1506,8 +1758,9 @@ export function createRecordController(deps: {
     const read = state.read;
     const body = read.body;
     if (state.phase !== 'editing' || !read.canSave || body === undefined) return;
-    // 記録したら削除の ［元に戻す］ は終わる（#184 R4）
+    // 記録したら削除の ［元に戻す］ は終わる（#184 R4）。足した直後の ［元に戻す］ も（#260）
     dropUndo();
+    endLegAdd();
     // 終わっていない時間足の読み取りは止めて結果を捨てる（時間足は利用者が選んだ値か空のまま記録する。#27）
     const stopped = slots.stopReads();
     if (stopped.length > 0) state = { ...state, ...slots.view() };
@@ -1780,6 +2033,11 @@ export function createRecordController(deps: {
         }
       }
       const st = state.statement;
+      if (action.type === 'set') {
+        // 明細が無い間に触った欄（#260 の R6）。足の操作をしたら足した直後の ［元に戻す］ は終わる
+        if (!st) manualTouched.add(action.field);
+        if (action.field === 'legs') dropLegNotice();
+      }
       // 口座・銘柄を替えて為替が意味を失ったら、打った為替を空にする（#47 PR-2。fxStale の規則）
       const nextDraft = withFxRule(
         applyDraft(state.draft, action),
@@ -1880,6 +2138,7 @@ export function createRecordController(deps: {
       if (state.phase !== 'editing' || st?.phase !== 'ready') return;
       dropUndo();
       dropBulk();
+      endLegAdd();
       const snap = takeSnap(st);
       undoSnap = snap;
       detachStatement();
@@ -1959,6 +2218,9 @@ export function createRecordController(deps: {
       }
       // 最後の行を飛ばした: 読み取りを終えて、空の下書き（既定 = 今保存した取引か開いたとき）に戻す
       endStatement();
+      endLegAdd();
+      legSheets = 0;
+      manualTouched = new Set();
       clearCharts();
       set({
         error: null,
@@ -1985,7 +2247,8 @@ export function createRecordController(deps: {
       const st = state.statement;
       if (st?.phase !== 'ready' || state.phase !== 'editing' || !st.raw || !st.units) return;
       const leg = state.draft.legs[legIndex];
-      if (leg?.read === undefined) return;
+      // 追加した明細の足は 1 枚目の明細の行ではないので分けない（#260）
+      if (leg?.read === undefined || !fromMainStatement(leg)) return;
       const units = splitUnit(st.raw, st.units, st.index, leg.read.raw);
       if (units === null) return;
       regroup(st, units, POSITION_SPLIT(st.index + 2, units.length));
@@ -1997,6 +2260,21 @@ export function createRecordController(deps: {
       const units = mergeNext(st.raw, st.units, st.index);
       if (j === null || units === null) return;
       regroup(st, units, POSITION_MERGED(st.units[j]?.length ?? 0));
+    },
+    addLegsFromStatement,
+    cancelLegRead() {
+      if (state.legAdd?.phase !== 'reading') return;
+      legGen++;
+      legAbort?.abort();
+      legAbort = null;
+      set({ legAdd: { phase: 'failed', notice: ADD_LEGS_MSG.cancelled, undo: false } });
+      pump();
+    },
+    undoAddLegs,
+    dismissLegAdd() {
+      if (!state.legAdd || state.legAdd.phase === 'reading') return;
+      dropLegNotice();
+      set({});
     },
     startManual() {
       if (state.phase !== 'editing') return;
@@ -2024,6 +2302,7 @@ export function createRecordController(deps: {
     dispose() {
       disposed = true;
       dropUndo();
+      endLegAdd();
       endStatement();
       clearCharts();
     },

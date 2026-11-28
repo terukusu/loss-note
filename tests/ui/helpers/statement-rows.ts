@@ -302,3 +302,44 @@ export const OPT_B1: OptionRowSpec = {
   closed: jst(2026, 12, 18, 14, 5),
   position: 1,
 };
+
+/**
+ * #260 の例の表の行（架空。原資産 架空XYZ・乗数 1,000・円）: 1 枚目の明細 = 12/9 10:00 に決済した A（売り 1 P 36,000 300 → 120・
+ * 損益 179,500・手数料 500・逆指値）と B（買い 1 P 35,000 150 → 60・−90,500・500）、2 枚目 = 12/10 14:00 に決済した C（売り 1
+ * C 40,000 200 → 260・−60,500・500・成行）
+ */
+export const ADD_A: OptionRowSpec = {
+  underlying: '架空XYZ',
+  putCall: 'put',
+  strike: 36_000,
+  side: 'sell',
+  qty: 1,
+  entry: 300,
+  exit: 120,
+  pnl: 179_500,
+  fee: 500,
+  opened: jst(2026, 12, 1, 9, 0),
+  closed: jst(2026, 12, 9, 10, 0),
+  position: 0,
+  order: 'stop',
+};
+export const ADD_B: OptionRowSpec = {
+  ...ADD_A,
+  strike: 35_000,
+  side: 'buy',
+  entry: 150,
+  exit: 60,
+  pnl: -90_500,
+  opened: jst(2026, 12, 1, 9, 1),
+};
+export const ADD_C: OptionRowSpec = {
+  ...ADD_A,
+  putCall: 'call',
+  strike: 40_000,
+  entry: 200,
+  exit: 260,
+  pnl: -60_500,
+  opened: jst(2026, 12, 2, 9, 30),
+  closed: jst(2026, 12, 10, 14, 0),
+  order: 'market',
+};

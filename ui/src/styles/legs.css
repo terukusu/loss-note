@@ -56,6 +56,22 @@
   justify-self: start;
 }
 
+/* [＋ 足] と ［明細から追加］（#260。狭い幅では折り返す） */
+.legs__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+/* ［明細から追加］ を押せない理由の 1 行 */
+.legs__why {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--fs-sm);
+}
+
 /* 1 本の欄 */
 .legedit {
   display: grid;

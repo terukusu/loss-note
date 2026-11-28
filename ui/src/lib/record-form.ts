@@ -57,7 +57,7 @@ import { fxFieldVisible } from './currency';
 import { fromLocalInput } from './datetime';
 import { findInstrument } from './instrument-name';
 import { type LegDraft, type LegField, legsChanged, readLegs } from './legs-form';
-import { statementPnlWithLegs } from './statement-positions';
+import { addedLegFees, statementPnlWithLegs } from './statement-positions';
 
 export type LcMoveKind = LcMove['kind'];
 
@@ -228,6 +228,10 @@ export interface DraftContext {
    * 損益に二重に数えない）。省けば明細の値とみなす
    */
   readonly statementPnl?: boolean;
+  /**
+   * 手数料の欄が明細の値のまま・空（#260）。false（本人が打った・直した）なら足した明細の足の手数料を加えない。省けば加える
+   */
+  readonly statementFee?: boolean;
   /**
    * 明細の損益の通貨（読めたときだけ。#118）。その場で足すオプションの銘柄の価格の通貨にする（無ければ口座の通貨）
    */
@@ -822,7 +826,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   }
   // 直す画面で足を直したら明細の損益はどの足の分か分からなくなるので、足の合計に切り替える（4.7）
   let pnlYen = option?.legsEdited ? undefined : num('pnlYen', draft.pnlYen, 'signed');
-  const feeYen = num('feeYen', draft.feeYen, 'nonNegative');
+  let feeYen = num('feeYen', draft.feeYen, 'nonNegative');
   // LC での損失の見込み（任意・オプションの形だけ。「最大損失まで」とは同時に持たない。C49・C50）
   const lcLossPlanYen =
     optionMode && !maxLossOn ? num('lcLossPlan', draft.lcLossPlan, 'positive') : undefined;
@@ -854,6 +858,10 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   // 明細から作ったポジション（#118）: 手で追加した決済の足の損益を明細の損益に加える。明細の足が欠けた・満期で消滅にした、
   // 為替が要るのに無いときは明細の損益を空にして足の合計に切り替える（4.7）
   const readLegsOk = legsRead?.legs;
+  const money = {
+    accountCurrency: accountCurrencyOf(snapshot),
+    priceCurrency: snapshot.instrument.priceCurrency,
+  };
   if (
     option !== undefined &&
     readLegsOk !== undefined &&
@@ -869,9 +877,15 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       readLegsOk,
       snapshot.instrument.multiplier,
       sameCurrency ? 1 : fxRate,
+      money,
     );
     pnlYen = r.pnl;
     if (r.dropped) option = { ...option, legsEdited: true };
+  }
+  // 足した明細の足の手数料を手数料に加える（#260・C73。手数料の欄を本人が打った・直したら加えない）
+  if (optionMode && ctx.base === undefined && ctx.statementFee !== false && !errors.feeYen) {
+    const extra = addedLegFees(draft.legs, money);
+    if (extra > 0) feeYen = Number.parseFloat(((feeYen ?? 0) + extra).toPrecision(15));
   }
   // 足の時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えた足の決済は見ない。API の outOfPosition。4.7）
   if (readLegsOk !== undefined) {

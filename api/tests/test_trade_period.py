@@ -16,8 +16,10 @@ def ranged(api, uid: str, start: int, end: int) -> list[dict]:
     res = api.get(f"/api/trades?exitFrom={start}&exitTo={end}", uid)
     assert res.status_code == 200, res.get_json()
     body = res.get_json()
-    assert set(body) == {"items", "truncated"}
+    # 両建てのまとまり（#266）の 2 つの鍵は常に出す。まとまりの無い利用者では空
+    assert set(body) == {"items", "truncated", "positionGroups", "groupMembers"}
     assert body["truncated"] is False
+    assert body["positionGroups"] == [] and body["groupMembers"] == []
     return body["items"]
 
 

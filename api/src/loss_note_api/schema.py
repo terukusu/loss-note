@@ -13,7 +13,7 @@ import unicodedata
 from collections.abc import Callable
 from typing import Any
 
-from loss_note_api import emotion_tags, reflection
+from loss_note_api import emotion_tags, position_groups, reflection
 
 MAX_ABS = 1e12
 MAX_TIME_MS = 4_102_444_800_000  # 2100-01-01T00:00:00Z
@@ -922,3 +922,78 @@ def validate_emotion_settings(body: Any) -> tuple[dict | None, list[Issue]]:
         return None, c.issues
     return out, []
 
+
+# ── 両建てのまとまり（#266・C75・4.8・ADR-0027）──────────────────
+
+_GROUP_FIELDS = ("members", "exit")
+_GROUP_MEMBER_FIELDS = ("tradeId", "role")
+_GROUP_EXIT_FIELDS = ("price", "orderType", "reason")
+
+
+def validate_position_group(body: Any) -> tuple[dict | None, list[Issue], bool]:
+    """``POST /api/position-groups``・``PUT /api/position-groups/{id}`` の本文 →
+    ``(値, issues, 取引の ID の形が崩れている)``。
+
+    値は ``{"members": [{"tradeId", "role"}], "exit": {...}}``（``exit`` は任意。中身が空なら持たない）。members は
+    2〜10 件・取引の ID の重なりなし・本玉（main）と決済の代わり（hedge）が 1 件以上ずつ。exit は ``price``（正の数）・
+    ``orderType``（stop / market / limit）・``reason``（決済の理由の値）のどれも任意。向き・足・本人の取引かは取引を
+    読んでから（``position_groups.shape_issues``）。取引の ID の形が崩れていれば 3 つ目を True にする（保存先に触れずに
+    404）。issues は道筋と種類だけ（送った値を映さない）
+    """
+    c = _Checker()
+    src = c.obj(body, "", _GROUP_FIELDS)
+    if src is None:
+        return None, c.issues, False
+    bad_id = False
+
+    def members(v: Any, path: str) -> Any:
+        nonlocal bad_id
+        if not isinstance(v, list):
+            c.add(path, "type")
+            return INVALID
+        if not position_groups.MIN_MEMBERS <= len(v) <= position_groups.MAX_MEMBERS:
+            c.add(path, "count")
+            return INVALID
+        res = []
+        for i, item in enumerate(v):
+            p = f"{path}[{i}]"
+            m = c.obj(item, p, _GROUP_MEMBER_FIELDS)
+            if m is None:
+                continue
+            tid = m.get("tradeId", MISSING)
+            if tid is MISSING:
+                c.add(f"{p}.tradeId", "required")
+            elif not isinstance(tid, str) or not ID_PATTERN.match(tid):
+                bad_id = True
+            role = c.field(m, "role", p, c.enum(position_groups.ROLES), required=True)
+            res.append({"tradeId": tid, "role": role})
+        if c.issues or bad_id:
+            return INVALID
+        if len({m["tradeId"] for m in res}) != len(res):
+            c.add(path, "duplicate")
+            return INVALID
+        if not position_groups.has_roles(res):
+            c.add(path, "roles")
+            return INVALID
+        return res
+
+    def exit_(v: Any, path: str) -> Any:
+        x = c.obj(v, path, _GROUP_EXIT_FIELDS)
+        if x is None:
+            return INVALID
+        res: dict = {}
+        _put(res, "price", c.field(x, "price", path, c.positive))
+        _put(res, "orderType", c.field(x, "orderType", path, c.enum(position_groups.EXIT_ORDER_TYPES)))
+        _put(res, "reason", c.field(x, "reason", path, c.enum(EXIT_REASONS)))
+        return res
+
+    out: dict = {}
+    _put(out, "members", c.field(src, "members", "", members, required=True))
+    exit_value = c.field(src, "exit", "", exit_)
+    if exit_value not in (MISSING, INVALID) and exit_value:
+        out["exit"] = exit_value
+    if c.issues:
+        return None, c.issues, False
+    if bad_id:
+        return None, [], True
+    return out, [], False

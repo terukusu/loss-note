@@ -2,7 +2,9 @@
 
 入口は ``routes.py`` の ``GET /api/export``（記録の API の門 = ID トークン + 許可リストの後）。本人の
 ``users/{uid}`` の下の記録（設定・口座・銘柄・取引）と心理のタグの選択肢の設定（#163。``emotionTagSettings`` =
-``GET /api/settings/emotion-tags`` と同じ形）を、一覧の API と同じ形・同じ並びで 1 つの JSON にまとめる。
+``GET /api/settings/emotion-tags`` と同じ形）と両建てのまとまり（#266。``positionGroups`` =
+``GET /api/position-groups`` の項目と同じ形。鍵を足しただけなので ``VERSION`` は 1 のまま）を、
+一覧の API と同じ形・同じ並びで 1 つの JSON にまとめる。
 
 - 含めないもの: チャート画像のバイト列（取引の ``charts`` の要約 = 形式と大きさだけを含める）、明細の特徴の覚え
   （仮名化した鍵。記録でない）、AI の計上（計量）。ほかの利用者のデータは読まない（保存先のメソッドが uid で絞る）
@@ -19,7 +21,7 @@ PATH = "/export"
 
 
 def export_body(now: int, settings: dict, accounts: list[dict], instruments: list[dict], trades: list[dict],
-                emotion_tag_settings: dict) -> dict:  # fmt: skip
+                emotion_tag_settings: dict, position_groups: list[dict]) -> dict:  # fmt: skip
     """一覧の API の形にした各要素 → 書き出しの本文（入力を書き換えない）"""
     return {
         "format": FORMAT,
@@ -30,6 +32,7 @@ def export_body(now: int, settings: dict, accounts: list[dict], instruments: lis
         "accounts": list(accounts),
         "instruments": list(instruments),
         "trades": list(trades),
+        "positionGroups": list(position_groups),
     }
 
 

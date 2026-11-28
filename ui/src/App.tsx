@@ -6,18 +6,21 @@ import { onAuthKind } from './auth/forbidden';
 import { type AuthState, gate } from './auth/gate';
 import { type AuthSession, api, forbiddenFlag } from './auth/session';
 import { InfoHost } from './components/InfoSheet';
-import { DRAFT_UNDO_ID, TOAST_UNDO_ID, Toast } from './components/Toast';
+import { DRAFT_UNDO_ID, TOAST_UNDO_ID, Toast, UNLINK_UNDO_ID } from './components/Toast';
 import { loadParts } from './devPages';
 import { RootTitleBar, Shell, tabLabel } from './layout/Shell';
 import { createDeletions, type DeletionsState } from './lib/deletions';
 import { DeletionsContext } from './lib/deletions-context';
 import { createDrafts, type DraftsState, editKey, recordKey } from './lib/drafts';
 import { DraftsContext, DraftsKeptContext, type DraftsValue } from './lib/drafts-context';
+import { groupHref } from './lib/position-group';
 import { type Navigator, NavigatorContext, useCurrent } from './lib/router';
 import { hrefOf, type Route, titleOf } from './lib/routes';
 import { createSheetsHost, SheetsContext } from './lib/sheets-context';
 import { applyTheme, type StorageLike, type Theme, writeTheme } from './lib/theme';
 import { createTradesCache, TradesCacheContext } from './lib/trades-cache';
+import { createUnlinks, type UnlinksState } from './lib/unlinks';
+import { UnlinksContext } from './lib/unlinks-context';
 import type { ScreenMotion } from './lib/view-transition';
 import { Forbidden } from './pages/Forbidden';
 import { Glossary } from './pages/Glossary';
@@ -32,6 +35,7 @@ import { SettingsExport } from './pages/SettingsExport';
 import { SettingsInstruments } from './pages/SettingsInstruments';
 import { TradeDetail } from './pages/TradeDetail';
 import { TradeEdit } from './pages/TradeEdit';
+import { TradeGroup } from './pages/TradeGroup';
 import { TradeCommentPage, TradeFieldsPage } from './pages/TradeNotes';
 import { Trades } from './pages/Trades';
 
@@ -90,6 +94,8 @@ export function Page(p: PageProps) {
       return <TradeFieldsPage id={route.id} />;
     case 'tradeComment':
       return <TradeCommentPage id={route.id} />;
+    case 'tradeGroup':
+      return <TradeGroup id={route.id} />;
     case 'settings':
       return (
         <Settings
@@ -194,6 +200,18 @@ export function App(props: AppProps) {
       }),
     [drafts],
   );
+  // 両建てを解く + [元に戻す]（#267）: アプリの殻に 1 つ。解いた後に前の画面へ戻っても結び直せる
+  const unlinks = useMemo(
+    () =>
+      createUnlinks({
+        api,
+        setTimer: (fn, ms) => setTimeout(fn, ms),
+        clearTimer: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+      }),
+    [],
+  );
+  const [unlinkState, setUnlinkState] = useState<UnlinksState>(unlinks.getState());
+  useEffect(() => unlinks.subscribe(setUnlinkState), [unlinks]);
   // 下のシート（#129。9.3）: 1 つでも開いている間は、トーストの取り消しの時間（削除の [元に戻す]・書きかけの知らせ）を止める
   const sheets = useMemo(
     () =>
@@ -201,13 +219,15 @@ export function App(props: AppProps) {
         onHold: () => {
           deletions.hold('sheet');
           drafts.hold('sheet');
+          unlinks.hold('sheet');
         },
         onResume: () => {
           deletions.resume('sheet');
           drafts.resume('sheet');
+          unlinks.resume('sheet');
         },
       }),
-    [deletions, drafts],
+    [deletions, drafts, unlinks],
   );
   const [delState, setDelState] = useState<DeletionsState>(deletions.getState());
   // 取引の一覧の読み込み済みの分と位置（Issue #87）: 戻るで一覧に戻ったときに使う。ログインしていなければ空にする
@@ -273,8 +293,11 @@ export function App(props: AppProps) {
   useEffect(() => {
     if (auth.kind !== 'signedIn') tradesCache.clear();
     // ログアウトした（ログインが切れたを含む）: 書きかけを全部捨てる（次の利用者に見せない。R7）
-    if (auth.kind === 'signedOut') drafts.reset();
-  }, [auth.kind, tradesCache, drafts]);
+    if (auth.kind === 'signedOut') {
+      drafts.reset();
+      unlinks.reset();
+    }
+  }, [auth.kind, tradesCache, drafts, unlinks]);
   useEffect(() => forbiddenFlag.subscribe(setForbidden), []);
   // 使えないアカウント（#43）: ログイン・ログアウトで旗を下ろし、ログインしたら 1 度だけ読んで確かめる
   // （ホームは /api を読まないので、403 をすぐ受けて「このアカウントでは使えません」を出す。forbidden.ts）
@@ -312,6 +335,7 @@ export function App(props: AppProps) {
       .then(() => {
         deletions.reset();
         drafts.reset();
+        unlinks.reset();
         tradesCache.clear();
       })
       .then(() => nav.replace('/login'))
@@ -420,6 +444,25 @@ export function App(props: AppProps) {
             }}
             onDraftHold={drafts.hold}
             onDraftResume={drafts.resume}
+            unlink={unlinkState.toast}
+            unlinkSending={unlinkState.sending}
+            unlinkFailed={unlinkState.failed}
+            onUnlinkUndo={() => {
+              void unlinks.undo().then((gid) => {
+                if (gid) nav.push(groupHref(gid));
+                else focusHeading();
+              });
+            }}
+            onUnlinkDismiss={() => {
+              unlinks.dismiss();
+              focusHeading();
+            }}
+            onUnlinkDismissFailed={() => {
+              unlinks.dismissFailed();
+              focusHeading();
+            }}
+            onUnlinkHold={unlinks.hold}
+            onUnlinkResume={unlinks.resume}
           />
         }
       >
@@ -443,8 +486,17 @@ export function App(props: AppProps) {
           <DraftsKeptContext.Provider value={draftState.kept}>
             <TradesCacheContext.Provider value={tradesCache}>
               <SheetsContext.Provider value={sheets}>
-                {/* 「i」の説明のシート（アプリに 1 つ。画面が替わったら閉じる。#129） */}
-                <InfoHost pathKey={hrefOf(route)}>{body}</InfoHost>
+                <UnlinksContext.Provider
+                  value={{
+                    done: (label, b) => {
+                      focusUndo.current = UNLINK_UNDO_ID;
+                      unlinks.done(label, b);
+                    },
+                  }}
+                >
+                  {/* 「i」の説明のシート（アプリに 1 つ。画面が替わったら閉じる。#129） */}
+                  <InfoHost pathKey={hrefOf(route)}>{body}</InfoHost>
+                </UnlinksContext.Provider>
               </SheetsContext.Provider>
             </TradesCacheContext.Provider>
           </DraftsKeptContext.Provider>

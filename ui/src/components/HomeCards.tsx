@@ -178,6 +178,7 @@ export function CompactTradeRow({ row, now }: { readonly row: TradeRow; readonly
         <span class="homerow__title">
           <span class="homerow__name">{row.instrumentName}</span>
           <span class="homerow__side">{row.sideText}</span>
+          {row.groupMark !== undefined ? <span class="homerow__side">{row.groupMark}</span> : null}
         </span>
         {/* 2 行目「判定の名前 · 日付 · 口座」。区切りの「 · 」は後ろの塊の頭（折れても行末に残さない）。口座の名前だけを「…」で
             詰める（#176） */}
@@ -190,20 +191,22 @@ export function CompactTradeRow({ row, now }: { readonly row: TradeRow; readonly
         </span>
       </span>
       {/* R が出ない行は「—」を 1 つだけ、リスクが出ない行は 2 段目を出さない（理由は行の読み上げの名前。デザイン a4） */}
-      <span class="homerow__nums">
-        <span
-          class={
-            m.rMissing
-              ? 'homerow__r homerow__none'
-              : m.rQuiet
-                ? 'num homerow__r homerow__r--quiet'
-                : 'num num--row homerow__r'
-          }
-        >
-          {m.rText}
+      {m.noNums ? null : (
+        <span class="homerow__nums">
+          <span
+            class={
+              m.rMissing
+                ? 'homerow__r homerow__none'
+                : m.rQuiet
+                  ? 'num homerow__r homerow__r--quiet'
+                  : 'num num--row homerow__r'
+            }
+          >
+            {m.rText}
+          </span>
+          {m.riskText !== null ? <span class="homerow__risk">{m.riskText}</span> : null}
         </span>
-        {m.riskText !== null ? <span class="homerow__risk">{m.riskText}</span> : null}
-      </span>
+      )}
     </Link>
   );
 }

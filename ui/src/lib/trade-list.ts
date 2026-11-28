@@ -25,6 +25,8 @@ export interface ListRowModel {
   readonly rQuiet?: true;
   /** 「リスク 0.8%」（R が出ない・リスクが出ないときは null = 段を出さない） */
   readonly riskText: string | null;
+  /** R・リスクの段を出さない（両建てのまとまりの最初の本玉でないメンバーの行。#267） */
+  readonly noNums?: true;
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
@@ -42,7 +44,8 @@ export function whenIso(exitMs: number): string {
 }
 
 export function listRowModel(row: TradeRow): ListRowModel {
-  const rMissing = row.rNote !== null;
+  // 両建てのまとまりのほかのメンバー（#267・6.5）: R・リスクの段を出さない（「—」も出さない）
+  const rMissing = row.rNote !== null && row.noNums !== true;
   return {
     tier: row.badge.tier,
     symbol: row.badge.symbol,
@@ -52,7 +55,8 @@ export function listRowModel(row: TradeRow): ListRowModel {
     rText: row.rText,
     rMissing,
     ...(!rMissing && quietR(row.grade) ? { rQuiet: true as const } : {}),
-    riskText: rMissing || row.riskNote !== null ? null : `リスク ${row.riskText}`,
+    riskText: rMissing || row.riskNote !== null || row.noNums ? null : `リスク ${row.riskText}`,
+    ...(row.noNums ? { noNums: true as const } : {}),
   };
 }
 

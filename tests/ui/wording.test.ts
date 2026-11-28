@@ -64,16 +64,18 @@ function bannedHits(
   files: readonly (readonly [string, string])[],
   words: readonly string[],
   keep: ReadonlySet<string> = new Set(),
+  inText: readonly string[] = [],
 ): string[] {
   const hits: string[] = [];
   for (const [file, src] of files) {
     for (const s of screenStrings(file, src)) {
       // 8.4 の変えない言葉と一字一句同じ文字列（心理のタグの名前など）は、使わない言葉を含んでいても別の言葉として扱う
       if (keep.has(s)) continue;
+      const t = inText.reduce((acc, k) => acc.replaceAll(k, '\u0000'), s);
       for (const w of words) {
         // [〜] の形はボタンの名前: 文の中の [〜] と、ボタンの文字そのもの（〜 だけの文字列）の両方を拾う
         const button = /^\[(.+)\]$/.exec(w)?.[1];
-        if (s.includes(w) || (button !== undefined && s === button))
+        if (t.includes(w) || (button !== undefined && s === button))
           hits.push(`${file}: ${w}: ${s}`);
       }
     }
@@ -111,6 +113,13 @@ const MAP = tableRows('8.3 内部の呼び名と画面の言い方');
 const KEEP = tableRows('8.4 変えない言葉');
 /** 8.4 の変えない言葉（一字一句同じ文字列だけ、使わない言葉の検査から外す） */
 const KEEP_WORDS: ReadonlySet<string> = new Set(KEEP.flatMap((r) => codes(r[0])));
+/**
+ * 8.4 の変えない言葉のうち、理由に「文の中でも」とあるもの（相場の言葉 `両建て`。#267）: 文字列の中のその語だけを除いてから
+ * 使わない言葉を探す（語の中の「建て」が `建ての` に当たらないように。語の外の使わない言葉は今までどおり拾う）
+ */
+const KEEP_IN_TEXT: readonly string[] = KEEP.filter((r) =>
+  (r[1] ?? '').includes('文の中でも'),
+).flatMap((r) => codes(r[0]));
 
 const BANNED = [...OPS.flatMap((r) => codes(r[1])), ...TERMS.flatMap((r) => codes(r[2]))];
 const ALL_STRINGS = SCREEN.flatMap(([f, s]) => screenStrings(f, s));
@@ -212,7 +221,7 @@ describe('使わない言葉が画面に出ない（#74 AC-1）', () => {
   });
 
   it('画面のソースの文字列に使わない言葉が 0 件', () => {
-    expect(bannedHits(SCREEN, BANNED, KEEP_WORDS)).toEqual([]);
+    expect(bannedHits(SCREEN, BANNED, KEEP_WORDS, KEEP_IN_TEXT)).toEqual([]);
   });
 
   it('読み込み中の状態の文は「読み込んでいます…」1 つ。「読み込み中…」はボタンの中の「続きを読み込み中…」だけ（#177）', () => {
@@ -232,6 +241,15 @@ describe('使わない言葉が画面に出ない（#74 AC-1）', () => {
     const src = "const a = '利確を急ぐ'; const b = '利確を急ぐ前に';";
     expect(bannedHits([['x.ts', src]], ['利確'], KEEP_WORDS)).toEqual([
       'x.ts: 利確: 利確を急ぐ前に',
+    ]);
+  });
+
+  it('「文の中でも」の例外（両建て。#267）は語の中だけを除き、語の外の使わない言葉は拾う', () => {
+    expect(KEEP_IN_TEXT).toEqual(['両建て']);
+    const src = "const a = '両建てのまとまり'; const b = '建てた時刻'; const c = '両建てを建てた';";
+    expect(bannedHits([['x.ts', src]], ['建ての', '建てた'], KEEP_WORDS, KEEP_IN_TEXT)).toEqual([
+      'x.ts: 建てた: 建てた時刻',
+      'x.ts: 建てた: 両建てを建てた',
     ]);
   });
 });

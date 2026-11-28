@@ -29,6 +29,7 @@ import { EXTRA_TITLE } from '../components/ChartPanel';
 import { useEmotionChoices } from '../components/EmotionChoices';
 import { EmotionCard, EmotionSheetBody } from '../components/Emotions';
 import { EmptyState } from '../components/EmptyState';
+import { BrokenGroupNotice, GroupLineLink, GroupPickerBody } from '../components/GroupParts';
 import { InfoTip } from '../components/InfoTip';
 import { LegTable } from '../components/LegTable';
 import { ReflectionCard, ReflectionSheetBody } from '../components/Reflection';
@@ -50,6 +51,8 @@ import {
   type DetailSheet,
   detailActions,
   fieldsHref,
+  groupActionOf,
+  shownJudgment,
   WHY_INFO_ID,
   WHY_TITLE_ID,
   whyCardModel,
@@ -64,7 +67,22 @@ import {
   type EmotionState,
 } from '../lib/emotion-controller';
 import { EMOTION_SHEET_TITLE } from '../lib/emotion-tags';
+import {
+  createPickerController,
+  type PickerController,
+  type PickerState,
+} from '../lib/group-controller';
 import { legRows } from '../lib/option-view';
+import {
+  DELETE_MEMBER_NOTE,
+  groupHref,
+  LINK_LABEL,
+  memberLineText,
+  OPEN_GROUP_LABEL,
+  PICKER_TITLE,
+  previewLine,
+  volumeLine,
+} from '../lib/position-group';
 import { REFLECTION_TITLE, reflectionCardSides } from '../lib/reflection';
 import {
   createReflectionController,
@@ -148,6 +166,9 @@ function TradeDetailScreen({
   // Good / More（#123）: 心理のタグと同じく、シートを開くときに作り、送りが終わるまで残す
   const reflection = useRef<ReflectionController | null>(null);
   const [reflectionState, setReflectionState] = useState<ReflectionState | null>(null);
+  // 両建ての相手を選ぶ（#267）: シートを開くときに作り、閉じたら捨てる（結んでいる間は残す）
+  const picker = useRef<PickerController | null>(null);
+  const [pickerState, setPickerState] = useState<PickerState | null>(null);
   // 心理の選択肢の設定（#163）。画面を開くたびに読む（読めない・読み込み中はすべて出す）
   const choices = useEmotionChoices();
   useEffect(() => {
@@ -160,9 +181,12 @@ function TradeDetailScreen({
       emotion.current = null;
       reflection.current?.dispose();
       reflection.current = null;
+      picker.current?.dispose();
+      picker.current = null;
       // 別の取引へ移ったとき、前の取引の失敗の文言・集合を残さない
       setEmotionState(null);
       setReflectionState(null);
+      setPickerState(null);
     };
   }, [controller]);
   const onSheet = (next: DetailSheet | null) => {
@@ -201,6 +225,29 @@ function TradeDetailScreen({
         c.subscribe(setReflectionState);
       }
     }
+    if (next?.kind === 'link') {
+      const cur = controller.getState();
+      if (cur.phase === 'ready' && !picker.current) {
+        const c = createPickerController({
+          request: createRequest(api),
+          base: cur.trade,
+          instruments: cur.instruments,
+          // 消した印の取引（[元に戻す] を待っている）は候補に出さない
+          isHidden: (tid) => del?.state.hidden.has(tid) ?? false,
+        });
+        picker.current = c;
+        c.subscribe(setPickerState);
+        void c.load();
+      }
+    } else if (picker.current) {
+      // 閉じたら捨てる（選んだ組は残さない。結んでいる間は結果を待つ）
+      const ps = picker.current.getState();
+      if (ps.phase !== 'ready' || !ps.saving) {
+        picker.current.dispose();
+        picker.current = null;
+        setPickerState(null);
+      }
+    }
     setSheet(next);
   };
   // 取引が読めたら、タブ・履歴の名前も見出しと同じにする
@@ -235,6 +282,35 @@ function TradeDetailScreen({
             emotionHref: (tag: EmotionTagId) => tradeEmotionHref(state.trade, tag, Date.now()),
           }
         : {})}
+      {...(pickerState
+        ? {
+            picker: {
+              state: pickerState,
+              members: picker.current?.members() ?? [],
+              onToggle: (tid: string) => picker.current?.toggle(tid),
+              onSwap: () => picker.current?.swap(),
+              onRetry: () => void picker.current?.load(),
+              onLink: () => {
+                const c = picker.current;
+                if (!c) return;
+                void c.link().then((gid) => {
+                  if (gid === null || picker.current !== c) return;
+                  c.dispose();
+                  picker.current = null;
+                  setPickerState(null);
+                  setSheet(null);
+                  nav?.push(groupHref(gid));
+                });
+              },
+            },
+          }
+        : {})}
+      onUnlinkGroup={() => {
+        void controller.unlinkGroup();
+      }}
+      onReloadGroup={() => {
+        void controller.reloadGroup();
+      }}
       hidden={del?.state.hidden ?? NO_HIDDEN}
       notFound={notFound}
       editDraft={kept.has(editKey(id))}
@@ -299,6 +375,22 @@ export interface TradeDetailViewProps {
   /** Good / More の付け外し・書く（#123。省けばシートの中身を出さない） */
   readonly reflection?: ReflectionState;
   readonly onReflection?: ReflectionActions;
+  /** 両建ての相手を選ぶシート（#267。省けばシートの中身を出さない） */
+  readonly picker?: PickerProps;
+  /** 崩れたまとまりを解く（#267） */
+  readonly onUnlinkGroup?: () => void;
+  /** まとまりを読み直す（読めなかったとき） */
+  readonly onReloadGroup?: () => void;
+}
+
+/** 相手を選ぶシートの状態と操作（#267） */
+export interface PickerProps {
+  readonly state: PickerState;
+  readonly members: ReturnType<PickerController['members']>;
+  readonly onToggle: (id: string) => void;
+  readonly onSwap: () => void;
+  readonly onRetry: () => void;
+  readonly onLink: () => void;
 }
 
 /** Good / More のシートの操作（#123） */
@@ -399,16 +491,53 @@ function DetailBody(p: TradeDetailViewProps) {
         currency: accountCurrencyOf(t.snapshot),
       })
     : undefined;
+  const g = state.group ?? { phase: 'none' as const };
+  const verdict = (
+    <Verdict
+      summary={state.summary}
+      side={t.record.side}
+      titleId="detail-verdict-title"
+      rulerFirst
+      {...(accountLine === undefined ? {} : { account: accountLine })}
+      taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
+    />
+  );
   return (
     <div class="detail">
-      <Verdict
-        summary={state.summary}
-        side={t.record.side}
-        titleId="detail-verdict-title"
-        rulerFirst
-        {...(accountLine === undefined ? {} : { account: accountLine })}
-        taps={{ items: tapAnswers(t, state.summary.judgment), note: timeframeNote(t) }}
-      />
+      {/* 両建てのまとまりのメンバー（#267・7.7）: 単独の判定・R・LC の物差しは出さず、まとまりの判定への 1 行。崩れたまとまりは
+          知らせと ［解く］ と単独の判定。読めるまで・読めなかったときも単独の判定は出さない（C78） */}
+      {g.phase === 'none' ? (
+        verdict
+      ) : g.phase === 'loading' ? (
+        <p class="detail__note gline__status" role="status">
+          両建てのまとまりを読み込んでいます…
+        </p>
+      ) : g.phase === 'failed' ? (
+        <div class="detail__note gline__status">
+          <p role="alert">両建てのまとまりを読み込めませんでした。</p>
+          <Button variant="secondary" size="sm" onClick={() => p.onReloadGroup?.()}>
+            再読み込み
+          </Button>
+        </div>
+      ) : g.state.kind === 'broken' ? (
+        <>
+          <BrokenGroupNotice
+            busy={g.unlinking === true}
+            error={g.error}
+            onUnlink={() => p.onUnlinkGroup?.()}
+          />
+          {verdict}
+        </>
+      ) : (
+        <GroupLineLink
+          id="detail-group-line"
+          href={groupHref(g.state.group.id)}
+          text={memberLineText(
+            g.state.members.find((m) => m.trade.id === t.id)?.role ?? 'main',
+            g.state.ev.ok ? g.state.ev.judgment : undefined,
+          )}
+        />
+      )}
       {block !== null ? <p class="detail__note">{block}</p> : null}
       {/* オプションのポジションの足（#117。設計書 7.6。1R の出どころ・最大損失は判定のカードの行） */}
       {t.record.legs !== undefined ? <LegTable rows={legRows(t)} /> : null}
@@ -436,7 +565,8 @@ function DetailWhy(p: TradeDetailViewProps) {
   const tags = normalizeEmotions(t.emotionTags);
   const reflection = normalizeReflection(t.reflection);
   const filled = reflectionCardSides(reflection);
-  const m = whyCardModel(t, state.summary.judgment?.grade ?? null, {
+  // 両建てのメンバーはまとまりの判定の段（読んでいる間・読めなかったときは中立。#267・C78）
+  const m = whyCardModel(t, shownJudgment(state.summary.judgment, state.group)?.grade ?? null, {
     emotions: tags.length,
     reflection: filled.length > 0,
   });
@@ -598,6 +728,8 @@ function DetailSheets(
   if (state.phase !== 'ready') return null;
   const t = state.trade;
   const offer = p.offer;
+  const groupAction = groupActionOf(t, state.group);
+  const member = state.group?.phase === 'ready' && state.group.state.kind === 'ok';
   const viewing = sheet?.kind === 'chart' ? sheet.slot : null;
   const shown = viewing ? chartSlots(t).find((c) => c.slot === viewing) : undefined;
   const view = viewing ? state.charts[viewing] : undefined;
@@ -611,7 +743,7 @@ function DetailSheets(
         onDismiss={() => open(null)}
       >
         <div class="dlist detail__actions">
-          {detailActions(offer !== null).map((a) =>
+          {detailActions(offer !== null, groupAction).map((a) =>
             a === 'compare' && offer ? (
               <RowLink
                 key={a}
@@ -621,12 +753,30 @@ function DetailSheets(
               >
                 {COMPARE_ROW_LABEL}
               </RowLink>
-            ) : (
-              // 確認を挟まずにすぐ消えるので、押す前に戻せることを添えで言う（#131 のデザインレビュー a3。色は無色のまま）
-              <RowLink key={a} id="detail-action-delete" onClick={p.onDelete} meta={DELETE_NOTE}>
+            ) : a === 'link' ? (
+              <RowLink key={a} id="detail-action-link" onClick={() => open({ kind: 'link' })}>
+                {LINK_LABEL}
+              </RowLink>
+            ) : a === 'openGroup' && state.group?.phase === 'ready' ? (
+              <RowLink
+                key={a}
+                id="detail-action-group"
+                href={groupHref(state.group.state.group.id)}
+              >
+                {OPEN_GROUP_LABEL}
+              </RowLink>
+            ) : a === 'delete' ? (
+              // 確認を挟まずにすぐ消えるので、押す前に戻せることを添えで言う（#131 のデザインレビュー a3。色は無色のまま）。
+              // 両建てのメンバーは、消すとまとまりから外れることも先に言う（4.8）
+              <RowLink
+                key={a}
+                id="detail-action-delete"
+                onClick={p.onDelete}
+                meta={member ? `${DELETE_MEMBER_NOTE} · ${DELETE_NOTE}` : DELETE_NOTE}
+              >
                 {DELETE_LABEL}
               </RowLink>
-            ),
+            ) : null,
           )}
         </div>
       </Sheet>
@@ -684,6 +834,32 @@ function DetailSheets(
             onClose={() => {
               if (p.onReflection?.done() ?? true) open(null);
             }}
+          />
+        ) : null}
+      </Sheet>
+      <Sheet
+        id={DETAIL_SHEET_ID.link}
+        open={sheet?.kind === 'link' && p.picker !== undefined}
+        kind="form"
+        title={PICKER_TITLE}
+        onDismiss={() => open(null)}
+      >
+        {p.picker ? (
+          <GroupPickerBody
+            prefix="detail"
+            base={t}
+            state={p.picker.state}
+            members={p.picker.members}
+            instruments={state.instruments}
+            volume={volumeLine(p.picker.members)}
+            preview={previewLine(p.picker.members)}
+            accountName={(x) =>
+              hasManyAccounts(state.accounts) ? tradeAccountName(x, state.accounts) : undefined
+            }
+            onToggle={p.picker.onToggle}
+            onSwap={p.picker.onSwap}
+            onRetry={p.picker.onRetry}
+            onLink={p.picker.onLink}
           />
         ) : null}
       </Sheet>

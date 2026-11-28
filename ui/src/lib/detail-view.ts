@@ -3,10 +3,11 @@
 // - チャートは 2 枠を横に並べ、押すと全画面で見る層。追加のチャート（#89）は 2 枠の下に同じ形で並べる
 // - 「すべての欄」「総評」は次の画面（その場で開かない）
 // - チャートの下に「なぜ」のカード 1 枚（心理 → Good / More → 総評。題と Good / More の並びは判定の段。#248・C69）
-import type { Grade } from '../../../core/judge';
+import type { Grade, Judgment } from '../../../core/judge';
 import type { StoredTrade } from '../../../core/record';
 import { badgeModel, type Tier } from './badge';
 import type { AnySlot } from './charts';
+import type { GroupDetail } from './trade-detail-controller';
 import type { ChartSlotView } from './trade-view';
 
 /** 開いているシート（TradeDetailScreen が持つ。View は受けて描くだけ） */
@@ -17,7 +18,9 @@ export type DetailSheet =
   /** 心理のタグを付ける・外す（#156。保存の後のシートと同じ中身） */
   | { readonly kind: 'emotion' }
   /** Good / More を付ける・外す・書く（#123） */
-  | { readonly kind: 'reflection' };
+  | { readonly kind: 'reflection' }
+  /** 両建ての相手を選ぶ（#267・7.7） */
+  | { readonly kind: 'link' };
 
 /** シートの ID（dialog の id。開いたボタンの aria-controls） */
 export const DETAIL_SHEET_ID = {
@@ -26,20 +29,46 @@ export const DETAIL_SHEET_ID = {
   chart: 'detail-chart-viewer',
   emotion: 'detail-emotion-sheet',
   reflection: 'detail-reflection-sheet',
+  link: 'detail-link-sheet',
 } as const;
 
 /** 上の帯の「…」の読み上げの名前と、操作のシートの題 */
 export const ACTIONS_LABEL = '操作';
 
 /** 操作のシートの行（押せる行。9.12） */
-export type DetailAction = 'compare' | 'delete';
+export type DetailAction = 'compare' | 'link' | 'openGroup' | 'delete';
+
+/** 両建ての行（#267・7.7）: link = ［両建てに結ぶ］ / open = ［まとまりを見る］ / null = 出さない */
+export type GroupAction = 'link' | 'open' | null;
 
 /**
- * 操作のシートの行: 今の値と比べる（違う値があり、直せる取引のときだけ。#31 の「違わなければ何も出さない」）→ 削除。
- * 消すは確認を挟まない（[元に戻す] はトースト。ADR-0007）
+ * 操作のシートの行: 今の値と比べる（違う値があり、直せる取引のときだけ。#31 の「違わなければ何も出さない」）→ 両建て
+ * （#267）→ 削除。消すは確認を挟まない（[元に戻す] はトースト。ADR-0007）
  */
-export function detailActions(hasOffer: boolean): readonly DetailAction[] {
-  return hasOffer ? ['compare', 'delete'] : ['delete'];
+export function detailActions(
+  hasOffer: boolean,
+  group: GroupAction = null,
+): readonly DetailAction[] {
+  return [
+    ...(hasOffer ? (['compare'] as const) : []),
+    ...(group === 'link' ? (['link'] as const) : group === 'open' ? (['openGroup'] as const) : []),
+    'delete',
+  ];
+}
+
+/**
+ * 両建ての行の出し方（7.7）: 足を持つ取引は出さない。まとまりが ok ならまとまりを見る、メンバーでない（逆参照が無い・
+ * 指す先が無い）なら結ぶ。読み込み中・読めなかった・崩れたまとまり（判定のカードの上の ［解く］）は出さない
+ */
+export function groupActionOf(
+  t: Pick<StoredTrade, 'record'>,
+  group: { readonly phase: string; readonly state?: { readonly kind: string } } | undefined,
+): GroupAction {
+  if (t.record.legs !== undefined) return null;
+  const phase = group?.phase ?? 'none';
+  if (phase === 'none') return 'link';
+  if (phase === 'ready') return group?.state?.kind === 'ok' ? 'open' : null;
+  return null;
 }
 
 /** 削除の行の文字 */
@@ -68,6 +97,21 @@ export function chartCaption(c: ChartSlotView): string {
 export function commentOf(t: StoredTrade): string | null {
   const v = t.record.exit.review?.trim();
   return v ? v : null;
+}
+
+/**
+ * 詳細に見せる判定（「なぜ」のカードの題・時間足の行の「判定に使用」。#267・C78）: まとまりにいない・崩れたまとまり = その取引の
+ * 判定、まとまりが ok = まとまりの判定（メンバー単独の判定を出さない）、まとまりを読んでいる間・読めなかった = 無し（中立）
+ */
+export function shownJudgment(
+  own: Judgment | undefined,
+  group: GroupDetail | undefined,
+): Judgment | undefined {
+  const g = group ?? { phase: 'none' as const };
+  if (g.phase === 'none') return own;
+  if (g.phase !== 'ready') return undefined;
+  if (g.state.kind === 'broken') return own;
+  return g.state.ev.ok ? g.state.ev.judgment : undefined;
 }
 
 /** 詳細の次の画面の URL（#131。「すべての欄」「総評」） */

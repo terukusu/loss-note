@@ -36,7 +36,9 @@ import {
   formatR,
   formatTimes,
 } from './format';
+import { GROUP_MARK, ROLE_TEXT } from './group-text';
 import { legCountText, ONE_R_SOURCE_LABEL } from './option-view';
+import type { GroupRowInfo } from './position-group';
 import { TIMEFRAME_NAME } from './reasons';
 import { lcMoveLabel, OPTION_LABEL, RISK_NOTE, type Summary, summarize } from './record-form';
 
@@ -79,6 +81,13 @@ export interface TradeRow {
   readonly exitTime: number;
   /** 行のリンクの読み上げの名前（日付 銘柄 L / S [口座] 判定 R リスク。出ない値は理由の文言） */
   readonly label: string;
+  /** 両建てのまとまりのメンバーの印（「両建て」。#267・6.5。メンバーでない行には無い） */
+  readonly groupMark?: string;
+  /**
+   * R・リスクの段を出さない（両建てのまとまりの最初の本玉でないメンバーの行。判定の名前の代わりに役割の文字。「—」も出さない。
+   * 6.5）
+   */
+  readonly noNums?: true;
 }
 
 /** 決済の時刻の新しい順 → 作った時刻の新しい順 → ID の昇順（API の trade_sort_key と同じ）。入力は変えない */
@@ -117,8 +126,13 @@ export function tradeRow(
   t: StoredTrade,
   instruments: readonly InstrumentRecord[],
   accounts: readonly AccountRecord[] = [],
+  group?: GroupRowInfo,
 ): TradeRow {
-  const s = summarize(t);
+  // 両建てのまとまり（#267・6.5）: 最初の本玉の行はまとまりの判定・R・リスク、ほかのメンバーは役割の文字だけ（R を出さない）。
+  // まとまりを読めていないメンバーは「両建て」だけ（単独の判定を出さない。C78）
+  if (group !== undefined && group.kind !== 'lead')
+    return memberRow(t, instruments, accounts, group);
+  const s = group?.kind === 'lead' ? group.summary : summarize(t);
   const grade = s.judgment?.grade ?? null;
   const badge = badgeModel(grade);
   const rNote = rNoteOf(s);
@@ -147,7 +161,44 @@ export function tradeRow(
     dateText,
     dateIso: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
     exitTime: t.record.exit.time,
-    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]}${legsText === null ? '' : ` ${legsText}`}${accountName === undefined ? '' : ` ${accountName}`} ${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
+    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]}${legsText === null ? '' : ` ${legsText}`}${group ? ` ${GROUP_MARK}` : ''}${accountName === undefined ? '' : ` ${accountName}`} ${group ? 'まとまりの判定 ' : ''}${badge.label} R ${rNote ?? rText} リスク ${riskNote ?? riskText}`,
+    ...(group ? { groupMark: GROUP_MARK } : {}),
+  };
+}
+
+/** 両建てのまとまりのメンバー（最初の本玉でない）の行: 判定の名前の代わりに役割の文字、R・リスクは出さない（6.5） */
+function memberRow(
+  t: StoredTrade,
+  instruments: readonly InstrumentRecord[],
+  accounts: readonly AccountRecord[],
+  group: Exclude<GroupRowInfo, { kind: 'lead' }>,
+): TradeRow {
+  const role = group.kind === 'member' ? ROLE_TEXT[group.role] : GROUP_MARK;
+  const neutral = badgeModel(null);
+  const badge: BadgeModel = { ...neutral, label: role };
+  const instrumentName = instrumentNameOf(t, instruments);
+  const accountName = hasManyAccounts(accounts) ? tradeAccountName(t, accounts) : undefined;
+  const d = new Date(t.record.exit.time);
+  const dateText = formatDate(t.record.exit.time);
+  return {
+    id: t.id,
+    href: `/trades/${t.id}`,
+    grade: null,
+    badge,
+    rText: '',
+    r: null,
+    rNote: null,
+    riskText: '',
+    riskNote: null,
+    instrumentName,
+    ...(accountName === undefined ? {} : { accountName }),
+    sideText: SIDE_SHORT[t.record.side],
+    dateText,
+    dateIso: `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`,
+    exitTime: t.record.exit.time,
+    label: `${dateText} ${instrumentName} ${SIDE_TEXT[t.record.side]} ${GROUP_MARK}${accountName === undefined ? '' : ` ${accountName}`} ${role}`,
+    groupMark: GROUP_MARK,
+    noNums: true,
   };
 }
 
@@ -192,10 +243,12 @@ export function recentRows(
   instruments: readonly InstrumentRecord[],
   n: number = RECENT_COUNT,
   accounts: readonly AccountRecord[] = [],
+  /** 両建てのまとまりの値（#267。省けば今の行） */
+  groupOf?: (t: StoredTrade) => GroupRowInfo | undefined,
 ): TradeRow[] {
   return sortTrades(ts)
     .slice(0, Math.max(0, n))
-    .map((t) => tradeRow(t, instruments, accounts));
+    .map((t) => tradeRow(t, instruments, accounts, groupOf?.(t)));
 }
 
 /** 消した印（[元に戻す] を待っている取引）を除く。順は保つ */

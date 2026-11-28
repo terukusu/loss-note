@@ -8,6 +8,8 @@
 // 失敗は決まった文言だけ（応答の本文・例外の文字を持たない）。
 // 消した印（[元に戻す] を待つ取引）で隠すのは画面の側（deletions.ts の hidden を visibleTrades に通す）
 import type { AccountRecord, InstrumentRecord, StoredTrade } from '../../../core/record';
+import { loadGroupIndex } from './group-controller';
+import type { GroupIndex } from './position-group';
 import {
   type ApiFn,
   AUTH_EXPIRED,
@@ -48,6 +50,11 @@ export type TradesState =
       /** 続きの読みの失敗の文言（more = failed のときだけ） */
       readonly moreError?: string;
       readonly moreErrorKind?: FailureKind;
+      /**
+       * 両建てのまとまりの索引（#267・6.5。逆参照を持つ行があるときだけ読む）。undefined = 読んでいない・読めなかった
+       * （メンバーの行は単独の判定を出さない）、null = 逆参照を持つ行が無い
+       */
+      readonly groups?: GroupIndex | null;
     };
 
 export interface TradesController {
@@ -102,6 +109,8 @@ export function createTradesController(deps: {
     };
     pendingRefresh = true;
   }
+  /** まとまりの索引を読む世代（読み直しのたびに捨てる） */
+  let groupGen = 0;
   const set = (s: TradesState) => {
     state = s;
     if (s.phase === 'ready') {
@@ -113,13 +122,37 @@ export function createTradesController(deps: {
     trades: readonly StoredTrade[],
     instruments: readonly InstrumentRecord[],
     accounts: readonly AccountRecord[],
-  ): TradesState => ({
-    phase: 'ready',
-    trades,
-    instruments,
-    accounts,
-    more: next === null ? 'done' : 'idle',
-  });
+  ): TradesState => {
+    // 前に読んだ索引は、今の行の逆参照をすべて調べてあれば使い続ける（読み直しの間に単独の判定へちらつかない）
+    const prev = state.phase === 'ready' ? state.groups : undefined;
+    const refs = trades.flatMap((t) => (t.positionGroupId ? [t.positionGroupId] : []));
+    const groups =
+      refs.length === 0 ? null : prev && refs.every((r) => prev.asked.has(r)) ? prev : undefined;
+    return {
+      phase: 'ready',
+      trades,
+      instruments,
+      accounts,
+      more: next === null ? 'done' : 'idle',
+      ...(groups === undefined ? {} : { groups }),
+    };
+  };
+
+  /** 逆参照を持つ行があれば、まとまりの索引を読む（失敗しても行は出したまま。メンバーの行は判定を出さない） */
+  const attachGroups = async () => {
+    const s = state;
+    if (s.phase !== 'ready' || s.groups !== undefined) return;
+    const my = ++groupGen;
+    const trades = s.trades;
+    try {
+      const groups = await loadGroupIndex(request, trades);
+      const cur = state;
+      if (my !== groupGen || cur.phase !== 'ready' || cur.trades !== trades) return;
+      set({ ...cur, groups });
+    } catch {
+      // 読めなかった: undefined のまま（次の読み直しで読む）
+    }
+  };
 
   const readOthers = () =>
     Promise.all([
@@ -147,6 +180,7 @@ export function createTradesController(deps: {
       next = cursor;
       refreshing = false;
       set(ready(trades, instruments, accounts));
+      await attachGroups();
     } catch {
       if (my !== gen) return;
       refreshing = false;
@@ -180,6 +214,7 @@ export function createTradesController(deps: {
         if (my !== gen) return;
         next = page.next;
         set(ready(page.items, instruments, accounts));
+        await attachGroups();
       } catch (e) {
         if (my !== gen) return;
         const kind = kindOf(e);
@@ -209,6 +244,7 @@ export function createTradesController(deps: {
         if (my !== gen || cur.phase !== 'ready') return;
         next = page.next;
         set(ready(appendTrades(cur.trades, page.items), cur.instruments, cur.accounts));
+        await attachGroups();
       } catch (e) {
         const cur = state;
         if (my !== gen || cur.phase !== 'ready') return;
@@ -223,6 +259,7 @@ export function createTradesController(deps: {
     },
     dispose() {
       gen++;
+      groupGen++;
       listeners.clear();
     },
   };

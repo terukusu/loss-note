@@ -45,6 +45,7 @@ export function unitOfPath(path) {
   if (p === '/review/trades') return 'review-insight';
   if (p === '/settings/accounts' || p === '/settings/instruments') return 'settings-accounts';
   if (p === '/settings' || p.startsWith('/settings/')) return 'settings';
+  if (/^\/trades\/groups\/[^/]+$/.test(p)) return 'detail';
   if (/^\/trades\/[^/]+\/edit$/.test(p)) return 'edit';
   if (/^\/trades\/[^/]+$/.test(p)) return 'detail';
   return null;
@@ -279,6 +280,11 @@ export const CHANGE_RULES = [
     () => ['detail', 'edit'],
   ],
   [/TradeEdit|edit-(form|screen|controller)/, () => ['edit']],
+  // 両建てのまとまり（#267）: 詳細の「…」の ［両建てに結ぶ］・まとまりの画面・メンバーの詳細と一覧の行（G267 は詳細の単位）
+  [
+    /TradeGroup|GroupParts|group-(controller|text)|position-group|groups\.css|^core\/position-group\.ts$/,
+    () => ['detail', 'trades'],
+  ],
   [
     /Emotions?|emotion-|emotions\.css|Reflection|reflection/,
     () => ['detail', 'record', 'review-insight', 'settings'],

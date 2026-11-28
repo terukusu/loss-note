@@ -17,6 +17,7 @@ import { InfoTip } from '../components/InfoTip';
 import { PageHeader } from '../components/PageHeader';
 import { TradeMonth } from '../components/TradeRow';
 import { DeletionsContext, NO_HIDDEN } from '../lib/deletions-context';
+import { groupRowInfo } from '../lib/position-group';
 import { NavigatorContext } from '../lib/router';
 import { missingInfo, monthGroups } from '../lib/trade-list';
 import { countText, endText, LIST_PAGE, notesWhileLoading } from '../lib/trade-pages';
@@ -241,7 +242,10 @@ export function TradesView(p: TradesViewProps) {
       </>
     );
   }
-  const rows = trades.map((t) => tradeRow(t, state.instruments, state.accounts));
+  // 両建てのまとまりのメンバー（#267・6.5）: 判定の札と R は最初の本玉の行だけ
+  const rows = trades.map((t) =>
+    tradeRow(t, state.instruments, state.accounts, groupRowInfo(t, state.groups)),
+  );
   const done = state.more === 'done';
   // 「—」の理由は題の行の「i」に 1 回。続きがある間は件数を出さない（読み込んだ分だけの数になるため）
   const notes = done ? missingNotes(rows) : notesWhileLoading(missingNotes(rows));

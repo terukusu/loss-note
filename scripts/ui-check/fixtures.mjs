@@ -239,6 +239,87 @@ export const EXAMPLE_TRADES = [
   TX_R3,
 ];
 /**
+ * 両建てのまとまり（#267。設計書 5.8 の H1・H2 を US30 の架空の値に置き換えた）。EXAMPLE_TRADES には入れない（一覧の件数を
+ * 変えない。G267 だけが使う）。x-gf1 / x-gc1 = まだ結んでいない本玉 L と決済の代わり S（結ぶと +0.9R・計画どおりの勝ち）、
+ * x-gf2 / x-gc2 = まとまり x-g2（LC を割った後に固定 = B）
+ */
+const groupTrade = (id, createdAt, side, entry, lc, exit, top = {}) =>
+  exampleTrade(
+    id,
+    createdAt,
+    {
+      side,
+      lc,
+      lcDecidedBeforeEntry: lc !== undefined,
+      entries: [{ time: entry.time, price: entry.price, quantity: 10000 }],
+      exit: {
+        time: exit.time,
+        price: exit.price,
+        orderType: 'unknown',
+        reason: 'other',
+        gapSlip: 'unanswered',
+      },
+      statementPnlYen: undefined,
+    },
+    top,
+  );
+export const TX_GF1 = groupTrade(
+  'x-gf1',
+  1700000000031,
+  'L',
+  { time: T_1110 - 2 * DAY_MS, price: 100 },
+  99.5,
+  { time: T_1110, price: 100.6 },
+);
+export const TX_GC1 = groupTrade(
+  'x-gc1',
+  1700000000032,
+  'S',
+  { time: T_1110 - DAY_MS, price: 100.45 },
+  undefined,
+  { time: T_1110 + 300000, price: 100.62 },
+);
+export const TX_GF2 = groupTrade(
+  'x-gf2',
+  1700000000033,
+  'L',
+  { time: T_1110 - 4 * DAY_MS, price: 100 },
+  99.5,
+  { time: T_1110 - 2 * DAY_MS + 600000, price: 99.2 },
+  { positionGroupId: 'x-g2' },
+);
+export const TX_GC2 = groupTrade(
+  'x-gc2',
+  1700000000034,
+  'S',
+  { time: T_1110 - 3 * DAY_MS, price: 99.35 },
+  undefined,
+  { time: T_1110 - 2 * DAY_MS + 900000, price: 99.22 },
+  { positionGroupId: 'x-g2' },
+);
+export const GROUP_X_G2 = {
+  id: 'x-g2',
+  schemaVersion: 1,
+  members: [
+    {
+      tradeId: 'x-gf2',
+      role: 'main',
+      entryTime: TX_GF2.record.entries[0].time,
+      exitTime: TX_GF2.record.exit.time,
+    },
+    {
+      tradeId: 'x-gc2',
+      role: 'hedge',
+      entryTime: TX_GC2.record.entries[0].time,
+      exitTime: TX_GC2.record.exit.time,
+    },
+  ],
+  createdAt: 1700000000040,
+  updatedAt: 1700000000040,
+};
+export const GROUP_TRADES = [TX_GF1, TX_GC1, TX_GF2, TX_GC2];
+
+/**
  * Issue #88 の例の表 S1 の 7 件（架空の値）。決済は端末の今日から 6 日前〜今日の 10:00（7 日・3 か月に入り、1 日は今日の 1 件）。
  * 1 A −1.0R・2 計画どおりの勝ち +2.0R・3 B LC を広げた −1.6R・4 危ない勝ち +0.5R・5 C LC なし・6 A −0.8R・7 計画どおりの勝ち +1.2R
  */
@@ -964,6 +1045,8 @@ export async function installFakeApi(context, opts = {}) {
     },
     writes: [],
     accounts: [...(opts.accounts ?? [])],
+    /** 両建てのまとまり（#267。形は routes.py の position-groups の入口。メンバーの逆参照を同じ要求で付け外しする） */
+    groups: [...(opts.groups ?? [])],
     /** GET /api/ai-usage の応答（Issue #62。{ status, body, holdMs }。後から書き換えてよい） */
     aiUsage: { status: 200, body: FAKE_AI_USAGE },
   };
@@ -1107,6 +1190,62 @@ export async function installFakeApi(context, opts = {}) {
       api.chartPosts.push({ parts: [...fd.keys()], charts: chartParts });
     } else {
       body = req.postData() ? JSON.parse(req.postData()) : undefined;
+    }
+    // 両建てのまとまり（#267。本物の入口の要点: 無い取引 404・別のまとまり 409・メンバーの逆参照を付け外し）
+    if (key === 'GET /api/position-groups') {
+      return json(route, 200, {
+        items: [...api.groups].sort((a, b) => b.createdAt - a.createdAt),
+        truncated: false,
+      });
+    }
+    const groupM = /^\/api\/position-groups(?:\/([^/]+))?$/.exec(path);
+    if (groupM && ['POST', 'PUT', 'DELETE'].includes(req.method())) {
+      const gid = groupM[1] === undefined ? undefined : decodeURIComponent(groupM[1]);
+      const gi = gid === undefined ? -1 : api.groups.findIndex((g) => g.id === gid);
+      if (req.method() !== 'POST' && gi < 0) return json(route, 404, { error: 'not_found' });
+      const before = gi < 0 ? [] : api.groups[gi].members.map((m) => m.tradeId);
+      const relink = (after, to) => {
+        api.trades = api.trades.map((t) => {
+          if (before.includes(t.id) && !after.includes(t.id) && t.positionGroupId === to) {
+            const { positionGroupId: _g, ...rest } = t;
+            return rest;
+          }
+          return after.includes(t.id) ? { ...t, positionGroupId: to } : t;
+        });
+      };
+      if (req.method() === 'DELETE') {
+        relink([], gid);
+        api.groups.splice(gi, 1);
+        return route.fulfill({ status: 204, body: '' });
+      }
+      const members = Array.isArray(body?.members) ? body.members : [];
+      const ts = members.map((m) => api.trades.find((t) => t.id === m.tradeId));
+      if (members.length < 2 || ts.some((t) => !t)) return json(route, 404, { error: 'not_found' });
+      if (ts.some((t) => t.positionGroupId !== undefined && t.positionGroupId !== gid)) {
+        return json(route, 409, { error: 'conflict', reason: 'inOtherGroup' });
+      }
+      clock += 1;
+      const id = gid ?? `x-g${++seq}`;
+      const doc = {
+        id,
+        schemaVersion: 1,
+        members: ts.map((t, i) => ({
+          tradeId: t.id,
+          role: members[i].role,
+          entryTime: t.record.entries[0].time ?? null,
+          exitTime: t.record.exit.time,
+        })),
+        ...(body.exit ? { exit: body.exit } : {}),
+        createdAt: gi < 0 ? clock : api.groups[gi].createdAt,
+        updatedAt: clock,
+      };
+      relink(
+        ts.map((t) => t.id),
+        id,
+      );
+      if (gi < 0) api.groups.push(doc);
+      else api.groups[gi] = doc;
+      return json(route, gi < 0 ? 201 : 200, doc);
     }
     if (key === 'GET /api/trades') {
       // ページ分け（Issue #87。本物の trade_pages.py と同じ並びと切り出し。カーソルは並びの鍵の JSON）

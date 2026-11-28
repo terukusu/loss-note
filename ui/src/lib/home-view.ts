@@ -149,6 +149,8 @@ export interface CompactRow {
   readonly rQuiet?: true;
   /** 「リスク 0.5%」（R が出ない・リスクが出ないときは null） */
   readonly riskText: string | null;
+  /** R・リスクの段を出さない（両建てのまとまりの最初の本玉でないメンバー。#267・6.5） */
+  readonly noNums?: true;
 }
 
 /** 決済の日付（dateIso = 端末の時間帯の YYYY-MM-DD）→「11/19」（今年でなければ「2025/11/19」） */
@@ -159,7 +161,7 @@ function shortDate(dateIso: string, now: number): string {
 }
 
 export function compactRowModel(row: TradeRow, now: number): CompactRow {
-  const rMissing = row.rNote !== null;
+  const rMissing = row.rNote !== null && row.noNums !== true;
   const date = shortDate(row.dateIso, now);
   const accountName = row.accountName ?? null;
   return {
@@ -172,6 +174,7 @@ export function compactRowModel(row: TradeRow, now: number): CompactRow {
     rText: row.rText,
     rMissing,
     ...(!rMissing && quietR(row.grade) ? { rQuiet: true as const } : {}),
-    riskText: rMissing || row.riskNote !== null ? null : `リスク ${row.riskText}`,
+    riskText: rMissing || row.riskNote !== null || row.noNums ? null : `リスク ${row.riskText}`,
+    ...(row.noNums ? { noNums: true as const } : {}),
   };
 }

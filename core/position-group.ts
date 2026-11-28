@@ -8,14 +8,15 @@ import { isOverRisk, oneRYen, pnlYen, rMultiple } from './pnl';
 import { accountCurrencyOf, accountIdOf, type StoredTrade, toTradeInput } from './record';
 import { normalizeReflection, type Reflection } from './reflection';
 import { type BreachKind, breachKindsOf, type ReviewItem } from './review';
-import type {
-  Entry,
-  ExitOrderType,
-  ExitReason,
-  LcMove,
-  Side,
-  TimeframeChange,
-  TradeInput,
+import {
+  type Entry,
+  type ExitOrderType,
+  type ExitReason,
+  isLongerTimeframe,
+  type LcMove,
+  type Side,
+  type TimeframeChange,
+  type TradeInput,
 } from './trade';
 import { type Issue, validateTrade } from './validate';
 
@@ -210,6 +211,15 @@ function byTime(es: readonly SizedEntry[]): SizedEntry[] {
 
 const sum = (xs: readonly number[]) => xs.reduce((a, b) => a + b, 0);
 
+/** 計算の並び: 最初のエントリーの時刻（無ければ後ろ）→ 取引の ID */
+function canonical(rs: readonly Resolved[]): Resolved[] {
+  const first = (m: Resolved) => m.input.entries[0].time ?? Number.POSITIVE_INFINITY;
+  return [...rs].sort(
+    (a, b) =>
+      first(a) - first(b) || (a.trade.id < b.trade.id ? -1 : a.trade.id > b.trade.id ? 1 : 0),
+  );
+}
+
 /** 崩れの側に寄せた LC の動き（広げた > 取り消した > 狭めた > なし） */
 function mergedLcMove(mains: readonly Resolved[], ref: number | undefined): LcMove {
   if (mains.some((m) => m.input.lcMove.kind === 'widened')) {
@@ -355,10 +365,20 @@ interface RiskResult {
   readonly capitalYen?: number;
 }
 
-/** 1R（本玉の合計）とリスク（口座ごとの大きいほう）。5.8 の 8 */
+/**
+ * 1R（本玉の合計）とリスク（口座ごとの大きいほう）。5.8 の 8。
+ * 同じ口座の本玉の snapshot の資金が違う（記録の間に資金を変えた）ときは小さいほう（リスクを大きく見る側）を使い、
+ * どれかが未設定ならその口座のリスクは出さない。本玉の 1R が 1 件でも出なければ 1R・リスクを出さず、資金だけを返す
+ * （判定の注記を「1R が出ない」noOneR にする。単独の取引と同じ）
+ */
 function riskOf(mains: readonly Resolved[]): RiskResult {
+  const capitals = mains.map((m) => m.trade.snapshot.capitalYen);
+  const allCapital = capitals.every((c) => c !== null && c > 0);
+  const anyCapital = allCapital ? Math.min(...(capitals as number[])) : undefined;
   const oneRs = mains.map((m) => oneRYen(m.input));
-  if (oneRs.some((v) => v === undefined || !Number.isFinite(v))) return {};
+  if (oneRs.some((v) => v === undefined || !Number.isFinite(v))) {
+    return anyCapital === undefined ? {} : { capitalYen: anyCapital };
+  }
   const values = oneRs as number[];
   const currencies = new Set(mains.map((m) => accountCurrencyOf(m.trade.snapshot)));
   const [currency] = [...currencies];
@@ -370,10 +390,10 @@ function riskOf(mains: readonly Resolved[]): RiskResult {
   mains.forEach((m, i) => {
     const id = accountIdOf(m.trade.record);
     const now = accounts.get(id);
-    accounts.set(id, {
-      oneR: (now?.oneR ?? 0) + (values[i] ?? 0),
-      capital: now === undefined ? m.trade.snapshot.capitalYen : now.capital,
-    });
+    const c = m.trade.snapshot.capitalYen;
+    const capital =
+      now === undefined ? c : now.capital === null || c === null ? null : Math.min(now.capital, c);
+    accounts.set(id, { oneR: (now?.oneR ?? 0) + (values[i] ?? 0), capital });
   });
   let best: { pct: number; capital: number } | undefined;
   for (const a of accounts.values()) {
@@ -392,11 +412,25 @@ function mergedInput(mains: readonly Resolved[], firstMain: Resolved): TradeInpu
   const allLc = entries.every((e) => e.lc !== undefined);
   const widened = mains.find((m) => m.input.lcMove.kind === 'widened');
   const tradeLc = (widened ?? firstMain).input.lc ?? firstMain.input.lc;
-  const chartLonger = mains.find(
-    (m) => m.input.entryChartTimeframe !== undefined && m.input.exitChartTimeframe !== undefined,
-  );
+  // チャートの長い足へ・タップの長い足へは、1 件でも当たる本玉を優先する（崩れの側に寄せる。メンバーの並びに依らない）
+  // チャートは当たる本玉のうち決済の足の最も長いもの
+  const chartLonger = mains
+    .filter((m) => {
+      const a = m.input.entryChartTimeframe;
+      const b = m.input.exitChartTimeframe;
+      return a !== undefined && b !== undefined && isLongerTimeframe(a, b);
+    })
+    .reduce<Resolved | undefined>((best, m) => {
+      const b = best?.input.exitChartTimeframe;
+      const x = m.input.exitChartTimeframe;
+      return best === undefined || (b !== undefined && x !== undefined && isLongerTimeframe(b, x))
+        ? m
+        : best;
+    }, undefined);
+  const tapLonger = mains.find((m) => m.input.timeframeChange === 'longer');
   const f = firstMain.input;
   const chart = chartLonger?.input ?? f;
+  const timeframe = (tapLonger ?? firstMain).input.timeframe;
   const merged = entries.map((e) => ({
     ...(e.entry.time === undefined ? {} : { time: e.entry.time }),
     price: e.entry.price,
@@ -414,7 +448,7 @@ function mergedInput(mains: readonly Resolved[], firstMain: Resolved): TradeInpu
     lcDecidedBeforeEntry: mains.every((m) => m.input.lcDecidedBeforeEntry),
     lcMove: mergedLcMove(mains, ref),
     timeframeChange: mergedTimeframeChange(mains),
-    ...(f.timeframe === undefined ? {} : { timeframe: f.timeframe }),
+    ...(timeframe === undefined ? {} : { timeframe }),
     ...(chart.entryChartTimeframe === undefined
       ? {}
       : { entryChartTimeframe: chart.entryChartTimeframe }),
@@ -481,8 +515,9 @@ export function evaluatePositionGroup(group: PositionGroupInput): GroupEvaluatio
   const issues = resolved.flatMap((m) => validateTrade(m.input));
   if (issues.length > 0) return { ok: false, problems: [], issues };
 
-  const mains = resolved.filter((m) => m.role === 'main');
-  const hedges = resolved.filter((m) => m.role === 'hedge');
+  // メンバーの並び（結んだ順）は計算に使わない: 最初のエントリーの時刻 → 取引の ID の順に並べ直す（4.8）
+  const mains = canonical(resolved.filter((m) => m.role === 'main'));
+  const hedges = canonical(resolved.filter((m) => m.role === 'hedge'));
   // 最初の本玉 = 決済の時刻の早い本玉（同じなら結んだ順）
   const firstMain = [...mains].sort(
     (a, b) => a.trade.record.exit.time - b.trade.record.exit.time,

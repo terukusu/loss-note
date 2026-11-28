@@ -680,3 +680,166 @@ describe('性質（種つき乱数）', () => {
     });
   });
 });
+
+describe('独立レビューの指摘（#265）', () => {
+  // 本玉 2 件（先物 量 1,000 + ミニ 量 500）・決済の代わり CFD S 150 を 38,300 → +0.89R
+  const mini = (o: Partial<Parameters<typeof main>[0]> = {}) =>
+    main(
+      { multiplier: 100, quantity: 5, price: 38_100, lc: 37_800, exitPrice: 38_400, ...o },
+      'm2',
+    );
+  const h150 = hedge({ price: 38_300, quantity: 150, exitPrice: 38_420 });
+
+  it('チャートの長い足へは、当たる本玉を優先する（メンバーの並びに依らない）', () => {
+    const m1 = main({ exitPrice: 38_400, entryChartTimeframe: '1h', exitChartTimeframe: '1h' });
+    const m2 = mini({ entryChartTimeframe: '1h', exitChartTimeframe: '4h' });
+    for (const members of [
+      [m1, m2, h150],
+      [m2, m1, h150],
+      [h150, m1, m2],
+    ]) {
+      const ev = ok({ members });
+      expect(ev.judgment?.grade).toBe('riskyWin');
+      expect(ev.judgment?.reasons).toContainEqual({
+        kind: 'timeframeLonger',
+        source: 'chart',
+        from: '1h',
+        to: '4h',
+      });
+    }
+  });
+
+  it('タップの長い足へは、答えた本玉の足を理由の from にする', () => {
+    const ev = ok({
+      members: [
+        main({ exitPrice: 38_400, timeframe: '15m' }),
+        mini({ timeframe: '1h', timeframeChange: 'longer' }),
+        h150,
+      ],
+    });
+    expect(ev.judgment?.reasons).toContainEqual({
+      kind: 'timeframeLonger',
+      source: 'tap',
+      from: '1h',
+    });
+  });
+
+  it('本玉の 1R が 1 件でも出なければ、資金があっても注記の原因は「1R が出ない」', () => {
+    // 円の口座の USD 建ての本玉で、決済の為替が無い → 1R が出ない
+    const ev = ok({
+      members: [main({ exitPrice: 38_400 }), mini({ priceCurrency: 'USD' }), h150],
+    });
+    expect(ev.oneRYen).toBeUndefined();
+    expect(ev.riskPct).toBeUndefined();
+    expect(ev.judgment?.reasons).toContainEqual({ kind: 'riskNotChecked', cause: 'noOneR' });
+  });
+
+  it('同じ口座の本玉の資金が違えば小さいほう: 450,000 ÷ 15,000,000 = 3.0%（過剰リスク）', () => {
+    const ev = ok({
+      members: [main({ exitPrice: 38_400 }), mini({ capitalYen: 15_000_000 }), h150],
+    });
+    expect(ev.riskPct).toBeCloseTo(3.0, 9);
+    expect(ev.overRisk).toBe(true);
+    const reversed = ok({
+      members: [mini({ capitalYen: 15_000_000 }), h150, main({ exitPrice: 38_400 })],
+    });
+    expect(reversed.riskPct).toBeCloseTo(3.0, 9);
+  });
+
+  it('同じ口座の本玉の 1 件の資金が未設定なら、リスクを出さない', () => {
+    const ev = ok({ members: [main({ exitPrice: 38_400 }), mini({ capitalYen: null }), h150] });
+    expect(ev.riskPct).toBeUndefined();
+    expect(ev.judgment?.reasons).toContainEqual({ kind: 'riskNotChecked', cause: 'noCapital' });
+  });
+
+  it('性質: 本玉 2 件・決済の代わり 2 件の並びを入れ替えても、判定・理由・R・損益・決済の時刻は同じ', () => {
+    const tfs = ['15m', '1h', '4h'] as const;
+    forAll(
+      2655,
+      300,
+      (r) => {
+        const entry = r.int(20_000, 40_000);
+        const width = r.int(50, 1_000);
+        const t1 = ENTRY + r.int(0, 600) * MIN;
+        const t2 = t1 + r.int(1, 600) * MIN;
+        const ex1 = MON + r.int(0, 120) * MIN;
+        const ex2 = MON + r.int(121, 240) * MIN;
+        const move = () => r.int(-2 * width, 2 * width);
+        return {
+          m1: main({
+            quantity: r.int(1, 3),
+            price: entry,
+            lc: entry - width,
+            entryTime: t1,
+            exitPrice: entry + move(),
+            exitTime: ex1,
+            orderType: r.pick(['market', 'stop', 'unknown'] as const),
+            entryChartTimeframe: r.pick(tfs),
+            exitChartTimeframe: r.pick(tfs),
+            lcMove: r.pick([{ kind: 'none' }, { kind: 'cancelled' }] as const),
+          }),
+          m2: main(
+            {
+              multiplier: 100,
+              quantity: r.int(1, 10),
+              price: entry + r.int(-width, width),
+              lc: entry - width,
+              entryTime: t2,
+              exitPrice: entry + move(),
+              exitTime: ex2,
+              entryChartTimeframe: r.pick(tfs),
+              exitChartTimeframe: r.pick(tfs),
+              timeframe: r.pick(tfs),
+              timeframeChange: r.pick(['none', 'longer', 'shorter'] as const),
+              capitalYen: r.pick([30_000_000, 10_000_000]),
+            },
+            'm2',
+          ),
+          h1: hedge(
+            {
+              price: entry + move(),
+              quantity: r.int(10, 200),
+              entryTime: FIX,
+              exitPrice: entry + move(),
+            },
+            'h1',
+          ),
+          h2: hedge(
+            {
+              price: entry + move(),
+              quantity: r.int(10, 200),
+              entryTime: FIX + r.int(1, 300) * MIN,
+              exitPrice: entry + move(),
+              exitTime: MON - r.int(0, 90) * MIN,
+            },
+            'h2',
+          ),
+          perm: [r.next(), r.next(), r.next(), r.next()],
+        };
+      },
+      ({ m1, m2, h1, h2, perm }) => {
+        const base = ok({ members: [m1, m2, h1, h2] });
+        const order = [m1, m2, h1, h2]
+          .map((m, i) => ({ m, k: perm[i] ?? 0 }))
+          .sort((a, b) => a.k - b.k)
+          .map((x) => x.m);
+        const shuffled = ok({ members: order });
+        expect(shuffled.judgment?.grade).toBe(base.judgment?.grade);
+        const sortKinds = (e: Ok) => kinds(e).slice().sort();
+        expect(sortKinds(shuffled)).toEqual(sortKinds(base));
+        expect(shuffled.judgment?.reasons.find((x) => x.kind === 'timeframeLonger')).toEqual(
+          base.judgment?.reasons.find((x) => x.kind === 'timeframeLonger'),
+        );
+        if (base.r === undefined) expect(shuffled.r).toBeUndefined();
+        else expect(shuffled.r ?? Number.NaN).toBeCloseTo(base.r, 9);
+        expect(shuffled.exitPrice).toBeCloseTo(base.exitPrice, 6);
+        expect(shuffled.exitTime).toBe(base.exitTime);
+        expect(shuffled.riskPct ?? -1).toBeCloseTo(base.riskPct ?? -1, 9);
+        expect(shuffled.pnl?.[0]?.amount ?? 0).toBeCloseTo(base.pnl?.[0]?.amount ?? 0, 3);
+        expect(shuffled.notes.map((n) => n.kind).sort()).toEqual(
+          base.notes.map((n) => n.kind).sort(),
+        );
+      },
+    );
+  });
+});

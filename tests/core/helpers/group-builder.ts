@@ -7,7 +7,15 @@ import type { EmotionTagId } from '../../../core/emotion-tags';
 import type { GroupMember, GroupTrade, MemberRole } from '../../../core/position-group';
 import type { RecordSource } from '../../../core/record';
 import type { Reflection } from '../../../core/reflection';
-import type { Entry, ExitOrderType, ExitReason, LcMove, Side } from '../../../core/trade';
+import type {
+  Entry,
+  ExitOrderType,
+  ExitReason,
+  LcMove,
+  Side,
+  Timeframe,
+  TimeframeChange,
+} from '../../../core/trade';
 
 export const ENTRY = 1_800_000_000_000;
 export const FIX = ENTRY + 2 * 86_400_000;
@@ -26,6 +34,10 @@ export interface MemberOpts {
   readonly lcDecidedBeforeEntry?: boolean;
   readonly lcMove?: LcMove;
   readonly lcBasis?: 'chart' | 'amount';
+  readonly timeframe?: Timeframe;
+  readonly timeframeChange?: TimeframeChange;
+  readonly entryChartTimeframe?: Timeframe;
+  readonly exitChartTimeframe?: Timeframe;
   readonly exitPrice: number;
   readonly exitTime?: number;
   readonly orderType?: ExitOrderType;
@@ -61,7 +73,10 @@ export function tradeOf(id: string, o: MemberOpts): GroupTrade {
     stopOrderPlaced: 'unanswered' as const,
     lcDecidedBeforeEntry: o.lcDecidedBeforeEntry ?? lc !== undefined,
     lcMove: o.lcMove ?? { kind: 'none' },
-    timeframeChange: 'none' as const,
+    timeframeChange: o.timeframeChange ?? ('none' as const),
+    ...(o.timeframe === undefined ? {} : { timeframe: o.timeframe }),
+    ...(o.entryChartTimeframe === undefined ? {} : { entryChartTimeframe: o.entryChartTimeframe }),
+    ...(o.exitChartTimeframe === undefined ? {} : { exitChartTimeframe: o.exitChartTimeframe }),
     entries,
     exit: {
       time: o.exitTime ?? MON,

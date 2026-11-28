@@ -518,7 +518,7 @@ export function evaluatePositionGroup(group: PositionGroupInput): GroupEvaluatio
   // メンバーの並び（結んだ順）は計算に使わない: 最初のエントリーの時刻 → 取引の ID の順に並べ直す（4.8）
   const mains = canonical(resolved.filter((m) => m.role === 'main'));
   const hedges = canonical(resolved.filter((m) => m.role === 'hedge'));
-  // 最初の本玉 = 決済の時刻の早い本玉（同じなら結んだ順）
+  // 最初の本玉 = 決済の時刻の早い本玉（同じなら最初のエントリーの時刻 → 取引の ID の順。canonical の並び）
   const firstMain = [...mains].sort(
     (a, b) => a.trade.record.exit.time - b.trade.record.exit.time,
   )[0];

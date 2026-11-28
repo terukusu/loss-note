@@ -359,6 +359,11 @@ export interface ReadingOption {
    */
   readonly addedNotSummed?: true;
   /**
+   * 明細の損益に、明細から追加した足・手で追加した決済の足の損益を足した値（口座の通貨）。足して値が変わったときだけ。
+   * 取引の欄の要約は欄の値ではなくこれを出す（足を追加した直後から合計が見える。保存の本文の statementPnlYen と同じ値）
+   */
+  readonly summedPnl?: number;
+  /**
    * 明細から読んだポジションで、オプションの銘柄が一覧に無い: この名前で取引の形態 オプションの銘柄を足す（#118。
    * 乗数は本人が入れる）
    */
@@ -899,6 +904,8 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   ) {
     // 直す画面（#263・C82）: 保存済みの明細の損益 + 明細から追加した行の損益。足せなければ足の合計に切り替える
     const r = editStatementPnl(pnlYen, draft.legs, money);
+    if (!r.dropped && r.pnl !== undefined && r.pnl !== pnlYen)
+      option = { ...option, summedPnl: r.pnl };
     pnlYen = r.pnl;
     // 足を直していないので、判定の枠の 1 行は「明細から追加した足の損益を足せない」理由にする（#263 のレビュー 4）
     if (r.dropped) option = { ...option, legsEdited: true, addedNotSummed: true };
@@ -919,6 +926,8 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       sameCurrency ? 1 : fxRate,
       money,
     );
+    if (!r.dropped && r.pnl !== undefined && r.pnl !== pnlYen)
+      option = { ...option, summedPnl: r.pnl };
     pnlYen = r.pnl;
     if (r.dropped) option = { ...option, legsEdited: true };
   }

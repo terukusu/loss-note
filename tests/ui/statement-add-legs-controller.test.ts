@@ -10,6 +10,7 @@ import {
   type RecordController,
 } from '../../ui/src/lib/record-controller';
 import { readDraft } from '../../ui/src/lib/record-form';
+import { tradeSummary } from '../../ui/src/lib/record-screen';
 import { ADD_LEGS_MSG } from '../../ui/src/lib/statement-add-legs';
 import { account, defaultAccount } from './helpers/accounts';
 import { createFakeApi, type FakeApi, type ReadScript } from './helpers/fake-api';
@@ -122,6 +123,11 @@ describe('例 #1: 1 枚目の明細の後に 2 枚目から 1 本追加する', 
       exit: { orderType: 'market', time: ADD_C.closed.epochMs },
     });
     expect(s.read.body?.legs).toHaveLength(3);
+    // 取引の欄の要約も、保存を待たずに足した合計を出す（欄の値 = 1 枚目の明細の損益ではない）
+    const sum = tradeSummary(s.draft, s.read.errors, {}, s.read.option);
+    expect(s.read.option?.summedPnl).toBe(28_500);
+    expect(sum.line3Parts.at(-1)).toBe('明細の損益（合計） +28,500円');
+    expect(before.read.option?.summedPnl).toBeUndefined();
     // KEEP-2: 2 枚目で明細の特徴を覚えない・口座を替えない
     expect(fake.calls.some((x) => x.path.startsWith('/api/statement-profiles'))).toBe(false);
     expect(s.read.canSave).toBe(true);

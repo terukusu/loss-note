@@ -16,7 +16,7 @@ import { formatPrice, formatR } from './format';
 
 /** 文字の一覧の名前（読み上げの名前） */
 export const RULER_LABEL = 'LC の物差し';
-/** オプションのポジションの物差し（点は原資産の価格。レッグのプレミアムと読み違えない。#117 のデザインレビュー N2） */
+/** オプションのポジションの物差し（点は原資産の価格。足のプレミアムと読み違えない。#117 のデザインレビュー N2） */
 export const RULER_LABEL_UNDERLYING = 'LC の物差し（原資産）';
 
 export const POINT_NAME: Readonly<Record<RulerPointKind, string>> = {

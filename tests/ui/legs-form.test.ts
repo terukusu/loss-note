@@ -1,4 +1,4 @@
-// レッグの下書きの純関数（#117。設計書 4.7・7.6・C54）。値はすべて架空
+// 足の下書きの純関数（#117。設計書 4.7・7.6・C54）。値はすべて架空
 import { describe, expect, it } from 'vitest';
 import {
   canUndoLegRemove,
@@ -67,8 +67,8 @@ describe('限月の打ち方', () => {
   });
 });
 
-describe('[＋ レッグ]（7.6「直前のレッグの限月・P / C・買い / 売り・枚数を写す」）', () => {
-  it('前のレッグを写し、行使価格・イン・決済・満期で消滅・ID・時刻は写さない', () => {
+describe('[＋ 足]（7.6「直前の足の限月・P / C・買い / 売り・枚数を写す」）', () => {
+  it('前の足を写し、行使価格・イン・決済・満期で消滅・ID・時刻は写さない', () => {
     const prev: LegDraft = { ...full, id: 'l1', expired: true, entryTime: 1, exitTime: 2 };
     expect(nextLeg([prev])).toEqual({
       ...EMPTY_LEG,
@@ -78,7 +78,7 @@ describe('[＋ レッグ]（7.6「直前のレッグの限月・P / C・買い /
       quantity: '2',
     });
   });
-  it('レッグが無ければ空の行', () => {
+  it('足が無ければ空の行', () => {
     expect(nextLeg([])).toEqual(EMPTY_LEG);
   });
 });
@@ -100,8 +100,8 @@ describe('[満期で消滅]', () => {
   });
 });
 
-describe('レッグを読む（API の検査と同じ形）', () => {
-  it('そろったレッグ → Leg（数は 3 桁区切りを読む・ID は l1 から・手で入れたレッグは時刻なし）', () => {
+describe('足を読む（API の検査と同じ形）', () => {
+  it('そろった足 → Leg（数は 3 桁区切りを読む・ID は l1 から・手で入れた足は時刻なし）', () => {
     const r = readLegs([full]);
     expect(r.missing).toEqual([]);
     expect(r.legs).toEqual([
@@ -117,25 +117,25 @@ describe('レッグを読む（API の検査と同じ形）', () => {
       },
     ]);
   });
-  it('満期で消えたレッグの決済の時刻は SQ の日の終わり', () => {
+  it('満期で消えた足の決済の時刻は SQ の日の終わり', () => {
     const r = readLegs([{ ...full, expired: true, exitPrice: '0' }]);
     expect(r.legs?.[0]?.exit).toEqual({ price: 0, time: 1_799_420_399_999, kind: 'expired' });
   });
-  it('保存済みの時刻は保つ（決済したレッグだけ決済の時刻）', () => {
+  it('保存済みの時刻は保つ（決済した足だけ決済の時刻）', () => {
     const r = readLegs([{ ...full, entryTime: 10, exitTime: 20 }]);
     expect(r.legs?.[0]?.entry.time).toBe(10);
     expect(r.legs?.[0]?.exit.time).toBe(20);
   });
-  it('レッグが無ければ「レッグ」が足りない', () => {
-    expect(readLegs([])).toEqual({ errors: [], missing: ['レッグ'] });
+  it('足が無ければ「足」が足りない', () => {
+    expect(readLegs([])).toEqual({ errors: [], missing: ['足'] });
   });
-  it('足りない欄のあるレッグを名指す・誤りは欄ごと・本文は作らない', () => {
+  it('足りない欄のある足を名指す・誤りは欄ごと・本文は作らない', () => {
     const r = readLegs([
       full,
       { ...full, strike: '' },
       { ...full, quantity: '0', contractMonth: 'x' },
     ]);
-    expect(r.missing).toEqual(['レッグ 2']);
+    expect(r.missing).toEqual(['足 2']);
     expect(r.errors[2]).toEqual({
       quantity: '0 より大きい数値を入力してください',
       contractMonth: LEG_MSG.contractMonth,
@@ -150,8 +150,8 @@ describe('レッグを読む（API の検査と同じ形）', () => {
   });
 });
 
-describe('ID（保存済みは保ち、足したレッグには空いている ID）', () => {
-  it('l1・l3 が残り、足したレッグは l2', () => {
+describe('ID（保存済みは保ち、追加した足には空いている ID）', () => {
+  it('l1・l3 が残り、追加した足は l2', () => {
     expect(legIds([{ ...full, id: 'l1' }, { ...full, id: 'l3' }, full])).toEqual([
       'l1',
       'l3',
@@ -174,7 +174,7 @@ describe('保存済み → 下書き → 読む の往復と、直したか', ()
     { ...full, side: 'buy', strike: '35000', expired: true, exitPrice: '0' },
   ]).legs;
   if (stored === undefined) throw new Error('読めない');
-  it('何も変えなければ同じレッグ（直していない）', () => {
+  it('何も変えなければ同じ足（直していない）', () => {
     const again = readLegs(legDraftsFromStored(stored)).legs;
     expect(again).toEqual(stored);
     expect(legsChanged(stored, again ?? [])).toBe(false);
@@ -188,7 +188,7 @@ describe('保存済み → 下書き → 読む の往復と、直したか', ()
   });
 });
 
-describe('満期で消えたレッグの保存済みの時刻（レビュー 1）', () => {
+describe('満期で消えた足の保存済みの時刻（レビュー 1）', () => {
   // SQ の日から作る時刻と違う時刻（祝日で繰り上げた SQ などの架空の値）
   const odd = Date.UTC(2027, 0, 7, 15) - 1;
   const stored = readLegs([{ ...full, expired: true, exitPrice: '0' }]).legs;
@@ -201,7 +201,7 @@ describe('満期で消えたレッグの保存済みの時刻（レビュー 1�
     expect(again[0]?.exit.time).toBe(odd);
     expect(legsChanged(legs, again)).toBe(false);
   });
-  it('保存済みの時刻が無い満期のレッグは、何も変えなければ時刻を付けない', () => {
+  it('保存済みの時刻が無い満期の足は、何も変えなければ時刻を付けない', () => {
     const { time: _t, ...exit } = stored[0].exit;
     const noTime = [{ ...stored[0], exit }] as unknown as typeof legs;
     const again = readLegs(legDraftsFromStored(noTime)).legs ?? [];
@@ -215,14 +215,14 @@ describe('満期で消えたレッグの保存済みの時刻（レビュー 1�
   });
 });
 
-describe('レッグを消して戻す（P4・デザインレビュー B1）', () => {
+describe('足を消して戻す（P4・デザインレビュー B1）', () => {
   const a = { ...full, strike: '1' };
   const b = { ...full, strike: '2' };
   const c = { ...full, strike: '3' };
   it('元の位置へ戻す。並びが短くなっていれば末尾', () => {
     expect(undoLegRemove([a, c], { leg: b, index: 1 })).toEqual([a, b, c]);
     expect(undoLegRemove([a], { leg: c, index: 2 })).toEqual([a, c]);
-    expect(legRemovedText({ leg: b, index: 1 })).toBe('レッグ 2 を削除しました');
+    expect(legRemovedText({ leg: b, index: 1 })).toBe('足 2 を削除しました');
   });
   it('再レビュー B2: 10 本のときは戻さない（11 本目を作らない）。11 本以上は読まない（保存を止める）', () => {
     const ten = Array.from({ length: 10 }, (_, i) => ({ ...full, strike: String(i + 1) }));
@@ -236,7 +236,7 @@ describe('レッグを消して戻す（P4・デザインレビュー B1）', ()
 });
 
 describe('カードの 2 行（7.6「売り 2 · P 36,000 · 2027-01」「120 → 60」）', () => {
-  it('そろったレッグ', () => {
+  it('そろった足', () => {
     expect(legCardText(full)).toEqual({ head: '売り 2 · P 36,000 · 2027-01', prices: '120 → 60' });
   });
   it('満期で消滅・未入力の欄は ?', () => {

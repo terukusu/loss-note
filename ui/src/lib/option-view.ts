@@ -1,7 +1,7 @@
 // オプションのポジションの見せ方の純関数（#117。設計書 5.7・7.6・C47・C49・C50）。DOM・通信なし。
-// - 判定の枠と詳細の 1R の出どころの 1 語・最大損失の 1 行・向きの食い違いの 1 行・レッグを直した 1 行
-// - 詳細のレッグの行（損益つき。数字は無色 = 色の情報を持たない。C34）
-// - 一覧の行の「レッグ 3」
+// - 判定の枠と詳細の 1R の出どころの 1 語・最大損失の 1 行・向きの食い違いの 1 行・足を直した 1 行
+// - 詳細の足の行（損益つき。数字は無色 = 色の情報を持たない。C34）
+// - 一覧の行の「足 3」
 
 import type { OneRSource, OptionMaxLoss } from '../../../core/option';
 import { legPnlPrice } from '../../../core/option';
@@ -22,9 +22,9 @@ export const ONE_R_SOURCE_LABEL: Readonly<Record<OneRSource, string>> = {
 
 /** 向きの食い違い（C47。#114 の 2） */
 export const SIDE_MISMATCH =
-  'LC の向きとレッグの形の向きが合いません。エントリー時の原資産を確認してください';
-/** 直す画面でレッグを直したとき（4.7） */
-export const LEGS_EDITED = 'レッグを編集したので、損益はレッグの合計です';
+  'LC の向きと足の形の向きが合いません。エントリー時の原資産を確認してください';
+/** 直す画面で足を直したとき（4.7） */
+export const LEGS_EDITED = '足を編集したので、損益は足の合計です';
 /** 「最大損失まで」で負けた A の注記（#114 の 3。core の asPlannedLc の文言を替える） */
 export { MAX_LOSS_AS_PLANNED } from './reasons';
 
@@ -77,7 +77,7 @@ export function optionVerdictLines(
   };
 }
 
-/** 詳細のレッグの 1 行（720px 未満は 2 行のカード、以上は 1 行の表で同じ値を使う） */
+/** 詳細の足の 1 行（720px 未満は 2 行のカード、以上は 1 行の表で同じ値を使う） */
 export interface LegRowView {
   readonly id: string;
   readonly contractMonth: string;
@@ -130,8 +130,8 @@ export function legRows(t: Pick<StoredTrade, 'record' | 'snapshot'>): readonly L
   });
 }
 
-/** 一覧の行の 1 行目に添える「レッグ 3」（レッグの無い取引は null） */
+/** 一覧の行の 1 行目に添える「足 3」（足の無い取引は null） */
 export function legCountText(t: Pick<StoredTrade, 'record'>): string | null {
   const n = t.record.legs?.length;
-  return n === undefined ? null : `レッグ ${n}`;
+  return n === undefined ? null : `足 ${n}`;
 }

@@ -80,7 +80,7 @@ const posted = (fake: FakeApi): TradeRecord[] =>
 const rows3 = [optionRowJson(OPT_A1), optionRowJson(OPT_A2), ROW_E1, optionRowJson(OPT_B1)];
 
 describe('明細のオプションの行 → ポジションの下書き（7.6 の 1〜3）', () => {
-  it('同じ position の 2 行が 1 件のポジション。「1 / 3 件目」、レッグ 2 本・明細の損益の合計', async () => {
+  it('同じ position の 2 行が 1 件のポジション。「1 / 3 件目」、足 2 本・明細の損益の合計', async () => {
     const { c } = await opened(rows3);
     const s = c.getState();
     const st = s.statement;
@@ -101,7 +101,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(s.read.option).toBeDefined();
   });
 
-  it('記録すると本文にレッグ 2 本（時刻つき）・明細の損益・数量 1。次は先物の行、その次は別のポジション', async () => {
+  it('記録すると本文に足 2 本（時刻つき）・明細の損益・数量 1。次は先物の行、その次は別のポジション', async () => {
     const { fake, c } = await opened(rows3);
     typePosition(c);
     expect(c.getState().read.canSave).toBe(true);
@@ -123,7 +123,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
       entries: [{ price: 38_500, quantity: 1, time: OPT_A1.opened.epochMs }],
       exit: { price: 39_100, time: OPT_A2.closed.epochMs, orderType: 'unknown' },
     });
-    // 2 件目 = 先物の行（レッグなし）
+    // 2 件目 = 先物の行（足なし）
     const s2 = c.getState();
     expect(s2.statement?.index).toBe(1);
     expect(s2.statement?.notice).toBe('1 / 3 件目を記録しました。次の取引（2 / 3）です');
@@ -137,7 +137,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(s3.draft.pnlYen).toBe('-25300');
   });
 
-  it('[別のポジションにする] → 次の取引に。［このポジションに入れる］ で戻る（触った欄・直したレッグは保つ）', async () => {
+  it('[別のポジションにする] → 次の取引に。［このポジションに入れる］ で戻る（触った欄・直した足は保つ）', async () => {
     const { c } = await opened([optionRowJson(OPT_A1), optionRowJson(OPT_A2)]);
     c.update({ type: 'set', field: 'lc', value: '37800' });
     c.splitLeg(1);
@@ -154,7 +154,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(s.draft.legs).toHaveLength(2);
     expect(s.draft.pnlYen).toBe('98000');
     expect(s.statement?.notice).toBe(POSITION_MERGED(1));
-    // 手で足したレッグは分けても残る。1 本のポジション・手で足したレッグは分けない
+    // 手で追加した足は分けても残る。1 本のポジション・手で追加した足は分けない
     c.update({ type: 'set', field: 'legs', value: [...s.draft.legs, { ...EMPTY_LEG }] });
     c.splitLeg(2);
     expect(c.getState().statement?.units).toEqual([[0, 1]]);
@@ -164,7 +164,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(c.getState().statement?.units).toEqual([[1], [0]]);
   });
 
-  it('C54: 明細の逆指値 + 手で足した満期で消えた売り → 満期（SQ）・決済の理由はその他・決済の時刻は SQ の日', async () => {
+  it('C54: 明細の逆指値 + 手で追加した満期で消えた売り → 満期（SQ）・決済の理由はその他・決済の時刻は SQ の日', async () => {
     const { fake, c } = await opened([
       optionRowJson(OPT_A1),
       optionRowJson({ ...OPT_A2, order: 'stop' }),
@@ -194,11 +194,11 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     const [body] = posted(fake);
     expect(body?.exit).toMatchObject({ orderType: 'expiry', reason: 'other' });
     expect(body?.stopOrderPlaced).toBe('unanswered');
-    // 明細の損益は決済したレッグの分のまま（満期で消えたレッグは core が導出して足す。4.7）
+    // 明細の損益は決済した足の分のまま（満期で消えた足は core が導出して足す。4.7）
     expect(body?.statementPnlYen).toBe(98_000);
   });
 
-  it('4.7: 手で足した決済のレッグの損益を明細の損益に足して保存する（98,000 − 30,000 = 68,000）', async () => {
+  it('4.7: 手で追加した決済の足の損益を明細の損益に加えて保存する（98,000 − 30,000 = 68,000）', async () => {
     const { fake, c } = await opened([optionRowJson(OPT_A1), optionRowJson(OPT_A2)]);
     typePosition(c);
     const buy: LegDraft = {
@@ -332,7 +332,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(c.getState().statement?.marks.exitReason).toBeUndefined();
   });
 
-  it('レビュー 3: 損益の欄を本人が直したら、手で足したレッグの損益を足さない', async () => {
+  it('レビュー 3: 損益の欄を本人が直したら、手で追加した足の損益を加えない', async () => {
     const { fake, c } = await opened([optionRowJson(OPT_A1), optionRowJson(OPT_A2)]);
     typePosition(c);
     const buy: LegDraft = {
@@ -351,7 +351,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(posted(fake)[0]?.statementPnlYen).toBe(60_000);
   });
 
-  it('時間帯の無い明細: 時間帯を選ぶとレッグの時刻も入る', async () => {
+  it('時間帯の無い明細: 時間帯を選ぶと足の時刻も入る', async () => {
     const spec = (s: OptionRowSpec): OptionRowSpec => ({
       ...s,
       opened: unknownTz(s.opened.written),
@@ -366,7 +366,7 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
     expect(c.getState().draft.legs.every((l) => l.entryTime === undefined)).toBe(true);
   });
 
-  it('もう 1 枚を貼ると、前の明細のレッグは捨て、手で足したレッグは残す', async () => {
+  it('もう 1 枚を貼ると、前の明細の足は捨て、手で追加した足は残す', async () => {
     const fake = createFakeApi({
       instruments: [XYZOP],
       accounts: [defaultAccount(20_000_000)],
@@ -389,8 +389,8 @@ describe('明細のオプションの行 → ポジションの下書き（7.6 �
   });
 });
 
-describe('明細の削除とレッグ（#184 例 #10・AC-6）', () => {
-  it('明細から読んだレッグ 2 本 + 手で足したレッグ 1 本で削除 → 手で足した 1 本だけ残る。［元に戻す］ で 3 本', async () => {
+describe('明細の削除と足（#184 例 #10・AC-6）', () => {
+  it('明細から読んだ足 2 本 + 手で追加した足 1 本で削除 → 手で追加した 1 本だけ残る。［元に戻す］ で 3 本', async () => {
     const { c } = await opened([optionRowJson(OPT_A1), optionRowJson(OPT_A2)]);
     const hand: LegDraft = { ...EMPTY_LEG, optionType: 'C', strike: '40000', quantity: '1' };
     c.update({ type: 'set', field: 'legs', value: [...c.getState().draft.legs, hand] });

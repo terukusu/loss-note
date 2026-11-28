@@ -1,4 +1,4 @@
-// 取引の詳細のレッグの表（#117。設計書 7.6「列の幅が 720px 未満は 2 行のカードの並び。720px 以上は 1 行の表:
+// 取引の詳細の足の表（#117。設計書 7.6「列の幅が 720px 未満は 2 行のカードの並び。720px 以上は 1 行の表:
 // 限月 / P・C / 行使価格 / 売買 / 枚数 / イン / 決済 / 損益。窓ではなく列の幅のコンテナクエリ」）。hook を持たない。
 // 同じ行を 2 つの見せ方で持ち、CSS のコンテナクエリ（styles/legs.css）がどちらかを見せる。損益の数字に色は付けない（C34）
 import type { LegRowView } from '../lib/option-view';
@@ -10,7 +10,7 @@ export function LegTable({ rows }: { readonly rows: readonly LegRowView[] }) {
   return (
     <section class="card section legtable" aria-labelledby={LEG_TABLE_TITLE_ID}>
       <h2 class="section__title" id={LEG_TABLE_TITLE_ID}>
-        レッグ
+        足
       </h2>
       <div class="legtable__box">
         {/* 狭い列: 2 行のカード */}

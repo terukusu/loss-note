@@ -39,7 +39,7 @@ LC_BASES = ("chart", "amount")
 # cancelled = 置いた逆指値を持っている間に外した（取り消した。C56。after を持たない）
 LC_MOVES = ("none", "tightened", "widened", "cancelled")
 TIMEFRAME_CHANGES = ("none", "longer", "shorter")
-# expiry = 満期（SQ）: レッグを持つ取引だけ（C54。下の _check_legs）
+# expiry = 満期（SQ）: 足を持つ取引だけ（C54。下の _check_legs）
 ORDER_TYPES = ("stop", "market", "limit", "unknown", "expiry")
 # satisfied = TP の前に満足して（#203）
 EXIT_REASONS = (
@@ -212,7 +212,7 @@ _TRADE_FIELDS = (
     "lcDecidedBeforeEntry", "lcMove", "timeframeChange", "entries", "exit", "statementPnlYen", "fees",
     "entryChartTimeframe", "exitChartTimeframe", "extraCharts", "legs", "riskPlan", "lcLossPlanYen",
 )  # fmt: skip
-# オプションのポジションのレッグ（#116・設計書 4.7・C46。core/trade.ts の Leg と同じ形）
+# オプションのポジションの足（#116・設計書 4.7・C46。core/trade.ts の Leg と同じ形）
 MAX_LEGS = 10
 LEG_ID = re.compile(r"^l(?:10|[1-9])\Z")
 LEG_SIDES = ("buy", "sell")
@@ -224,7 +224,7 @@ RISK_PLANS = ("maxLoss",)
 _LEG_FIELDS = ("id", "optionType", "contractMonth", "strike", "side", "quantity", "entry", "exit")
 _LEG_ENTRY_FIELDS = ("price", "time")
 _LEG_EXIT_FIELDS = ("price", "time", "kind")
-# レッグを持つ取引では使わない前の欄（4.7。あれば 400）
+# 足を持つ取引では使わない前の欄（4.7。あれば 400）
 _PRE_LEG_FIELDS = ("contractMonth", "optionType", "strike")
 # 付属のチャート（#89）: 枠は x1〜x5、最大 5 枚、一言は 40 字まで（loss_note_api.charts と同じ値）
 EXTRA_CHART_SLOTS = ("x1", "x2", "x3", "x4", "x5")
@@ -471,7 +471,7 @@ def validate_trade(body: Any) -> tuple[dict | None, list[Issue]]:
 
 
 def _check_legs(t: dict, c: _Checker) -> None:
-    """レッグを持つ取引の欄同士の検査（設計書 4.7・C54・ADR-0020）。レッグの無い取引には新しい欄（riskPlan・
+    """足を持つ取引の欄同士の検査（設計書 4.7・C54・ADR-0020）。足の無い取引には新しい欄（riskPlan・
     lcLossPlanYen・満期（SQ））を持たせない（前からの取引の形を変えない）。
     最大損失が定まるかは見ない（画面が core で見る）"""
     legs = t.get("legs")
@@ -500,12 +500,12 @@ def _check_legs(t: dict, c: _Checker) -> None:
             c.add("entries[0].lc", "withRiskPlan")
         if "lcLossPlanYen" in t:
             c.add("lcLossPlanYen", "withRiskPlan")
-    # 満期（SQ）は満期で消えた売りのレッグがある（またはすべてのレッグが満期で消えた）ポジションだけ（C54）
+    # 満期（SQ）は満期で消えた売りの足がある（またはすべての足が満期で消えた）ポジションだけ（C54）
     if t["exit"]["orderType"] == "expiry":
         expired = [lg for lg in legs if lg["exit"]["kind"] == "expired"]
         if not (any(lg["side"] == "sell" for lg in expired) or len(expired) == len(legs)):
             c.add("exit.orderType", "expiry")
-    # レッグの時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えたレッグの決済の時刻 = SQ の日は見ない。C54）
+    # 足の時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えた足の決済の時刻 = SQ の日は見ない。C54）
     start, end = entry.get("time"), t["exit"]["time"]
     for i, lg in enumerate(legs):
         times = [("entry", lg["entry"].get("time"))]

@@ -262,8 +262,8 @@ export function detailOffer(
   accounts: readonly AccountRecord[],
 ): ResnapshotOffer | null {
   if (editBlock(trade) !== null) return null;
-  // レッグを持つ取引（#116）: 下書き・保存の本文はレッグを写さない（edit-form.ts）ので、比べた 前 → 後 がレッグ抜きの値になり、
-  // 詳細の判定の枠と食い違う。見るだけの詳細では値を出さない（レッグの画面で決め直す。#117・#131 のレビュー N3）
+  // 足を持つ取引（#116）: 下書き・保存の本文は足を写さない（edit-form.ts）ので、比べた 前 → 後 が足抜きの値になり、
+  // 詳細の判定の枠と食い違う。見るだけの詳細では値を出さない（足の画面で決め直す。#117・#131 のレビュー N3）
   if ((trade.record.legs?.length ?? 0) > 0) return null;
   const draft = draftFromStored(trade, instruments);
   const ctx = editContext(trade, instruments, accounts);

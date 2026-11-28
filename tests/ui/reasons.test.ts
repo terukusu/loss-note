@@ -51,7 +51,7 @@ describe('reasonText（AC-4）', () => {
     expect(reasonText({ kind: 'lcWidened' }, 'L')).toBe('LC を広げた');
   });
 
-  it('レッグを持つ取引の持ち続けたは決済したときの原資産を見せる（設計書 5.7。#113）', () => {
+  it('足を持つ取引の持ち続けたは決済したときの原資産を見せる（設計書 5.7。#113）', () => {
     expect(reasonText({ kind: 'heldPastLc', underlying: 37_300, r: -1.2 }, 'L')).toBe(
       'LC で切らずに持ち続けた（原資産 37,300）',
     );

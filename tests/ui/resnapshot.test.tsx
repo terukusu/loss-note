@@ -701,7 +701,7 @@ describe('詳細の比較（#131）: detailOffer・?values=current', () => {
     expect(detailOffer(multi, [IDX], [account('default', '口座 1', 1_000_000)])).toBeNull();
   });
 
-  it('レッグを持つ取引は比べない（下書きがレッグを写さず、前 → 後 がレッグ抜きの値になるため。#131 のレビュー N3）', () => {
+  it('足を持つ取引は比べない（下書きが足を写さず、前 → 後 が足抜きの値になるため。#131 のレビュー N3）', () => {
     const withLegs = {
       ...X1,
       record: { ...X1.record, legs: [{}] },

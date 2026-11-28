@@ -63,7 +63,7 @@ class _NeedDefault(Exception):
 
 class UnknownSchemaVersion(Exception):
     """保存済みの取引の版（schemaVersion）がこの版の知る値より大きい（409。Issue #115・ADR-0020 の決定 7 の (a)）。
-    直すと知らない欄（レッグなど）を落とすので、取引の直し・チャートの差し替え・外すは何も書かない"""
+    直すと知らない欄（足など）を落とすので、取引の直し・チャートの差し替え・外すは何も書かない"""
 
 
 def check_known_version(doc: dict) -> None:
@@ -85,7 +85,7 @@ MutateAccount = Callable[[Doc, Callable[[], bool]], Doc]
 # 取引の作成: (銘柄, 口座) -> 保存する文書
 BuildTrade = Callable[[Doc, Doc], Doc]
 # 取引の直し: (今の文書, 付け替え先の銘柄 or None, 付け替え先の口座 or None) -> 新しい文書
-# （InvalidRecord・Conflict〔レッグを落とす本文。#116〕を投げれば何も書かない）。作成の BuildTrade も InvalidRecord を
+# （InvalidRecord・Conflict〔足を落とす本文。#116〕を投げれば何も書かない）。作成の BuildTrade も InvalidRecord を
 # 投げれば取引を書かない
 MutateTrade = Callable[[Doc, Doc | None, Doc | None], Doc]
 # チャートの文書 {contentType, data}。枠（"entry" / "exit"）ごと

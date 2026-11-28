@@ -99,7 +99,7 @@ export function draftFromStored(t: StoredTrade, instruments: readonly Instrument
     entryChartTimeframe: r.entryChartTimeframe ?? null,
     exitChartTimeframe: r.exitChartTimeframe ?? null,
     accountId: accountIdOf(r),
-    // オプションのポジション（#117。レッグを落とさない。#116 の 409）
+    // オプションのポジション（#117。足を落とさない。#116 の 409）
     legs: r.legs === undefined ? [] : legDraftsFromStored(r.legs),
     lcMaxLoss: maxLoss,
     lcLossPlan: r.lcLossPlanYen === undefined ? '' : formatPlain(r.lcLossPlanYen),
@@ -257,7 +257,7 @@ export function mergeEdit(
     ...(body.exitChartTimeframe === undefined
       ? {}
       : { exitChartTimeframe: body.exitChartTimeframe }),
-    // レッグ・1R の決め方・見込みは下書きの本文から（レッグを持つ取引は必ず legs を送る。#116 の守り (b)・#117）
+    // 足・1R の決め方・見込みは下書きの本文から（足を持つ取引は必ず legs を送る。#116 の守り (b)・#117）
     ...(body.legs === undefined ? {} : { legs: body.legs }),
     ...(body.riskPlan === undefined ? {} : { riskPlan: body.riskPlan }),
     ...(body.lcLossPlanYen === undefined ? {} : { lcLossPlanYen: body.lcLossPlanYen }),

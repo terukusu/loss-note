@@ -1,5 +1,5 @@
 // 明細のオプションの行をポジションの下書きにまとめる純関数（#118。ui/src/lib/statement-positions.ts・statement-fill.ts の
-// option の検査・record-form.ts の明細の損益 + 手で足したレッグ）。値はすべて架空（手計算の例は各テストの注）
+// option の検査・record-form.ts の明細の損益 + 手で追加した足）。値はすべて架空（手計算の例は各テストの注）
 import { describe, expect, it } from 'vitest';
 import type { InstrumentRecord } from '../../core/record';
 import { toLocalInput } from '../../ui/src/lib/datetime';
@@ -216,8 +216,8 @@ describe('合成の行（unitRow）', () => {
   });
 });
 
-describe('レッグの下書き（7.6 の 3）', () => {
-  it('明細の行 → レッグ（P / C・限月・行使価格・売買・枚数・建値・決済値・時刻・読み取りの印）', () => {
+describe('足の下書き（7.6 の 3）', () => {
+  it('明細の行 → 足（P / C・限月・行使価格・売買・枚数・建値・決済値・時刻・読み取りの印）', () => {
     const l = legDraftOf(raw[0] as ReadRow, 0, [0, 1], null);
     expect(l).toEqual({
       optionType: 'P',
@@ -262,7 +262,7 @@ describe('レッグの下書き（7.6 の 3）', () => {
     expect(tokyo[0]?.exitTime).toBe(OPT_A1.closed.epochMs);
     expect(legsWithZone(tokyo, [row as ReadRow], null)[0]?.entryTime).toBeUndefined();
   });
-  it('まとめ直しても、本人が直したレッグ（同じ明細の行）と手で足したレッグは保つ', () => {
+  it('まとめ直しても、本人が直した足（同じ明細の行）と手で追加した足は保つ', () => {
     const r = unitRow(raw, [0, 1]) as ReadRow;
     const first = unitLegs([], r, null);
     const edited = [{ ...(first[0] as LegDraft), quantity: '3' }, first[1] as LegDraft];
@@ -337,7 +337,7 @@ describe('C54: 注文の種類が満期（SQ）になったら明細の逆指値
     exitPrice: '0',
     expired: true,
   };
-  it('決済したレッグだけ: 逆指値の既定のまま（決済の理由 = LC・逆指値を入れた）', () => {
+  it('決済した足だけ: 逆指値の既定のまま（決済の理由 = LC・逆指値を入れた）', () => {
     const { draft, marks, row } = positionDraft(stop);
     expect(draft).toMatchObject({ exitReason: 'lc', stopOrderPlaced: 'placed' });
     const s = syncExpiry(draft, marks, new Set(), row, null);
@@ -382,7 +382,7 @@ describe('C54: 注文の種類が満期（SQ）になったら明細の逆指値
     const s = syncExpiry({ ...draft, legs: [...draft.legs, buy] }, marks, new Set(), row, null);
     expect(s.draft).toMatchObject({ exitReason: 'lc', stopOrderPlaced: 'placed' });
   });
-  it('手の記録・レッグがそろっていない間は変えない', () => {
+  it('手の記録・足がそろっていない間は変えない', () => {
     const { draft, marks, row } = positionDraft(stop);
     const manual = { ...draft, source: 'manual' as const, legs: [...draft.legs, expiredSell] };
     expect(syncExpiry(manual, marks, new Set(), row, null).draft).toBe(manual);
@@ -391,7 +391,7 @@ describe('C54: 注文の種類が満期（SQ）になったら明細の逆指値
   });
 });
 
-describe('4.7: 手で足した決済のレッグの損益を明細の損益に足す', () => {
+describe('4.7: 手で追加した決済の足の損益を明細の損益に加える', () => {
   /** P 35,000 買い 1（50 → 20）: (20 − 50) × 1 × 1,000 = −30,000 */
   const closedBuy: LegDraft = {
     ...EMPTY_LEG,
@@ -411,14 +411,14 @@ describe('4.7: 手で足した決済のレッグの損益を明細の損益に�
     // 足さなければ明細の損益のまま
     expect(readDraft(draft, ctx).body?.statementPnlYen).toBe(98_000);
   });
-  it('満期で消えたレッグは足さない（core が導出して足す）', () => {
+  it('満期で消えた足は加えない（core が導出して足す）', () => {
     const { draft } = positionDraft([OPT_A1, OPT_A2]);
     const expired = { ...closedBuy, expired: true, exitPrice: '0' };
     expect(readDraft({ ...draft, legs: [...draft.legs, expired] }, ctx).body?.statementPnlYen).toBe(
       98_000,
     );
   });
-  it('為替が要るのに無ければ明細の損益を空に（レッグの合計）。為替があれば掛けて足す', () => {
+  it('為替が要るのに無ければ明細の損益を空に（足の合計）。為替があれば掛けて足す', () => {
     const { draft } = positionDraft([OPT_A1, OPT_A2]);
     const drafts = [...draft.legs, closedBuy];
     const legs = readLegs(drafts).legs ?? [];
@@ -431,7 +431,7 @@ describe('4.7: 手で足した決済のレッグの損益を明細の損益に�
       dropped: false,
     });
   });
-  it('明細のレッグを消した・満期で消滅にした → 明細の損益を空にして 1 行「損益はレッグの合計」', () => {
+  it('明細の足を消した・満期で消滅にした → 明細の損益を空にして 1 行「損益は足の合計」', () => {
     const { draft } = positionDraft([OPT_A1, OPT_A2]);
     const removed = readDraft({ ...draft, legs: [draft.legs[0] as LegDraft] }, ctx);
     expect(removed.body?.statementPnlYen).toBeUndefined();
@@ -445,7 +445,7 @@ describe('4.7: 手で足した決済のレッグの損益を明細の損益に�
     );
     expect(expired.body?.statementPnlYen).toBeUndefined();
   });
-  it('明細の損益が無ければ何もしない。明細のレッグが無い（手の記録）なら何もしない', () => {
+  it('明細の損益が無ければ何もしない。明細の足が無い（手の記録）なら何もしない', () => {
     expect(statementPnlWithLegs(undefined, [], [], 1_000, 1)).toEqual({
       pnl: undefined,
       dropped: false,
@@ -458,15 +458,15 @@ describe('4.7: 手で足した決済のレッグの損益を明細の損益に�
   });
 });
 
-describe('レッグの時刻とポジションの時刻の範囲（API の outOfPosition を保存の前に）', () => {
-  it('決済の時刻を最後のレッグの決済より前にすると誤り', () => {
+describe('足の時刻とポジションの時刻の範囲（API の outOfPosition を保存の前に）', () => {
+  it('決済の時刻を最後の足の決済より前にすると誤り', () => {
     const { draft } = positionDraft([OPT_A1, OPT_A2]);
     const early = toLocalInput(jst(2026, 12, 22, 13, 0).epochMs as number);
     const r = readDraft({ ...draft, exitTime: early }, ctx);
     expect(r.errors.exitTime).toBeDefined();
     expect(r.canSave).toBe(false);
   });
-  it('エントリーの時刻を最初のレッグの建てより後にすると誤り', () => {
+  it('エントリーの時刻を最初の足の建てより後にすると誤り', () => {
     const { draft } = positionDraft([OPT_A1, OPT_A2]);
     const late = toLocalInput(jst(2026, 12, 8, 10, 0).epochMs as number);
     expect(readDraft({ ...draft, entryTime: late }, ctx).errors.entryTime).toBeDefined();
@@ -510,7 +510,7 @@ describe('銘柄の当て方（レビュー B1）: オプションの形の銘�
 });
 
 describe('一覧に無いときはオプションの銘柄を足す案（乗数は本人が入れる）', () => {
-  it('乗数が空なら足りない欄。入れるとレッグを読み、足す銘柄の欄を本文の隣に', () => {
+  it('乗数が空なら足りない欄。入れると足を読み、追加する銘柄の欄を本文の隣に', () => {
     const { draft } = positionDraft([OPT_A1, OPT_A2], { instrumentName: '架空225オプション' });
     const none = readDraft(draft, { ...ctx, instruments: [N225F] });
     expect(none.option?.newInstrument).toBe('架空225オプション');
@@ -561,7 +561,7 @@ describe('保存の門: 先物・CFD の銘柄の名前を打ったポジショ�
 });
 
 describe('次のポジションの見出し・2 段目の要約（デザインレビュー 2・5・1）', () => {
-  it('エントリーの日と 1 本目のレッグの 1 行', () => {
+  it('エントリーの日と 1 本目の足の 1 行', () => {
     const units = initialUnits(raw);
     expect(nextPositionView(raw, units, 0)).toEqual({
       legs: 1,
@@ -570,15 +570,15 @@ describe('次のポジションの見出し・2 段目の要約（デザイン�
     });
     expect(nextPositionView(raw, units, 2)).toBeNull();
   });
-  it('要約の 1 行目は銘柄だけ、2 行目の先頭に向きとレッグの本数。年を補ったレッグがあれば札', () => {
+  it('要約の 1 行目は銘柄だけ、2 行目の先頭に向きと足の本数。年を補った足があれば札', () => {
     const rows = parsed([optionRowJson({ ...OPT_A1, inferred: true }), optionRowJson(OPT_A2)]);
     const row = unitRow(rows, [0, 1]) as ReadRow;
     const d = { ...positionDraft([OPT_A1, OPT_A2]).draft, legs: unitLegs([], row, null) };
     const r = readDraft(d, ctx);
     const sum = tradeSummary(d, r.errors, {}, r.option);
     expect(sum.name).toBe('架空指数XYZOP');
-    expect(sum.line2Parts.slice(0, 2)).toEqual(['L ·', 'レッグ 2 ·']);
-    expect(sum.line2.startsWith('L · レッグ 2 · 原資産 イン ')).toBe(true);
+    expect(sum.line2Parts.slice(0, 2)).toEqual(['L ·', '足 2 ·']);
+    expect(sum.line2.startsWith('L · 足 2 · 原資産 イン ')).toBe(true);
     expect(sum.yearInferred).toBe(true);
   });
   it('1 段目の数え方は「件」（明細の行の数を添える）', () => {

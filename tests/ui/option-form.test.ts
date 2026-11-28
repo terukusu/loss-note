@@ -66,7 +66,7 @@ const base: Draft = {
   timeframeChange: 'none',
 };
 
-// 5.7 の満期で消えたレッグの例: P 37,000 買い 1（300・満期で消滅）、P 36,000 売り 1（150 → 30・明細の損益 +120,000 円）
+// 5.7 の満期で消えた足の例: P 37,000 買い 1（300・満期で消滅）、P 36,000 売り 1（150 → 30・明細の損益 +120,000 円）
 const expiredExample: Draft = {
   ...base,
   entryPrice: '38500',
@@ -140,15 +140,15 @@ const nakedWin: Draft = {
 };
 
 describe('オプションの形の欄（AC-1）', () => {
-  it('先物の銘柄はレッグを読まない（option なし・数量と L / S を聞く）', () => {
+  it('先物の銘柄は足を読まない（option なし・数量と L / S を聞く）', () => {
     const r = readDraft({ ...nakedWin, instrumentName: FUT.name }, ctx());
     expect(r.option).toBeUndefined();
     expect(r.missing).toEqual(['L / S', '数量']);
     expect(r.body).toBeUndefined();
   });
-  it('オプションの銘柄はレッグを読み、数量・L / S を聞かない', () => {
+  it('オプションの銘柄は足を読み、数量・L / S を聞かない', () => {
     const r = readDraft({ ...nakedWin, legs: [] }, ctx());
-    expect(r.missing).toEqual(['レッグ']);
+    expect(r.missing).toEqual(['足']);
     expect(r.option?.askSide).toBe(false);
   });
   it('原資産の欄の名前で足りない欄を名指す', () => {
@@ -157,10 +157,10 @@ describe('オプションの形の欄（AC-1）', () => {
       'エントリー時の原資産',
       '決済時の原資産',
       'LC（原資産・「なし」・「最大損失まで」）',
-      'レッグ',
+      '足',
     ]);
   });
-  it('レッグの欄に誤りがあれば保存できない', () => {
+  it('足の欄に誤りがあれば保存できない', () => {
     const r = readDraft(
       { ...nakedWin, legs: [leg({ ...nakedWin.legs[0], quantity: 'x' })] },
       ctx(),
@@ -201,7 +201,7 @@ describe('向き（C47）', () => {
     expect(r.missing).toContain('L / S');
     expect(readDraft({ ...d, side: 'S' }, ctx()).body?.side).toBe('S');
   });
-  it('LC が L、レッグの満期の損益の比べ方が S なら食い違いの 1 行（AC-7）', () => {
+  it('LC が L、足の満期の損益の比べ方が S なら食い違いの 1 行（AC-7）', () => {
     // コールの売りの裸（上がるほど損 = S の形）なのに LC を下に置いた（L）
     const d: Draft = {
       ...nakedWin,
@@ -222,7 +222,7 @@ describe('向き（C47）', () => {
   });
 });
 
-describe('満期で消えたレッグ（AC-4・4.7 の例）', () => {
+describe('満期で消えた足（AC-4・4.7 の例）', () => {
   it('損益 = 明細 +120,000 + (−300 × 1 × 1,000) = −180,000 円（負け）。決済の時刻は SQ の日の終わり', () => {
     const r = readDraft(expiredExample, ctx());
     expect(r.preview.pnlYen).toBe(-180_000);
@@ -281,7 +281,7 @@ describe('「最大損失まで」（AC-5・C50・#114 の 1・3）', () => {
       readDraft({ ...maxLossExample, lcLossPlan: '90000' }, ctx()).body?.lcLossPlanYen,
     ).toBeUndefined();
   });
-  it('レッグを変えて定まらなくなったら LC を選び直す', () => {
+  it('足を変えて定まらなくなったら LC を選び直す', () => {
     const r = readDraft({ ...maxLossExample, legs: nakedWin.legs }, ctx());
     expect(r.missing).toContain('LC（原資産・「なし」・「最大損失まで」）');
   });
@@ -365,7 +365,7 @@ describe('直す画面（AC-9・KEEP-3）', () => {
     if (!r.body) throw new Error('本文が無い');
     expect(mergeEdit(t.record, d, d, r.body, XYZ.id)).toEqual(t.record);
   });
-  it('レッグを直すと明細の損益を空にし、1 行を出す（4.7）', () => {
+  it('足を直すと明細の損益を空にし、1 行を出す（4.7）', () => {
     const t = stored(expiredExample);
     expect(t.record.statementPnlYen).toBe(120_000);
     const d0 = draftFromStored(t, [XYZ]);
@@ -373,7 +373,7 @@ describe('直す画面（AC-9・KEEP-3）', () => {
     const r = readDraft({ ...d0, legs }, editContext(t, [XYZ]));
     expect(r.option?.legsEdited).toBe(true);
     expect(r.body?.statementPnlYen).toBeUndefined();
-    // 損益 = レッグの合計 = −300,000 + 130,000 = −170,000 円
+    // 損益 = 足の合計 = −300,000 + 130,000 = −170,000 円
     expect(r.preview.pnlYen).toBe(-170_000);
     expect(optionVerdictLines(r.preview.option, 'JPY', { legsEdited: true }).warnings).toContain(
       LEGS_EDITED,
@@ -383,7 +383,7 @@ describe('直す画面（AC-9・KEEP-3）', () => {
     expect(merged.statementPnlYen).toBeUndefined();
     expect(merged.legs?.[1]?.exit.price).toBe(20);
   });
-  it('レッグの無い前からのオプションの取引はレッグを読まない（今の形のまま。KEEP-3）', () => {
+  it('足の無い前からのオプションの取引は足を読まない（今の形のまま。KEEP-3）', () => {
     const legacy: StoredTrade = {
       ...stored(nakedWin),
       schemaVersion: 1,
@@ -442,14 +442,14 @@ describe('詳細と一覧（AC-10・AC-11）', () => {
       accountCurrency: 'JPY',
     },
   };
-  it('レッグの行: 損益は sign × (決済 − イン) × 枚数 × 乗数', () => {
+  it('足の行: 損益は sign × (決済 − イン) × 枚数 × 乗数', () => {
     expect(legRows(t).map((r) => [r.head, r.prices, r.pnl])).toEqual([
       ['買い 1 · P 37,000 · 2027-01', '300 → 0 満期で消滅', '−300,000円'],
       ['売り 1 · P 36,000 · 2027-01', '150 → 30', '+120,000円'],
     ]);
   });
-  it('一覧の「レッグ 2」。レッグの無い取引は無し', () => {
-    expect(legCountText(t)).toBe('レッグ 2');
+  it('一覧の「足 2」。足の無い取引は無し', () => {
+    expect(legCountText(t)).toBe('足 2');
     const { legs: _legs, ...noLegs } = t.record;
     expect(legCountText({ record: noLegs })).toBeNull();
   });

@@ -66,7 +66,7 @@ describe('手計算の例（5.7）', () => {
     expect(ev.judgment?.reasons).toContainEqual({ kind: 'riskNotChecked', cause: 'noOneR' });
   });
 
-  it('満期で消えたレッグ: 明細 +120,000 円 + 消えた買い −300,000 円 = −180,000 円（負け）', () => {
+  it('満期で消えた足: 明細 +120,000 円 + 消えた買い −300,000 円 = −180,000 円（負け）', () => {
     const t = position(
       [
         expiredLeg('P', 37_000, 'buy', 1, 300, 0, SQ),
@@ -89,15 +89,15 @@ describe('ポジションの損益（4.7）', () => {
     leg('C', 40_000, 'buy', 1, 80, 150),
   ];
 
-  it('明細の損益が無ければ、すべてのレッグの導出の損益の合計（−120,000 + 120,000 + 70,000）', () => {
+  it('明細の損益が無ければ、すべての足の導出の損益の合計（−120,000 + 120,000 + 70,000）', () => {
     expect(positionPnlYen(position(legs, 39_100))).toBe(70_000);
   });
 
-  it('満期で消えたレッグが無ければ明細の損益をそのまま使う', () => {
+  it('満期で消えた足が無ければ明細の損益をそのまま使う', () => {
     expect(positionPnlYen(position(legs, 39_100, { statementPnlYen: 65_000 }))).toBe(65_000);
   });
 
-  it('ITM で消えたレッグは sign × (決済値 − 建値) で足す', () => {
+  it('ITM で消えた足は sign × (決済値 − 建値) で足す', () => {
     // 売りのプット 100 → 本源的価値 200: −100,000 円。明細の損益 +50,000 円
     const t = position(
       [leg('C', 39_000, 'buy', 1, 100, 150), expiredLeg('P', 36_500, 'sell', 1, 100, 200)],
@@ -120,7 +120,7 @@ describe('ポジションの損益（4.7）', () => {
     expect(positionPnlYen(t)).toBeCloseTo(7_500, 9);
   });
 
-  it('外貨建てで為替が空: 消えたレッグがあれば損益・R を出さず（見込みの 1R は出す）、勝ち負けは価格の通貨の合計の符号', () => {
+  it('外貨建てで為替が空: 消えた足があれば損益・R を出さず（見込みの 1R は出す）、勝ち負けは価格の通貨の合計の符号', () => {
     const usd = { multiplier: 100, quantityStep: 1, priceInAccountCurrency: false } as const;
     const t = position(
       [expiredLeg('P', 37_000, 'buy', 1, 3, 0), leg('P', 36_000, 'sell', 1, 1.5, 0.3)],
@@ -170,7 +170,7 @@ describe('ポジションの損益（4.7）', () => {
     expect(kinds).toContain('overRisk');
   });
 
-  it('外貨建てで為替が空でも、消えたレッグが無ければ明細の損益を使う', () => {
+  it('外貨建てで為替が空でも、消えた足が無ければ明細の損益を使う', () => {
     const usd = { multiplier: 100, quantityStep: 1, priceInAccountCurrency: false } as const;
     const t = position([leg('P', 36_000, 'sell', 1, 1.5, 0.3)], 38_400, {
       instrument: usd,
@@ -203,7 +203,7 @@ describe('勝ち負けの境（C48）', () => {
     expect(ok(evaluateTrade(ivLoss)).judgment?.outcome).toBe('loss');
   });
 
-  it('明細の損益が無ければ、レッグの導出の合計に手数料を足さない（−1,000 円・手数料 1,500 円 → 負け）', () => {
+  it('明細の損益が無ければ、足の導出の合計に手数料を足さない（−1,000 円・手数料 1,500 円 → 負け）', () => {
     // P 36,000 売り 1、150 → 151（−1,000 円）。手数料を足すと +500 円の勝ちに化ける
     const t = position([leg('P', 36_000, 'sell', 1, 150, 151)], 38_600, { feesTotalYen: 1_500 });
     expect(positionPnlYen(t)).toBe(-1_000);
@@ -213,9 +213,9 @@ describe('勝ち負けの境（C48）', () => {
     expect(ev.judgment?.grade).toBe('A');
   });
 
-  it('レッグを直して明細の損益を空にした後も（手数料は残る）、レッグの合計が手数料を除いた損益', () => {
+  it('足を直して明細の損益を空にした後も（手数料は残る）、足の合計が手数料を除いた損益', () => {
     // 記録したときは明細の損益 −3,000 円・手数料 1,000 円（手数料を除いた損益 −2,000 円）。
-    // レッグを直して明細の損益を空にした（4.7）→ レッグの合計 −2,000 円のまま。手数料 1,000 円を足さない
+    // 足を直して明細の損益を空にした（4.7）→ 足の合計 −2,000 円のまま。手数料 1,000 円を足さない
     const legs = [leg('P', 36_000, 'sell', 1, 150, 152)];
     const before = position(legs, 38_600, { statementPnlYen: -3_000, feesTotalYen: 1_000 });
     const after = position(legs, 38_600, { feesTotalYen: 1_000 });
@@ -223,7 +223,7 @@ describe('勝ち負けの境（C48）', () => {
     expect(positionNetYen(after)).toBe(-2_000);
   });
 
-  it('明細の損益があれば、明細の損益 + 手数料 + 満期で消えたレッグ', () => {
+  it('明細の損益があれば、明細の損益 + 手数料 + 満期で消えた足', () => {
     // 明細 +118,000 円（手数料 2,000 円込み）+ 消えた買い −300,000 円 → −180,000 円
     const t = position(
       [expiredLeg('P', 37_000, 'buy', 1, 300, 0), leg('P', 36_000, 'sell', 1, 150, 30)],
@@ -334,7 +334,7 @@ describe('決済の時点と注文の種類（C54）', () => {
     expect(positionExitOrderType([closedBuy, expiredSell], 'stop')).toBe('expiry');
   });
 
-  it('決済したレッグが SQ より後なら（限月が違う）、その決済の時点に戻る', () => {
+  it('決済した足が SQ より後なら（限月が違う）、その決済の時点に戻る', () => {
     const later = leg('C', 40_000, 'buy', 1, 80, 150, { time: SQ + 86_400_000 }, '2027-02');
     expect(positionExitPoint([expiredSell, later])?.kind).toBe('closed');
     expect(positionExitOrderType([expiredSell, later], 'market')).toBe('market');
@@ -354,7 +354,7 @@ describe('決済の時点と注文の種類（C54）', () => {
     expect(positionExitOrderType([a, b], 'market')).toBe('expiry');
   });
 
-  it('判定は入力の注文の種類を信じず、レッグから導き直す（明細の逆指値が残っていても SQ まで残した売りを救わない）', () => {
+  it('判定は入力の注文の種類を信じず、足から導き直す（明細の逆指値が残っていても SQ まで残した売りを救わない）', () => {
     const t = position([closedBuy, expiredSell], 37_000, {}, { orderType: 'stop' });
     const ev = ok(evaluateTrade(t));
     const kinds = ev.judgment?.reasons.map((r) => r.kind);
@@ -373,7 +373,7 @@ describe('決済の時点と注文の種類（C54）', () => {
     expect(ev.judgment?.reasons.map((r) => r.kind)).toContain('asPlannedLc');
   });
 
-  it('数えるレッグに時刻の無いものがあり 2 本以上なら時点は決まらず、満期で消えた売りがあれば満期（SQ）', () => {
+  it('数える足に時刻の無いものがあり 2 本以上なら時点は決まらず、満期で消えた売りがあれば満期（SQ）', () => {
     const noTime: Leg = leg('C', 40_000, 'buy', 1, 80, 150);
     expect(positionExitPoint([noTime, expiredSell])).toBeUndefined();
     expect(positionExitOrderType([noTime, expiredSell], 'stop')).toBe('expiry');
@@ -381,7 +381,7 @@ describe('決済の時点と注文の種類（C54）', () => {
     expect(positionExitOrderType([noTime, noTime2], 'stop')).toBe('stop');
   });
 
-  it('数えるレッグが 1 本なら時刻が無くてもそのレッグ', () => {
+  it('数える足が 1 本なら時刻が無くてもその足', () => {
     const only = leg('P', 37_000, 'sell', 1, 150, 220);
     expect(positionExitPoint([only, expiredBuy])).toEqual({ kind: 'closed', legId: only.id });
   });
@@ -478,11 +478,11 @@ describe('向き（C47 の LC の側）', () => {
   });
 });
 
-describe('レッグの検査（4.7）', () => {
+describe('足の検査（4.7）', () => {
   const base = position([leg('P', 36_000, 'sell', 1, 150, 420)], 37_300);
   const withLegs = (legs: readonly Leg[]) => {
     const o = base.option;
-    if (o === undefined) throw new Error('レッグが無い');
+    if (o === undefined) throw new Error('足が無い');
     return { ...base, option: { ...o, legs: legs as [Leg, ...Leg[]] } };
   };
   const one = (over: Partial<Leg>): Leg => ({
@@ -495,7 +495,7 @@ describe('レッグの検査（4.7）', () => {
     expect(validateTrade(base)).toEqual([]);
   });
 
-  it('レッグは 1〜10 本', () => {
+  it('足は 1〜10 本', () => {
     expect(validateTrade(withLegs([]))).toContainEqual({ kind: 'legs', problem: 'count' });
     const eleven = Array.from({ length: 11 }, (_, i) => one({ id: `l${i + 1}` }));
     expect(validateTrade(withLegs(eleven))).toContainEqual({ kind: 'legs', problem: 'count' });

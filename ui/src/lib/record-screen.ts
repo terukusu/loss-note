@@ -84,9 +84,9 @@ export interface TradeSummary {
    * 分からなかった）
    */
   readonly name: string;
-  /** 限月の年を補ったまま（本人が直していない）のレッグがある（注意の札。#118 のデザインレビュー 1） */
+  /** 限月の年を補ったまま（本人が直していない）の足がある（注意の札。#118 のデザインレビュー 1） */
   readonly yearInferred?: boolean;
-  /** 2 行目: 「L · 数量 1 · イン 100 → 決済 99.2」（オプションの形は「L · レッグ 2 · 原資産 イン … → 決済 …」） */
+  /** 2 行目: 「L · 数量 1 · イン 100 → 決済 99.2」（オプションの形は「L · 足 2 · 原資産 イン … → 決済 …」） */
   readonly line2: string;
   /**
    * 2 行目を折り返してよい所で分けたもの（間は空白 1 つ。join(' ') で line2）。区切りの「·」「→」は前の塊の末尾に付け、
@@ -134,7 +134,7 @@ export function tradeSummary(
   errors: DraftReading['errors'],
   marks: Marks,
   /**
-   * オプションの形（#117。readDraft の option）。渡すと数量の代わりにレッグの本数、L / S は自動の向き（出ないときだけ名指す）
+   * オプションの形（#117。readDraft の option）。渡すと数量の代わりに足の本数、L / S は自動の向き（出ないときだけ名指す）
    */
   option?: DraftReading['option'],
   /** 口座の通貨（明細の損益の書き方。省いたら JPY） */
@@ -150,7 +150,7 @@ export function tradeSummary(
   const entry = numText(draft.entryPrice, formatPrice);
   const exit = numText(draft.exitPrice, formatPrice);
   // 見出しを付ける（「100 → 99.2」だけでは何の数か分からない。#164）。画面は塊ごとに次の行へ回す（区切りは塊の末尾）
-  const size = option ? `レッグ ${draft.legs.length}` : `数量 ${qty}`;
+  const size = option ? `足 ${draft.legs.length}` : `数量 ${qty}`;
   const inLabel = option ? '原資産 イン' : 'イン';
   const line2Parts = [`${side} ·`, `${size} ·`, `${inLabel} ${entry} →`, `決済 ${exit}`];
   const time = errors.exitTime !== undefined ? DASH : timeText(draft.exitTime);
@@ -210,7 +210,7 @@ export function tradeSummary(
   };
 }
 
-/** 明細の損益（読めて誤りが無いときだけ。無い・読めない・レッグを直して使わないときは出さない = null） */
+/** 明細の損益（読めて誤りが無いときだけ。無い・読めない・足を直して使わないときは出さない = null） */
 function pnlText(raw: string, skip: boolean, currency: string): string | null {
   const t = raw.trim();
   if (skip || t === '') return null;
@@ -321,11 +321,11 @@ export type RecordSheet =
   | {
       readonly kind: 'fields';
       /**
-       * main = 取引の欄、more = ほかの欄（任意。同じシートの次の段）、leg = レッグ 1 本の欄（#117。同じシートの次の段。
+       * main = 取引の欄、more = ほかの欄（任意。同じシートの次の段）、leg = 足 1 本の欄（#117。同じシートの次の段。
        * 同時に開くのは 1 本。設計書 7.6）
        */
       readonly step: 'main' | 'more' | 'leg';
-      /** step = leg のときのレッグの並びの番号（0 から） */
+      /** step = leg のときの足の並びの番号（0 から） */
       readonly leg?: number;
       /** 開いたときにフォーカスする欄（要約の名指しから開いた） */
       readonly focus?: DraftField;
@@ -455,7 +455,7 @@ export function stage1Statement(
     | {
         readonly phase: StatementPhaseLike;
         readonly rows: { readonly length: number };
-        /** 応答の行（オプションのレッグをポジションにまとめる前。#118）。省けば rows */
+        /** 応答の行（オプションの足をポジションにまとめる前。#118）。省けば rows */
         readonly raw?: { readonly length: number } | undefined;
       }
     | undefined,

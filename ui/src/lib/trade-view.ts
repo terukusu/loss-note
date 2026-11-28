@@ -70,7 +70,7 @@ export interface TradeRow {
   readonly accountName?: string;
   /** L / S（記号だけ） */
   readonly sideText: string;
-  /** オプションのポジションのレッグの数（「レッグ 3」。#117・設計書 7.6。レッグの無い取引には無い） */
+  /** オプションのポジションの足の数（「足 3」。#117・設計書 7.6。足の無い取引には無い） */
   readonly legsText?: string;
   readonly dateText: string;
   /** 決済の日付（time 要素の datetime。端末の時間帯の YYYY-MM-DD） */
@@ -386,7 +386,7 @@ export function recordFields(
   if (price !== null ? price !== currency : currency !== 'JPY') {
     rows.push({ label: '価格の通貨', value: price ?? '未設定' });
   }
-  // オプションのポジション（#117）: イン / 決済は原資産の価格。数量（本文は 1）は使わないので、代わりにレッグの本数
+  // オプションのポジション（#117）: イン / 決済は原資産の価格。数量（本文は 1）は使わないので、代わりに足の本数
   const legs = r.legs;
   const maxLoss = isMaxLossTrade(t);
   rows.push(
@@ -394,7 +394,7 @@ export function recordFields(
     { label: legs ? OPTION_LABEL.entryPrice : 'イン', value: formatPrice(e.price) },
     { label: legs ? OPTION_LABEL.exitPrice : '決済', value: formatPrice(x.price) },
     legs
-      ? { label: 'レッグ', value: `${legs.length} 本` }
+      ? { label: '足', value: `${legs.length} 本` }
       : { label: '数量', value: formatQuantity(e.quantity) },
   );
   // 提案の数量と数量の比（#67。記録したときの資金・許容リスクで。数量どうしを隣に並べる。出ないときは行ごと出さない）

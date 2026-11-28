@@ -349,7 +349,7 @@ describe('全項目の取引（full-record.json）', () => {
   });
 });
 
-describe('レッグを持つ取引の写し（#116・設計書 4.7・C46）', () => {
+describe('足を持つ取引の写し（#116・設計書 4.7・C46）', () => {
   const t1 = fromTradeInput(closedAt(trade({}), 99.5, { reason: 'lc' }));
   const legs: NonNullable<TradeRecord['legs']> = [
     {
@@ -364,13 +364,13 @@ describe('レッグを持つ取引の写し（#116・設計書 4.7・C46）', ()
     },
   ];
 
-  it('レッグの無い取引（5.6 の全場面）には option を足さない', () => {
+  it('足の無い取引（5.6 の全場面）には option を足さない', () => {
     const items = JSON.parse(fs.readFileSync(DESIGN_FIXTURE, 'utf8')) as DesignFixtureItem[];
     for (const item of items) expect('option' in toTradeInput(item), `#${item.scene}`).toBe(false);
     expect('option' in toTradeInput(t1)).toBe(false);
   });
 
-  it('レッグを option.legs に写す（見込みが無ければ鍵なし）', () => {
+  it('足を option.legs に写す（見込みが無ければ鍵なし）', () => {
     const input = toTradeInput({ ...t1, record: { ...t1.record, legs } });
     expect(input.option).toEqual({ legs });
   });
@@ -385,7 +385,7 @@ describe('レッグを持つ取引の写し（#116・設計書 4.7・C46）', ()
     expect(input.option).toEqual({ legs, riskPlan: 'maxLoss' });
   });
 
-  it('レッグの無い取引の見込み・riskPlan は写さない（API が 400 にする形）', () => {
+  it('足の無い取引の見込み・riskPlan は写さない（API が 400 にする形）', () => {
     const input = toTradeInput({
       ...t1,
       record: { ...t1.record, lcLossPlanYen: 80_000, riskPlan: 'maxLoss' },

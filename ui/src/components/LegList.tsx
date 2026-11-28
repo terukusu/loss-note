@@ -1,7 +1,7 @@
-// オプションのポジションのレッグの一覧（#117。設計書 7.6「レッグは 1 本 2 行のカード … 押すとそのレッグのシート」）。
+// オプションのポジションの足の一覧（#117。設計書 7.6「足は 1 本 2 行のカード … 押すとその足のシート」）。
 // 記録する画面（取引の欄のシート）と直す画面が共有する。hook を持たない。値はテキストのノードだけ。
 // - 1 本 = 押せる行（RowLink。右に ›）の 2 行: 1 行目「売り 2 · P 36,000 · 2027-01」、2 行目「120 → 60」。誤り・未入力は右の添え
-// - 下に [＋ レッグ]（tonal。10 本で押せない）。10 本まで並べても横にスクロールしない（行の中で折る）
+// - 下に [＋ 足]（tonal。10 本で押せない）。10 本まで並べても横にスクロールしない（行の中で折る）
 // - 損益の内訳は出さない（記録の画面は判定が主役。7.6）
 import type { LegDraft, LegField } from '../lib/legs-form';
 import {
@@ -18,30 +18,30 @@ export const LEG_LIST_ID = 'record-legs';
 
 export interface LegListProps {
   readonly legs: readonly LegDraft[];
-  /** レッグごとの欄の誤り（readDraft の option.legErrors） */
+  /** 足ごとの欄の誤り（readDraft の option.legErrors） */
   readonly errors?: readonly Readonly<Partial<Record<LegField, string>>>[];
   readonly onOpen: (index: number) => void;
   readonly onAdd: () => void;
-  /** 一覧の上の 1 行の誤り（レッグが無いまま保存しようとした など） */
+  /** 一覧の上の 1 行の誤り（足が無いまま保存しようとした など） */
   readonly error?: string;
-  /** 直前に消したレッグ（「レッグ 2 を削除しました ［元に戻す］」。P4）。省けば出さない */
+  /** 直前に消した足（「足 2 を削除しました ［元に戻す］」。P4）。省けば出さない */
   readonly removed?: string | null;
   readonly onUndo?: () => void;
   /**
-   * 明細の次のポジション（同じ原資産。#118・7.6）のレッグの本数。あれば一覧の下に「次のポジション（レッグ N 本）
+   * 明細の次のポジション（同じ原資産。#118・7.6）の足の本数。あれば一覧の下に「次のポジション（足 N 本）
    * ［このポジションに入れる］」を出す（ナイト・セッションの 0 時またぎなどで分かれたまとまりを 1 タップでまとめる）
    */
   readonly nextPosition?: NextPosition | null;
   readonly onMergeNext?: () => void;
-  /** 直前の操作の知らせ（「レッグ 2 を別のポジションにしました」。デザインレビュー 4）。省けば出さない */
+  /** 直前の操作の知らせ（「足 2 を別のポジションにしました」。デザインレビュー 4）。省けば出さない */
   readonly notice?: string | null;
 }
 
 /** 明細の次のポジション（同じ原資産。#118・7.6）の見出しの中身 */
 export interface NextPosition {
-  /** レッグの本数 */
+  /** 足の本数 */
   readonly legs: number;
-  /** 1 本目のレッグの 1 行（一覧の行と同じ書き方「売り 1 · C 41,000 · 2027-01」） */
+  /** 1 本目の足の 1 行（一覧の行と同じ書き方「売り 1 · C 41,000 · 2027-01」） */
   readonly head: string;
   /** エントリーの日（「12/09」。読めなければ null） */
   readonly opened: string | null;
@@ -49,7 +49,7 @@ export interface NextPosition {
 
 export const LEG_MERGE_ID = `${LEG_LIST_ID}-merge`;
 export const MERGE_LABEL = 'このポジションに入れる';
-export const MERGE_FULL = `レッグは ${MAX_LEGS} 本までです`;
+export const MERGE_FULL = `足は ${MAX_LEGS} 本までです`;
 export const nextPositionTitle = (n: NextPosition) =>
   `明細の次のポジション${n.opened === null ? '' : ` · エントリー ${n.opened}`}`;
 export const nextPositionLine = (n: NextPosition) =>
@@ -74,7 +74,7 @@ export function LegList(p: LegListProps) {
     <div class="legs" id={LEG_LIST_ID}>
       <div class="legs__head">
         <span class="field__label" id={`${LEG_LIST_ID}-title`}>
-          レッグ
+          足
         </span>
         <span class="legs__count">{p.legs.length === 0 ? '' : `${p.legs.length} 本`}</span>
       </div>
@@ -142,17 +142,17 @@ export function LegList(p: LegListProps) {
         size="sm"
         icon="plus"
         id={`${LEG_LIST_ID}-add`}
-        label="レッグを追加"
+        label="足を追加"
         disabled={full}
         onClick={p.onAdd}
       >
-        レッグ
+        足
       </Button>
     </div>
   );
 }
 
-/** 一覧の下の区切り + 明細の次のポジション（エントリーの日・1 本目のレッグ）と ［このポジションに入れる］ */
+/** 一覧の下の区切り + 明細の次のポジション（エントリーの日・1 本目の足）と ［このポジションに入れる］ */
 function NextPositionRow(p: {
   readonly next: NextPosition;
   readonly full: boolean;

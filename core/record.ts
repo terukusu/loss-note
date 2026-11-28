@@ -32,7 +32,7 @@ export type PerformanceUnit = 'R' | 'yen';
 /** オプションのポジションの 1R の決め方（4.7・C50）: maxLoss = 「最大損失まで」（LC と見込みを持たない） */
 export type RiskPlan = NonNullable<OptionPosition['riskPlan']>;
 
-/** 取引の文書の版: レッグの無い取引は 1、レッグを持つ取引は 2（4.7・C46・ADR-0020 の決定 7） */
+/** 取引の文書の版: 足の無い取引は 1、足を持つ取引は 2（4.7・C46・ADR-0020 の決定 7） */
 export type SchemaVersion = 1 | 2;
 
 /** 明細の手数料の欄（口座の通貨。費用を正の数。7.5） */
@@ -59,9 +59,9 @@ export interface TradeRecord {
   readonly instrumentId: string;
   /** 口座の ID（#47。無い = 既定の口座。移す前の取引・口座 1 つの利用者の取引） */
   readonly accountId?: string;
-  /** レッグを持つ取引ではポジションの向き（原資産が上がって得 = L。C47） */
+  /** 足を持つ取引ではポジションの向き（原資産が上がって得 = L。C47） */
   readonly side: Side;
-  /** 限月・P / C・行使価格: レッグを持たない取引だけ（レッグを持つ取引では API が 400。4.7） */
+  /** 限月・P / C・行使価格: 足を持たない取引だけ（足を持つ取引では API が 400。4.7） */
   readonly contractMonth?: string;
   readonly optionType?: 'P' | 'C';
   readonly strike?: number;
@@ -88,14 +88,14 @@ export interface TradeRecord {
   /** 付属のチャート（#89。最大 5 枚・追加した順。判定に使わない）。付属の無い取引には鍵が無い */
   readonly extraCharts?: readonly ExtraChart[];
   /**
-   * オプションのポジションのレッグ（#116・4.7・C46。1〜10 本・建てた順）。持つ取引は「原資産の取引 + レッグ」で、
+   * オプションのポジションの足（#116・4.7・C46。1〜10 本・建てた順）。持つ取引は「原資産の取引 + 足」で、
    * entries は 1 つ（price = 建てたときの原資産・quantity = 1）、exit.price = 決済したときの原資産、lc・tp = 原資産。
-   * レッグの無い取引（先物・現物・CFD・前からのオプションの取引）には鍵が無い
+   * 足の無い取引（先物・現物・CFD・前からのオプションの取引）には鍵が無い
    */
   readonly legs?: readonly [Leg, ...Leg[]];
-  /** 1R の決め方（レッグを持つ取引だけ。無い = LC の価格か「なし」。maxLoss は lc・lcLossPlanYen と同時に持たない） */
+  /** 1R の決め方（足を持つ取引だけ。無い = LC の価格か「なし」。maxLoss は lc・lcLossPlanYen と同時に持たない） */
   readonly riskPlan?: RiskPlan;
-  /** LC での損失の見込み（口座の通貨・正の数。レッグを持つ取引だけ。C49 の (1)・K15） */
+  /** LC での損失の見込み（口座の通貨・正の数。足を持つ取引だけ。C49 の (1)・K15） */
   readonly lcLossPlanYen?: number;
 }
 
@@ -146,7 +146,7 @@ export interface ChartMeta {
 
 export interface StoredTrade {
   readonly id: string;
-  /** レッグを持つ取引だけ 2（API が本文の形で決める） */
+  /** 足を持つ取引だけ 2（API が本文の形で決める） */
   readonly schemaVersion: SchemaVersion;
   readonly createdAt: number;
   readonly updatedAt: number;
@@ -261,8 +261,8 @@ export function feesTotalYen(fees: readonly Fee[]): number {
 /**
  * 保存した取引を計算の入力に写す。銘柄の値・資金・許容リスクは snapshot だけから取る（今の銘柄・設定を引かない）。
  * 判定に使わない欄（崩れの条件・根拠・感情・総評・TP・限月・P / C・行使価格・逆指値を入れた・銘柄の ID）は写さない。
- * レッグを持つ取引（#116）は option にレッグ・LC での損失の見込み・1R の決め方（「最大損失まで」riskPlan。#114）を写す
- * （レッグの無い取引には option を足さない）
+ * 足を持つ取引（#116）は option に足・LC での損失の見込み・1R の決め方（「最大損失まで」riskPlan。#114）を写す
+ * （足の無い取引には option を足さない）
  */
 export function toTradeInput(stored: Pick<StoredTrade, 'record' | 'snapshot'>): TradeInput {
   const { record: r, snapshot: s } = stored;

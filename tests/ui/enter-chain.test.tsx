@@ -1,5 +1,5 @@
 // シートの中の続けて入れる欄の決定キー（#174。Issue の例の表 #1〜#6・#9・#10）。純関数 enterChain / enterPropsOf と、取引の欄・
-// ほかの欄・レッグ・広げた後の LC の部品の木。DOM のライブラリを使わず、部品の関数を呼んで要素の木に展開して見る。値はすべて架空
+// ほかの欄・足・広げた後の LC の部品の木。DOM のライブラリを使わず、部品の関数を呼んで要素の木に展開して見る。値はすべて架空
 import type { VNode } from 'preact';
 import { describe, expect, it } from 'vitest';
 import { LegEditor } from '../../ui/src/components/LegEditor';
@@ -234,7 +234,7 @@ describe('広げた後の LC（#174 の例の表 #6）', () => {
   });
 });
 
-describe('レッグ（#174 の例の表 #5）', () => {
+describe('足（#174 の例の表 #5）', () => {
   it('限月 → 行使価格 → 枚数 → イン → 決済（完了）。P / C・買い / 売り・満期で消滅は飛ばす', () => {
     const tree = expand(
       <LegEditor

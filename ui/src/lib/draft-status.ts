@@ -14,7 +14,7 @@ import { shortLabel } from './trade-view';
 
 export type DraftStatus = 'empty' | 'input' | 'saving' | 'done';
 
-/** 2 つの下書きの欄が同じか（下書きは平らな値と、レッグの並び（平らな値の行。#117）だけを持つ） */
+/** 2 つの下書きの欄が同じか（下書きは平らな値と、足の並び（平らな値の行。#117）だけを持つ） */
 export function sameDraft(a: Draft, b: Draft): boolean {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof Draft>;
   for (const k of keys) {

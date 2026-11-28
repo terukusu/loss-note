@@ -1,7 +1,7 @@
-/* オプションのポジションのレッグ（#117。components/LegList.tsx・LegEditor.tsx・LegTable.tsx が読み込む。設計書 7.6）。
+/* オプションのポジションの足（#117。components/LegList.tsx・LegEditor.tsx・LegTable.tsx が読み込む。設計書 7.6）。
    色の値は書かない（トークンだけ）。数字は無色（C34） */
 
-/* 一覧: 見出しの行・2 行のカード（押せる行）・[＋ レッグ] */
+/* 一覧: 見出しの行・2 行のカード（押せる行）・[＋ 足] */
 .legs {
   display: grid;
   gap: var(--sp-2);
@@ -115,7 +115,7 @@
   margin-left: var(--sp-2);
 }
 
-/* 直前の操作の知らせ（「レッグ 2 を別のポジションにしました」） */
+/* 直前の操作の知らせ（「足 2 を別のポジションにしました」） */
 .legs__notice {
   margin: 0;
   color: var(--ink-2);
@@ -173,7 +173,7 @@
   margin-top: 0;
 }
 
-/* 詳細のレッグの表: 列の幅で 2 行のカード / 1 行の表を替える（窓ではなく列の幅。7.6） */
+/* 詳細の足の表: 列の幅で 2 行のカード / 1 行の表を替える（窓ではなく列の幅。7.6） */
 .legtable__box {
   container-type: inline-size;
 }

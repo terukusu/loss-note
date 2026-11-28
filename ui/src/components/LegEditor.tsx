@@ -1,6 +1,6 @@
-// レッグ 1 本の欄（#117。設計書 7.6「押すとそのレッグのシート（下のシート。同時に開くのは 1 本）で欄を直す」）。
+// 足 1 本の欄（#117。設計書 7.6「押すとその足のシート（下のシート。同時に開くのは 1 本）で欄を直す」）。
 // 記録する画面は取引の欄のシートの次の段に、直す画面は下のシートに置く（重ね方は置き場が決める）。hook を持たない。
-// 並び: P / C | 買い / 売り → 限月 | 行使価格 → 枚数 | [満期で消滅] → イン | 決済 → [このレッグを削除]（幅 360 でも 2 列 = 1 画面に
+// 並び: P / C | 買い / 売り → 限月 | 行使価格 → 枚数 | [満期で消滅] → イン | 決済 → [この足を削除]（幅 360 でも 2 列 = 1 画面に
 // 収める。#117 のデザインレビュー N1。削除は区切りの下に離して置き、押し間違えても一覧の ［元に戻す］ で戻せる）
 // 満期で消滅は押す形のトグル（LC の「なし」と同じ形。aria-pressed）。決済の時刻は持たない（満期で消えたら SQ の日。C54）
 
@@ -17,12 +17,12 @@ import { TextField } from './TextField';
 
 export interface LegEditorProps {
   readonly leg: LegDraft;
-  /** 0 から（id と読み上げの「レッグ 2」） */
+  /** 0 から（id と読み上げの「足 2」） */
   readonly index: number;
   readonly errors?: Readonly<Partial<Record<LegField, string>>>;
   readonly onChange: (leg: LegDraft) => void;
   readonly onRemove: () => void;
-  /** [別のポジションにする]（明細から読んだレッグで、ポジションに明細のレッグが 2 本以上のときだけ。#118・7.6） */
+  /** [別のポジションにする]（明細から読んだ足で、ポジションに明細の足が 2 本以上のときだけ。#118・7.6） */
   readonly onSplit?: () => void;
 }
 
@@ -32,7 +32,7 @@ export const EXPIRED_LABEL = '満期で消滅';
 /** ［満期で消滅］ の意味（横の「i」の中。欄の下の 1 行から移した。#251・設計書 C70） */
 export const EXPIRED_INFO = {
   label: EXPIRED_LABEL,
-  body: '決済明細に出ないレッグです。決済は SQ での価値（OTM なら 0）です。',
+  body: '決済明細に出ない足です。決済は SQ での価値（OTM なら 0）です。',
   id: 'info-leg-expired',
 } as const;
 
@@ -147,7 +147,7 @@ export function LegEditor(p: LegEditorProps) {
       ) : null}
       <hr class="legedit__sep" />
       <Button variant="secondary" size="sm" icon="trash" id={id('remove')} onClick={p.onRemove}>
-        このレッグを削除
+        この足を削除
       </Button>
     </div>
   );

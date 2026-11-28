@@ -106,8 +106,8 @@ export interface Draft {
   /** 口座の ID（#47。空 = 既定の口座。直す画面では元の取引の口座。口座が 1 つなら欄を出さない） */
   readonly accountId: string;
   /**
-   * オプションのポジションのレッグ（#117・4.7。オプションの形のときだけ読む。記録する画面 = 商品の形がオプションの銘柄、
-   * 直す画面 = 元の取引にレッグがある）。オプションの形のときは entryPrice / exitPrice / lc が原資産の価格
+   * オプションのポジションの足（#117・4.7。オプションの形のときだけ読む。記録する画面 = 商品の形がオプションの銘柄、
+   * 直す画面 = 元の取引に足がある）。オプションの形のときは entryPrice / exitPrice / lc が原資産の価格
    */
   readonly legs: readonly LegDraft[];
   /** 「最大損失まで」（C50。オプションの形で最大損失が定まるときだけ選べる。LC の価格・「なし」と排他） */
@@ -220,11 +220,11 @@ export interface DraftContext {
     readonly instrumentId: string;
     readonly accountId: string;
     readonly snapshot: TradeSnapshot;
-    /** 元の取引のレッグ（#117。ある = 直す画面はオプションの形。無い = 前からの取引の形のまま。KEEP-3） */
+    /** 元の取引の足（#117。ある = 直す画面はオプションの形。無い = 前からの取引の形のまま。KEEP-3） */
     readonly legs?: readonly Leg[];
   };
   /**
-   * 損益の欄が明細の値のまま（印「読み取り」。#118）。false なら手で足した決済のレッグの損益を足さない（本人が打った・直した
+   * 損益の欄が明細の値のまま（印「読み取り」。#118）。false なら手で追加した決済の足の損益を加えない（本人が打った・直した
    * 損益に二重に数えない）。省けば明細の値とみなす
    */
   readonly statementPnl?: boolean;
@@ -276,7 +276,7 @@ export interface Summary {
   readonly currency?: string;
   /** 明細の損益から逆算した為替（価格の通貨 ≠ 口座の通貨で出せるときだけ。見せるだけ。R6） */
   readonly derivedFx?: number;
-  /** オプションのポジション（レッグを持つ取引だけ。#117・5.7） */
+  /** オプションのポジション（足を持つ取引だけ。#117・5.7） */
   readonly option?: OptionSummary;
 }
 
@@ -317,25 +317,25 @@ export interface DraftReading {
    * 画面は lib/currency.ts の currencyView で見せ方に直す
    */
   readonly currency?: ReadingCurrency;
-  /** オプションの形（#117）のときだけ: レッグの欄の誤り・自動の向き・選べる LC の形 */
+  /** オプションの形（#117）のときだけ: 足の欄の誤り・自動の向き・選べる LC の形 */
   readonly option?: ReadingOption;
 }
 
 export interface ReadingOption {
-  /** レッグごとの欄の誤り（並びは下書きのレッグと同じ） */
+  /** 足ごとの欄の誤り（並びは下書きの足と同じ） */
   readonly legErrors: readonly Readonly<Partial<Record<LegField, string>>>[];
   /** 自動で決まった向き（C47。出なければ本人が L / S を選ぶ） */
   readonly autoSide?: Side;
-  /** L / S を聞くか（レッグ・建てたときの原資産がそろっても自動の向きが出ないときだけ） */
+  /** L / S を聞くか（足・建てたときの原資産がそろっても自動の向きが出ないときだけ） */
   readonly askSide: boolean;
-  /** 「最大損失まで」を選べるか（レッグがそろい、最大損失が定まる。C50） */
+  /** 「最大損失まで」を選べるか（足がそろい、最大損失が定まる。C50） */
   readonly maxLossSelectable: boolean;
   /**
    * 「LC での損失の見込み」の欄を LC の枠に出すか（売りの裸を含み、見込み以外で 1R が出ない。オーナーの決定 2026-11-21・
    * K15 の例外）。出さないときは「ほかの欄」
    */
   readonly lossPlanUp: boolean;
-  /** 直す画面でレッグを直した（明細の損益を本文に入れず、レッグの合計に切り替えた。4.7） */
+  /** 直す画面で足を直した（明細の損益を本文に入れず、足の合計に切り替えた。4.7） */
   readonly legsEdited: boolean;
   /**
    * 明細から読んだポジションで、オプションの銘柄が一覧に無い: この名前で取引の形態 オプションの銘柄を足す（#118。
@@ -397,7 +397,7 @@ export const FIELD_LABEL: Readonly<Record<DraftField, string>> = {
   lcNone: 'LC',
   lcAfter: '広げた後の LC',
   brokenCondition: '根拠が崩れる条件',
-  legs: 'レッグ',
+  legs: '足',
   instrumentMultiplier: '乗数',
   lcMaxLoss: 'LC',
   lcLossPlan: 'LC での損失の見込み',
@@ -432,11 +432,11 @@ export const MSG = {
     side === 'L'
       ? 'ロングの LC はインより下にしてください'
       : 'ショートの LC はインより上にしてください',
-  legs: 'レッグの欄に誤りがあります',
-  legsTooMany: 'レッグは 10 本までです。1 本を削除してください',
-  /** レッグの時刻がポジションの時刻の外（API の outOfPosition を保存の前に止める。4.7・#118） */
-  legEntryBefore: 'エントリーの時刻は、最初のレッグのエントリーの時刻以前にしてください',
-  legExitAfter: '決済の時刻は、最後のレッグの決済の時刻以後にしてください',
+  legs: '足の欄に誤りがあります',
+  legsTooMany: '足は 10 本までです。1 本を削除してください',
+  /** 足の時刻がポジションの時刻の外（API の outOfPosition を保存の前に止める。4.7・#118） */
+  legEntryBefore: 'エントリーの時刻は、最初の足のエントリーの時刻以前にしてください',
+  legExitAfter: '決済の時刻は、最後の足の決済の時刻以後にしてください',
   lcAfterDirection: (side: Side) =>
     side === 'L'
       ? '広げた後の LC は、入る前の LC より下にしてください'
@@ -695,8 +695,8 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       }
     : undefined;
   const snapshot = snapshotOf(ctx, matched ?? pending, draft.accountId);
-  // オプションの形（#117）: 記録する画面は商品の形がオプションの銘柄、直す画面は元の取引にレッグがあるとき
-  // （レッグの無い前からの取引は今の形のまま。レッグを足す PUT は API が受けない。4.7）
+  // オプションの形（#117）: 記録する画面は商品の形がオプションの銘柄、直す画面は元の取引に足があるとき
+  // （足の無い前からの取引は今の形のまま。足を追加する PUT は API が受けない。4.7）
   const optionMode =
     ctx.base !== undefined
       ? ctx.base.legs !== undefined
@@ -736,7 +736,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     lc = num('lc', draft.lc, 'positive', optionMode ? OPTION_LABEL.lc : MISSING_LABEL.lc);
   }
 
-  // レッグ（オプションの形だけ）と自動の向き（C47）
+  // 足（オプションの形だけ）と自動の向き（C47）
   const legsRead = optionMode ? readLegs(draft.legs) : undefined;
   let option: ReadingOption | undefined;
   let maxLossOn = false;
@@ -747,7 +747,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     const legs = legsRead.legs;
     const mult = snapshot.instrument.multiplier;
     const maxLossSelectable = legs !== undefined && maxLossPrice(legs, mult).defined;
-    // 「最大損失まで」は定まるときだけ効く。レッグを直して定まらなくなったら LC を選び直す（4.7）
+    // 「最大損失まで」は定まるときだけ効く。足を直して定まらなくなったら LC を選び直す（4.7）
     maxLossOn = maxLossChosen && (legs === undefined || maxLossSelectable);
     if (maxLossChosen && !maxLossOn) missing.push(OPTION_LABEL.lc);
     const autoSide =
@@ -820,7 +820,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
       entryTime = undefined;
     }
   }
-  // 直す画面でレッグを直したら明細の損益はどのレッグの分か分からなくなるので、レッグの合計に切り替える（4.7）
+  // 直す画面で足を直したら明細の損益はどの足の分か分からなくなるので、足の合計に切り替える（4.7）
   let pnlYen = option?.legsEdited ? undefined : num('pnlYen', draft.pnlYen, 'signed');
   const feeYen = num('feeYen', draft.feeYen, 'nonNegative');
   // LC での損失の見込み（任意・オプションの形だけ。「最大損失まで」とは同時に持たない。C49・C50）
@@ -851,8 +851,8 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
   const fxShown = fxVisibleOf(snapshot);
   const fxRate = fxShown ? num('fxRate', draft.fxRate, 'positive') : undefined;
 
-  // 明細から作ったポジション（#118）: 手で足した決済のレッグの損益を明細の損益に足す。明細のレッグが欠けた・満期で消滅にした、
-  // 為替が要るのに無いときは明細の損益を空にしてレッグの合計に切り替える（4.7）
+  // 明細から作ったポジション（#118）: 手で追加した決済の足の損益を明細の損益に加える。明細の足が欠けた・満期で消滅にした、
+  // 為替が要るのに無いときは明細の損益を空にして足の合計に切り替える（4.7）
   const readLegsOk = legsRead?.legs;
   if (
     option !== undefined &&
@@ -873,7 +873,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
     pnlYen = r.pnl;
     if (r.dropped) option = { ...option, legsEdited: true };
   }
-  // レッグの時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えたレッグの決済は見ない。API の outOfPosition。4.7）
+  // 足の時刻はポジションの建てた時刻〜決済した時刻の範囲（満期で消えた足の決済は見ない。API の outOfPosition。4.7）
   if (readLegsOk !== undefined) {
     const opened = readLegsOk.map((l) => l.entry.time).filter((t): t is number => t !== undefined);
     const closed = readLegsOk
@@ -932,7 +932,7 @@ export function readDraft(draft: Draft, ctx: DraftContext): DraftReading {
         { price: en, quantity: q, ...(entryTime === undefined ? {} : { time: entryTime }) },
       ],
       // 注文の種類は明細の証拠だけ（手の記録は「不明」のまま。手で選んだ「逆指値」は証拠にならない。C26）。
-      // レッグを持つ取引はレッグの決済の時点から導く（満期で消えた売りなら満期（SQ）。C54）
+      // 足を持つ取引は足の決済の時点から導く（満期で消えた売りなら満期（SQ）。C54）
       exit: {
         time: xt,
         price: ex,
